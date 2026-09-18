@@ -34,8 +34,10 @@ export class InputController {
     }, options);
     window.addEventListener('pointermove', (event) => {
       if (!this.enabled || (!this.dragging && !this.pointerLocked)) return;
-      this.mouseDelta.x += event.movementX;
-      this.mouseDelta.y += event.movementY;
+      const dx = Number.isFinite(event.movementX) ? Math.max(-120, Math.min(120, event.movementX)) : 0;
+      const dy = Number.isFinite(event.movementY) ? Math.max(-120, Math.min(120, event.movementY)) : 0;
+      this.mouseDelta.x += dx;
+      this.mouseDelta.y += dy;
     }, options);
     document.addEventListener('pointerlockchange', () => { if (!this.pointerLocked) this.clear(); }, options);
   }

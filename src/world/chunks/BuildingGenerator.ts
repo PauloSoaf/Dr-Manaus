@@ -1,5 +1,5 @@
 import { WORLD } from '../../core/config';
-import { buildingAllowed, isLand } from '../geodata/geodata';
+import { buildingAllowed, IRANDUBA_CENTER, isLand } from '../geodata/geodata';
 import { chunkKey, type ChunkPayload } from './Chunk';
 
 export function seededRandom(seed: number): () => number {
@@ -20,7 +20,8 @@ export function chunkSeed(cx: number, cz: number): number {
 export function urbanDensity(x: number, z: number): number {
   const main = 1 - Math.hypot((x - 1200) / 14200, (z + 7400) / 16500);
   const west = 1 - Math.hypot((x + 10200) / 5200, (z + 5800) / 9000);
-  return Math.min(1, Math.max(0, Math.max(main, west) * 2.2));
+  const iranduba = 1 - Math.hypot((x - IRANDUBA_CENTER.x) / 3200, (z - IRANDUBA_CENTER.z) / 2700);
+  return Math.min(1, Math.max(0, Math.max(main, west, iranduba * .74) * 2.2));
 }
 
 const PALETTE = [

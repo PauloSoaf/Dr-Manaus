@@ -24,7 +24,7 @@ export class PlayerController {
     root.add(this.model); this.model.position.copy(this.position);
   }
 
-  update(dt: number, colliders: readonly Collider[], cameraYaw: number): void {
+  update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0): void {
     dt = Math.min(0.06, dt);
     if (this.input.consume('KeyF')) {
       this.state = this.state === 'Grounded' ? 'Hover' : 'Grounded';
@@ -37,16 +37,31 @@ export class PlayerController {
     const movementZ = Number(this.input.held('KeyS')) - Number(this.input.held('KeyW'));
     const ascent = Number(this.input.held('Space')) - Number(this.input.held('ControlLeft') || this.input.held('ControlRight'));
     const sizeSpeed = Math.sqrt(this.size);
-    const speed = (flying ? boosting ? 720 : sprinting ? 155 : 36 : sprinting ? 12 : 5.5) * sizeSpeed * this.speedMultiplier;
-    this.desired.set(movementX, flying ? ascent : 0, movementZ);
-    if (this.desired.lengthSq() > 0) this.desired.normalize();
-    const x = this.desired.x, z = this.desired.z;
-    this.desired.x = x * Math.cos(cameraYaw) + z * Math.sin(cameraYaw);
-    this.desired.z = -x * Math.sin(cameraYaw) + z * Math.cos(cameraYaw);
-    this.desired.multiplyScalar(speed);
-    // Boost follows forward even without W, making B a distinct superspeed action.
-    if (boosting && movementX === 0 && movementZ === 0 && ascent === 0) this.desired.set(-Math.sin(cameraYaw) * speed, 0, -Math.cos(cameraYaw) * speed);
-    const acceleration = 1 - Math.exp(-dt * (flying ? boosting ? 2.4 : 4.5 : 13));
+    const speed = (flying ? boosting ? 1650 : sprinting ? 320 : 82 : sprinting ? 16 : 6.5) * sizeSpeed * this.speedMultiplier;
+    if (flying) {
+      const cosPitch = Math.cos(cameraPitch);
+      const forwardX = -Math.sin(cameraYaw) * cosPitch;
+      const forwardY = -Math.sin(cameraPitch);
+      const forwardZ = -Math.cos(cameraYaw) * cosPitch;
+      const rightX = Math.cos(cameraYaw), rightZ = -Math.sin(cameraYaw);
+      this.desired.set(
+        rightX * movementX + forwardX * -movementZ,
+        forwardY * -movementZ + ascent,
+        rightZ * movementX + forwardZ * -movementZ,
+      );
+      if (this.desired.lengthSq() > 0) this.desired.normalize().multiplyScalar(speed);
+      if (boosting && movementX === 0 && movementZ === 0 && ascent === 0) {
+        this.desired.set(forwardX, forwardY, forwardZ).multiplyScalar(speed);
+      }
+    } else {
+      this.desired.set(movementX, 0, movementZ);
+      if (this.desired.lengthSq() > 0) this.desired.normalize();
+      const x = this.desired.x, z = this.desired.z;
+      this.desired.x = x * Math.cos(cameraYaw) + z * Math.sin(cameraYaw);
+      this.desired.z = -x * Math.sin(cameraYaw) + z * Math.cos(cameraYaw);
+      this.desired.multiplyScalar(speed);
+    }
+    const acceleration = 1 - Math.exp(-dt * (flying ? boosting ? 7 : 8.5 : 16));
     this.velocity.x = MathUtils.lerp(this.velocity.x, this.desired.x, acceleration);
     this.velocity.z = MathUtils.lerp(this.velocity.z, this.desired.z, acceleration);
     if (flying) {

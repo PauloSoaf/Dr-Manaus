@@ -13,6 +13,7 @@ export function worldToLatLon(x: number, z: number): { lat: number; lon: number 
 function place(id: string, name: string, shortName: string, lat: number, lon: number, radius: number, spawnHeight: number, description: string): Landmark {
   return { id, name, shortName, lat, lon, radius, spawnHeight, description, ...latLonToWorld(lat, lon) };
 }
+export const IRANDUBA_CENTER = latLonToWorld(-3.1294, -60.0990);
 
 /** Approximate survey positions; a meter scale local projection, not a navigation map. */
 export const LANDMARKS: Landmark[] = [
@@ -23,8 +24,9 @@ export const LANDMARKS: Landmark[] = [
   place('relogio', 'Relógio Municipal', 'Relógio Municipal', -3.13809, -60.02490, 45, 17, 'O relógio histórico da avenida Eduardo Ribeiro.'),
   place('palacio', 'Palácio Rio Negro', 'Palácio Rio Negro', -3.1350552, -60.0167709, 100, 19, 'Fachada dourada e jardins no centro histórico.'),
   place('arena', 'Arena da Amazônia', 'Arena da Amazônia', -3.08325175, -60.02800465, 210, 46, 'A trama branca da arena inspirada nas cestas amazônicas.'),
-  place('ponta', 'Praia da Ponta Negra', 'Ponta Negra', -3.06375, -60.10830, 350, 3, 'Calçadão, areia clara e o horizonte do Rio Negro.'),
+  place('ponta', 'Praia da Ponta Negra', 'Ponta Negra', -3.06375, -60.10830, 1050, 3, 'Grande orla da Ponta Negra, com praia, calçadão, anfiteatro e skyline residencial.'),
   place('ponte', 'Ponte Jornalista Phelippe Daou', 'Ponte Rio Negro', -3.12008275, -60.07860795, 420, 56, 'Travessia estaiada do Rio Negro, representada em escala de quilômetros.'),
+  place('iranduba', 'Iranduba · Cacau Pirêra', 'Iranduba', -3.1294, -60.0990, 520, 18, 'Margem de Cacau Pirêra, porta de entrada de Iranduba após a travessia do Rio Negro.'),
   place('encontro', 'Encontro das Águas', 'Encontro das Águas', -3.1430, -59.9040, 450, 9, 'As águas escuras do Negro encontram as águas barrentas do Solimões.'),
   place('musa', 'MUSA — Museu da Amazônia', 'MUSA', -3.0071889, -59.9398508, 280, 45, 'Torre de observação acima da floresta da Reserva Ducke.'),
   place('bosque', 'Bosque da Ciência', 'Bosque da Ciência', -3.0974306, -59.9877318, 210, 3, 'Trilhas, árvores amazônicas e os espaços de ciência do INPA.'),
@@ -51,7 +53,12 @@ export function isLand(x: number, z: number): boolean {
   return z <= shore || z >= shore + riverWidth(x);
 }
 export function isUrban(x: number, z: number): boolean {
-  return z < shoreZ(x) - 25 && x > -12800 && x < 19500 && z > -17100;
+  const manaus = z < shoreZ(x) - 25 && x > -12800 && x < 19500 && z > -17100;
+  const oppositeShore = shoreZ(x) + riverWidth(x);
+  const ix = (x - IRANDUBA_CENTER.x) / 3100;
+  const iz = (z - IRANDUBA_CENTER.z) / 2600;
+  const iranduba = z > oppositeShore + 25 && ix * ix + iz * iz < 1;
+  return manaus || iranduba;
 }
 
 export interface GeoRoad { id: number; name: string; kind: string; points: number[][] }

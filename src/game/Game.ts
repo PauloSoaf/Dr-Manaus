@@ -95,8 +95,8 @@ export class Game {
   private tick=(time:number)=>{
     const start=performance.now(),rawDt=Math.max(.001,(time-this.lastTime)/1000);this.lastTime=time;
     const dt=Math.min(.06,rawDt),worldDt=dt*(this.powers.temporal?.14:1);
-    this.colliders.length=0;this.colliders.push(...this.streamer.colliders,...this.landmarks.colliders,...this.population.colliders);
-    if(this.stressRoute.length)this.updateStress(dt);else this.player.update(dt,this.colliders,this.camera.yaw);
+    this.colliders.length=0;this.colliders.push(...this.streamer.colliders,...this.hlod.colliders,...this.landmarks.colliders,...this.population.colliders);
+    if(this.stressRoute.length)this.updateStress(dt);else this.player.update(dt,this.colliders,this.camera.yaw,this.camera.pitch);
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
     if(Math.hypot(this.player.position.x-this.origin.x,this.player.position.z-this.origin.z)>WORLD.originThreshold){this.origin.set(Math.round(this.player.position.x/1024)*1024,0,Math.round(this.player.position.z/1024)*1024);this.worldRoot.position.copy(this.origin).negate();}
     this.streamer.update(this.player.position,this.player.velocity,dt);this.hlod.update(this.player.position,this.streamer.activeKeys);

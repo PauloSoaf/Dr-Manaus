@@ -30,7 +30,22 @@ function silhouette(id: string): Group {
   } else if (id === 'largo') {
     b.box('cream', 0, .06, 0, 132, .1, 124); b.box('stone', 0, 5, 6, 4.5, 10, 4.5);
   } else if (id === 'ponta') {
-    b.box('sand', -70, -.15, 45, 325, .3, 650, -.45); b.box('cream', 40, .15, 0, 30, .3, 590, -.45);
+    b.box('sand', -170, -.14, 0, 700, .28, 1800, -.45);
+    b.box('cream', 128, .18, 0, 46, .36, 1660, -.45);
+    for (let i = -9; i <= 9; i++) {
+      const z = i * 82;
+      const x = 255 - z * .48;
+      const h = 50 + ((i * i + 31) % 6) * 11;
+      b.box(i % 3 === 0 ? 'salmon' : i % 3 === 1 ? 'cream' : 'stone', x, h / 2, z, 38, h, 42, -.45);
+    }
+  } else if (id === 'iranduba') {
+    b.box('leaf', 0, .04, 0, 900, .08, 700);
+    for (let row = -2; row <= 2; row++) for (let col = -3; col <= 3; col++) {
+      if (!row || !col) continue;
+      const h = 6 + ((row * row + col * col) % 3) * 3;
+      b.box((row + col) % 2 ? 'cream' : 'salmon', col * 92, h / 2, row * 88, 48, h, 38);
+    }
+    b.cylinder('white', 0, 18, 0, 5.6, 4.4, 6.5, 14);
   } else if (id === 'porto') {
     b.box('cream', 0, 6, -14, 115, 12, 30);
     for (const x of [-48, 48]) { b.box('stone', x, 1, 216, 15, 2, 365); b.box('red', x, 3, 445, 25, 8, 55); }
@@ -75,7 +90,9 @@ export class LandmarkManager {
       node.anchor.visible = distance < (node.landmark.id === 'ponte' ? 28000 : 22000);
       if (!node.anchor.visible) continue;
       // Hysteresis ensures smooth flight near the detail boundary without repeated rebuilds.
-      const near = distance < (node.visibleDetail ? 1750 : 1400);
+      const detailEnter = node.landmark.id === 'ponta' ? 3000 : node.landmark.id === 'iranduba' ? 2200 : 1400;
+      const detailExit = node.landmark.id === 'ponta' ? 3400 : node.landmark.id === 'iranduba' ? 2500 : 1750;
+      const near = distance < (node.visibleDetail ? detailExit : detailEnter);
       if (near && !node.detailed && !built && node.landmark.id !== 'ponte') {
         node.detailed = node.landmark.id === 'teatro' ? createTheatre() : LANDMARK_BUILDERS[node.landmark.id]?.();
         if (node.detailed) { node.anchor.add(node.detailed); built = true; }
@@ -110,10 +127,22 @@ export class LandmarkManager {
       case 'relogio': box(0, 8.5, 0, 4.7, 17, 4.7); break;
       case 'palacio': box(0, 7.5, -9, 65, 15, 35); box(0, 17.5, 6, 15, 3, 15); break;
       case 'arena': for (const x of [-94, 94]) box(x, 20, 0, 20, 40, 155); for (const z of [-121, 121]) box(0, 20, z, 150, 40, 20); break;
-      case 'ponta': box(0, 1.5, 0, 18, 3, 18); break;
+      case 'ponta':
+        box(-20, 2.2, -110, 28, 4.4, 26);
+        for (let row = 0; row < 2; row++) for (let i = -10; i <= 10; i++) {
+          if (row === 1 && i % 2 !== 0) continue;
+          const z = i * 72 + row * 24;
+          const x = 255 - z * .48 + row * 118;
+          const h = 48 + ((i * i + row * 17 + 31) % 7) * 10;
+          const w = 30 + ((i + 15) % 4) * 6;
+          const d = 34 + ((i * 3 + 19) % 4) * 7;
+          box(x, h / 2, z, w + 8, h, d + 8);
+        }
+        break;
       case 'ponte':
         for (let x = -1775; x <= 1775; x += 25) box(x * Math.cos(.35), 53, -x * Math.sin(.35), 31, 4, 33);
         break;
+      case 'iranduba': box(0, 12, 0, 15, 24, 15); break;
       case 'encontro': box(0, 8.8, -4, 10, .4, 27); break;
       case 'musa': box(0, 44.7, 0, 14, .6, 14); break;
       case 'bosque': box(0, 1.5, 0, 9, 3, 9); break;

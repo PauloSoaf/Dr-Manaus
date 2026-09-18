@@ -64,12 +64,22 @@ test('flight accelerates smoothly into boost and colossal movement adjusts scale
   for (let i = 0; i < 60; i++) player.update(1 / 60, [], 0);
   assert.notEqual(player.state, 'Grounded'); assert.ok(player.position.y > 20);
   held.delete('Space'); held.add('KeyB');
-  player.update(1 / 60, [], 0); assert.ok(player.velocity.length() < 80, 'boost accelerates rather than setting velocity instantly');
-  for (let i = 0; i < 120; i++) player.update(1 / 60, [], 0);
-  assert.ok(player.velocity.length() > 680);
+  player.update(1 / 60, [], 0); assert.ok(player.velocity.length() < 300, 'boost accelerates rather than setting velocity instantly');
+  for (let i = 0; i < 90; i++) player.update(1 / 60, [], 0);
+  assert.ok(player.velocity.length() > 1500);
   player.setSize(22);
   for (let i = 0; i < 150; i++) player.update(1 / 60, [], 0);
   assert.equal(player.size, 22);
+});
+
+test('flight follows camera pitch so W moves toward the point being looked at', () => {
+  const { input, held, edges } = controls();
+  const player = new PlayerController(new Group(), input);
+  player.position.set(0, 8, 0);
+  edges.add('KeyF'); held.add('KeyW');
+  for (let i = 0; i < 75; i++) player.update(1 / 60, [], 0, -0.55);
+  assert.ok(player.position.y > 30, 'looking upward while flying forward must gain altitude');
+  assert.ok(Math.hypot(player.position.x, player.position.z) > 35);
 });
 
 test('energy hits the aimed target, observes cooldown, and cannot shoot through buildings', () => {

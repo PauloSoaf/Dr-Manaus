@@ -1,11 +1,14 @@
-import { BoxGeometry, CylinderGeometry, Group, IcosahedronGeometry, Mesh, MeshBasicMaterial, MeshStandardMaterial, TorusGeometry } from 'three/webgpu';
+import { BoxGeometry, CylinderGeometry, Group, IcosahedronGeometry, InstancedMesh, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, TorusGeometry } from 'three/webgpu';
 
-const skin = new MeshStandardMaterial({ color: 0x123332, roughness: 0.25, metalness: 0.82, emissive: 0x063b2e, emissiveIntensity: 0.7 });
-const dark = new MeshStandardMaterial({ color: 0x071d24, roughness: 0.34, metalness: 0.88 });
-const gold = new MeshStandardMaterial({ color: 0xeec981, roughness: 0.35, metalness: 0.8, emissive: 0x5e310b, emissiveIntensity: 0.25 });
-const energy = new MeshBasicMaterial({ color: 0x69ffce, toneMapped: false });
+const skin = new MeshStandardMaterial({ color: 0x10162d, roughness: 0.22, metalness: 0.76, emissive: 0x25105e, emissiveIntensity: 1.05 });
+const dark = new MeshStandardMaterial({ color: 0x050714, roughness: 0.28, metalness: 0.9, emissive: 0x080d2c, emissiveIntensity: 0.55 });
+const gold = new MeshStandardMaterial({ color: 0x9c8cff, roughness: 0.28, metalness: 0.82, emissive: 0x281865, emissiveIntensity: 0.55 });
+const energy = new MeshBasicMaterial({ color: 0x77f7ff, toneMapped: false });
+const cosmic = new MeshBasicMaterial({ color: 0xb08cff, toneMapped: false });
 const echoSkin = new MeshStandardMaterial({ color: 0x245d59, emissive: 0x37bda0, emissiveIntensity: 1.4, roughness: 0.25, metalness: 0.6 });
 const echoEnergy = new MeshBasicMaterial({ color: 0xffd38d, toneMapped: false });
+const starGeometry = new IcosahedronGeometry(0.028, 0);
+const starMaterial = new MeshBasicMaterial({ color: 0xd8fbff, transparent: true, opacity: 0.92, depthWrite: false, toneMapped: false });
 const box = new BoxGeometry(1, 1, 1);
 const limb = new CylinderGeometry(0.115, 0.09, 1, 6);
 const head = new IcosahedronGeometry(0.23, 1);
@@ -19,12 +22,13 @@ export class CharacterModel {
   readonly leftLeg = new Group();
   readonly rightLeg = new Group();
   readonly halo = new Group();
+  readonly starfield?: InstancedMesh;
   private phase = 0;
 
   constructor(echo = false) {
     this.group.add(this.body);
     const part = (parent: Group, geometry: typeof box | typeof limb | typeof head | typeof ring, material: MeshStandardMaterial | MeshBasicMaterial, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1): Mesh => {
-      const surface = echo ? (material === energy || material === gold ? echoEnergy : echoSkin) : material;
+      const surface = echo ? (material === energy || material === gold || material === cosmic ? echoEnergy : echoSkin) : material;
       const mesh = new Mesh(geometry, surface); mesh.position.set(x, y, z); mesh.scale.set(sx, sy, sz); mesh.castShadow = !echo; parent.add(mesh); return mesh;
     };
     part(this.body, box, dark, 0, 1.16, 0, 0.44, 0.55, 0.26);
@@ -54,6 +58,24 @@ export class CharacterModel {
     this.halo.position.set(0, 1.4, 0.23);
     part(this.halo, ring, gold, 0, 0, 0, 1.35, 1.35, 1.35);
     part(this.halo, ring, energy, 0, 0, 0.04, 1.12, 1.12, 1.12).rotation.x = 0.18;
+    part(this.halo, ring, cosmic, 0, 0, 0.065, .88, .88, .88).rotation.set(.38, .16, Math.PI / 4);
+    if (!echo) {
+      this.starfield = new InstancedMesh(starGeometry, starMaterial, 30);
+      const star = new Object3D();
+      for (let i = 0; i < 30; i++) {
+        const angle = i * 2.399963;
+        const band = i % 6;
+        const radius = .16 + (i % 5) * .07;
+        star.position.set(Math.cos(angle) * radius, .22 + band * .29, Math.sin(angle) * .11 - .13);
+        const scale = .55 + (i % 4) * .18;
+        star.scale.setScalar(scale);
+        star.rotation.set(angle * .17, angle * .31, angle * .13);
+        star.updateMatrix();
+        this.starfield.setMatrixAt(i, star.matrix);
+      }
+      this.starfield.instanceMatrix.needsUpdate = true;
+      this.body.add(this.starfield);
+    }
   }
 
   animate(dt: number, speed: number, flying: boolean, boost: boolean, pose: string): void {
@@ -74,5 +96,10 @@ export class CharacterModel {
     this.leftArm.rotation.z = flying || pose === 'giant' ? 0.23 : 0.07;
     this.rightArm.rotation.z = flying || pose === 'giant' ? -0.23 : -0.07;
     this.halo.rotation.z = this.phase * 0.15;
+    if (this.starfield) {
+      this.starfield.rotation.y = Math.sin(this.phase * .37) * .11;
+      this.starfield.rotation.z = this.phase * .035;
+      this.starfield.scale.setScalar(1 + Math.sin(this.phase * 2.4) * .018);
+    }
   }
 }

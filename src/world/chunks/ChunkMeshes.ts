@@ -12,15 +12,15 @@ function facadeAtlas(): { color: CanvasTexture; light: CanvasTexture } {
   const emission = document.createElement('canvas'); emission.width = 256; emission.height = 256;
   const ctx = canvas.getContext('2d')!;
   const glow = emission.getContext('2d')!; glow.fillStyle = '#000'; glow.fillRect(0, 0, 256, 256);
-  ctx.fillStyle = '#f0e4ca'; ctx.fillRect(0, 0, 256, 256);
+  ctx.fillStyle = '#aaa9a1'; ctx.fillRect(0, 0, 256, 256);
   // One shared, hand-drawn atlas: cornices, shutters and stone ground-floor surrounds.
   for (let floor = 0; floor < 3; floor++) {
     const y = 24 + floor * 76;
-    ctx.fillStyle = '#c5bda9'; ctx.fillRect(0, y + 56, 256, 5);
-    ctx.fillStyle = '#fff3d8'; ctx.fillRect(0, y + 54, 256, 3);
+    ctx.fillStyle = '#858781'; ctx.fillRect(0, y + 56, 256, 5);
+    ctx.fillStyle = '#cac9c0'; ctx.fillRect(0, y + 54, 256, 3);
     for (let col = 0; col < 4; col++) {
       const x = 16 + col * 63;
-      ctx.fillStyle = '#fff2d6'; ctx.fillRect(x - 4, y - 4, 36, 45);
+      ctx.fillStyle = '#c9c8bd'; ctx.fillRect(x - 4, y - 4, 36, 45);
       ctx.fillStyle = '#405c62'; ctx.fillRect(x, y, 28, 35);
       ctx.fillStyle = '#789093'; ctx.fillRect(x + 2, y + 2, 11, 15);
       ctx.fillStyle = '#c3b993'; ctx.fillRect(x + 13, y, 2, 35); ctx.fillRect(x, y + 17, 28, 2);
@@ -28,7 +28,7 @@ function facadeAtlas(): { color: CanvasTexture; light: CanvasTexture } {
       if ((col + floor) % 3 !== 0) { glow.fillStyle = '#f1c879'; glow.fillRect(x + 2, y + 2, 24, 31); }
     }
   }
-  ctx.fillStyle = '#c1b79f'; ctx.fillRect(0, 0, 256, 8); ctx.fillRect(0, 248, 256, 8);
+  ctx.fillStyle = '#85857d'; ctx.fillRect(0, 0, 256, 8); ctx.fillRect(0, 248, 256, 8);
   const texture = new CanvasTexture(canvas); texture.colorSpace = SRGBColorSpace;
   const light = new CanvasTexture(emission); light.colorSpace = SRGBColorSpace;
   texture.anisotropy = 4; return { color: texture, light };
@@ -89,6 +89,8 @@ export class ChunkMeshes {
         this.set(sidewalk, i, x, .10, z, w + 4.5, .2, d + 4.5);
         colliders.push({ x: buildings[p], y: (h + roof) * .5, z: buildings[p + 1], width: w, height: h + roof, depth: d, id: `${payload.key}/building/${i}` });
       }
+      if (walls.instanceColor) walls.instanceColor.needsUpdate = true;
+      if (roofs.instanceColor) roofs.instanceColor.needsUpdate = true;
     }
     if (treeCount) {
       const trunks = make(this.trunk, this.bark, treeCount, 'tree-trunks');
@@ -112,6 +114,7 @@ export class ChunkMeshes {
         }
       }
       crowns.count = leafCount; crowns.castShadow = true;
+      if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
     }
     group.traverse(object => { if (object instanceof InstancedMesh) { object.computeBoundingSphere(); object.computeBoundingBox(); } });
     return { group, colliders, bytes };

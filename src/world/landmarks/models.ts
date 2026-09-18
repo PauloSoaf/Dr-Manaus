@@ -170,20 +170,38 @@ export function createArena(): Group {
 
 export function createPonta(): Group {
   const b = new GeometryBatch();
-  b.box('sand', -70, -.15, 45, 325, .3, 650, -.45);
-  b.box('cream', 40, .2, 0, 32, .4, 590, -.45);
-  b.box('red', 59, .25, -8, 7, .2, 590, -.45);
-  for (let i = -6; i <= 6; i++) {
-    const z = i * 41, x = 38 - z * .48;
-    palm(b, x, z, 14, i); lamp(b, x - 9, z); bench(b, x + 8, z + 8);
-    if (i % 3 === 0) {
-      b.cylinder('bark', x - 54, 1.5, z + 12, .13, .13, 3, 6);
-      b.cylinder(i % 2 ? 'red' : 'cream', x - 54, 3.4, z + 12, 0, 3.5, 1.2, 8);
-    }
+  b.box('sand', -170, -.14, 0, 700, .28, 1800, -.45);
+  b.box('cream', 128, .18, 0, 46, .36, 1660, -.45);
+  b.box('red', 158, .23, -8, 9, .18, 1630, -.45);
+  b.box('dark', 205, .12, -5, 30, .16, 1600, -.45);
+
+  for (let i = -11; i <= 11; i++) {
+    const z = i * 68;
+    const x = 126 - z * .48;
+    palm(b, x, z, 13 + (Math.abs(i) % 4), i * .37);
+    lamp(b, x - 12, z);
+    if (i % 2 === 0) bench(b, x + 12, z + 10, -.45);
   }
-  for (let step = 0; step < 7; step++) b.add(new TorusGeometry(16 + step * 3.8, 1.25, 4, 32, Math.PI).rotateX(Math.PI / 2), 'stone', 0, 1.2 + step * .7, -95);
-  b.box('cream', 0, 1.5, 0, 18, 3, 18);
-  return b.build('Ponta Negra — beach, amphitheatre and promenade');
+
+  const facades = ['salmon', 'cream', 'stone', 'white'] as const;
+  for (let row = 0; row < 2; row++) for (let i = -10; i <= 10; i++) {
+    if (row === 1 && i % 2 !== 0) continue;
+    const z = i * 72 + row * 24;
+    const coastX = 255 - z * .48;
+    const x = coastX + row * 118;
+    const h = 48 + ((i * i + row * 17 + 31) % 7) * 10;
+    const w = 30 + ((i + 15) % 4) * 6;
+    const d = 34 + ((i * 3 + 19) % 4) * 7;
+    b.box(facades[(i + row + 24) % facades.length], x, h / 2, z, w, h, d, -.45);
+    b.box('glass', x - Math.sin(.45) * (d * .51), h * .66, z + Math.cos(.45) * (d * .51), w * .68, h * .23, .2, -.45);
+    b.box('dark', x, h + 1, z, w * .32, 2, d * .32, -.45);
+  }
+
+  for (let step = 0; step < 11; step++) {
+    b.add(new TorusGeometry(22 + step * 4.2, 1.35, 4, 36, Math.PI).rotateX(Math.PI / 2), 'stone', -20, 1.2 + step * .68, -210);
+  }
+  b.box('cream', -20, 2.2, -110, 28, 4.4, 26);
+  return b.build('Ponta Negra — expanded beachfront district');
 }
 
 export function createBridge(): Group {
@@ -209,6 +227,33 @@ export function createBridge(): Group {
   b.box('light', 0, 185, 0, 1.7, 2, 24);
   const group = b.build('Ponte Rio Negro — 3.595 km cable-stayed bridge'); group.rotation.y = .35;
   return group;
+}
+
+export function createIranduba(): Group {
+  const b = new GeometryBatch();
+  b.box('leaf', 0, .04, 0, 960, .08, 760);
+  b.box('dark', 0, .14, 0, 28, .18, 720);
+  b.box('dark', 0, .15, 0, 720, .18, 26);
+  const facades = ['cream', 'salmon', 'stone', 'blue'] as const;
+  for (let row = -3; row <= 3; row++) for (let col = -4; col <= 4; col++) {
+    if (Math.abs(col) < 1 || Math.abs(row) < 1) continue;
+    const x = col * 76 + (row % 2) * 11;
+    const z = row * 72 + (col % 2) * 8;
+    const h = 6 + ((row * row + col * col) % 4) * 2.4;
+    const w = 34 + ((row + col + 20) % 3) * 7;
+    const d = 27 + ((row - col + 20) % 3) * 6;
+    b.box(facades[(row * 7 + col * 11 + 99) % facades.length], x, h / 2, z, w, h, d);
+    if ((row + col) % 3 === 0) b.box('glass', x, h * .63, z + d * .505, w * .58, h * .2, .18);
+  }
+  for (let i = 0; i < 24; i++) {
+    const angle = i * 2.399, radius = 270 + (i % 5) * 34;
+    tree(b, Math.cos(angle) * radius, Math.sin(angle) * radius, 13 + i % 7, angle);
+  }
+  for (const x of [-330, 330]) for (const z of [-235, 235]) palm(b, x, z, 12 + ((x + z) & 3));
+  for (const x of [-4.5, 4.5]) for (const z of [-4.5, 4.5]) b.cylinder('steel', x, 9, z, .24, .34, 18, 7);
+  b.cylinder('white', 0, 18, 0, 5.6, 4.4, 6.5, 18);
+  b.cylinder('blue', 0, 21.5, 0, 1.1, 1.1, 1, 12);
+  return b.build('Iranduba · Cacau Pirêra — generalized opposite-bank settlement');
 }
 
 export function createMeeting(): Group {
@@ -263,5 +308,5 @@ export function createBosque(): Group {
 
 export const LANDMARK_BUILDERS: Record<string, () => Group> = {
   largo: createLargo, mercado: createMarket, porto: createPort, relogio: createClock, palacio: createPalace,
-  arena: createArena, ponta: createPonta, ponte: createBridge, encontro: createMeeting, musa: createMusa, bosque: createBosque,
+  arena: createArena, ponta: createPonta, ponte: createBridge, iranduba: createIranduba, encontro: createMeeting, musa: createMusa, bosque: createBosque,
 };

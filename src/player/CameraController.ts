@@ -32,8 +32,10 @@ export class CameraController {
     } else {
       this.intro = false;
       if (this.input.enabled) {
-        this.yaw -= this.input.mouseDelta.x * 0.0023;
-        this.pitch = MathUtils.clamp(this.pitch + this.input.mouseDelta.y * 0.0021, -1.15, 1.27);
+        this.yaw -= this.input.mouseDelta.x * 0.00215;
+        if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+        else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
+        this.pitch = MathUtils.clamp(this.pitch + this.input.mouseDelta.y * 0.00195, -1.15, 1.27);
       }
       const distance = (8.3 + Math.min(7, player.velocity.length() * 0.014)) * Math.pow(player.size, 0.83);
       this.direction.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
