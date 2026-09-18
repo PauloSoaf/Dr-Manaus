@@ -6,6 +6,8 @@ import { ChunkMeshes } from '../chunks/ChunkMeshes';
 import { planChunks, type ChunkDemand } from './ChunkPriority';
 import { GenerationPool } from './GenerationPool';
 
+const PREPARE_TIMEOUT_MS = 20_000;
+
 export class WorldStreamer {
   private readonly records = new Map<string, Chunk>();
   private readonly active = new Set<string>();
@@ -27,6 +29,7 @@ export class WorldStreamer {
   private disposed = false;
   private drawBounds = false;
   private debugDirty = false;
+  private generationError: Error | null = null;
 
   constructor(private readonly root: Group) {
     this.debugRoot.name = 'chunk-boundaries'; this.debugRoot.visible = false; root.add(this.debugRoot);
@@ -61,6 +64,8 @@ export class WorldStreamer {
 
   /** Teleport waits for a 3x3 collision-safe neighbourhood, even before the render loop starts. */
   async prepare(position: Vector3): Promise<void> {
+    this.generationError = null;
+    const deadline = performance.now() + PREPARE_TIMEOUT_MS;
     const cx = Math.floor(position.x / WORLD.chunkSize), cz = Math.floor(position.z / WORLD.chunkSize);
     const minimum: string[] = [];
     for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++) {
@@ -71,9 +76,20 @@ export class WorldStreamer {
     this.reconcile();
     try {
       while (!this.disposed && minimum.some(key => this.records.get(key)?.state !== ChunkState.ACTIVE)) {
-        this.pump(); await new Promise<void>(resolve => setTimeout(resolve, 8));
+        const generationError = this.generationError as Error | null;
+        if (generationError) {
+          throw new Error(`Falha ao gerar chunks próximos de ${Math.round(position.x)}, ${Math.round(position.z)}: ${generationError.message}`);
+        }
+        if (performance.now() > deadline) {
+          throw new Error(`Timeout ao preparar o mundo em ${Math.round(position.x)}, ${Math.round(position.z)}.`);
+        }
+        this.pump();
+        await new Promise<void>(resolve => setTimeout(resolve, 8));
       }
-    } finally { for (const key of minimum) this.pinned.delete(key); }
+      if (this.disposed) throw new Error('World streamer was disposed while preparing the destination.');
+    } finally {
+      for (const key of minimum) this.pinned.delete(key);
+    }
   }
 
   private ensure(demand: ChunkDemand): Chunk {
@@ -120,10 +136,19 @@ export class WorldStreamer {
     while (this.inFlight < WORLD.maxRequests && requests.length) {
       const chunk = requests.shift()!; chunk.state = ChunkState.LOADING; this.inFlight++;
       void this.generators.generate(chunk.cx, chunk.cz).then(payload => {
-        this.inFlight--; if (this.disposed || !this.records.has(chunk.key)) return;
+        this.inFlight--;
+        if (this.disposed || !this.records.has(chunk.key)) return;
         chunk.payload = payload; chunk.bytes = payload.buildings.byteLength + payload.trees.byteLength;
         chunk.state = this.wanted.has(chunk.key) || this.pinned.has(chunk.key) ? ChunkState.READY : ChunkState.CACHED;
         this.evict();
+      }).catch(error => {
+        this.inFlight--;
+        if (this.disposed) return;
+        this.generationError = error instanceof Error ? error : new Error(String(error));
+        if (this.records.get(chunk.key) === chunk) {
+          chunk.state = ChunkState.UNLOADED;
+          this.records.delete(chunk.key);
+        }
       });
     }
     const ready = [...this.records.values()].filter(chunk => chunk.state === ChunkState.READY).sort((a, b) => a.priority - b.priority);
