@@ -8,6 +8,8 @@ export class RendererManager {
   backend = 'Inicializando';
   renderScale = 1;
   preset: QualityPreset = 'High';
+  /** The pause menu can force shadows off below what the preset would choose. */
+  shadowsAllowed = true;
   constructor(container: HTMLElement) {
     this.renderer = new WebGPURenderer({ antialias: true, alpha: false, logarithmicDepthBuffer: true, forceWebGL: new URLSearchParams(location.search).has('webgl') });
     this.renderer.toneMapping = ACESFilmicToneMapping;
@@ -30,6 +32,8 @@ export class RendererManager {
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, QUALITY[this.preset].pixelRatio) * this.renderScale);
     this.renderer.setSize(innerWidth, innerHeight);
   };
-  setQuality(preset: QualityPreset) { this.preset = preset; this.renderer.shadowMap.enabled = QUALITY[preset].shadows; this.resize(); }
+  setQuality(preset: QualityPreset) { this.preset = preset; this.applyShadows(); this.resize(); }
+  setShadows(allowed: boolean) { this.shadowsAllowed = allowed; this.applyShadows(); }
+  private applyShadows() { this.renderer.shadowMap.enabled = this.shadowsAllowed && QUALITY[this.preset].shadows; }
   dispose() { window.removeEventListener('resize', this.resize); this.renderer.dispose(); }
 }

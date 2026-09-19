@@ -120,6 +120,55 @@ try {
     return { districts: game.realCity.districts.size, here: game.realCity.districts.nearest(0, 0)?.name ?? null };
   });
 
+  // The pause menu has to open on Esc, stop the world taking input, and actually apply a change.
+  await page.keyboard.press('Escape');
+  await sleep(250);
+  const paused = await page.evaluate(() => ({
+    open: !document.querySelector('#pause-panel').hidden,
+    inputEnabled: window.__DR_MANAUS__.input.enabled,
+    tabs: document.querySelectorAll('.pause-tab[data-tab]').length,
+  }));
+  if (!paused.open) throw new Error('Esc nao abriu o menu de pausa.');
+  if (paused.inputEnabled) throw new Error('O menu de pausa nao suspendeu a entrada do jogo.');
+  if (paused.tabs < 5) throw new Error(`O menu tem apenas ${paused.tabs} secoes.`);
+
+  await page.click('.pause-tab[data-tab="video"]');
+  await page.click('.pause-tab[data-tab="audio"]');
+  const applied = await page.evaluate(async () => {
+    const game = window.__DR_MANAUS__;
+    const master = document.querySelector('#vol-master');
+    master.value = '35';
+    master.dispatchEvent(new Event('input', { bubbles: true }));
+    const fov = document.querySelector('#fov');
+    fov.value = '74';
+    fov.dispatchEvent(new Event('input', { bubbles: true }));
+    const sens = document.querySelector('#sensitivity');
+    sens.value = '210';
+    sens.dispatchEvent(new Event('input', { bubbles: true }));
+    return {
+      saved: game.save.data.settings.masterVolume,
+      mix: game.audio.mix.master,
+      readout: document.querySelector('#vol-master-value').textContent,
+      fov: game.camera.baseFov,
+      sensitivity: game.camera.sensitivity,
+      audioSection: !document.querySelector('.pause-section[data-section="audio"]').hidden,
+    };
+  });
+  if (Math.abs(applied.saved - .35) > 1e-6) throw new Error(`O volume nao foi salvo: ${applied.saved}`);
+  if (Math.abs(applied.mix - .35) > 1e-6) throw new Error(`O mixer nao recebeu o volume: ${applied.mix}`);
+  if (applied.readout !== '35%') throw new Error(`O indicador do slider mostra "${applied.readout}".`);
+  if (applied.fov !== 74) throw new Error(`O campo de visao nao foi aplicado: ${applied.fov}`);
+  if (Math.abs(applied.sensitivity - 2.1) > 1e-6) throw new Error(`A sensibilidade nao foi aplicada: ${applied.sensitivity}`);
+  if (!applied.audioSection) throw new Error('A aba de audio nao ficou visivel.');
+
+  await page.keyboard.press('Escape');
+  await sleep(200);
+  const resumed = await page.evaluate(() => ({
+    open: !document.querySelector('#pause-panel').hidden,
+    inputEnabled: window.__DR_MANAUS__.input.enabled,
+  }));
+  if (resumed.open || !resumed.inputEnabled) throw new Error('Esc nao retomou o jogo.');
+
   await page.keyboard.press('f');
   await page.waitForFunction(() => window.__DR_MANAUS__.player.state !== 'Grounded', null, { timeout: 3_000 });
   const flightState = await page.evaluate(() => window.__DR_MANAUS__.player.state);
@@ -133,6 +182,7 @@ try {
   console.log(places.districts
     ? `  bairros reais: ${places.districts} compilados, origem = ${places.here ?? 'sem correspondencia'}`
     : '  bairros reais: nao compilados ainda');
+  console.log(`  menu de pausa: ${paused.tabs} secoes, volume/fov/sensibilidade aplicados e salvos`);
   console.log(demolition.attempted
     ? `  destruicao: predio real derrubado e removido do mundo (${demolition.destroyed} registrado)`
     : '  destruicao: nenhum predio real ao alcance para testar');

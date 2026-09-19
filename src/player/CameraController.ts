@@ -7,6 +7,10 @@ import type { PlayerController } from './PlayerController';
 export class CameraController {
   yaw = 0;
   pitch = 0.19;
+  /** Set from the pause menu; the speed widening is applied on top of `baseFov`. */
+  sensitivity = 1;
+  invertY = false;
+  baseFov = 57;
   intro = true;
   private elapsed = 0;
   private shakeAmount = 0;
@@ -32,10 +36,10 @@ export class CameraController {
     } else {
       this.intro = false;
       if (this.input.enabled) {
-        this.yaw -= this.input.mouseDelta.x * 0.00215;
+        this.yaw -= this.input.mouseDelta.x * 0.00215 * this.sensitivity;
         if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
         else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
-        this.pitch = MathUtils.clamp(this.pitch + this.input.mouseDelta.y * 0.00195, -1.15, 1.27);
+        this.pitch = MathUtils.clamp(this.pitch + this.input.mouseDelta.y * 0.00195 * this.sensitivity * (this.invertY ? -1 : 1), -1.15, 1.27);
       }
       const distance = (8.3 + Math.min(7, player.velocity.length() * 0.014)) * Math.pow(player.size, 0.83);
       this.direction.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
@@ -46,7 +50,7 @@ export class CameraController {
       if (this.globalPosition.distanceToSquared(this.desired) > 400 * 400) this.globalPosition.copy(this.desired);
       else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstruction ? 25 : 9)));
     }
-    const targetFov = 57 + Math.min(17, player.velocity.length() * 0.028);
+    const targetFov = this.baseFov + Math.min(17, player.velocity.length() * 0.028);
     this.camera.fov = MathUtils.lerp(this.camera.fov, targetFov, 1 - Math.exp(-dt * 3));
     this.camera.updateProjectionMatrix();
     this.camera.position.copy(this.globalPosition).sub(origin);

@@ -57,7 +57,7 @@ export class Game {
     this.rendering.renderer.domElement.addEventListener('pointerdown',()=>{void this.audio.unlock();});
     window.addEventListener('keydown',()=>{void this.audio.unlock();},{once:true});
     window.addEventListener('drmanaus-shake',event=>this.camera.shake((event as CustomEvent<number>).detail));
-    window.addEventListener('keydown',event=>{if(event.code==='F3'){event.preventDefault();this.hud.toggleDebug();}if(event.code==='KeyM'){event.preventDefault();this.hud.togglePanel('map');}if(event.code==='KeyH'){event.preventDefault();this.hud.togglePanel('help');}if(event.code==='Escape'&&this.hud.panelOpen)this.hud.togglePanel('');});
+    window.addEventListener('keydown',event=>{if(event.code==='F3'){event.preventDefault();this.hud.toggleDebug();}if(event.code==='KeyM'){event.preventDefault();this.hud.togglePanel('map');}if(event.code==='KeyH'){event.preventDefault();this.hud.openPause('controls');}if(event.code==='Escape'){event.preventDefault();this.hud.togglePause();}});
   }
   async initialize(){
     await this.rendering.initialize();
@@ -84,7 +84,9 @@ export class Game {
     this.realCity.setDetail(config.shadows&&level<2);
     const distance=145*(1-level*.14);Object.assign(this.atmosphere.sun.shadow.camera,{left:-distance,right:distance,top:distance,bottom:-distance});this.atmosphere.sun.shadow.camera.updateProjectionMatrix();
   }
-  applySettings(settings:Settings){this.save.data.settings=settings;this.save.save();this.rendering.setQuality(settings.quality);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.destruction.setQuality(QUALITY[settings.quality].particles);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');this.realCity.setNight(settings.time==='Night');this.realCity.setDetail(settings.quality!=='Low');}
+  applySettings(settings:Settings){this.save.data.settings=settings;this.save.save();this.rendering.setQuality(settings.quality);
+    this.rendering.setShadows(settings.shadows);this.camera.baseFov=settings.fov;this.camera.sensitivity=settings.sensitivity;this.camera.invertY=settings.invertY;
+    this.audio.setVolumes(settings.masterVolume,settings.ambienceVolume,settings.effectsVolume);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.destruction.setQuality(QUALITY[settings.quality].particles);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');this.realCity.setNight(settings.time==='Night');this.realCity.setDetail(settings.quality!=='Low');}
   async travel(id:string,debug=false){const landmark=LANDMARKS.find(l=>l.id===id);if(!landmark)return;if(!debug&&!this.save.data.discovered.includes(id)){this.hud.notify('Descubra esse lugar pelo voo.');return;}this.stressRoute=[];this.camera.skipIntro();await this.powers.teleportTo(new Vector3(landmark.x,landmark.spawnHeight+4,landmark.z));this.hud.notify(landmark.name);}
   private setDebug(option:string,value:boolean|number){
     if(option==='speed'){this.player.speedMultiplier=Number(value);return;}
