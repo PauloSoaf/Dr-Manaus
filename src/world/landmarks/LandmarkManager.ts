@@ -4,17 +4,16 @@ import { LANDMARKS } from '../geodata/geodata';
 import { GeometryBatch, tree } from './GeometryBatch';
 import { createTheatre, createTheatreSilhouette } from './theatre';
 import { createBridge, LANDMARK_BUILDERS } from './models';
+import { ARENA_COLLIDERS, createArenaSilhouette } from './arena';
 
 interface LandmarkNode { landmark: Landmark; anchor: Group; distant: Group; detailed?: Group; visibleDetail: boolean }
 
 function silhouette(id: string): Group {
   if (id === 'teatro') return createTheatreSilhouette();
   if (id === 'ponte') return createBridge();
+  if (id === 'arena') return createArenaSilhouette();
   const b = new GeometryBatch();
-  if (id === 'arena') {
-    b.add(new TorusGeometry(85, 17, 5, 36).rotateX(Math.PI / 2).scale(1, 1, 1.3), 'cream', 0, 24, 0);
-    b.add(new TorusGeometry(91, 12, 5, 36).rotateX(Math.PI / 2).scale(1, .4, 1.28), 'white', 0, 43, 0);
-  } else if (id === 'musa') {
+  if (id === 'musa') {
     for (const x of [-5, 5]) for (const z of [-5, 5]) b.box('steel', x, 22, z, .7, 44, .7);
     for (const y of [15, 30, 44]) b.box('bark', 0, y, 0, 14, .6, 14);
     for (let i = 0; i < 12; i++) tree(b, Math.cos(i * 2.4) * (55 + i * 10), Math.sin(i * 2.4) * (55 + i * 10), 28 + i % 5, i);
@@ -126,7 +125,7 @@ export class LandmarkManager {
       case 'porto': box(0, 6, -14, 115, 12, 30); for (const x of [-48, 48]) box(x, 1, 216, 15, 2, 365); break;
       case 'relogio': box(0, 8.5, 0, 4.7, 17, 4.7); break;
       case 'palacio': box(0, 7.5, -9, 65, 15, 35); box(0, 17.5, 6, 15, 3, 15); break;
-      case 'arena': for (const x of [-94, 94]) box(x, 20, 0, 20, 40, 155); for (const z of [-121, 121]) box(0, 20, z, 150, 40, 20); break;
+      case 'arena': for (const item of ARENA_COLLIDERS) box(item.x, item.y, item.z, item.width, item.height, item.depth); break;
       case 'ponta':
         box(-20, 2.2, -110, 28, 4.4, 26);
         for (let row = 0; row < 2; row++) for (let i = -10; i <= 10; i++) {

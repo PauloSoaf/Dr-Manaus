@@ -77,8 +77,28 @@ for (const road of OSM_ROADS) for (let i = 1; i < road.points.length; i++) {
     }
   }
 }
+/**
+ * Eduardo Gomes runway 10/28 and its apron. Overture ships no aeroway geometry for Manaus and one
+ * tile over the western threshold has no compiled buildings at all, so the airfield is excluded
+ * here rather than in the compiler: this module is what the chunk worker consults, so the same
+ * rule holds for procedurally generated blocks and for the hierarchical LOD.
+ */
+const RUNWAY_WEST = latLonToWorld(-3.036490, -60.061660);
+const RUNWAY_EAST = latLonToWorld(-3.040710, -60.037740);
+/** The airside lies wholly on one side of the centreline: +210 m to -720 m across it. */
+const AIRFIELD_OFFSET = -255, AIRFIELD_HALF_WIDTH = 465;
+export function onAirfield(x: number, z: number, padding = 0): boolean {
+  const dx = RUNWAY_EAST.x - RUNWAY_WEST.x, dz = RUNWAY_EAST.z - RUNWAY_WEST.z;
+  const length = Math.hypot(dx, dz) || 1;
+  const ax = RUNWAY_WEST.x + dz / length * AIRFIELD_OFFSET, az = RUNWAY_WEST.z - dx / length * AIRFIELD_OFFSET;
+  const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+  const px = x - ax - dx * t, pz = z - az - dz * t;
+  return px * px + pz * pz < (AIRFIELD_HALF_WIDTH + padding) ** 2;
+}
+
 export function buildingAllowed(x: number, z: number, padding = 0): boolean {
   if (!isUrban(x, z) || !isLand(x - padding, z + padding) || !isLand(x + padding, z + padding)) return false;
+  if (onAirfield(x, z, padding)) return false;
   for (const landmark of LANDMARKS) if ((x - landmark.x) ** 2 + (z - landmark.z) ** 2 < (landmark.radius + padding) ** 2) return false;
   for (const segment of roadIndex.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`) ?? []) {
     const dx = segment.bx - segment.ax, dz = segment.bz - segment.az;

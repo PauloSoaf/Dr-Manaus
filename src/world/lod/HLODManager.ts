@@ -42,7 +42,9 @@ export class HLODManager {
   private readonly colliderList: Collider[] = [];
   private readonly distantPosition = new Vector3(Infinity, Infinity, Infinity);
   private pending: { cx: number; cz: number; distance: number }[] = [];
-  private coverage = '';
+  private coverage = -1;
+  private realTiles?: ReadonlySet<string>;
+  private realTileSize = 1024;
   private lastBuild = 0;
   private detailRadius: number = WORLD.detailRadius;
   private dirty = true;
@@ -57,6 +59,24 @@ export class HLODManager {
     this.createDistantNodes();
     this.rebuildDistant(new Vector3());
   }
+  /**
+   * Where the compiled Overture city has a tile, every procedural tier stands down. The real
+   * shells and the real skyline already occupy that ground, and drawing both would stack an
+   * invented block on a surveyed footprint.
+   */
+  setRealCoverage(tiles: ReadonlySet<string>, tileSize: number): void {
+    this.realTiles = tiles.size ? tiles : undefined;
+    this.realTileSize = tileSize;
+    this.dirty = true;
+    // Forces the next update to rebuild the aggregate and horizon rings against the new coverage.
+    this.distantPosition.set(Infinity, Infinity, Infinity);
+  }
+
+  private realCovers(x: number, z: number): boolean {
+    if (!this.realTiles) return false;
+    return this.realTiles.has(`${Math.floor(x / this.realTileSize)},${Math.floor(z / this.realTileSize)}`);
+  }
+
   get nodeCount(): number { return this.medium.count + this.aggregate.count + this.horizon.count + this.canopy.count; }
   get colliders(): readonly Collider[] { return this.colliderList; }
   get stats(): { medium: number; aggregate: number; horizon: number; vegetation: number; cached: number } {
@@ -77,7 +97,13 @@ export class HLODManager {
       this.proxies.set(chunkKey(request.cx, request.cz), generateChunk(request.cx, request.cz)); generated++;
     }
     if (generated) this.dirty = true;
-    const coverage = activeKeys ? [...activeKeys].join(';') : '';
+    // An order-independent hash: joining the active keys allocated a string every single frame.
+    let coverage = activeKeys ? Math.imul(activeKeys.size, 2654435761) >>> 0 : 0;
+    if (activeKeys) for (const key of activeKeys) {
+      let hash = 2166136261;
+      for (let i = 0; i < key.length; i++) { hash ^= key.charCodeAt(i); hash = Math.imul(hash, 16777619); }
+      coverage = (coverage + hash) >>> 0;
+    }
     const coverageChanged = coverage !== this.coverage;
     if (coverageChanged) { this.coverage = coverage; this.dirty = true; }
     // Coverage swaps in the same frame as detailed activation: never double-render near facades.
@@ -110,6 +136,7 @@ export class HLODManager {
     for (const [key, payload] of this.proxies) {
       const distance = Math.hypot((payload.cx + .5) * WORLD.chunkSize - position.x, (payload.cz + .5) * WORLD.chunkSize - position.z);
       if (activeKeys ? activeKeys.has(key) : distance < this.detailRadius) continue;
+      if (this.realCovers((payload.cx + .5) * WORLD.chunkSize, (payload.cz + .5) * WORLD.chunkSize)) continue;
       // Soft height ramp at the outside of the medium ring blends into the aggregate silhouette.
       const fade = Math.max(0, Math.min(1, (WORLD.mediumRadius + WORLD.chunkSize - distance) / WORLD.chunkSize));
       if (fade <= 0) continue;
@@ -176,6 +203,7 @@ export class HLODManager {
     for (const node of this.aggregates) {
       const distance = Math.hypot(node.x - position.x, node.z - position.z);
       if (distance < WORLD.mediumRadius - WORLD.hysteresis || distance > WORLD.aggregateRadius + WORLD.hysteresis || index >= 8000) continue;
+      if (this.realCovers(node.x, node.z)) continue;
       const fade = Math.min(1, Math.max(0, (distance - WORLD.mediumRadius + WORLD.hysteresis) / 180),
         Math.max(0, (WORLD.aggregateRadius + WORLD.hysteresis - distance) / 180));
       this.set(this.aggregate, index, node.x, node.h * fade * .5, node.z, node.w, node.h * fade, node.d);
@@ -187,6 +215,7 @@ export class HLODManager {
     for (const node of this.horizons) {
       const distance = Math.hypot(node.x - position.x, node.z - position.z);
       if (distance < WORLD.aggregateRadius - WORLD.hysteresis || distance > WORLD.horizonRadius || index >= 2400) continue;
+      if (this.realCovers(node.x, node.z)) continue;
       const fade = Math.min(1, Math.max(0, (distance - WORLD.aggregateRadius + WORLD.hysteresis) / 380));
       this.set(this.horizon, index, node.x, node.h * fade * .5, node.z, node.w, node.h * fade, node.d);
       this.horizon.setColorAt(index++, this.color.setHex(node.color));

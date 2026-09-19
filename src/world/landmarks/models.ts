@@ -1,6 +1,9 @@
 import { CylinderGeometry, Group, Shape, ShapeGeometry, TorusGeometry, Vector3 } from 'three/webgpu';
 import { GeometryBatch, palm, tree } from './GeometryBatch';
 import { wavePlazaGeometry } from './theatre';
+// The Arena has a bespoke model of its own; this module keeps re-exporting it for callers.
+import { createArena } from './arena';
+export { createArena };
 
 function bench(b: GeometryBatch, x: number, z: number, angle = 0): void {
   b.box('bark', x, .7, z, 3.6, .24, .75, angle);
@@ -141,31 +144,6 @@ export function createPalace(): Group {
   b.box('cream', 0, 18.2, 6, 15, 2, 15);
   for (const x of [-46, 46]) for (const z of [-25, 10, 40]) palm(b, x, z, 13);
   return b.build('Palácio Rio Negro — golden facade and garden');
-}
-
-export function createArena(): Group {
-  const b = new GeometryBatch();
-  b.box('stone', 0, .2, 0, 275, .4, 310);
-  b.box('leaf', 0, .5, 0, 74, .3, 108);
-  for (const x of [-36, 36]) b.box('white', x, .7, 0, .2, .05, 106);
-  for (const z of [-53, 53]) b.box('white', 0, .7, z, 72, .05, .2);
-  b.box('white', 0, .7, 0, 72, .05, .2);
-  for (let tier = 0; tier < 9; tier++) {
-    const geometry = new TorusGeometry(64 + tier * 4.1, 2.6, 4, 64).rotateX(Math.PI / 2).scale(1, 1, 1.32);
-    b.add(geometry, tier % 2 ? 'gold' : 'red', 0, 3 + tier * 3.2, 0);
-  }
-  const roof = new TorusGeometry(91, 13, 8, 72).rotateX(Math.PI / 2).scale(1, .36, 1.28);
-  b.add(roof, 'white', 0, 42, 0);
-  // Woven diagonal ribs recreate the defining basket lattice, merged into one draw.
-  for (let i = 0; i < 56; i++) {
-    const a = i / 56 * Math.PI * 2, next = a + Math.PI * 2 / 14;
-    const bottom = new Vector3(Math.cos(a) * 98, 2, Math.sin(a) * 127);
-    const top = new Vector3(Math.cos(next) * 101, 41, Math.sin(next) * 131);
-    b.beam('white', bottom, top, 1.35, 6);
-    b.beam('cream', new Vector3(bottom.x, 41, bottom.z), new Vector3(top.x, 2, top.z), 1.2, 6);
-  }
-  for (const x of [-128, 128]) for (let z = -135; z <= 135; z += 45) palm(b, x, z, 11);
-  return b.build('Arena da Amazônia — woven basket structure');
 }
 
 export function createPonta(): Group {

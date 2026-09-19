@@ -3,6 +3,8 @@ import type { Collider } from '../core/types';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { CharacterModel } from './CharacterModel';
 import type { InputController } from './InputController';
+import { SPACE } from '../core/config';
+import { FLIGHT, type FlightSpeedMode } from './flightConfig';
 
 export class PlayerController {
   readonly position = new Vector3(0, 38.5, 0);
@@ -13,6 +15,9 @@ export class PlayerController {
   state: 'Grounded' | 'Hover' | 'Flight' = 'Grounded';
   size = 1;
   speedMultiplier = 1;
+  speedMode: FlightSpeedMode = 'ground';
+  private megaEnabled = false;
+  private megaNeedsBoostRelease = false;
   private targetSize = 1;
   private readonly desired = new Vector3();
   private readonly physics = new PhysicsWorld();
@@ -24,8 +29,19 @@ export class PlayerController {
     root.add(this.model); this.model.position.copy(this.position);
   }
 
+  get megaMode(): boolean { return this.megaEnabled; }
+  set megaMode(enabled: boolean) {
+    if (enabled === this.megaEnabled) return;
+    this.megaEnabled = enabled;
+    // Arming while already boosting cannot unexpectedly quadruple the speed.
+    this.megaNeedsBoostRelease = enabled && this.input.held('KeyB');
+  }
+  toggleMegaMode(): void { this.megaMode = !this.megaMode; }
+
   update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0): void {
     dt = Math.min(0.06, dt);
+    if (this.input.consume('KeyV')) this.toggleMegaMode();
+    if (!this.input.held('KeyB')) this.megaNeedsBoostRelease = false;
     if (this.input.consume('KeyF')) {
       this.state = this.state === 'Grounded' ? 'Hover' : 'Grounded';
       if (this.state === 'Hover') { this.velocity.y = 5; this.position.y += 0.18; }
@@ -37,7 +53,11 @@ export class PlayerController {
     const movementZ = Number(this.input.held('KeyS')) - Number(this.input.held('KeyW'));
     const ascent = Number(this.input.held('Space')) - Number(this.input.held('ControlLeft') || this.input.held('ControlRight'));
     const sizeSpeed = Math.sqrt(this.size);
-    const speed = (flying ? boosting ? 1650 : sprinting ? 320 : 82 : sprinting ? 16 : 6.5) * sizeSpeed * this.speedMultiplier;
+    this.speedMode = flying ? boosting ? this.megaEnabled && !this.megaNeedsBoostRelease ? 'mega' : 'super' : sprinting ? 'fast' : 'normal' : 'ground';
+    // Flight tiers retain their meaning in giant form; stride length scales walking.
+    const speed = this.speedMode === 'ground'
+      ? (sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * sizeSpeed * this.speedMultiplier
+      : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
     if (flying) {
       const cosPitch = Math.cos(cameraPitch);
       const forwardX = -Math.sin(cameraYaw) * cosPitch;
@@ -61,7 +81,9 @@ export class PlayerController {
       this.desired.z = -x * Math.sin(cameraYaw) + z * Math.cos(cameraYaw);
       this.desired.multiplyScalar(speed);
     }
-    const acceleration = 1 - Math.exp(-dt * (flying ? boosting ? 7 : 8.5 : 16));
+    const response = this.speedMode === 'ground' ? FLIGHT.groundResponse
+      : this.desired.lengthSq() < this.velocity.lengthSq() ? FLIGHT.response.braking : FLIGHT.response[this.speedMode];
+    const acceleration = 1 - Math.exp(-dt * response);
     this.velocity.x = MathUtils.lerp(this.velocity.x, this.desired.x, acceleration);
     this.velocity.z = MathUtils.lerp(this.velocity.z, this.desired.z, acceleration);
     if (flying) {
@@ -74,7 +96,8 @@ export class PlayerController {
     this.size = MathUtils.lerp(this.size, this.targetSize, 1 - Math.exp(-dt * 4));
     if (Math.abs(this.size - this.targetSize) < 0.005) this.size = this.targetSize;
     this.grounded = this.physics.move(this.position, this.velocity, dt, 0.32 * this.size, 2.1 * this.size, colliders, !flying ? 0.55 * this.size : 0);
-    this.position.y = Math.min(12000, this.position.y);
+    // The old 12 km lid made orbit unreachable; climbing out of the atmosphere is now a real place to go.
+    if (this.position.y >= SPACE.maxAltitude) { this.position.y = SPACE.maxAltitude; this.velocity.y = Math.min(0, this.velocity.y); }
     if (this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z > 0.2) {
       this.forward.set(this.velocity.x, 0, this.velocity.z).normalize();
       const angle = Math.atan2(-this.forward.x, -this.forward.z);

@@ -2,7 +2,8 @@ import { ACESFilmicToneMapping, PCFShadowMap, PerspectiveCamera, Scene, WebGPURe
 import { QUALITY, type QualityPreset } from '../core/config';
 export class RendererManager {
   readonly renderer: WebGPURenderer;
-  readonly camera = new PerspectiveCamera(58, 1, .15, 52000);
+  // A logarithmic depth buffer keeps a 0.15 m near plane usable out to orbit.
+  readonly camera = new PerspectiveCamera(58, 1, .15, 260000);
   readonly scene = new Scene();
   backend = 'Inicializando';
   renderScale = 1;

@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { Group, PerspectiveCamera, Vector3 } from 'three/webgpu';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld.ts';
 import { PlayerController } from '../src/player/PlayerController.ts';
+import { FLIGHT } from '../src/player/flightConfig.ts';
+import { SPACE } from '../src/core/config.ts';
 import { PowerSystem, type PowerHooks } from '../src/player/powers/PowerSystem.ts';
 import type { InputController } from '../src/player/InputController.ts';
 import type { Collider, Target } from '../src/core/types.ts';
@@ -15,9 +17,9 @@ function controls() {
   const held = new Set<string>(), edges = new Set<string>();
   const input = {
     enabled: true, mouseDelta: { x: 0, y: 0 },
-    held: (code: string) => held.has(code),
-    pressed: (code: string) => edges.has(code),
-    consume: (code: string) => { const result = edges.has(code); edges.delete(code); return result; },
+    held: (code: string) => input.enabled && held.has(code),
+    pressed: (code: string) => input.enabled && edges.has(code),
+    consume: (code: string) => { const result = input.enabled && edges.has(code); edges.delete(code); return result; },
   } as unknown as InputController;
   return { input, held, edges };
 }
@@ -80,6 +82,100 @@ test('flight follows camera pitch so W moves toward the point being looked at', 
   for (let i = 0; i < 75; i++) player.update(1 / 60, [], 0, -0.55);
   assert.ok(player.position.y > 30, 'looking upward while flying forward must gain altitude');
   assert.ok(Math.hypot(player.position.x, player.position.z) > 35);
+});
+
+test('normal, fast and super flight have separate stable speed limits', () => {
+  const { input, held } = controls();
+  const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 200, 0));
+  held.add('KeyW');
+  for (let i = 0; i < 120; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.speedMode, 'normal'); assert.ok(Math.abs(player.velocity.length() - 120) < 0.01);
+  held.add('ShiftLeft');
+  for (let i = 0; i < 120; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.speedMode, 'fast'); assert.ok(Math.abs(player.velocity.length() - 500) < 0.01);
+  held.add('KeyB');
+  for (let i = 0; i < 180; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.speedMode, 'super'); assert.ok(Math.abs(player.velocity.length() - 2000) < 0.01);
+  assert.equal(player.megaMode, false);
+});
+
+test('mega mode requires explicit arming and a fresh boost after arming during super flight', () => {
+  const { input, held, edges } = controls();
+  const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 200, 0));
+  held.add('KeyB');
+  for (let i = 0; i < 90; i++) player.update(1 / 60, [], 0);
+  edges.add('KeyV'); held.add('KeyV');
+  for (let i = 0; i < 90; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.megaMode, true); assert.equal(player.speedMode, 'super');
+  assert.ok(player.velocity.length() <= FLIGHT.speeds.super);
+  held.delete('KeyB'); player.update(1 / 60, [], 0);
+  held.add('KeyB');
+  for (let i = 0; i < 150; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.speedMode, 'mega'); assert.ok(player.velocity.length() > 7800 && player.velocity.length() <= 8000);
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  assert.equal(player.megaMode, false); assert.equal(player.speedMode, 'super');
+});
+
+test('mega thrust ramps, follows pitch and yaw, and brakes progressively when released', () => {
+  const { input, held, edges } = controls();
+  const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 100, 0));
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  assert.equal(player.velocity.length(), 0, 'the arm toggle cannot propel the player');
+  held.add('KeyB');
+  const yaw = 0.65, pitch = -0.4;
+  player.update(1 / 60, [], yaw, pitch);
+  assert.ok(player.velocity.length() > 0 && player.velocity.length() < 300);
+  for (let i = 0; i < 150; i++) player.update(1 / 60, [], yaw, pitch);
+  const direction = new Vector3(-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+  assert.ok(player.velocity.clone().normalize().dot(direction) > 0.99999);
+  assert.ok(player.position.y > 1000 && player.velocity.length() > 7800);
+  held.delete('KeyB'); const before = player.velocity.length(); player.update(1 / 60, [], yaw, pitch);
+  assert.ok(player.velocity.length() < before && player.velocity.length() > before * 0.8);
+  for (let i = 0; i < 90; i++) player.update(1 / 60, [], yaw, pitch);
+  assert.ok(player.velocity.length() < 1);
+});
+
+test('disabled UI input cannot arm mega and size/debug scaling respects the flight safety ceiling', () => {
+  const { input, held, edges } = controls();
+  const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 200, 0));
+  input.enabled = false; edges.add('KeyV'); player.update(1 / 60, [], 0);
+  input.enabled = true; player.update(1 / 60, [], 0);
+  assert.equal(player.megaMode, false);
+  player.setSize(22); player.megaMode = true; player.speedMultiplier = 10; held.add('KeyB');
+  for (let i = 0; i < 240; i++) player.update(1 / 60, [], 0);
+  assert.ok(player.velocity.length() > 9900 && player.velocity.length() <= FLIGHT.maxSpeed);
+});
+
+test('mega speed keeps swept collision for thin walls and the ground at long frame times', () => {
+  const physics = new PhysicsWorld(), position = new Vector3(0, 20, 0), velocity = new Vector3(8000, 0, 0);
+  physics.move(position, velocity, 0.06, 0.32, 2.1, [{ x: 150, y: 25, z: 0, width: 1, height: 50, depth: 30 }]);
+  assert.ok(Math.abs(position.x - 149.18) < 0.001); assert.equal(velocity.x, 0);
+  position.set(0, 200, 0); velocity.set(0, -8000, 0);
+  assert.equal(physics.move(position, velocity, 0.06, 0.32, 2.1, []), true);
+  assert.equal(position.y, 0); assert.equal(velocity.y, 0);
+});
+
+test('climbing hard leaves the atmosphere instead of stopping at the old twelve-kilometre lid', () => {
+  const { input, held, edges } = controls();
+  const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 200, 0));
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  assert.equal(player.megaMode, true);
+  held.add('KeyB');
+  // Boost with the camera at the zenith: the thrust vector follows pitch, so this climbs straight up.
+  const zenith = -Math.PI / 2;
+  for (let i = 0; i < 900; i++) player.update(1 / 60, [], 0, zenith);
+  assert.ok(player.position.y > SPACE.atmosphereTop, `only reached ${player.position.y.toFixed(0)} m`);
+  for (let i = 0; i < 1800; i++) player.update(1 / 60, [], 0, zenith);
+  assert.ok(player.position.y > SPACE.orbit, `orbit is reachable, reached ${player.position.y.toFixed(0)} m`);
+  // The ceiling holds and stops accumulating upward speed rather than letting the player run away.
+  for (let i = 0; i < 3600; i++) player.update(1 / 60, [], 0, zenith);
+  assert.equal(player.position.y, SPACE.maxAltitude);
+  assert.ok(player.velocity.y <= 0);
+  // Hover flight has no gravity, so coming home is an explicit descent input, not a release.
+  held.delete('KeyB'); held.add('ControlLeft');
+  for (let i = 0; i < 600; i++) player.update(1 / 60, [], 0, 0);
+  assert.equal(player.speedMode, 'normal');
+  assert.ok(player.position.y < SPACE.maxAltitude - 500, 'the player can come back down');
 });
 
 test('energy hits the aimed target, observes cooldown, and cannot shoot through buildings', () => {

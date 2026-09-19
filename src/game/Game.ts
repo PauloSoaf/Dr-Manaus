@@ -5,13 +5,16 @@ import { SaveManager, type Settings } from '../core/SaveManager';
 import { AssetManager } from '../core/AssetManager';
 import { RendererManager } from '../rendering/RendererManager';
 import { Atmosphere } from '../rendering/Atmosphere';
+import { SpaceLayer } from '../rendering/SpaceLayer';
 import { WeatherSystem } from '../rendering/WeatherSystem';
 import { WaterSystem } from '../rendering/WaterSystem';
 import { QualityManager } from '../rendering/QualityManager';
 import { WorldStreamer } from '../world/streaming/WorldStreamer';
 import { HLODManager } from '../world/lod/HLODManager';
+import { RealCityLayer } from '../world/realcity/RealCityLayer';
 import { LandmarkManager } from '../world/landmarks/LandmarkManager';
 import { createTerrain } from '../world/geodata/terrain';
+import { AIRPORT_COLLIDERS, createAirport } from '../world/realcity/airport';
 import { LANDMARKS, isLand } from '../world/geodata/geodata';
 import { InputController } from '../player/InputController';
 import { PlayerController } from '../player/PlayerController';
@@ -25,17 +28,17 @@ export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangl
 export class Game {
   readonly save=new SaveManager();readonly assets=new AssetManager();readonly rendering:RendererManager;
   readonly worldRoot=new Group();readonly origin=new Vector3();readonly player:PlayerController;readonly input:InputController;readonly camera:CameraController;
-  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly landmarks:LandmarkManager;readonly atmosphere:Atmosphere;readonly weather:WeatherSystem;readonly water:WaterSystem;
+  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly weather:WeatherSystem;readonly water:WaterSystem;
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
   stressReport:FrameSample[]=[];private stressRoute:Vector3[]=[];private stressIndex=0;private stressSampleTime=0;
   private lastTime=0;private discoveryTime=0;private telemetryTime=0;private cpu=0;private colliders:Collider[]=[];private playerLocal=new Vector3();private direction=new Vector3();
-  private bounds=false;private lod=false;private culling?:CameraHelper;
+  private bounds=false;private lod=false;private culling?:CameraHelper;private spaceFactor=0;
   constructor(container:HTMLElement){
     this.rendering=new RendererManager(container);this.worldRoot.name='Manaus · global meters';this.rendering.scene.add(this.worldRoot);
-    this.atmosphere=new Atmosphere(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
-    createTerrain(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
-    this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);
+    this.atmosphere=new Atmosphere(this.rendering.scene);this.space=new SpaceLayer(this.rendering.scene,this.rendering.camera);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
+    createTerrain(this.worldRoot);this.worldRoot.add(createAirport());this.landmarks=new LandmarkManager(this.worldRoot);
+    this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);
     this.input=new InputController(this.rendering.renderer.domElement);this.player=new PlayerController(this.worldRoot,this.input);this.camera=new CameraController(this.rendering.camera,this.input);
     this.population=new PopulationManager(this.worldRoot);
     this.missions=new MissionManager(this.worldRoot,this.save,message=>this.hud?.notify(message));
@@ -57,6 +60,11 @@ export class Game {
   async initialize(){
     await this.rendering.initialize();
     await this.streamer.initialize();
+    await this.realCity.initialize();
+    this.realCity.update(this.player.position,this.player.velocity,1);
+    // Only once the compiled block masses can cover the horizon does the procedural city stand down.
+    if(this.realCity.hasSkyline)this.hlod.setRealCoverage(this.realCity.coveredTiles,this.realCity.tileSize);
+    this.realCity.setNight(this.save.data.settings.time==='Night');
     this.hlod.update(this.player.position,this.streamer.activeKeys);
     // The compact offline geographic payload is optional metadata; gameplay makes no map-service calls.
     void this.assets.json('/geodata/manaus.json').catch(()=>undefined);
@@ -69,7 +77,7 @@ export class Game {
     this.streamer.setDetailRadius(config.detailRadius*factor);this.hlod.setDetailRadius(config.detailRadius*factor);
     const distance=145*(1-level*.14);Object.assign(this.atmosphere.sun.shadow.camera,{left:-distance,right:distance,top:distance,bottom:-distance});this.atmosphere.sun.shadow.camera.updateProjectionMatrix();
   }
-  applySettings(settings:Settings){this.save.data.settings=settings;this.save.save();this.rendering.setQuality(settings.quality);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');}
+  applySettings(settings:Settings){this.save.data.settings=settings;this.save.save();this.rendering.setQuality(settings.quality);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');this.realCity.setNight(settings.time==='Night');this.realCity.setDetail(settings.quality!=='Low');}
   async travel(id:string,debug=false){const landmark=LANDMARKS.find(l=>l.id===id);if(!landmark)return;if(!debug&&!this.save.data.discovered.includes(id)){this.hud.notify('Descubra esse lugar pelo voo.');return;}this.stressRoute=[];this.camera.skipIntro();await this.powers.teleportTo(new Vector3(landmark.x,landmark.spawnHeight+4,landmark.z));this.hud.notify(landmark.name);}
   private setDebug(option:string,value:boolean|number){
     if(option==='speed'){this.player.speedMultiplier=Number(value);return;}
@@ -95,22 +103,33 @@ export class Game {
   private tick=(time:number)=>{
     const start=performance.now(),rawDt=Math.max(.001,(time-this.lastTime)/1000);this.lastTime=time;
     const dt=Math.min(.06,rawDt),worldDt=dt*(this.powers.temporal?.14:1);
-    this.colliders.length=0;this.colliders.push(...this.streamer.colliders,...this.hlod.colliders,...this.landmarks.colliders,...this.population.colliders);
+    this.realCity.update(this.player.position,this.player.velocity,dt);
+    this.gatherColliders();
     if(this.stressRoute.length)this.updateStress(dt);else this.player.update(dt,this.colliders,this.camera.yaw,this.camera.pitch);
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
     if(Math.hypot(this.player.position.x-this.origin.x,this.player.position.z-this.origin.z)>WORLD.originThreshold){this.origin.set(Math.round(this.player.position.x/1024)*1024,0,Math.round(this.player.position.z/1024)*1024);this.worldRoot.position.copy(this.origin).negate();}
     this.streamer.update(this.player.position,this.player.velocity,dt);this.hlod.update(this.player.position,this.streamer.activeKeys);
     this.landmarks.update(this.player.position,worldDt);this.population.update(worldDt,this.player.position,this.player.size);this.missions.update(worldDt,this.player.position);
     this.camera.update(this.player,this.origin,dt,this.colliders);this.rendering.camera.updateMatrixWorld();this.powers.update(dt,worldDt);
-    this.playerLocal.copy(this.player.position).sub(this.origin);this.atmosphere.update(worldDt,this.playerLocal);const flash=this.weather.update(worldDt,this.player.position,this.atmosphere.weather);if(flash)this.atmosphere.sun.intensity+=flash;
+    this.playerLocal.copy(this.player.position).sub(this.origin);this.atmosphere.setAltitude(this.player.position.y);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(this.player.position.y,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=this.weather.update(worldDt,this.player.position,this.atmosphere.weather);if(flash)this.atmosphere.sun.intensity+=flash;
     this.audio.update(this.player.velocity.length(),this.player.position.y,['rain','storm'].includes(this.atmosphere.weather),!isLand(this.player.position.x,this.player.position.z));
-    this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');}
+    this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();}
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
     const frame=this.frame;
-    this.hud.update(dt,{position:this.player.position,origin:this.origin,velocity:this.player.velocity,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`}},this.rendering.camera);
+    this.hud.update(dt,{position:this.player.position,origin:this.origin,velocity:this.player.velocity,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,speedMode:this.player.speedMode,megaMode:this.player.megaMode,spaceFactor:this.spaceFactor,debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'Cidade real · tiles':`${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`,'Cidade real · triângulos':`${Math.round(this.realCity.stats.detailTriangles/1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles/1000)}k casca`,'Cidade real · skyline':this.realCity.stats.skyline,'Cidade real · colisores':this.realCity.stats.colliders,'Ruas reais (tri)':this.realCity.stats.roadTriangles,'Voo':this.player.speedMode+(this.player.megaMode?' · MEGA':''),'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`}},this.rendering.camera);
     this.input.endFrame();
   };
+  /** Rebuilt in place every frame: spreads and filters would allocate three arrays per tick. */
+  private gatherColliders(){
+    const list=this.colliders;list.length=0;
+    for(const collider of this.streamer.colliders)if(!this.realCity.replacesCollider(collider))list.push(collider);
+    for(const collider of this.realCity.colliders)list.push(collider);
+    for(const collider of this.hlod.colliders)if(!this.realCity.replacesCollider(collider))list.push(collider);
+    for(const collider of this.landmarks.colliders)list.push(collider);
+    for(const collider of AIRPORT_COLLIDERS)list.push(collider);
+    for(const collider of this.population.colliders)list.push(collider);
+  }
   private sample(){const info=this.rendering.renderer.info,stats=this.streamer.stats;this.frame={fps:Math.round(1000/this.quality.averageMs),cpu:Number(this.cpu.toFixed(2)),drawCalls:info.render.drawCalls,triangles:info.render.triangles,geometries:info.memory.geometries,textures:info.memory.textures,active:stats.active,cached:stats.cached,queued:stats.queued,loadedMB:stats.loadedMB+info.memory.total/1048576,streamMs:stats.streamMs,x:this.player.position.x,z:this.player.position.z};}
 }

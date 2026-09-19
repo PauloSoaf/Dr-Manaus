@@ -44,6 +44,7 @@ try {
   const errors = [];
 
   page.on('pageerror', error => errors.push(`pageerror: ${error.message}`));
+  page.on('crash', () => errors.push('crash: a aba do navegador caiu'));
   page.on('console', message => {
     if (message.type() === 'error') errors.push(`console: ${message.text()}`);
   });
@@ -68,12 +69,43 @@ try {
   if (boot.activeChunks < 9) throw new Error(`Streaming iniciou com apenas ${boot.activeChunks} chunks ativos.`);
   if (![boot.x, boot.y, boot.z].every(Number.isFinite)) throw new Error('Posição inicial do jogador contém valor inválido.');
 
+  // The compiled city streams asynchronously; give it a moment before measuring the real tiers.
+  // Software rasterisation runs at a few frames a second, and the geometry budget is per frame,
+  // so wait for the build queue to drain rather than for a wall-clock guess.
+  await page.waitForFunction(
+    () => window.__DR_MANAUS__.realCity.stats.shellTriangles > 0 && window.__DR_MANAUS__.realCity.stats.queued === 0,
+    null, { timeout: 90_000 },
+  ).catch(() => undefined);
+  const city = await page.evaluate(() => {
+    const game = window.__DR_MANAUS__;
+    return {
+      enabled: game.realCity.stats.enabled,
+      ...game.realCity.stats,
+      drawCalls: game.rendering.renderer.info.render.drawCalls,
+      triangles: game.rendering.renderer.info.render.triangles,
+      hlod: game.hlod.stats,
+      colliders: game.realCity.stats.colliders,
+    };
+  });
+
+  if (city.enabled) {
+    if (!city.tiles) throw new Error('A cidade real esta habilitada mas nenhum tile ficou residente.');
+    if (!city.shellTriangles) throw new Error('Nenhuma geometria de footprint real foi construida.');
+    if (!city.skyline) throw new Error('O horizonte real nao colocou nenhum bloco distante.');
+    // The physical region must stay far smaller than the visible one at every speed.
+    if (city.colliders > 900) throw new Error(`Colisores reais estouraram o orcamento: ${city.colliders}.`);
+  }
+
   await page.keyboard.press('f');
   await page.waitForFunction(() => window.__DR_MANAUS__.player.state !== 'Grounded', null, { timeout: 3_000 });
   const flightState = await page.evaluate(() => window.__DR_MANAUS__.player.state);
 
   if (errors.length) throw new Error(`Erros no navegador:\n${errors.join('\n')}`);
   console.log(`DR Manaus browser smoke OK | ${boot.backend} | chunks=${boot.activeChunks} | ${boot.state} -> ${flightState}`);
+  console.log(city.enabled
+    ? `  cidade real: ${city.tiles} tiles, ${city.near} celulas proximas, ${city.detailTriangles.toLocaleString()} tri perto + ${city.shellTriangles.toLocaleString()} tri casca, ${city.skyline} blocos de horizonte, ${city.colliders} colisores`
+    : '  cidade real: desabilitada (manifesto ausente) — fallback procedural ativo');
+  console.log(`  quadro inicial: ${city.drawCalls} draw calls, ${city.triangles.toLocaleString()} triangulos | HLOD ${city.hlod.medium}/${city.hlod.aggregate}/${city.hlod.horizon}`);
 } finally {
   await browser?.close();
   if (server.exitCode === null) server.kill();

@@ -56,10 +56,14 @@ export function createTerrain(root: Group): void {
       ribbon(lineVertices, a[0], a[1], b[0], b[1], .48, .19);
     }
   }
-  for (const [vertices, color] of [[roadVertices, '#383d3d'], [lineVertices, '#d0be89']] as const) {
+  for (const [vertices, color, name] of [
+    [roadVertices, '#383d3d', 'legacy-osm-roads'],
+    [lineVertices, '#d0be89', 'legacy-osm-road-markings'],
+  ] as const) {
     if (!vertices.length) continue;
     const geometry = new BufferGeometry(); geometry.setAttribute('position', new Float32BufferAttribute(vertices, 3)); geometry.computeVertexNormals();
-    const mesh = new Mesh(geometry, new MeshStandardMaterial({ color, roughness: 1, side: DoubleSide })); mesh.receiveShadow = true; terrain.add(mesh);
+    const mesh = new Mesh(geometry, new MeshStandardMaterial({ color, roughness: 1, side: DoubleSide }));
+    mesh.name = name; mesh.receiveShadow = true; terrain.add(mesh);
   }
   root.add(terrain);
 }
