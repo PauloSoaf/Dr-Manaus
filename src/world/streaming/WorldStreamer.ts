@@ -1,4 +1,4 @@
-import { BoxGeometry, EdgesGeometry, Group, LineBasicMaterial, LineSegments, Vector3 } from 'three/webgpu';
+import { BoxGeometry, EdgesGeometry, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4, Vector3 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
 import { ChunkState, chunkKey, type Chunk } from '../chunks/Chunk';
@@ -7,6 +7,8 @@ import { planChunks, type ChunkDemand } from './ChunkPriority';
 import { GenerationPool } from './GenerationPool';
 
 const PREPARE_TIMEOUT_MS = 20_000;
+/** Shared scratch matrix: collapsing a building must not allocate mid-rampage. */
+const COLLAPSE = new Matrix4();
 
 export class WorldStreamer {
   private readonly records = new Map<string, Chunk>();
@@ -30,6 +32,9 @@ export class WorldStreamer {
   private drawBounds = false;
   private debugDirty = false;
   private generationError: Error | null = null;
+  /** Levelled procedural buildings, so a chunk rebuild never resurrects one. */
+  private readonly destroyed = new Set<string>();
+  private readonly destroyedOrder: string[] = [];
 
   constructor(private readonly root: Group) {
     this.debugRoot.name = 'chunk-boundaries'; this.debugRoot.visible = false; root.add(this.debugRoot);
@@ -165,6 +170,7 @@ export class WorldStreamer {
       if (!chunk.group && chunk.payload) {
         const built = this.meshes.create(chunk.payload);
         chunk.group = built.group; chunk.colliders = built.colliders; chunk.bytes = built.bytes;
+        if (this.destroyed.size) for (const collider of built.colliders) if (this.destroyed.has(collider.id ?? '')) this.collapse(chunk, collider.id!);
       }
       if (chunk.group) this.root.add(chunk.group);
       chunk.state = ChunkState.ACTIVE; chunk.touched = this.clock; this.active.add(chunk.key); changed = true;
@@ -173,6 +179,42 @@ export class WorldStreamer {
     this.evict();
     if (this.drawBounds && this.debugDirty) this.refreshDebug();
     this.measuredMs = this.measuredMs * .85 + (performance.now() - start) * .15;
+  }
+
+  /**
+   * Levels a procedural building. Chunks are instanced, so a collapse is a zero-scale matrix on
+   * three instances rather than any geometry rebuild.
+   */
+  destroy(colliderId: string): boolean {
+    const marker = colliderId.indexOf('/building/');
+    if (marker <= 0 || colliderId.startsWith('hlod:') || this.destroyed.has(colliderId)) return false;
+    const chunk = this.records.get(colliderId.slice(0, marker));
+    if (!chunk) return false;
+    this.destroyed.add(colliderId);
+    this.destroyedOrder.push(colliderId);
+    if (this.destroyedOrder.length > WORLD.maxActiveChunks * 200) {
+      const evicted = this.destroyedOrder.shift();
+      if (evicted !== undefined) this.destroyed.delete(evicted);
+    }
+    if (!this.collapse(chunk, colliderId)) return false;
+    const index = chunk.colliders.findIndex(collider => collider.id === colliderId);
+    if (index >= 0) { chunk.colliders.splice(index, 1); this.refreshColliders(); }
+    return true;
+  }
+
+  private collapse(chunk: Chunk, colliderId: string): boolean {
+    const index = Number(colliderId.slice(colliderId.indexOf('/building/') + 10));
+    if (!chunk.group || !Number.isFinite(index)) return false;
+    let collapsed = false;
+    for (const object of chunk.group.children) {
+      if (!(object instanceof InstancedMesh) || index >= object.count) continue;
+      if (object.name !== 'facades' && object.name !== 'terracotta-roofs' && object.name !== 'sidewalks') continue;
+      COLLAPSE.makeScale(0, 0, 0);
+      object.setMatrixAt(index, COLLAPSE);
+      object.instanceMatrix.needsUpdate = true;
+      collapsed = true;
+    }
+    return collapsed;
   }
 
   private evict(): void {

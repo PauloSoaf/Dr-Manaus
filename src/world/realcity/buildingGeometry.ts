@@ -18,6 +18,9 @@ export interface RealBuilding {
   klass?: string;
   /** Flat `x,z` pairs relative to the tile origin. */
   p: number[];
+  /** World metres of the tile origin, so district colour can be sampled in city coordinates. */
+  ox?: number;
+  oz?: number;
 }
 
 export interface MeshBuffers {
@@ -35,15 +38,79 @@ export function createBuffers(): MeshBuffers {
 type RGB = readonly [number, number, number];
 type Point = { x: number; z: number };
 
-/** Warm renders of the painted render, tile and exposed-concrete facades common in Manaus. */
+/** The generic Manaus mix: painted render, tile, exposed concrete and a little colour. */
 const FACADE_PALETTE: readonly RGB[] = [
   [.84, .76, .66], [.79, .70, .62], [.86, .81, .71], [.72, .70, .66], [.80, .66, .56],
   [.66, .71, .70], [.74, .78, .76], [.85, .72, .58], [.69, .65, .61], [.78, .74, .68],
   [.62, .68, .72], [.83, .78, .74], [.76, .63, .58], [.70, .74, .68], [.88, .84, .77],
+  [.88, .80, .52], [.56, .70, .74], [.82, .62, .50], [.64, .74, .62], [.90, .86, .72],
+  [.58, .64, .72], [.86, .68, .64],
 ];
-const TERRACOTTA: readonly RGB[] = [[.60, .33, .24], [.55, .31, .23], [.64, .38, .27], [.50, .29, .24], [.58, .36, .30]];
-const DECK: readonly RGB[] = [[.40, .40, .39], [.36, .36, .36], [.44, .43, .40], [.33, .34, .35]];
-const GLASS: readonly RGB[] = [[.14, .18, .21], [.11, .15, .19], [.17, .21, .22], [.09, .12, .15]];
+/** Colonial Centro: ochre and cream with the pastel shopfronts of the old grid. */
+const CENTRO_PALETTE: readonly RGB[] = [
+  [.90, .82, .62], [.86, .76, .55], [.93, .88, .74], [.82, .70, .50], [.88, .80, .66],
+  [.79, .84, .80], [.72, .80, .82], [.90, .78, .70], [.84, .74, .62], [.94, .90, .82],
+  [.76, .72, .62], [.88, .70, .54], [.70, .76, .70], [.92, .86, .70], [.80, .66, .58],
+  [.66, .74, .78], [.94, .84, .58], [.85, .80, .72],
+];
+/** Adrianópolis and Vieiralves: white-and-glass mid-rise, almost nothing painted. */
+const AFFLUENT_PALETTE: readonly RGB[] = [
+  [.94, .95, .95], [.90, .92, .93], [.96, .96, .94], [.86, .88, .90], [.92, .90, .86],
+  [.80, .84, .87], [.88, .89, .88], [.97, .97, .96], [.84, .86, .85], [.90, .88, .84],
+  [.74, .79, .83], [.93, .93, .90],
+];
+/** Ponta Negra and Tarumã: resort whites and the sea-blues of the orla. */
+const RESORT_PALETTE: readonly RGB[] = [
+  [.97, .97, .95], [.93, .95, .96], [.80, .89, .93], [.68, .84, .90], [.92, .94, .88],
+  [.98, .95, .88], [.74, .87, .85], [.88, .93, .95], [.96, .90, .82], [.85, .92, .90],
+  [.62, .80, .88], [.95, .86, .76],
+];
+/** Compensa, Educandos, São José: the dense painted periferia, brick and render side by side. */
+const PERIFERIA_PALETTE: readonly RGB[] = [
+  [.88, .72, .50], [.80, .84, .52], [.42, .62, .78], [.90, .62, .42], [.72, .78, .56],
+  [.94, .84, .46], [.60, .74, .62], [.86, .54, .48], [.74, .68, .58], [.52, .70, .80],
+  [.92, .78, .62], [.66, .60, .54], [.84, .46, .40], [.56, .76, .60], [.96, .88, .60],
+  [.70, .50, .44], [.48, .56, .64], [.90, .70, .74], [.62, .58, .52], [.78, .82, .84],
+];
+/** Distrito Industrial: steel, block work and unpainted concrete. */
+const INDUSTRIAL_PALETTE: readonly RGB[] = [
+  [.72, .74, .75], [.66, .68, .70], [.78, .79, .78], [.60, .63, .65], [.74, .73, .70],
+  [.68, .70, .72], [.82, .82, .80], [.56, .59, .61], [.70, .72, .69], [.64, .65, .63],
+];
+/** Indexed by `DistrictSample.palette`; see `DISTRICT_PALETTE` for the names. */
+const DISTRICT_PALETTES: readonly (readonly RGB[])[] = [
+  CENTRO_PALETTE, AFFLUENT_PALETTE, RESORT_PALETTE, PERIFERIA_PALETTE, INDUSTRIAL_PALETTE, FACADE_PALETTE,
+];
+/** The saturated paints a minority of Manaus houses really wear, in every bairro. */
+const BOLD_PAINT: readonly RGB[] = [
+  [.16, .43, .70], [.09, .55, .58], [.20, .60, .35], [.90, .72, .13], [.92, .48, .16],
+  [.78, .20, .22], [.85, .38, .55], [.45, .28, .62], [.12, .34, .58], [.36, .68, .28],
+  [.96, .84, .22], [.88, .30, .28], [.20, .70, .66], [.70, .16, .42], [.98, .60, .10],
+];
+const TERRACOTTA: readonly RGB[] = [
+  [.60, .33, .24], [.55, .31, .23], [.64, .38, .27], [.50, .29, .24], [.58, .36, .30],
+  [.68, .42, .29], [.46, .27, .22], [.62, .40, .34],
+];
+/** Painted and galvanised metal sheet, the other half of every pitched roof in the city. */
+const METAL_ROOF: readonly RGB[] = [
+  [.34, .44, .52], [.28, .46, .40], [.58, .60, .60], [.48, .30, .30], [.40, .52, .58],
+  [.66, .67, .64], [.24, .38, .48], [.52, .54, .50],
+];
+const DECK: readonly RGB[] = [
+  [.40, .40, .39], [.36, .36, .36], [.44, .43, .40], [.33, .34, .35],
+  [.48, .47, .44], [.38, .41, .42], [.52, .50, .46],
+];
+/** Rooftop water tanks: the blue and green plastic that speckles every terrace in Manaus. */
+const WATER_TANK: readonly RGB[] = [[.24, .52, .66], [.18, .58, .52], [.74, .76, .75], [.30, .44, .62], [.22, .62, .58]];
+const GLASS: readonly RGB[] = [
+  [.14, .18, .21], [.11, .15, .19], [.17, .21, .22], [.09, .12, .15],
+  [.16, .20, .17], [.19, .17, .14], [.12, .17, .24],
+];
+/** Commercial curtain walls carry the tinted glass the residential blocks never get. */
+const GLASS_TOWER: readonly RGB[] = [
+  [.18, .30, .36], [.13, .26, .34], [.22, .34, .33], [.26, .24, .18], [.16, .22, .30],
+  [.24, .36, .40], [.10, .20, .28], [.30, .32, .28],
+];
 
 const GLASS_LIT: RGB = [.95, .74, .44];
 
@@ -76,6 +143,169 @@ function parseHex(value: string | undefined): RGB | null {
   const hex = value.length === 4 ? value[1] + value[1] + value[2] + value[2] + value[3] + value[3] : value.slice(1);
   const n = parseInt(hex, 16);
   return [(n >> 16 & 255) / 255, (n >> 8 & 255) / 255, (n & 255) / 255];
+}
+
+/** Pushes a colour away from or towards its own luminance, which is how a bairro reads bolder. */
+function saturateRGB(rgb: RGB, amount: number): RGB {
+  const l = rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114;
+  return [
+    Math.min(1, Math.max(0, l + (rgb[0] - l) * amount)),
+    Math.min(1, Math.max(0, l + (rgb[1] - l) * amount)),
+    Math.min(1, Math.max(0, l + (rgb[2] - l) * amount)),
+  ];
+}
+
+/** The palette families a district may name; `DistrictSample.palette` indexes this set. */
+export const DISTRICT_PALETTE = { centro: 0, affluent: 1, resort: 2, periferia: 3, industrial: 4, generic: 5 } as const;
+
+export interface DistrictSample { name: string; palette: number; tint: readonly [number, number, number]; saturation: number }
+export type DistrictSampler = (x: number, z: number) => DistrictSample | null;
+
+interface Zone { name: string; x: number; z: number; reach: number; palette: number; tint: RGB; saturation: number }
+
+/**
+ * Approximate bairro centres in world metres from the Teatro Amazonas origin. They are a stand-in
+ * for surveyed boundaries: `setDistrictSampler` replaces them the moment real polygons compile.
+ */
+const ZONES: readonly Zone[] = [
+  { name: 'Centro', x: 0, z: 0, reach: 1500, palette: 0, tint: [.86, .74, .53], saturation: 1.16 },
+  { name: 'Adrianópolis', x: 1200, z: -3000, reach: 1400, palette: 1, tint: [.93, .94, .95], saturation: .80 },
+  { name: 'Vieiralves', x: 900, z: -3600, reach: 1200, palette: 1, tint: [.95, .95, .93], saturation: .78 },
+  { name: 'Parque 10 · Chapada', x: 2600, z: -5200, reach: 1800, palette: 5, tint: [.88, .86, .80], saturation: 1.00 },
+  { name: 'Aleixo', x: 3400, z: -4600, reach: 1600, palette: 5, tint: [.87, .85, .79], saturation: 1.06 },
+  { name: 'Cidade Nova', x: 1800, z: -9500, reach: 2600, palette: 3, tint: [.88, .78, .62], saturation: 1.34 },
+  { name: 'Compensa', x: -4200, z: -1800, reach: 2000, palette: 3, tint: [.90, .70, .50], saturation: 1.56 },
+  { name: 'Educandos', x: 600, z: -1200, reach: 1300, palette: 3, tint: [.92, .72, .48], saturation: 1.62 },
+  { name: 'Japiim', x: 2600, z: -2600, reach: 1500, palette: 3, tint: [.89, .76, .58], saturation: 1.28 },
+  { name: 'São José Operário', x: 7000, z: -6000, reach: 2800, palette: 3, tint: [.90, .74, .54], saturation: 1.50 },
+  { name: 'Ponta Negra', x: -9400, z: -7400, reach: 2000, palette: 2, tint: [.96, .97, .98], saturation: 1.12 },
+  { name: 'Tarumã', x: -6000, z: -6500, reach: 2400, palette: 2, tint: [.92, .94, .90], saturation: 1.00 },
+  { name: 'Distrito Industrial', x: 3000, z: -500, reach: 1700, palette: 4, tint: [.72, .75, .77], saturation: .55 },
+];
+/** Far from every centre the city falls back to the generic mix rather than to the nearest bairro. */
+const OUTSKIRTS: Zone = { name: 'Manaus', x: 0, z: 0, reach: 0, palette: 5, tint: [.86, .82, .74], saturation: 1.08 };
+const OUTSKIRTS_WEIGHT = .055;
+
+/** Fourth-power falloff: wide enough to overlap its neighbours, narrow enough to stay recognisable. */
+function zoneWeight(zone: Zone, x: number, z: number): number {
+  const dx = x - zone.x, dz = z - zone.z;
+  const t = (dx * dx + dz * dz) / (zone.reach * zone.reach);
+  return 1 / ((1 + t) * (1 + t));
+}
+
+/**
+ * The built-in zones, blended. Tint and saturation are a weighted average so they never jump; the
+ * palette family is drawn from the same weights by a hash of the position, which turns the boundary
+ * between two bairros into a dithered band instead of a line ruled across the map. Far from every
+ * centre the weights collapse onto the generic outskirts mix, so there is no degenerate answer.
+ *
+ * Pure: the same coordinates always return the same sample, and nothing outside is read or written.
+ */
+export function builtinDistrictSample(x: number, z: number): DistrictSample {
+  let total = OUTSKIRTS_WEIGHT, saturation = OUTSKIRTS.saturation * OUTSKIRTS_WEIGHT;
+  let r = OUTSKIRTS.tint[0] * OUTSKIRTS_WEIGHT, g = OUTSKIRTS.tint[1] * OUTSKIRTS_WEIGHT, b = OUTSKIRTS.tint[2] * OUTSKIRTS_WEIGHT;
+  for (const zone of ZONES) {
+    const weight = zoneWeight(zone, x, z);
+    total += weight; saturation += zone.saturation * weight;
+    r += zone.tint[0] * weight; g += zone.tint[1] * weight; b += zone.tint[2] * weight;
+  }
+  let roll = unit(mix32(Math.round(x * 4), Math.round(z * 4)), 97) * total;
+  let name = OUTSKIRTS.name, palette = OUTSKIRTS.palette;
+  for (const zone of ZONES) {
+    roll -= zoneWeight(zone, x, z);
+    if (roll > 0) continue;
+    name = zone.name; palette = zone.palette;
+    break;
+  }
+  return { name, palette, tint: [r / total, g / total, b / total], saturation: saturation / total };
+}
+
+let districtSampler: DistrictSampler | null = null;
+
+/** The lead wires real compiled Overture bairro boundaries into this; until then the built-in zones apply. */
+export function setDistrictSampler(sampler: DistrictSampler | null): void { districtSampler = sampler; }
+
+function districtAt(x: number, z: number): DistrictSample {
+  const sampled = districtSampler ? districtSampler(x, z) : null;
+  return sampled ?? builtinDistrictSample(x, z);
+}
+
+interface Character { palette: number; tint: RGB; saturation: number }
+
+/** How a bairro is actually painted: the historic core, the affluent belt, the orla, the periferia. */
+const CHARACTERS = {
+  centro: { palette: DISTRICT_PALETTE.centro, tint: [.86, .74, .53], saturation: 1.16 },
+  affluent: { palette: DISTRICT_PALETTE.affluent, tint: [.94, .95, .95], saturation: .80 },
+  resort: { palette: DISTRICT_PALETTE.resort, tint: [.96, .97, .98], saturation: 1.12 },
+  periferia: { palette: DISTRICT_PALETTE.periferia, tint: [.90, .72, .50], saturation: 1.54 },
+  suburb: { palette: DISTRICT_PALETTE.periferia, tint: [.89, .78, .60], saturation: 1.28 },
+  industrial: { palette: DISTRICT_PALETTE.industrial, tint: [.72, .75, .77], saturation: .55 },
+} satisfies Record<string, Character>;
+
+/** Every bairro the Overture divisions compile for Manaus, grouped by how it reads on the ground. */
+const BAIRRO_GROUPS: readonly (readonly [keyof typeof CHARACTERS, readonly string[]])[] = [
+  ['centro', ['Centro', 'Aparecida', 'Cachoeirinha', 'Glória', 'Praça 14', 'Praça Ribeiro da Cunha', 'Presidente Vargas', 'Santo Antonio', 'São Geraldo', 'São Raimundo']],
+  ['affluent', ['Adrianópolis', 'Aleixo', 'Chapada', 'Dom Pedro I', 'Flores', 'Nossa Senhora das Graças', 'Parque Dez de Novembro', 'Vieiralves']],
+  ['resort', ['Ponta Negra', 'Tarumã', 'Tarumã-Açú']],
+  ['industrial', ['Crespo', 'Distrito Industrial', 'Industrial I', 'Mauazinho', 'Vila Buriti']],
+  ['suburb', ['Alvorada', 'Cidade Nova', 'Coroado', 'Coroado - Conj. Ouro Verde', 'Da Paz', 'Japiim', 'Novo Aleixo', 'Petrópolis', 'Planalto', 'Raiz', 'Redenção', 'São Francisco', 'Tancredo Neves']],
+  ['periferia', ['Armando Mendes', 'Betânia', 'Cacau Pirera', 'Cidade de Deus', 'Colonia Terra Nova', 'Colônia Antônio Aleixo', 'Colônia Oliveira Machado', 'Compensa', 'Comunidade Santa Cruz-Laranjeiras', 'Educandos', 'Gilberto Mestrinho', 'Lago Azul', 'Lírio do Vale', 'Monte das Oliveiras', 'Morro da Liberdade', 'Nova Cidade', 'Nova Esperança', 'Santa Etelvina', 'Santa Lúzia', 'Santo Agostinho', 'São Jorge', 'São José Operário', 'São Lázaro', 'Vila da Prata', 'Zumbi dos Palmares']],
+];
+
+function normalizeName(name: string): string {
+  return name.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+const BAIRRO_CHARACTER = new Map<string, Character>();
+for (const [key, names] of BAIRRO_GROUPS) for (const name of names) BAIRRO_CHARACTER.set(normalizeName(name), CHARACTERS[key]);
+
+/**
+ * The character of a named bairro, so a sampler over the compiled boundaries is one line:
+ *
+ *   setDistrictSampler((x, z) => { const d = index.at(x, z); return d ? districtCharacter(d.name, x, z) : null; });
+ *
+ * A name the table has never seen falls back to the blended zones, so a boundary set that grows
+ * never arrives colourless.
+ */
+export function districtCharacter(name: string, x: number, z: number): DistrictSample {
+  const character = BAIRRO_CHARACTER.get(normalizeName(name));
+  if (!character) return { ...builtinDistrictSample(x, z), name };
+  return { name, palette: character.palette, tint: character.tint, saturation: character.saturation };
+}
+
+interface Paint { facade: RGB; pitched: RGB; deck: RGB; glass: RGB }
+
+/**
+ * The single place a building's colours are decided. Both tiers call it with the same record, so a
+ * block cannot change colour as the player crosses the detail boundary, and everything it reads is
+ * the id and the footprint — never call order, never the clock.
+ */
+function paintFor(building: RealBuilding, footprint: Footprint, seed: number): Paint {
+  const district = districtAt((building.ox ?? 0) + footprint.cx, (building.oz ?? 0) + footprint.cz);
+  const index = Math.floor(district.palette);
+  const family = DISTRICT_PALETTES[index >= 0 && index < DISTRICT_PALETTES.length ? index : DISTRICT_PALETTE.generic];
+  const height = Math.max(2.6, building.h);
+  const klass = (building.klass ?? '').toLowerCase();
+  const commercial = klass.includes('commercial') || klass.includes('office') || klass.includes('retail') || klass.includes('hotel');
+  // A vivid bairro paints many more of its houses; a tower or a shed is almost never painted.
+  const boldChance = Math.max(.04, Math.min(.36, (district.saturation - .78) * .42)) * (height > 26 || commercial ? .25 : 1);
+  const bold = unit(seed, 30) < boldChance;
+  const explicit = parseHex(building.facade);
+  let base = explicit ?? pick(bold ? BOLD_PAINT : family, seed, 1);
+  if (!explicit) {
+    base = saturateRGB(mixRGB(base, district.tint, bold ? .16 : .34), district.saturation * (bold ? 1.08 : .92));
+    // Manaus's tall blocks are overwhelmingly white, cream or glass, in every bairro there is.
+    if (height > 30) base = mixRGB(base, [.90, .91, .92], Math.min(.5, (height - 30) * .012));
+  }
+  const roof = parseHex(building.roof);
+  // Half the pitched roofs in the city are tile and half are painted or galvanised sheet.
+  const tiled = unit(seed, 32) < (district.saturation > 1.15 ? .72 : .5);
+  return {
+    facade: shade(base, .86 + unit(seed, 2) * .26),
+    pitched: roof ?? saturateRGB(pick(tiled ? TERRACOTTA : METAL_ROOF, seed, 4), .85 + district.saturation * .25),
+    deck: roof ?? shade(pick(DECK, seed, 5), .92 + unit(seed, 34) * .2),
+    glass: pick(commercial || height > 34 ? GLASS_TOWER : GLASS, seed, 3),
+  };
 }
 
 /** Winding-agnostic emit: the geometric normal is measured, then oriented against `ref`. */
@@ -266,10 +496,10 @@ function appendRoof(
         [bx + ix, top + parapet, bz + iz], [edge.ax + ix, top + parapet, edge.az + iz], shade(trim, 1.06), 0, [0, 1, 0]);
     }
     if (shape === 'terrace') {
-      // A stair head and water tank read as the rooftop clutter of Manaus slab blocks.
+      // A stair head capped by the blue-green plastic tank that tops every terrace in the city.
       const w = Math.min(7, Math.max(2.4, obb.halfShort * .7)), d = Math.min(7, Math.max(2.4, obb.halfLong * .32));
       const hutHeight = 2.5 + unit(seed, 22) * 1.3;
-      appendBox(buf, obb.cx, top, obb.cz, w, hutHeight, d, obb.ux, obb.uz, shade(deckColor, 1.18), trim);
+      appendBox(buf, obb.cx, top, obb.cz, w, hutHeight, d, obb.ux, obb.uz, shade(deckColor, 1.18), pick(WATER_TANK, seed, 35));
     }
     return;
   }
@@ -331,14 +561,10 @@ export function appendNearBuilding(buf: MeshBuffers, building: RealBuilding, opt
 
   const klass = (building.klass ?? '').toLowerCase();
   const residential = klass.includes('residential') || klass.includes('apart') || klass.includes('house') || !klass;
-  const base = parseHex(building.facade) ?? pick(FACADE_PALETTE, seed, 1);
   // Weathering keeps neighbouring blocks from reading as a single painted wall.
-  const facade = shade(base, .86 + unit(seed, 2) * .26);
+  const { facade, pitched, deck: deckColor, glass } = paintFor(building, footprint, seed);
   const plinth = mixRGB(shade(facade, .62), [.38, .37, .36], .45);
   const trim = mixRGB(facade, [1, 1, 1], .30);
-  const glass = pick(GLASS, seed, 3);
-  const pitched = parseHex(building.roof) ?? pick(TERRACOTTA, seed, 4);
-  const deckColor = parseHex(building.roof) ?? pick(DECK, seed, 5);
 
   const shape = roofShapeFor(building, footprint, obb, seed);
   const floorHeight = 2.95 + unit(seed, 6) * .75;
@@ -433,12 +659,10 @@ export function appendShellBuilding(buf: MeshBuffers, building: RealBuilding): C
   const minH = Math.max(0, building.minH ?? 0);
   const height = Math.max(2.6, building.h);
   const top = minH + height;
-  const base = parseHex(building.facade) ?? pick(FACADE_PALETTE, seed, 1);
-  const facade = shade(base, .86 + unit(seed, 2) * .26);
+  // The near tier takes its colours from the same call, so a block cannot change hue in flight.
+  const { facade, pitched, deck: deckColor } = paintFor(building, footprint, seed);
   const obb = orientedBox(footprint.points);
   const shape = roofShapeFor(building, footprint, obb, seed);
-  const pitched = parseHex(building.roof) ?? pick(TERRACOTTA, seed, 4);
-  const deckColor = parseHex(building.roof) ?? pick(DECK, seed, 5);
 
   for (const edge of footprint.edges) {
     const bx = edge.ax + edge.ex * edge.length, bz = edge.az + edge.ez * edge.length;

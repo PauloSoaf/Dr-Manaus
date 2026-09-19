@@ -1,4 +1,5 @@
 import { Group, Mesh, MeshBasicMaterial, PerspectiveCamera, TorusGeometry, Vector3 } from 'three/webgpu';
+import { DESTRUCTION } from '../../core/config';
 import type { Collider, Target } from '../../core/types';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import { CharacterModel } from '../CharacterModel';
@@ -16,6 +17,11 @@ export interface PowerHooks {
   sound: (name: string) => void;
   getOrigin: () => Vector3;
   getColliders: () => readonly Collider[];
+  /**
+   * Optional. Structural damage in a blast radius around a world point; returns how many
+   * buildings collapsed. Absent, every power behaves exactly as it did before destruction.
+   */
+  damage?: (point: Vector3, radius: number, amount: number) => number;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }
@@ -41,6 +47,7 @@ export class PowerSystem {
   private aimTimer = 0;
   private temporalTime = 0;
   private destinationValid = false;
+  private collapseNotice = -99;
 
   constructor(private readonly root: Group, private readonly player: PlayerController, private readonly camera: PerspectiveCamera, private readonly input: InputController, private readonly hooks: PowerHooks) {
     this.effects = new EffectPool(root);
@@ -146,18 +153,31 @@ export class PowerSystem {
     this.cooldowns.energy = 0.25;
     this.player.powerPose('energy', 0.3);
     this.emission.copy(this.player.position); this.emission.y += 1.4 * this.player.size;
+    const power = Math.sqrt(this.player.size);
     const target = this.acquireTarget();
     this.player.model.rotation.y = Math.atan2(-this.rayDirection.x, -this.rayDirection.z);
     const surface = PhysicsWorld.raycast(this.rayOrigin, this.rayDirection, this.hooks.getColliders(), 1600, 0, true);
+    let collapsed = 0;
     // A generous aim cone helps target small airborne anomalies in third person.
     if (target && (!surface || target.position.distanceTo(this.rayOrigin) < surface.distance + target.radius + 3)) {
-      this.aimPoint.copy(target.position); this.hooks.hit(target.id, 38 * Math.sqrt(this.player.size)); this.targetId = target.id;
+      this.aimPoint.copy(target.position); this.hooks.hit(target.id, 38 * power); this.targetId = target.id;
     } else {
       this.aimPoint.copy(surface ? surface.point : this.rayOrigin).addScaledVector(this.rayDirection, surface ? 0 : 1200);
+      // Only a beam that actually lands on a surface can cut into it; a shot at the sky does not.
+      if (surface) collapsed = this.hooks.damage?.(this.aimPoint, DESTRUCTION.beamRadius * power, DESTRUCTION.beamDamage * power) ?? 0;
     }
-    this.effects.beam(this.emission, this.aimPoint, Math.sqrt(this.player.size));
-    this.effects.burst(this.aimPoint, 0xb6ffe7, Math.sqrt(this.player.size), 18);
+    this.effects.beam(this.emission, this.aimPoint, power * DESTRUCTION.beamThickness, 0x89ffe1, 1 + collapsed);
+    this.effects.burst(this.aimPoint, 0xb6ffe7, power * (1 + collapsed * 0.3), 18 + collapsed * 8);
     this.hooks.sound('energy');
+    if (collapsed > 0) this.reportCollapse(collapsed, 0.55 * power);
+  }
+
+  /** Held fire can level a block a second; the shake and the notice are rate limited, not the beam. */
+  private reportCollapse(count: number, shake: number): void {
+    window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: shake }));
+    if (this.time - this.collapseNotice < DESTRUCTION.noticeInterval) return;
+    this.collapseNotice = this.time;
+    this.hooks.notify(count === 1 ? 'Estrutura demolida.' : `${count} estruturas demolidas.`);
   }
 
   private shockwave(): void {
@@ -174,9 +194,10 @@ export class PowerSystem {
       // The outer wave throws props; only its inner core disintegrates them.
       if (distance < radius && (target.kind === 'anomaly' || distance < radius * 0.23)) this.hooks.hit(target.id, 95 * Math.sqrt(this.player.size));
     }
+    const levelled = this.hooks.damage?.(this.player.position, radius, DESTRUCTION.shockwaveDamage * Math.sqrt(this.player.size)) ?? 0;
     this.hooks.sound('shockwave');
-    window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: 0.7 * Math.sqrt(this.player.size) }));
-    this.hooks.notify('Onda de choque · matéria repelida.');
+    window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: (0.7 + Math.min(1.1, levelled * 0.12)) * Math.sqrt(this.player.size) }));
+    this.hooks.notify(levelled > 0 ? `Onda de choque · ${levelled} ${levelled === 1 ? 'estrutura arrasada' : 'estruturas arrasadas'}.` : 'Onda de choque · matéria repelida.');
   }
 
   private reconstruct(): void {

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-09-19T01:10:30.606Z",
+  "generatedAt": "2026-09-19T02:29:31.730Z",
   "source": "Overture Maps + OpenStreetMap derived transportation, compiled offline for DR Manaus",
   "origin": {
     "lat": -3.1303,
@@ -662,6 +662,9 @@
   "pois": "pois.json",
   "skyline": "skyline.json",
   "landmarks": "landmarks.json",
+  "water": "water.json",
+  "landmask": "landmask.json",
+  "districts": "districts.json",
   "stats": {
     "buildings": 647085,
     "tiles": 648,
@@ -670,6 +673,9 @@
     "reservedSkipped": 808,
     "skylineBlocks": 7740,
     "landmarkFeatures": 634,
-    "namedRoads": 40767
+    "namedRoads": 40767,
+    "waterPolygons": 241,
+    "districtCount": 62,
+    "landmaskWaterCells": 54959
   }
 }

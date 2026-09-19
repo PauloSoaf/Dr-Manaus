@@ -1,9 +1,9 @@
 import { Group, Mesh, SphereGeometry, TorusGeometry, Vector3 } from 'three/webgpu';
 import type { Collider, Landmark } from '../../core/types';
-import { LANDMARKS } from '../geodata/geodata';
+import { BRIDGE, LANDMARKS } from '../geodata/geodata';
 import { GeometryBatch, tree } from './GeometryBatch';
 import { createTheatre, createTheatreSilhouette } from './theatre';
-import { createBridge, LANDMARK_BUILDERS } from './models';
+import { createBridge, LANDMARK_BUILDERS, PONTA_COLLIDERS } from './models';
 import { ARENA_COLLIDERS, createArenaSilhouette } from './arena';
 
 interface LandmarkNode { landmark: Landmark; anchor: Group; distant: Group; detailed?: Group; visibleDetail: boolean }
@@ -29,14 +29,14 @@ function silhouette(id: string): Group {
   } else if (id === 'largo') {
     b.box('cream', 0, .06, 0, 132, .1, 124); b.box('stone', 0, 5, 6, 4.5, 10, 4.5);
   } else if (id === 'ponta') {
-    b.box('sand', -170, -.14, 0, 700, .28, 1800, -.45);
-    b.box('cream', 128, .18, 0, 46, .36, 1660, -.45);
-    for (let i = -9; i <= 9; i++) {
-      const z = i * 82;
-      const x = 255 - z * .48;
-      const h = 50 + ((i * i + 31) % 6) * 11;
-      b.box(i % 3 === 0 ? 'salmon' : i % 3 === 1 ? 'cream' : 'stone', x, h / 2, z, 38, h, 42, -.45);
-    }
+    // The residential skyline behind the beach is real compiled geometry now; only the sand, the
+    // calçadão, the pier and the anfiteatro need standing in for, on the surveyed .51 rad shore.
+    // Matches the detailed orla: the beach is 112 m wide and 720 m long, sits above the river
+    // surface at y = 0.06, and the old 130 m stone shelf that ran 250 m offshore is gone.
+    b.box('sand', -129.7, .12, -162.4, 112, .3, 720, .51);
+    b.box('cream', -60.8, .2, -201, 56, .4, 680, .51);
+    b.box('bark', -211.9, 1.5, -225.2, 190, .55, 12, .51);
+    b.box('stone', 165.8, 2.2, -92.8, 140, 4.4, 210, .51);
   } else if (id === 'iranduba') {
     b.box('leaf', 0, .04, 0, 900, .08, 700);
     for (let row = -2; row <= 2; row++) for (let col = -3; col <= 3; col++) {
@@ -126,20 +126,14 @@ export class LandmarkManager {
       case 'relogio': box(0, 8.5, 0, 4.7, 17, 4.7); break;
       case 'palacio': box(0, 7.5, -9, 65, 15, 35); box(0, 17.5, 6, 15, 3, 15); break;
       case 'arena': for (const item of ARENA_COLLIDERS) box(item.x, item.y, item.z, item.width, item.height, item.depth); break;
-      case 'ponta':
-        box(-20, 2.2, -110, 28, 4.4, 26);
-        for (let row = 0; row < 2; row++) for (let i = -10; i <= 10; i++) {
-          if (row === 1 && i % 2 !== 0) continue;
-          const z = i * 72 + row * 24;
-          const x = 255 - z * .48 + row * 118;
-          const h = 48 + ((i * i + row * 17 + 31) % 7) * 10;
-          const w = 30 + ((i + 15) % 4) * 6;
-          const d = 34 + ((i * 3 + 19) % 4) * 7;
-          box(x, h / 2, z, w + 8, h, d + 8);
-        }
-        break;
+      // The invented towers are gone: the real Overture blocks behind the beach carry their own
+      // colliders, so only the orla's own solid furniture is listed here.
+      case 'ponta': for (const item of PONTA_COLLIDERS) box(item.x, item.y, item.z, item.width, item.height, item.depth); break;
       case 'ponte':
-        for (let x = -1775; x <= 1775; x += 25) box(x * Math.cos(.35), 53, -x * Math.sin(.35), 31, 4, 33);
+        // Driven by the surveyed alignment so the collision deck cannot drift off the visual one.
+        for (let x = -BRIDGE.halfLength; x <= BRIDGE.halfLength; x += 25) {
+          box(x * Math.cos(BRIDGE.angle), BRIDGE.deck, -x * Math.sin(BRIDGE.angle), 31, 4, 33);
+        }
         break;
       case 'iranduba': box(0, 12, 0, 15, 24, 15); break;
       case 'encontro': box(0, 8.8, -4, 10, .4, 27); break;

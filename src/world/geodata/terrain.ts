@@ -16,6 +16,12 @@ export function createTerrain(root: Group): void {
   const urban = new MeshStandardMaterial({ color: '#565753', roughness: 1, side: DoubleSide });
   const irandubaUrban = new MeshStandardMaterial({ color: '#59624f', roughness: 1, side: DoubleSide });
   const sand = new MeshStandardMaterial({ color: '#b0a185', roughness: 1, side: DoubleSide });
+  // A backdrop under everything. The generalized shoreline disagrees with the compiled river in
+  // places, and the real water surface is what paints the Rio Negro on top; without this plane a
+  // stretch of genuine land that the old polyline called river would render as a hole in the world.
+  const backdrop = polygon([[-60000, -60000], [60000, -60000], [60000, 60000], [-60000, 60000]], green, -.6);
+  backdrop.name = 'terrain-backdrop';
+  terrain.add(backdrop);
   const opposite = SHORELINE.map(([x, z]) => [x, z + riverWidth(x)] as const);
   terrain.add(polygon([...SHORELINE, [50000, -50000], [-50000, -50000]], green, -.15));
   terrain.add(polygon([...opposite, [50000, 50000], [-50000, 50000]], green, -.2));

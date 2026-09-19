@@ -6,7 +6,7 @@ import type { TimeKind, WeatherKind } from '../core/types';
 import { CityMap } from './CityMap';
 import { icon, POWERS } from './icons';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; spaceFactor:number; debug:Record<string,string|number> }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number> }
 const $=<T extends HTMLElement=HTMLElement>(selector:string)=>document.querySelector<T>(selector)!;
 export class HUD {
   private mini:CityMap;private map:CityMap;private elapsed=0;private mapElapsed=0;private toastTimer=0;private lastPlace='';private temp=new Vector3();
@@ -21,7 +21,7 @@ export class HUD {
       <div id="objective-marker" class="objective-marker" hidden><span>◇</span><small></small></div>
       <div class="welcome" id="welcome"><span>VOCÊ É A ENERGIA DESTA CIDADE.</span><p>O horizonte é só o começo.</p></div>
       <div class="toast" id="toast" role="status"></div>
-      <div class="location"><span class="eyebrow">MANAUS, AMAZONAS</span><h2 id="place-name">Teatro Amazonas</h2><p id="coordinates">3.1303° S &nbsp; 60.0234° O</p><div class="location-line"><i></i><span id="location-state">CENTRO HISTÓRICO</span></div></div>
+      <div class="location"><span class="eyebrow">MANAUS · <b id="district">AMAZONAS</b></span><h2 id="place-name">Teatro Amazonas</h2><p id="coordinates">3.1303° S &nbsp; 60.0234° O</p><div class="location-line"><i></i><span id="location-state">CENTRO HISTÓRICO</span></div></div>
       <footer class="power-dock"><div class="power-caption"><span>MANIPULAÇÃO CÓSMICA</span><i></i><span id="power-current">EMISSÃO DE ENERGIA</span></div><div class="power-buttons">${POWERS.map(([id,label,key],i)=>`<button class="power ${i===0?'active':''}" data-power="${id}" title="${label} (${key})" aria-label="${label}">${icon(id)}<kbd>${key}</kbd><span>${label}</span></button>`).join('')}</div><div class="control-hint" id="control-hint"><kbd>F</kbd> levitar <i></i><kbd>W A S D</kbd> mover <i></i><span>clique na cena para controlar a câmera</span></div></footer>
       <aside class="mini-cluster"><div class="space-band" id="space-band" hidden>${icon('flight',11)}<span id="space-label">ALTA ATMOSFERA</span><i></i></div><div class="flight-modes" id="flight-modes"><b data-mode="normal">NORMAL</b><b data-mode="fast">RÁPIDO</b><b data-mode="super">SUPER</b><b data-mode="mega">MEGA</b></div><div class="flight-readout">${icon('flight',17)}<span id="flight-state">EM SOLO</span><b id="speed">0</b><small>km/h</small></div><button class="minimap-button" data-panel="map" aria-label="Abrir mapa da cidade"><canvas id="minimap"></canvas><span class="map-caption">${icon('map',13)} EXPLORAR MANAUS <kbd>M</kbd></span></button><div class="mini-status"><i></i><span id="render-state">MUNDO CONECTADO</span><span id="altitude">38 m</span></div></aside>
       <div id="panel-backdrop" class="panel-backdrop" hidden></div>
@@ -67,6 +67,7 @@ export class HUD {
     const near=Math.hypot(nearest.x-state.position.x,nearest.z-state.position.z)<Math.max(400,nearest.radius*2);
     const place=near?nearest.name:'Sobre a Amazônia';if(this.lastPlace!==place){$('#place-name').textContent=place;this.lastPlace=place;}
     $('#location-state').textContent=state.temporal?'PERCEPÇÃO TEMPORAL':state.size>12?'MAGNITUDE COLOSSAL':state.size>2?'MAGNITUDE GIGANTE':near?'ASSINATURA LOCALIZADA':'EXPLORAÇÃO LIVRE';
+    $('#district').textContent=state.district;
     const geo=worldToLatLon(state.position.x,state.position.z);$('#coordinates').textContent=`${Math.abs(geo.lat).toFixed(4)}° S   ${Math.abs(geo.lon).toFixed(4)}° O`;
     $('#mission-title').textContent=state.title;$('#mission-objective').textContent=state.objective;$('#mission-type').textContent=state.stage>=4?'EXPLORAÇÃO LIVRE':'CAPÍTULO 01';
     const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`;

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { Group, MeshStandardMaterial, Vector3 } from 'three/webgpu';
+import { Group, Mesh, MeshStandardMaterial, Vector3 } from 'three/webgpu';
 import { REAL_CITY } from '../src/core/config.ts';
 import { GEO_ORIGIN, LANDMARKS, latLonToWorld, onAirfield, worldToLatLon } from '../src/world/geodata/geodata.ts';
 import { WORLD } from '../src/core/config.ts';
@@ -12,11 +12,13 @@ import { generateChunk } from '../src/world/chunks/BuildingGenerator.ts';
 import { AIRPORT_RESERVATIONS } from '../src/world/realcity/airport.ts';
 import { ARENA_COLLIDERS } from '../src/world/landmarks/arena.ts';
 import {
-  appendNearBuilding, appendShellBuilding, buildingSeed, createBuffers, roofShapeFor,
-  type MeshBuffers, type RealBuilding,
+  appendNearBuilding, appendShellBuilding, buildingSeed, createBuffers, districtCharacter,
+  roofShapeFor, setDistrictSampler, type MeshBuffers, type RealBuilding,
 } from '../src/world/realcity/buildingGeometry.ts';
 import { ARTERIAL_CLASSES, RoadNetwork, type RoadRecord } from '../src/world/realcity/roads.ts';
 import { RealCityLayer } from '../src/world/realcity/RealCityLayer.ts';
+import { DistrictIndex } from '../src/world/realcity/districts.ts';
+import { LandMask } from '../src/world/geodata/landmask.ts';
 
 const DATA = path.resolve('public/geodata/real-city');
 const manifestPath = path.join(DATA, 'manifest.json');
@@ -193,6 +195,36 @@ test('the road network separates arterials from streets and only stripes what ca
   assert.equal(network.group.children.length, 0);
 });
 
+test('street furniture only exists near the player and never stands on a building', () => {
+  const material = new MeshStandardMaterial(), lamps = new MeshStandardMaterial();
+  const records: RoadRecord[] = [
+    { class: 'primary', width: 14, p: [0, 0, 600, 0], name: 'Avenida Teste' },
+    { class: 'residential', width: 7, p: [0, 40, 300, 40] },
+  ];
+  const network = new RoadNetwork(records, material, lamps);
+  network.update(0, 0);
+  const furniture = network.group.children.find(child => child.name === 'real-roads-lamps') as Mesh | undefined;
+  assert.ok(furniture, 'lamps and street trees must be built near the player');
+  const positions = furniture.geometry.getAttribute('position');
+  assert.ok(positions.count > 0);
+  const lit = furniture.geometry.getAttribute('lit');
+  assert.ok(lit, 'the night-glow mask must reach the furniture material');
+  let glowing = 0;
+  for (let i = 0; i < lit.count; i++) if (lit.getX(i) > .5) glowing++;
+  assert.ok(glowing > 0 && glowing < lit.count * .5, 'only lamp heads glow, never masts or foliage');
+
+  // Furniture rides beside the carriageway, so it can never intrude on a real footprint.
+  for (let i = 0; i < positions.count; i++) {
+    const z = positions.getZ(i);
+    assert.ok(Math.abs(z) > 5 || Math.abs(z - 40) > 3.4, 'furniture must sit off the centre line');
+  }
+  // Away from the player it costs nothing at all.
+  network.update(20000, 20000);
+  const far = network.group.children.find(child => child.name === 'real-roads-lamps');
+  assert.equal(far, undefined, 'street furniture must not exist away from the player');
+  network.dispose();
+});
+
 test('the procedural city is suppressed by tile arithmetic, not by what happens to be resident', async () => {
   if (!manifest) return;
   const previous = globalThis.fetch;
@@ -337,4 +369,238 @@ test('the Arena and the airport are built where the survey data actually puts th
   const runway = latLonToWorld(-3.0386, -60.0497);
   assert.ok(Math.hypot(runway.x - poi.x, runway.z - poi.z) < 1500,
     'the runway must sit next to the Overture airport place record');
+});
+
+test('the bairro index answers point lookups from real polygons and degrades gracefully', () => {
+  const index = new DistrictIndex();
+  assert.equal(index.load(null), false, 'a missing districts file must leave the index inert');
+  assert.equal(index.at(0, 0), null);
+  assert.equal(index.size, 0);
+
+  // A square bairro with a hole, plus a neighbour, is enough to exercise every branch.
+  const square = (cx: number, cz: number, half: number) =>
+    [cx - half, cz - half, cx + half, cz - half, cx + half, cz + half, cx - half, cz + half];
+  assert.equal(index.load({ districts: [
+    { name: 'Centro', kind: 'neighborhood', x: 0, z: 0, rings: [square(0, 0, 500), square(0, 0, 100)] },
+    { name: 'Adrianópolis', kind: 'neighborhood', x: 1200, z: -3000, rings: [square(1200, -3000, 400)] },
+  ] }), true);
+  assert.equal(index.size, 2);
+  assert.equal(index.at(300, 300)?.name, 'Centro');
+  assert.equal(index.at(0, 0), null, 'a hole in the outer ring is not part of the bairro');
+  assert.equal(index.at(1250, -3050)?.name, 'Adrianópolis');
+  assert.equal(index.at(9000, 9000), null);
+  // Outside every boundary the HUD still needs a name to show.
+  assert.equal(index.nearest(9000, 9000)?.name ?? null, null, 'nothing is near enough to claim it');
+  assert.equal(index.nearest(700, 0)?.name, 'Centro');
+  assert.equal(index.at(300, 300), index.at(300, 300), 'a repeated lookup is served from the cache');
+});
+
+test('the compiled bairro boundaries name real Manaus neighbourhoods', () => {
+  const file = path.join(DATA, 'districts.json');
+  if (!existsSync(file)) return; // Compiled by the geodata pipeline; absent until it has run.
+  const index = new DistrictIndex();
+  assert.equal(index.load(JSON.parse(readFileSync(file, 'utf8'))), true);
+  assert.ok(index.size > 20, `only ${index.size} bairros compiled`);
+  const names = index.names.join(' | ').toLowerCase();
+  for (const expected of ['centro', 'ponta negra', 'cidade nova']) {
+    assert.ok(names.includes(expected), `expected a bairro named like "${expected}"`);
+  }
+  // The Teatro Amazonas is the projection origin and sits squarely in the Centro.
+  const here = index.nearest(0, 0);
+  assert.ok(here, 'the origin must resolve to a bairro');
+});
+
+test('the baked land mask answers land and water in constant time and stays optional', () => {
+  const mask = new LandMask();
+  assert.equal(mask.ready, false);
+  assert.equal(mask.isWater(0, 0), false, 'an unloaded mask must never claim anything is water');
+  assert.equal(mask.covers(0, 0), false);
+  assert.equal(mask.load(null), false);
+
+  // Four cells wide, two rows: the first row is all water, the second all land.
+  const rowBytes = 1, width = 4, height = 2;
+  const bytes = new Uint8Array(rowBytes * height);
+  bytes[0] = 0b1111; bytes[1] = 0b0000;
+  const bits = Buffer.from(bytes).toString('base64');
+  assert.equal(mask.load({ originX: -256, originZ: -256, cell: 128, width, height, bits }), true);
+  assert.equal(mask.ready, true);
+  assert.equal(mask.waterCells, 4);
+  assert.equal(mask.isWater(-200, -200), true, 'first row is water');
+  assert.equal(mask.isWater(-200, -60), false, 'second row is land');
+  assert.equal(mask.covers(-200, -200), true);
+  // Outside the baked extent the caller keeps its own fallback rather than getting a wrong answer.
+  assert.equal(mask.covers(99999, 0), false);
+  assert.equal(mask.isWater(99999, 0), false);
+  // A truncated payload is rejected instead of reading past the buffer.
+  assert.equal(mask.load({ originX: 0, originZ: 0, cell: 128, width: 512, height: 512, bits }), false);
+});
+
+test('the compiled land mask agrees with the river where the pipeline has produced one', () => {
+  const file = path.join(DATA, 'landmask.json');
+  if (!existsSync(file)) return; // Emitted by the geodata pipeline; absent until it has run.
+  const mask = new LandMask();
+  assert.equal(mask.load(JSON.parse(readFileSync(file, 'utf8'))), true);
+  assert.ok(mask.covers(0, 0), 'the mask must reach the projection origin');
+  assert.equal(mask.isWater(0, 0), false, 'the Teatro Amazonas does not stand in the river');
+  const fraction = mask.waterCells / (512 * 512);
+  assert.ok(fraction > 0.02 && fraction < 0.75, `implausible water fraction ${(fraction * 100).toFixed(1)}%`);
+});
+
+test('no landmark stands in the Rio Negro once the real water polygons are consulted', () => {
+  const file = path.join(DATA, 'landmask.json');
+  if (!existsSync(file)) return;
+  const mask = new LandMask();
+  assert.equal(mask.load(JSON.parse(readFileSync(file, 'utf8'))), true);
+  // A bridge, a floating harbour and a river confluence belong over water by definition.
+  const overWater = new Set(['ponte', 'porto', 'encontro']);
+  const drowned: string[] = [];
+  for (const landmark of LANDMARKS) {
+    if (overWater.has(landmark.id) || !mask.covers(landmark.x, landmark.z)) continue;
+    if (mask.isWater(landmark.x, landmark.z)) drowned.push(landmark.id);
+  }
+  assert.deepEqual(drowned, [], 'these landmarks sit inside the real river');
+  // Iranduba specifically has to be on the far bank, not merely out of the water.
+  const iranduba = LANDMARKS.find(landmark => landmark.id === 'iranduba')!;
+  assert.equal(mask.isWater(iranduba.x, iranduba.z), false);
+  assert.equal(mask.isWater(iranduba.x, iranduba.z - 2000), true,
+    'the far bank must have the Rio Negro between it and Manaus');
+});
+
+test('facade colour follows the real bairro boundaries, not one palette for the whole city', () => {
+  const districtFile = path.join(DATA, 'districts.json');
+  if (!manifest || !existsSync(districtFile)) return;
+  const index = new DistrictIndex();
+  assert.equal(index.load(JSON.parse(readFileSync(districtFile, 'utf8'))), true);
+  setDistrictSampler((x, z) => {
+    const bairro = index.at(x, z);
+    return bairro ? districtCharacter(bairro.name, bairro.x, bairro.z) : null;
+  });
+  try {
+    const saturation = (tx: number, tz: number): { mean: number; bairro: string | null } => {
+      const file = manifest.tiles[`${tx},${tz}`];
+      if (!file) return { mean: NaN, bairro: null };
+      const tile = JSON.parse(readFileSync(path.join(DATA, file), 'utf8')) as { buildings: RealBuilding[] };
+      let total = 0, samples = 0;
+      for (const building of tile.buildings.slice(0, 400)) {
+        const buffers = createBuffers();
+        // Footprints are tile-local; the sampler needs them where they actually stand.
+        const moved = { ...building, p: building.p.map((v, i) => v + (i % 2 ? tz * manifest.tileSize : tx * manifest.tileSize)) };
+        if (!appendShellBuilding(buffers, moved)) continue;
+        for (let i = 0; i < buffers.color.length; i += 3) {
+          const max = Math.max(buffers.color[i], buffers.color[i + 1], buffers.color[i + 2]);
+          const min = Math.min(buffers.color[i], buffers.color[i + 1], buffers.color[i + 2]);
+          total += max === 0 ? 0 : (max - min) / max; samples++;
+        }
+      }
+      return { mean: samples ? total / samples : NaN, bairro: index.at(tx * manifest.tileSize + 512, tz * manifest.tileSize + 512)?.name ?? null };
+    };
+
+    const measured = [[0, 0], [0, -6], [3, -2], [8, -7]].map(([tx, tz]) => saturation(tx, tz))
+      .filter(entry => Number.isFinite(entry.mean) && entry.bairro);
+    assert.ok(measured.length >= 3, 'the sample tiles must land inside compiled bairros');
+    const low = Math.min(...measured.map(entry => entry.mean));
+    const high = Math.max(...measured.map(entry => entry.mean));
+    assert.ok(high > low * 1.8,
+      `bairros must read differently: saturation ranged only ${low.toFixed(3)}..${high.toFixed(3)}`);
+    assert.ok(high < .95, 'no bairro should be fully saturated');
+  } finally {
+    setDistrictSampler(null);
+  }
+});
+
+test('the district sampler never breaks determinism or near/shell colour agreement', () => {
+  setDistrictSampler((x, z) => districtCharacter('Fixture', x, z));
+  try {
+    const building: RealBuilding = { id: 'sampler-check', h: 30, p: [-10, -10, -10, 10, 10, 10, 10, -10] };
+    const first = createBuffers(), second = createBuffers(), shell = createBuffers();
+    appendNearBuilding(first, building);
+    appendNearBuilding(second, building);
+    appendShellBuilding(shell, building);
+    assert.deepEqual(first.color, second.color, 'a sampler must not make facades vary between rebuilds');
+    // Both tiers must start from the same base colour or a building changes hue as you approach it.
+    assert.ok(Math.abs(first.color[0] - shell.color[0]) < .3, 'near and shell disagree on the base colour');
+  } finally {
+    setDistrictSampler(null);
+  }
+});
+
+test('the Ponta Negra orla stands on the real beach, not out in the Rio Negro', () => {
+  const file = path.join(DATA, 'landmask.json');
+  if (!existsSync(file)) return;
+  const mask = new LandMask();
+  assert.equal(mask.load(JSON.parse(readFileSync(file, 'utf8'))), true);
+  const ponta = LANDMARKS.find(landmark => landmark.id === 'ponta')!;
+  // The orla is laid out in shore-local coordinates: `along` down the beach, `inland` away from it.
+  const angle = .51, sin = Math.sin(angle), cos = Math.cos(angle), mid = -205;
+  const wet = (along: number, inland: number): boolean => mask.isWater(
+    ponta.x + sin * (mid + along) + cos * inland,
+    ponta.z + cos * (mid + along) - sin * inland,
+  );
+  // The mask is a 128 m grid and the beach is a ~100 m strip, so a single wet cell under the sand
+  // is resolution, not error. What must not happen is the orla standing far out in the river, so
+  // the invariant is distance to dry ground rather than the cell directly underneath.
+  const seaward = (along: number, inland: number): number => {
+    for (let out = 0; out <= 400; out += 32) if (!wet(along, inland + out)) return out;
+    return Infinity;
+  };
+  for (let along = -330; along <= 330; along += 55) {
+    assert.ok(seaward(along, 45) <= 160, `the promenade is ${seaward(along, 45)} m out in the river at along ${along}`);
+  }
+  for (const along of [-370, -275, -180, -85, 10, 105, 200, 290]) {
+    assert.ok(seaward(along, 18) <= 160, `a kiosk is ${seaward(along, 18)} m out in the river at along ${along}`);
+  }
+  assert.equal(seaward(-60, 150), 0, 'the amphitheatre must be on dry ground outright');
+  // The beach itself must still reach the water, or it is not a beach.
+  assert.equal(wet(0, -140), true, 'the shore must be seaward of the sand');
+  // And the orla must not have crept back to the old footprint that ran 600 m down the river.
+  assert.ok(seaward(-520, 18) > 0, 'the orla should no longer extend that far north-west');
+});
+
+test('dropping facade detail never drops collision with the buildings it was drawing', async () => {
+  if (!manifest) return;
+  const previous = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
+    const marker = url.indexOf('geodata/real-city/');
+    if (marker < 0) return new Response(null, { status: 404 });
+    const file = path.join(DATA, url.slice(marker + 'geodata/real-city/'.length));
+    if (!existsSync(file)) return new Response(null, { status: 404 });
+    return new Response(await readFile(file), { status: 200 });
+  }) as typeof fetch;
+  const root = new Group(), layer = new RealCityLayer(root);
+  const settle = async (velocity: Vector3) => {
+    for (let i = 0; i < 160; i++) {
+      layer.update(new Vector3(0, 40, 0), velocity, 1 / 60);
+      if (i % 10 === 0) await new Promise(resolve => setTimeout(resolve, 4));
+    }
+  };
+  try {
+    await layer.initialize();
+    await settle(new Vector3());
+    assert.ok(layer.stats.near > 0, 'near cells must be promoted at rest');
+    assert.ok(layer.stats.colliders > 0, 'real buildings must be collidable');
+    const richColliders = layer.stats.colliders;
+    assert.ok(layer.stats.detailTriangles > 0, 'facades exist at a low quality-independent baseline');
+
+    // A low quality preset drops windows and balconies, and must keep every collider.
+    layer.setDetail(false);
+    await settle(new Vector3());
+    assert.ok(layer.stats.near > 0, 'cells stay promoted when detail is off');
+    assert.ok(layer.stats.colliders > richColliders * .5,
+      `collision collapsed with detail: ${richColliders} -> ${layer.stats.colliders}`);
+
+    // Above cruise speed the facades are pointless, but the buildings must still be solid.
+    layer.setDetail(true);
+    await settle(new Vector3(0, 0, -700));
+    assert.ok(layer.stats.near > 0, 'cells stay promoted above the facade speed limit');
+    assert.ok(layer.stats.colliders > 0, 'buildings stay solid above the facade speed limit');
+
+    // At mega speed the ring deliberately rides kilometres ahead, so what is behind is released.
+    // The invariant there is the budget, not local collision: the player is crossing, not walking.
+    await settle(new Vector3(0, 0, -8000));
+    assert.ok(layer.stats.tiles <= REAL_CITY.maxTiles);
+    assert.ok(layer.stats.colliders <= REAL_CITY.maxColliders);
+  } finally {
+    layer.dispose(); globalThis.fetch = previous;
+  }
 });

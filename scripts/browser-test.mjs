@@ -96,6 +96,30 @@ try {
     if (city.colliders > 900) throw new Error(`Colisores reais estouraram o orcamento: ${city.colliders}.`);
   }
 
+  // Levelling a real building must remove it from the world, not merely from the collider list.
+  const demolition = await page.evaluate(() => {
+    const game = window.__DR_MANAUS__;
+    const victim = game.realCity.colliders.find(collider => collider.id && collider.id.startsWith('real:'));
+    if (!victim) return { attempted: false };
+    const before = game.realCity.colliders.length;
+    const ok = game.destructible.destroy(victim.id);
+    game.realCity.update(game.player.position, game.player.velocity, 1 / 60);
+    return {
+      attempted: true, ok, before,
+      gone: !game.realCity.colliders.some(collider => collider.id === victim.id),
+      destroyed: game.realCity.destroyedCount,
+    };
+  });
+  if (demolition.attempted) {
+    if (!demolition.ok) throw new Error('Nao foi possivel derrubar um predio real residente.');
+    if (!demolition.gone) throw new Error('O predio derrubado continuou na lista de colisores.');
+  }
+
+  const places = await page.evaluate(() => {
+    const game = window.__DR_MANAUS__;
+    return { districts: game.realCity.districts.size, here: game.realCity.districts.nearest(0, 0)?.name ?? null };
+  });
+
   await page.keyboard.press('f');
   await page.waitForFunction(() => window.__DR_MANAUS__.player.state !== 'Grounded', null, { timeout: 3_000 });
   const flightState = await page.evaluate(() => window.__DR_MANAUS__.player.state);
@@ -106,6 +130,12 @@ try {
     ? `  cidade real: ${city.tiles} tiles, ${city.near} celulas proximas, ${city.detailTriangles.toLocaleString()} tri perto + ${city.shellTriangles.toLocaleString()} tri casca, ${city.skyline} blocos de horizonte, ${city.colliders} colisores`
     : '  cidade real: desabilitada (manifesto ausente) — fallback procedural ativo');
   console.log(`  quadro inicial: ${city.drawCalls} draw calls, ${city.triangles.toLocaleString()} triangulos | HLOD ${city.hlod.medium}/${city.hlod.aggregate}/${city.hlod.horizon}`);
+  console.log(places.districts
+    ? `  bairros reais: ${places.districts} compilados, origem = ${places.here ?? 'sem correspondencia'}`
+    : '  bairros reais: nao compilados ainda');
+  console.log(demolition.attempted
+    ? `  destruicao: predio real derrubado e removido do mundo (${demolition.destroyed} registrado)`
+    : '  destruicao: nenhum predio real ao alcance para testar');
 } finally {
   await browser?.close();
   if (server.exitCode === null) server.kill();

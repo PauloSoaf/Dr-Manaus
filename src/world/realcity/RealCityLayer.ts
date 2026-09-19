@@ -1,13 +1,14 @@
 import {
-  BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Group, InstancedMesh,
+  BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Group, InstancedMesh,
   Matrix4, Mesh, MeshStandardMaterial, Vector3,
 } from 'three/webgpu';
 import type { Collider } from '../../core/types';
 import { REAL_CITY } from '../../core/config';
 import { RealCityMaterials } from './materials';
 import { RoadNetwork, type RoadRecord } from './roads';
+import { DistrictIndex } from './districts';
 import {
-  appendNearBuilding, appendShellBuilding, buildingExtent, createBuffers,
+  appendNearBuilding, appendShellBuilding, buildingExtent, createBuffers, districtCharacter, setDistrictSampler,
   type MeshBuffers, type RealBuilding,
 } from './buildingGeometry';
 
@@ -24,6 +25,7 @@ export interface RealCityManifest {
   roads?: string;
   pois?: string;
   skyline?: string;
+  districts?: string;
   stats?: Record<string, number>;
 }
 
@@ -40,19 +42,27 @@ interface Tile {
   shell?: Mesh;
   detail?: Mesh;
   colliders: Collider[];
+  /** Vertex span of each building inside the merged buffers, so one can be collapsed in place. */
+  detailRanges: Map<string, number>;
+  shellRanges: Map<string, number>;
   touched: number;
 }
 
 interface BuildJob {
   tile: Tile;
   kind: 'shell' | 'detail';
+  /** Near cells always exist for collision; `rich` decides whether they also get facades. */
+  rich: boolean;
   list: RealBuilding[];
   index: number;
   buffers: MeshBuffers;
   colliders: Collider[];
+  ranges: Map<string, number>;
 }
 
 const CELLS_PER_SIDE = 4;
+/** Packing base for a building's vertex span; a sixty-storey tower stays well under it. */
+const VERTEX_SPAN = 65536;
 
 function baseUrl(): string {
   try {
@@ -106,7 +116,14 @@ export class RealCityLayer {
   private readonly realTiles = new Set<string>();
   /** Colliders are stable objects per chunk load, so the verdict is cached without string work. */
   private readonly suppressed = new WeakMap<Collider, boolean>();
+  /** Buildings the player has levelled. Bounded, because a long flight would otherwise grow it forever. */
+  private readonly destroyed = new Set<string>();
+  private readonly destroyedOrder: string[] = [];
+  private readonly touchedGeometry = new Set<Mesh>();
+  private collidersDirty = false;
   private readonly focus = new Vector3();
+  /** Real Manaus bairro boundaries, used for naming places and for tinting facades by district. */
+  readonly districts = new DistrictIndex();
   private skyline?: InstancedMesh;
   private skylineData = new Map<string, number[]>();
   private skylineDirty = true;
@@ -115,6 +132,8 @@ export class RealCityLayer {
   private detailEnabled = true;
   private lastPlanX = Infinity;
   private lastPlanZ = Infinity;
+  private speed = 0;
+  private rich = true;
   private planTimer = 0;
   private readonly metrics: RealCityStats = {
     tiles: 0, near: 0, colliders: 0, queued: 0,
@@ -148,7 +167,7 @@ export class RealCityLayer {
       this.materials = new RealCityMaterials();
       this.materials.setNight(this.night);
       this.hideLegacyRoads();
-      await Promise.all([this.loadRoads(), this.loadSkyline()]);
+      await Promise.all([this.loadRoads(), this.loadSkyline(), this.loadDistricts()]);
     } catch {
       this.enabled = false;
     }
@@ -161,10 +180,25 @@ export class RealCityLayer {
       if (!response.ok) return;
       const records = await response.json() as RoadRecord[];
       if (!Array.isArray(records) || !records.length) return;
-      this.roads = new RoadNetwork(records, this.materials.road);
+      this.roads = new RoadNetwork(records, this.materials.road, this.materials.lamp);
       this.group.add(this.roads.group);
       this.metrics.roadTriangles = this.roads.triangleCount;
     } catch { /* The procedural road ribbons stay visible when the real network is missing. */ }
+  }
+
+  private async loadDistricts(): Promise<void> {
+    if (!this.manifest?.districts) return;
+    try {
+      const response = await fetch(`${baseUrl()}geodata/real-city/${this.manifest.districts}`);
+      if (!response.ok) return;
+      if (!this.districts.load(await response.json())) return;
+      // Real boundaries, built-in character: a bairro reads as one place across its true extent,
+      // with a crisp edge against its neighbour rather than a smooth coordinate blend.
+      setDistrictSampler((x, z) => {
+        const bairro = this.districts.at(x, z);
+        return bairro ? districtCharacter(bairro.name, bairro.x, bairro.z) : null;
+      });
+    } catch { /* Without bairro boundaries the HUD falls back to the nearest landmark. */ }
   }
 
   private async loadSkyline(): Promise<void> {
@@ -240,6 +274,52 @@ export class RealCityLayer {
     this.skylineDirty = false;
   }
 
+  /**
+   * Levels a real building. The merged tile geometry is not rebuilt — the building's own vertex
+   * span is collapsed to a point in place and uploaded as a partial range, so razing a block at
+   * mega speed costs a few hundred bytes of transfer instead of a seven-megabyte re-upload.
+   */
+  destroy(colliderId: string): boolean {
+    if (!this.enabled || !colliderId.startsWith('real:')) return false;
+    const id = colliderId.slice(5);
+    if (this.destroyed.has(id)) return false;
+    this.destroyed.add(id);
+    this.destroyedOrder.push(id);
+    if (this.destroyedOrder.length > REAL_CITY.maxDestroyed) {
+      const evicted = this.destroyedOrder.shift();
+      if (evicted !== undefined) this.destroyed.delete(evicted);
+    }
+    for (const tile of this.tiles.values()) {
+      this.collapse(tile.detail, tile.detailRanges.get(id));
+      this.collapse(tile.shell, tile.shellRanges.get(id));
+      for (let i = tile.colliders.length - 1; i >= 0; i--) {
+        if (tile.colliders[i].id === colliderId) { tile.colliders.splice(i, 1); this.collidersDirty = true; }
+      }
+    }
+    // True once the building is gone from the world, whether or not a mesh happened to be
+    // resident to collapse: a rebuilt tier skips it either way, so the caller must not retry.
+    return true;
+  }
+
+  private collapse(mesh: Mesh | undefined, packed: number | undefined): boolean {
+    if (!mesh || packed === undefined) return false;
+    const attribute = mesh.geometry.getAttribute('position');
+    if (!(attribute instanceof BufferAttribute)) return false;
+    const first = Math.floor(packed / VERTEX_SPAN), count = packed % VERTEX_SPAN;
+    const array = attribute.array as Float32Array;
+    if ((first + count) * 3 > array.length) return false;
+    // Degenerate triangles are discarded before rasterisation, which is cheaper than an index rebuild.
+    array.fill(0, first * 3, (first + count) * 3);
+    attribute.addUpdateRange(first * 3, count * 3);
+    attribute.needsUpdate = true;
+    this.touchedGeometry.add(mesh);
+    return true;
+  }
+
+  /** True once the player has levelled this building, so nothing re-creates it. */
+  isDestroyed(buildingId: string): boolean { return this.destroyed.has(buildingId); }
+  get destroyedCount(): number { return this.destroyed.size; }
+
   setNight(night: boolean): void {
     this.night = night;
     this.materials?.setNight(night);
@@ -249,12 +329,24 @@ export class RealCityLayer {
   setDetail(enabled: boolean): void {
     if (enabled === this.detailEnabled) return;
     this.detailEnabled = enabled;
+    this.refreshRichness();
+  }
+
+  /**
+   * Dropping facade detail must never drop collision with it. Near cells stay promoted whatever
+   * the quality preset or the flight speed says; only the geometry built for them gets cheaper.
+   */
+  private refreshRichness(): void {
+    const rich = this.detailEnabled && this.speed < REAL_CITY.detailSpeedLimit;
+    if (rich === this.rich) return;
+    this.rich = rich;
     for (const tile of this.tiles.values()) if (tile.nearCount) this.schedule(tile);
   }
 
   update(position: Vector3, velocity: Vector3, dt: number): void {
     if (!this.enabled || !this.manifest) return;
     const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
+    this.speed = speed;
     // At speed the ring moves ahead of the player and narrows: what is behind can no longer be seen.
     const lead = Math.min(REAL_CITY.maxLead, speed * REAL_CITY.leadSeconds);
     if (lead > 1 && speed > 1) {
@@ -274,10 +366,20 @@ export class RealCityLayer {
       this.planTimer = REAL_CITY.planInterval;
       this.plan(radius);
     }
+    this.refreshRichness();
     this.classifyCells(position, speed);
     this.runJobs();
     this.roads?.update(position.x, position.z);
     if (this.roads) this.metrics.roadTriangles = this.roads.triangleCount;
+    if (this.collidersDirty) { this.collidersDirty = false; this.refreshColliders(); }
+    // One flush per frame: a rampage collapses many buildings but uploads their ranges together.
+    if (this.touchedGeometry.size) {
+      for (const mesh of this.touchedGeometry) {
+        const attribute = mesh.geometry.getAttribute('position');
+        if (attribute instanceof BufferAttribute) attribute.clearUpdateRanges();
+      }
+      this.touchedGeometry.clear();
+    }
     if (this.skylineDirty) this.rebuildSkyline();
     this.metrics.tiles = this.tiles.size;
     this.metrics.queued = this.jobs.length + this.loading.size;
@@ -286,6 +388,9 @@ export class RealCityLayer {
   /** Requests the shell ring around the focus point and evicts tiles past the hysteresis band. */
   private plan(radius: number): void {
     if (!this.manifest) return;
+    // Detail jobs jump the queue so facades appear first; without back-pressure a steady stream of
+    // new tiles would keep doing that and the shell tier would never get built at all.
+    const saturated = this.jobs.length > REAL_CITY.maxQueuedJobs;
     const size = this.manifest.tileSize;
     const reach = Math.ceil(radius / size) + 1;
     const cx = Math.floor(this.focus.x / size), cz = Math.floor(this.focus.z / size);
@@ -301,7 +406,9 @@ export class RealCityLayer {
       requests.push({ key, file, distance });
     }
     requests.sort((a, b) => a.distance - b.distance);
-    for (const request of requests.slice(0, REAL_CITY.maxConcurrentLoads)) void this.loadTile(request.key, request.file);
+    if (!saturated) {
+      for (const request of requests.slice(0, REAL_CITY.maxConcurrentLoads)) void this.loadTile(request.key, request.file);
+    }
 
     const evict = radius + REAL_CITY.evictMargin;
     for (const [key, tile] of this.tiles) {
@@ -350,7 +457,7 @@ export class RealCityLayer {
       const tile: Tile = {
         key, tx: packed.tx, tz: packed.tz, originX: group.position.x, originZ: group.position.z,
         cells, near: new Array(cells.length).fill(false), nearCount: 0,
-        group, colliders: [], touched: performance.now(),
+        group, colliders: [], detailRanges: new Map(), shellRanges: new Map(), touched: performance.now(),
       };
       this.group.add(group);
       this.tiles.set(key, tile);
@@ -367,8 +474,6 @@ export class RealCityLayer {
   private classifyCells(position: Vector3, speed: number): void {
     if (!this.manifest) return;
     const size = this.manifest.tileSize, cellSize = size / CELLS_PER_SIDE;
-    // Windows and balconies are invisible above cruise speed and cost the most to build.
-    const allowDetail = this.detailEnabled && speed < REAL_CITY.detailSpeedLimit;
     for (const tile of this.tiles.values()) {
       let changed = false, count = 0;
       for (let index = 0; index < tile.cells.length; index++) {
@@ -380,7 +485,7 @@ export class RealCityLayer {
         const distance = Math.hypot(dx, dz);
         const was = tile.near[index];
         // Hysteresis: a cell already showing facades holds them a little longer.
-        const now = allowDetail && distance < (was ? REAL_CITY.detailExit : REAL_CITY.detailEnter);
+        const now = distance < (was ? REAL_CITY.detailExit : REAL_CITY.detailEnter);
         if (now !== was) { tile.near[index] = now; changed = true; }
         if (now) count++;
       }
@@ -388,6 +493,7 @@ export class RealCityLayer {
       tile.nearCount = count;
       this.schedule(tile);
     }
+    void speed;
   }
 
   /** Replaces any pending work for the tile so a fast traversal cannot queue stale rebuilds. */
@@ -396,12 +502,27 @@ export class RealCityLayer {
     const shell: RealBuilding[] = [], detail: RealBuilding[] = [];
     for (let index = 0; index < tile.cells.length; index++) {
       const target = tile.near[index] ? detail : shell;
-      for (const building of tile.cells[index]) target.push(building);
+      // A collapsed building is gone for good: it must not come back when the tier is rebuilt.
+      for (const building of tile.cells[index]) if (!this.destroyed.has(building.id)) target.push(building);
     }
-    // The near job runs first so facades appear before the surrounding shell is refreshed.
-    if (detail.length) this.jobs.unshift({ tile, kind: 'detail', list: detail, index: 0, buffers: createBuffers(), colliders: [] });
+    if (detail.length) this.jobs.push({ tile, kind: 'detail', rich: this.rich, list: detail, index: 0, buffers: createBuffers(), colliders: [], ranges: new Map() });
     else { disposeMesh(tile.detail); tile.detail = undefined; tile.colliders = []; this.refreshColliders(); }
-    this.jobs.push({ tile, kind: 'shell', list: shell, index: 0, buffers: createBuffers(), colliders: [] });
+    this.jobs.push({ tile, kind: 'shell', rich: false, list: shell, index: 0, buffers: createBuffers(), colliders: [], ranges: new Map() });
+    this.prioritise();
+  }
+
+  /**
+   * Facades first, then the nearest shells. Without this a steady stream of arriving tiles keeps
+   * pushing shells to the back of the queue and the ground around the player never solidifies.
+   * A job already under way keeps its place, so nothing loses the work it has done.
+   */
+  private prioritise(): void {
+    const size = this.manifest?.tileSize ?? REAL_CITY.tileSize;
+    this.jobs.sort((a, b) => {
+      if (a.index > 0 !== b.index > 0) return a.index > 0 ? -1 : 1;
+      if (a.kind !== b.kind) return a.kind === 'detail' ? -1 : 1;
+      return this.tileDistance(a.tile.tx, a.tile.tz, size) - this.tileDistance(b.tile.tx, b.tile.tz, size);
+    });
   }
 
   /** A fixed millisecond budget per frame; a 2 600-building tile spreads over several frames. */
@@ -412,9 +533,13 @@ export class RealCityLayer {
       if (!this.tiles.has(job.tile.key)) { this.jobs.shift(); continue; }
       while (job.index < job.list.length) {
         const building = job.list[job.index++];
-        const collider = job.kind === 'detail'
+        const first = job.buffers.position.length / 3;
+        const collider = job.rich
           ? appendNearBuilding(job.buffers, building)
           : appendShellBuilding(job.buffers, building);
+        const vertices = job.buffers.position.length / 3 - first;
+        // Packed into one double so a collapse is two integer reads, not an object per building.
+        if (vertices > 0 && vertices < VERTEX_SPAN) job.ranges.set(building.id, first * VERTEX_SPAN + vertices);
         if (collider && job.kind === 'detail') {
           collider.x += job.tile.originX; collider.z += job.tile.originZ;
           job.colliders.push(collider);
@@ -429,12 +554,13 @@ export class RealCityLayer {
 
   private finish(job: BuildJob): void {
     const tile = job.tile;
-    const material = job.kind === 'detail' ? this.materials?.near : this.materials?.shell;
+    const material = job.rich ? this.materials?.near : this.materials?.shell;
     if (!material) return;
-    const geometry = geometryFrom(job.buffers, job.kind === 'detail');
+    const geometry = geometryFrom(job.buffers, job.rich);
     if (job.kind === 'detail') {
       disposeMesh(tile.detail); tile.detail = undefined;
       tile.colliders = job.colliders;
+      tile.detailRanges = job.ranges;
       if (geometry) {
         const mesh = new Mesh(geometry, material);
         mesh.name = `real-detail:${tile.key}`;
@@ -444,6 +570,7 @@ export class RealCityLayer {
       this.refreshColliders();
     } else {
       disposeMesh(tile.shell); tile.shell = undefined;
+      tile.shellRanges = job.ranges;
       if (geometry) {
         const mesh = new Mesh(geometry, material);
         mesh.name = `real-shell:${tile.key}`;
@@ -531,7 +658,9 @@ export class RealCityLayer {
       if (comma < 0) continue;
       const replaced = this.coversChunk(Number(key.slice(0, comma)), Number(key.slice(comma + 1)));
       for (const object of child.children) {
-        if (object.name === 'facades' || object.name === 'terracotta-roofs' || object.name === 'sidewalks') object.visible = !replaced;
+        // Vegetation is suppressed too: a generated tree has no idea a surveyed building stands there.
+        if (object.name === 'facades' || object.name === 'terracotta-roofs' || object.name === 'sidewalks'
+          || object.name === 'tree-trunks' || object.name === 'tropical-canopy') object.visible = !replaced;
       }
     }
   }
@@ -556,8 +685,10 @@ export class RealCityLayer {
       this.skyline = undefined;
     }
     this.skylineData.clear();
+    setDistrictSampler(null);
     this.materials?.dispose();
     this.colliderList.length = 0;
+    this.destroyed.clear(); this.destroyedOrder.length = 0; this.touchedGeometry.clear();
     this.realTiles.clear();
     this.group.removeFromParent();
   }

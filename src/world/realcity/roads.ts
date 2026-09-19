@@ -22,6 +22,7 @@ const ROAD_HEIGHT: Record<string, number> = {
   tertiary: .26, residential: .24, living_street: .23, service: .22, unclassified: .22,
 };
 const MARKING = [.78, .72, .40] as const;
+const TRUNK = [.30, .24, .18] as const;
 
 function colorOf(klass: string): readonly [number, number, number] { return ROAD_COLOR[klass] ?? ROAD_COLOR.residential; }
 function heightOf(klass: string): number { return ROAD_HEIGHT[klass] ?? .24; }
@@ -56,6 +57,55 @@ function strip(
   }
 }
 
+/** A five-sided upright box; street furniture is never seen from below. */
+function post(
+  out: Ribbon, x: number, y: number, z: number, width: number, height: number, depth: number,
+  rgb: readonly [number, number, number], lit: number,
+): void {
+  const hw = width * .5, hd = depth * .5;
+  const corner = (sx: number, sy: number, sz: number) => [x + hw * sx, y + height * sy, z + hd * sz];
+  const faces: readonly (readonly [number[], number[], number[], number[], number[]])[] = [
+    [corner(-1, 0, 1), corner(1, 0, 1), corner(1, 1, 1), corner(-1, 1, 1), [0, 0, 1]],
+    [corner(1, 0, -1), corner(-1, 0, -1), corner(-1, 1, -1), corner(1, 1, -1), [0, 0, -1]],
+    [corner(-1, 0, -1), corner(-1, 0, 1), corner(-1, 1, 1), corner(-1, 1, -1), [-1, 0, 0]],
+    [corner(1, 0, 1), corner(1, 0, -1), corner(1, 1, -1), corner(1, 1, 1), [1, 0, 0]],
+    [corner(-1, 1, 1), corner(1, 1, 1), corner(1, 1, -1), corner(-1, 1, -1), [0, 1, 0]],
+  ];
+  for (const [a, b, c, d, n] of faces) {
+    for (const point of [a, b, c, a, c, d]) {
+      out.position.push(point[0], point[1], point[2]);
+      out.normal.push(n[0], n[1], n[2]);
+      out.color.push(rgb[0], rgb[1], rgb[2]);
+      out.lit.push(lit);
+    }
+  }
+}
+
+/** An octahedron canopy: eight triangles read as a tree crown at street distance. */
+function canopy(
+  out: Ribbon, x: number, y: number, z: number, radius: number, height: number,
+  rgb: readonly [number, number, number],
+): void {
+  const top = [x, y + height, z], bottom = [x, y - height * .35, z];
+  const ring = [[x + radius, y, z], [x, y, z + radius], [x - radius, y, z], [x, y, z - radius]];
+  for (let i = 0; i < 4; i++) {
+    const a = ring[i], b = ring[(i + 1) % 4];
+    for (const [p, q, r] of [[a, b, top], [b, a, bottom]] as const) {
+      const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2];
+      const vx = r[0] - p[0], vy = r[1] - p[1], vz = r[2] - p[2];
+      let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const length = Math.hypot(nx, ny, nz) || 1;
+      nx /= length; ny /= length; nz /= length;
+      for (const point of [p, q, r]) {
+        out.position.push(point[0], point[1], point[2]);
+        out.normal.push(nx, ny, nz);
+        out.color.push(rgb[0], rgb[1], rgb[2]);
+        out.lit.push(0);
+      }
+    }
+  }
+}
+
 function toGeometry(out: Ribbon): BufferGeometry | null {
   if (!out.position.length) return null;
   const geometry = new BufferGeometry();
@@ -85,6 +135,7 @@ export class RoadNetwork {
   private arterial?: Mesh;
   private local?: Mesh;
   private markings?: Mesh;
+  private lamps?: Mesh;
   private lastX = Infinity;
   private lastZ = Infinity;
   private readonly stats: RoadStats = { arterialTriangles: 0, localTriangles: 0, markingTriangles: 0 };
@@ -94,7 +145,11 @@ export class RoadNetwork {
   static readonly LOCAL_RADIUS = 1500;
   static readonly MARKING_RADIUS = 620;
 
-  constructor(private readonly records: readonly RoadRecord[], private readonly material: Material) {
+  constructor(
+    private readonly records: readonly RoadRecord[],
+    private readonly material: Material,
+    private readonly lampMaterial?: Material,
+  ) {
     this.group.name = 'real-city-road-network';
     for (let index = 0; index < records.length; index++) {
       const road = records[index];
@@ -143,6 +198,7 @@ export class RoadNetwork {
     this.lastX = x; this.lastZ = z;
     this.buildLocal(x, z);
     this.buildMarkings(x, z);
+    this.buildLamps(x, z);
   }
 
   private buildLocal(x: number, z: number): void {
@@ -207,9 +263,52 @@ export class RoadNetwork {
     this.group.add(this.markings);
   }
 
+  /** Street lighting along the real avenues, close enough that a single draw covers it. */
+  private buildLamps(x: number, z: number): void {
+    if (!this.lampMaterial) return;
+    const out = ribbon();
+    const radius = RoadNetwork.MARKING_RADIUS, radiusSq = radius * radius;
+    const mast: readonly [number, number, number] = [.24, .25, .26];
+    const head: readonly [number, number, number] = [.95, .88, .70];
+    for (const road of this.records) {
+      if (!ARTERIAL_CLASSES.has(road.class) && road.class !== 'tertiary') continue;
+      const offset = Math.max(3, road.width) * .5 + 1.4;
+      for (let i = 2; i < road.p.length; i += 2) {
+        const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];
+        const mx = (ax + bx) * .5 - x, mz = (az + bz) * .5 - z;
+        if (mx * mx + mz * mz > radiusSq) continue;
+        const dx = bx - ax, dz = bz - az, length = Math.hypot(dx, dz);
+        if (length < 12) continue;
+        const ux = dx / length, uz = dz / length, nx = -uz, nz = ux;
+        // Alternating sides every 38 m, the way an arterial is actually lit.
+        for (let t = 10, side = 1; t < length - 6; t += 38, side = -side) {
+          const px = ax + ux * t + nx * offset * side, pz = az + uz * t + nz * offset * side;
+          post(out, px, 0, pz, .34, 8.4, .34, mast, 0);
+          post(out, px - nx * side * 1.1, 8, pz - nz * side * 1.1, 2.6, .34, .42, mast, 0);
+          post(out, px - nx * side * 2, 7.55, pz - nz * side * 2, 1.15, .5, .62, head, 1);
+          // A street tree between every pair of lamps: never inside a footprint, because a road is not.
+          const tx = ax + ux * (t + 19) + nx * (offset + 1.6) * -side;
+          const tz = az + uz * (t + 19) + nz * (offset + 1.6) * -side;
+          const tint = ((Math.abs(Math.round(tx) * 31 + Math.round(tz) * 17)) % 5) / 5;
+          post(out, tx, 0, tz, .42, 3.6 + tint * 1.4, .42, TRUNK, 0);
+          canopy(out, tx, 4.6 + tint * 1.4, tz, 2.5 + tint * 1.3, 2.4 + tint * 1.1,
+            [.20 + tint * .10, .38 + tint * .12, .19 + tint * .07]);
+        }
+      }
+    }
+    disposeMesh(this.lamps);
+    this.lamps = undefined;
+    const geometry = toGeometry(out);
+    if (!geometry) return;
+    this.lamps = new Mesh(geometry, this.lampMaterial);
+    this.lamps.name = 'real-roads-lamps';
+    this.lamps.castShadow = true;
+    this.group.add(this.lamps);
+  }
+
   dispose(): void {
-    disposeMesh(this.arterial); disposeMesh(this.local); disposeMesh(this.markings);
-    this.arterial = this.local = this.markings = undefined;
+    disposeMesh(this.arterial); disposeMesh(this.local); disposeMesh(this.markings); disposeMesh(this.lamps);
+    this.arterial = this.local = this.markings = this.lamps = undefined;
     this.buckets.clear();
     this.group.removeFromParent();
   }

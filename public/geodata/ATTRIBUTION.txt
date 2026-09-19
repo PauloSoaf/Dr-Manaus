@@ -1,7 +1,7 @@
 DR Manaus geographic data attribution
 
-Buildings and transportation: © OpenStreetMap contributors, Overture Maps Foundation.
-Overture Maps data accessed during development. Overture building and transportation themes are distributed under ODbL 1.0.
+Buildings, transportation, water and divisions: © OpenStreetMap contributors, Overture Maps Foundation.
+Overture Maps data accessed during development. Overture building, transportation, base (water) and divisions themes are distributed under ODbL 1.0.
 OpenStreetMap: https://www.openstreetmap.org/copyright
 Overture Maps: https://overturemaps.org/
 

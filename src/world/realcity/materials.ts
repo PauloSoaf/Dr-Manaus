@@ -11,6 +11,7 @@ export class RealCityMaterials {
   readonly near: MeshStandardNodeMaterial;
   readonly shell: MeshStandardNodeMaterial;
   readonly road: MeshStandardNodeMaterial;
+  readonly lamp: MeshStandardNodeMaterial;
 
   constructor() {
     const vertexColor = attribute('color', 'vec3');
@@ -27,11 +28,17 @@ export class RealCityMaterials {
     this.road = new MeshStandardNodeMaterial({ roughness: 1, metalness: 0 });
     this.road.colorNode = vertexColor;
     this.road.name = 'real-city-roads';
+
+    // Street furniture and foliage share one material; only lamp heads carry the `lit` mask.
+    this.lamp = new MeshStandardNodeMaterial({ roughness: .78, metalness: 0 });
+    this.lamp.colorNode = vertexColor;
+    this.lamp.emissiveNode = color('#ffd9a0').mul(attribute('lit', 'float')).mul(this.nightLevel);
+    this.lamp.name = 'real-city-lamps';
   }
 
   setNight(night: boolean): void { this.nightLevel.value = night ? 1 : 0; }
 
-  dispose(): void { this.near.dispose(); this.shell.dispose(); this.road.dispose(); }
+  dispose(): void { this.near.dispose(); this.shell.dispose(); this.road.dispose(); this.lamp.dispose(); }
 }
 
 /** Tests and headless tooling build geometry without ever touching a GPU material. */

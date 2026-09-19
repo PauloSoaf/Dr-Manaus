@@ -1,8 +1,9 @@
-import { CylinderGeometry, Group, Shape, ShapeGeometry, TorusGeometry, Vector3 } from 'three/webgpu';
-import { GeometryBatch, palm, tree } from './GeometryBatch';
+import { BufferGeometry, CylinderGeometry, Float32BufferAttribute, Group, TorusGeometry, Vector3 } from 'three/webgpu';
+import { GeometryBatch, palm, tree, type PaletteKey } from './GeometryBatch';
+import { BRIDGE } from '../geodata/geodata';
 import { wavePlazaGeometry } from './theatre';
 // The Arena has a bespoke model of its own; this module keeps re-exporting it for callers.
-import { createArena } from './arena';
+import { createArena, type LandmarkBox } from './arena';
 export { createArena };
 
 function bench(b: GeometryBatch, x: number, z: number, angle = 0): void {
@@ -146,49 +147,212 @@ export function createPalace(): Group {
   return b.build('Palácio Rio Negro — golden facade and garden');
 }
 
+// The orla was surveyed off the compiled Rio Negro water polygons: the waterline runs at .51 rad
+// through the landmark, so a box's local x is the inland axis and its local z runs down the beach.
+const ORLA = .51, ORLA_SIN = Math.sin(ORLA), ORLA_COS = Math.cos(ORLA);
+// The promenade is centred a little north of the landmark, over the one stretch where the compiled
+// blocks leave the shore clear; the real city carries the beachfront beyond it.
+const ORLA_MID = -205, ORLA_REACH = 330;
+/** Shore-local placement: `along` runs down the beach, `inland` away from the water. */
+function shore(x: number, z: number, along: number, inland: number): [number, number] {
+  return [x + ORLA_SIN * along + ORLA_COS * inland, z + ORLA_COS * along - ORLA_SIN * inland];
+}
+/** A strip of the orla, laid along the shore and measured across it. */
+function strip(b: GeometryBatch, tone: PaletteKey, inland: number, y: number, width: number, height: number, length: number): void {
+  const [x, z] = shore(0, 0, ORLA_MID, inland);
+  b.box(tone, x, y, z, width, height, length, ORLA);
+}
+
+/** The calçadão's Portuguese wave, as four long ribbons so a kilometre of paving stays cheap. */
+function wavePavement(b: GeometryBatch, inland: number): void {
+  const vertices: number[] = [];
+  for (const lane of [-17, -6, 6, 17]) {
+    for (let a = -ORLA_REACH; a < ORLA_REACH; a += 16) {
+      const i0 = inland + lane + Math.sin(a * .021) * 5, i1 = inland + lane + Math.sin((a + 16) * .021) * 5;
+      const [ax, az] = shore(0, 0, ORLA_MID + a, i0 - 1.6), [bx, bz] = shore(0, 0, ORLA_MID + a, i0 + 1.6);
+      const [cx, cz] = shore(0, 0, ORLA_MID + a + 16, i1 + 1.6), [dx, dz] = shore(0, 0, ORLA_MID + a + 16, i1 - 1.6);
+      vertices.push(ax, .42, az, bx, .42, bz, cx, .42, cz, ax, .42, az, cx, .42, cz, dx, .42, dz);
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(vertices, 3));
+  b.add(geometry, 'dark');
+}
+
+// The compiled river mask puts the dry beach between along -400 and +325; everything the orla
+// stands on lives inside that, and only the pier is allowed past it.
+const KIOSK_ALONG = [-370, -275, -180, -85, 10, 105, 200, 290] as const;
+const KIOSK_INLAND = 88;
+
+/** A quiosque: masonry body, service window, tiled roof and the shade sail over its tables. */
+function kiosk(b: GeometryBatch, along: number, tone: PaletteKey): void {
+  const [x, z] = shore(0, 0, along, KIOSK_INLAND);
+  b.box(tone, x, 1.7, z, 9, 3.4, 8, ORLA);
+  b.box('red', x, 3.65, z, 10.6, .5, 9.6, ORLA);
+  const [gx, gz] = shore(x, z, 0, -4.7);
+  b.box('glass', gx, 2.1, gz, .3, 1.5, 5, ORLA);
+  const [cx, cz] = shore(x, z, 0, -10.5);
+  b.box('gold', cx, 3.05, cz, 12, .26, 9.4, ORLA);
+  for (const sa of [-4, 4]) for (const si of [-5, 5]) {
+    const [px, pz] = shore(cx, cz, sa, si);
+    b.cylinder('steel', px, 1.5, pz, .09, .09, 3, 6);
+  }
+}
+
+/** Beach umbrellas: the rented shade that covers the sand in front of the quiosques. */
+function umbrella(b: GeometryBatch, along: number, inland: number, tone: PaletteKey): void {
+  const [x, z] = shore(0, 0, along, inland);
+  b.cylinder('bark', x, 1.35, z, .08, .1, 2.7, 6);
+  b.cylinder(tone, x, 3, z, 0, 2.9, .8, 8);
+}
+
+/** A sand court: lines, two posts and a net, for volleyball and futevôlei alike. */
+function court(b: GeometryBatch, along: number, inland: number): void {
+  const [cx, cz] = shore(0, 0, along, inland);
+  for (const si of [-4.2, 4.2]) {
+    const [x, z] = shore(cx, cz, 0, si);
+    b.box('white', x, .08, z, .3, .12, 16.6, ORLA);
+  }
+  for (const sa of [-8.3, 8.3]) {
+    const [x, z] = shore(cx, cz, sa, 0);
+    b.box('white', x, .08, z, 8.7, .12, .3, ORLA);
+  }
+  for (const si of [-4.6, 4.6]) {
+    const [x, z] = shore(cx, cz, 0, si);
+    b.cylinder('steel', x, 1.3, z, .08, .1, 2.6, 6);
+  }
+  b.box('white', cx, 1.95, cz, 9.2, 1, .08, ORLA);
+}
+
+const PIER_ALONG = -300, PIER_LENGTH = 190;
+
+/** The pier walks out over the Rio Negro, where no compiled footprint can ever stand. */
+function pier(b: GeometryBatch): void {
+  const [dx, dz] = shore(0, 0, PIER_ALONG, 20 - PIER_LENGTH / 2);
+  b.box('bark', dx, 1.5, dz, PIER_LENGTH, .55, 12, ORLA);
+  for (let d = 16; d < PIER_LENGTH; d += 14) {
+    for (const sa of [-4.8, 4.8]) {
+      const [px, pz] = shore(0, 0, PIER_ALONG + sa, 20 - d);
+      b.cylinder('bark', px, -1.4, pz, .42, .55, 7, 6);
+    }
+    for (const sa of [-5.6, 5.6]) {
+      const [px, pz] = shore(0, 0, PIER_ALONG + sa, 20 - d);
+      b.box('steel', px, 2.4, pz, .12, 1.3, .12, ORLA);
+    }
+  }
+  for (const sa of [-5.6, 5.6]) {
+    const [rx, rz] = shore(0, 0, PIER_ALONG + sa, 20 - PIER_LENGTH / 2);
+    b.box('white', rx, 3.02, rz, PIER_LENGTH, .12, .16, ORLA);
+    b.box('white', rx, 2.4, rz, PIER_LENGTH, .1, .12, ORLA);
+  }
+  // A roofed head where the boats tie up and the view back at the beach opens out.
+  const [hx, hz] = shore(0, 0, PIER_ALONG, 20 - PIER_LENGTH - 9);
+  b.box('bark', hx, 1.5, hz, 20, .55, 22, ORLA);
+  for (const sa of [-9, 9]) for (const si of [-8, 8]) {
+    const [px, pz] = shore(hx, hz, sa, si);
+    b.cylinder('steel', px, 3.4, pz, .16, .18, 3.4, 6);
+  }
+  b.box('red', hx, 5.4, hz, 22, .5, 24, ORLA);
+}
+
+const BOWL_ALONG = 0, BOWL_INLAND = 190, STAGE_INLAND = BOWL_INLAND - 46;
+
 export function createPonta(): Group {
   const b = new GeometryBatch();
-  b.box('sand', -170, -.14, 0, 700, .28, 1800, -.45);
-  b.box('cream', 128, .18, 0, 46, .36, 1660, -.45);
-  b.box('red', 158, .23, -8, 9, .18, 1630, -.45);
-  b.box('dark', 205, .12, -5, 30, .16, 1600, -.45);
+  const span = ORLA_REACH * 2;
+  // Sand, wet sand and the sea wall: the beach is the one thing Overture will never map.
+  // The waterline sits about 80 m seaward of the promenade, and the real river surface now renders
+  // at y = 0.06, so the sand has to be narrower than the old 330 m apron and sit above the water
+  // rather than 20 cm under it. The submerged stone shelf that used to run 250 m offshore is gone.
+  strip(b, 'sand', -34, .12, 112, .3, 720);
+  for (let step = 0; step < 3; step++) strip(b, 'stone', 8 + step * 3.3, .06 + step * .23, 3.5, .34 + step * .46, span + 40);
 
-  for (let i = -11; i <= 11; i++) {
-    const z = i * 68;
-    const x = 126 - z * .48;
-    palm(b, x, z, 13 + (Math.abs(i) % 4), i * .37);
-    lamp(b, x - 12, z);
-    if (i % 2 === 0) bench(b, x + 12, z + 10, -.45);
+  // Calçadão, ciclovia and the wave paving the orla is known for, with its seaward railing.
+  strip(b, 'cream', 45, .2, 56, .4, span + 20);
+  strip(b, 'red', 66, .26, 8, .2, span);
+  wavePavement(b, 36);
+  strip(b, 'white', 16, 1.08, .16, .12, span);
+  strip(b, 'white', 16, .74, .12, .1, span);
+  for (let a = -ORLA_REACH; a <= ORLA_REACH; a += 22) {
+    const [x, z] = shore(0, 0, ORLA_MID + a, 16);
+    b.box('steel', x, .56, z, .14, 1.12, .14, ORLA);
   }
 
-  const facades = ['salmon', 'cream', 'stone', 'white'] as const;
-  for (let row = 0; row < 2; row++) for (let i = -10; i <= 10; i++) {
-    if (row === 1 && i % 2 !== 0) continue;
-    const z = i * 72 + row * 24;
-    const coastX = 255 - z * .48;
-    const x = coastX + row * 118;
-    const h = 48 + ((i * i + row * 17 + 31) % 7) * 10;
-    const w = 30 + ((i + 15) % 4) * 6;
-    const d = 34 + ((i * 3 + 19) % 4) * 7;
-    b.box(facades[(i + row + 24) % facades.length], x, h / 2, z, w, h, d, -.45);
-    b.box('glass', x - Math.sin(.45) * (d * .51), h * .66, z + Math.cos(.45) * (d * .51), w * .68, h * .23, .2, -.45);
-    b.box('dark', x, h + 1, z, w * .32, 2, d * .32, -.45);
+  // Palms, lamps and benches down the full length of the promenade.
+  for (let i = -10; i <= 10; i++) {
+    const a = ORLA_MID + i * 33;
+    const [px, pz] = shore(0, 0, a, 52);
+    palm(b, px, pz, 13 + (Math.abs(i) % 4), i * .37);
+    if (i % 2 === 0) { const [lx, lz] = shore(0, 0, a + 20, 30); lamp(b, lx, lz); }
+    if (i % 3 !== 0) { const [bx, bz] = shore(0, 0, a + 14, 26); bench(b, bx, bz, ORLA); }
   }
 
+  // Quiosques, umbrellas and sand courts.
+  const tones: readonly PaletteKey[] = ['white', 'cream', 'salmon', 'blue'];
+  const shades: readonly PaletteKey[] = ['red', 'gold', 'blue', 'green'];
+  for (const [n, a] of KIOSK_ALONG.entries()) kiosk(b, a, tones[n % tones.length]);
+  for (let n = 0; n < 20; n++) umbrella(b, -355 + n * 33, -12 - (n % 3) * 16, shades[n % shades.length]);
+  for (const a of [-320, -140, 60]) court(b, a, -25);
+  pier(b);
+
+  // Praça and anfiteatro: a paved plaza, the stepped bowl and the covered stage it faces.
+  const [ax, az] = shore(0, 0, BOWL_ALONG, BOWL_INLAND);
+  b.box('stone', ax, .18, az, 165, .36, 370, ORLA);
   for (let step = 0; step < 11; step++) {
-    b.add(new TorusGeometry(22 + step * 4.2, 1.35, 4, 36, Math.PI).rotateX(Math.PI / 2), 'stone', -20, 1.2 + step * .68, -210);
+    b.add(new TorusGeometry(22 + step * 4.2, 1.35, 4, 36, Math.PI).rotateX(Math.PI / 2), 'stone', ax, 1.2 + step * .68, az, 0, ORLA + Math.PI / 2);
   }
-  b.box('cream', -20, 2.2, -110, 28, 4.4, 26);
-  return b.build('Ponta Negra — expanded beachfront district');
+  const [sx, sz] = shore(0, 0, BOWL_ALONG, STAGE_INLAND);
+  b.box('stone', sx, 1.1, sz, 24, 2.2, 34, ORLA);
+  b.box('dark', sx, 2.3, sz, 22, .2, 32, ORLA);
+  const [wx, wz] = shore(sx, sz, 0, 11);
+  b.box('cream', wx, 4.5, wz, 1.2, 9, 34, ORLA);
+  for (const sa of [-16, 16]) for (const si of [-10, 10]) {
+    const [px, pz] = shore(sx, sz, sa, si);
+    b.cylinder('steel', px, 5, pz, .24, .3, 10, 6);
+  }
+  b.box('dark', sx, 10.4, sz, 26, .8, 36, ORLA);
+  for (const sa of [-11, 11]) { const [px, pz] = shore(sx, sz, sa, -9); b.box('dark', px, 4, pz, 1.4, 5, 1.8, ORLA); }
+  for (const sa of [-150, 150]) for (const si of [20, 62]) {
+    const [tx, tz] = shore(ax, az, sa, si);
+    tree(b, tx, tz, 15 + ((sa + si) & 3), sa * .01);
+  }
+  for (const sa of [-160, -60, 60, 160]) { const [lx, lz] = shore(ax, az, sa, -26); lamp(b, lx, lz); }
+  return b.build('Ponta Negra — orla, calçadão, anfiteatro and pier');
 }
+
+/** Solid parts of the orla; everything else is sand, paving and planting a player flies through. */
+function pontaColliders(): LandmarkBox[] {
+  const out: LandmarkBox[] = [];
+  // The seating bowl rises inland of its centre, so the box covers the stepped half only.
+  const [bx, bz] = shore(0, 0, BOWL_ALONG, BOWL_INLAND + 32);
+  out.push({ x: bx, y: 4.2, z: bz, width: 70, height: 8.4, depth: 132 });
+  const [sx, sz] = shore(0, 0, BOWL_ALONG, STAGE_INLAND);
+  out.push({ x: sx, y: 1.1, z: sz, width: 24, height: 2.2, depth: 34 });
+  out.push({ x: sx, y: 10.4, z: sz, width: 26, height: .8, depth: 36 });
+  for (const a of KIOSK_ALONG) {
+    const [x, z] = shore(0, 0, a, KIOSK_INLAND);
+    out.push({ x, y: 1.9, z, width: 10.6, height: 3.8, depth: 9.6 });
+  }
+  const [dx, dz] = shore(0, 0, PIER_ALONG, 20 - PIER_LENGTH / 2);
+  out.push({ x: dx, y: 1.5, z: dz, width: PIER_LENGTH, height: .55, depth: 12 });
+  const [hx, hz] = shore(0, 0, PIER_ALONG, 20 - PIER_LENGTH - 9);
+  out.push({ x: hx, y: 1.5, z: hz, width: 20, height: .55, depth: 22 });
+  out.push({ x: hx, y: 5.4, z: hz, width: 22, height: .5, depth: 24 });
+  return out;
+}
+
+export const PONTA_COLLIDERS: readonly LandmarkBox[] = pontaColliders();
 
 export function createBridge(): Group {
   const b = new GeometryBatch();
-  const length = 3595, deck = 55;
+  // The crossing is laid out along local x and then turned onto the surveyed alignment, so the
+  // deck, the piers and the collision boxes all read the same constant.
+  const { angle, halfLength: half, deck } = BRIDGE;
+  const length = half * 2;
   b.box('stone', 0, deck - 2, 0, length, 4, 28);
   b.box('dark', 0, deck + .12, 0, length, .22, 24);
   for (const z of [-13, 13]) { b.box('white', 0, deck + 1.2, z, length, 1.1, .7); b.box('light', 0, deck + 1.7, z, length, .1, .16); }
-  for (let x = -1760; x <= 1760; x += 120) {
+  for (let x = -half + 32; x < half; x += 120) {
     if (Math.abs(x) < 240) continue;
     b.box('cream', x, deck / 2 - 2, 0, 8, deck + 1, 19);
     b.box('cream', x, deck - 5, 0, 13, 4, 26);
@@ -203,7 +367,7 @@ export function createBridge(): Group {
   b.box('cream', 0, 81, 0, 30, 4, 24);
   b.box('cream', 0, 154, 0, 20, 4, 24);
   b.box('light', 0, 185, 0, 1.7, 2, 24);
-  const group = b.build('Ponte Rio Negro — 3.595 km cable-stayed bridge'); group.rotation.y = .35;
+  const group = b.build('Ponte Rio Negro — 3.595 km cable-stayed bridge'); group.rotation.y = angle;
   return group;
 }
 

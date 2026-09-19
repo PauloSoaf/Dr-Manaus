@@ -480,6 +480,270 @@ if (fs.existsSync(PLACES_FILE)) {
 }
 fs.writeFileSync(path.join(out, 'pois.json'), JSON.stringify(pois));
 
+const WATER_FILE = path.join(raw, 'manaus-water.geojson');
+const DIVISIONS_FILE = path.join(raw, 'manaus-divisions.geojson');
+
+/** Past this box we would be shipping the whole Amazon basin; the player never reaches its edge. */
+const WATER_CLIP_X = 38000, WATER_CLIP_Z = 34000;
+/** Pools, sewage and springs are not navigable water and would only speckle the city with blue. */
+const WATER_CLASSES = new Set([
+  'river', 'water', 'stream', 'lake', 'lagoon', 'oxbow', 'pond', 'fishpond',
+  'reservoir', 'basin', 'canal', 'drain', 'ditch', 'moat',
+]);
+/** The confluence is the whole point of Manaus, so the two waters must be told apart by data. */
+const MUDDY_RIVER = /solim[oõ]es|amazon/i;
+const CLEAR_RIVER = /r[ií]o\s+negro/i;
+
+function extractRings(geometry) {
+  if (!geometry) return [];
+  if (geometry.type === 'Polygon') return [geometry.coordinates];
+  if (geometry.type === 'MultiPolygon') return geometry.coordinates;
+  return [];
+}
+
+function extractLines(geometry) {
+  if (!geometry) return [];
+  if (geometry.type === 'LineString') return [geometry.coordinates];
+  if (geometry.type === 'MultiLineString') return geometry.coordinates;
+  return [];
+}
+
+function featureName(props) {
+  const names = props.names;
+  const primary = typeof names?.primary === 'string' ? names.primary : props.name;
+  return typeof primary === 'string' && primary.trim() ? primary.trim() : '';
+}
+
+/** Sutherland-Hodgman against one axis-aligned half plane; `axis` is 0 for x and 1 for z. */
+function clipHalf(points, axis, limit, keepBelow) {
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    const b = points[i], a = points[(i + points.length - 1) % points.length];
+    const bIn = keepBelow ? b[axis] <= limit : b[axis] >= limit;
+    const aIn = keepBelow ? a[axis] <= limit : a[axis] >= limit;
+    // Only a crossing divides, so the denominator is never zero.
+    if (bIn !== aIn) {
+      const t = (limit - a[axis]) / (b[axis] - a[axis]);
+      out.push(axis === 0 ? [limit, a[1] + (b[1] - a[1]) * t] : [a[0] + (b[0] - a[0]) * t, limit]);
+    }
+    if (bIn) out.push(b);
+  }
+  return out;
+}
+
+function clipRing(points) {
+  let ring = points;
+  for (const [axis, limit, keepBelow] of [[0, -WATER_CLIP_X, false], [0, WATER_CLIP_X, true], [1, -WATER_CLIP_Z, false], [1, WATER_CLIP_Z, true]]) {
+    if (ring.length < 3) return [];
+    ring = clipHalf(ring, axis, limit, keepBelow);
+  }
+  return ring;
+}
+
+/** Rings close on themselves, so the first and last points must not collapse into each other. */
+function simplifyRing(points, threshold) {
+  if (points.length < 4) return points;
+  const result = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const last = result[result.length - 1], p = points[i];
+    if (Math.hypot(p[0] - last[0], p[1] - last[1]) >= threshold) result.push(p);
+  }
+  while (result.length > 3 && Math.hypot(result[0][0] - result[result.length - 1][0], result[0][1] - result[result.length - 1][1]) < threshold) result.pop();
+  return result;
+}
+
+function pointInRing(x, z, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const a = ring[i], b = ring[j];
+    if ((a[1] > z) !== (b[1] > z) && x < (b[0] - a[0]) * (z - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+  }
+  return inside;
+}
+
+/** Signed-area centroid: a bairro's label belongs at its middle, not at its densest stretch of border. */
+function ringCentroid(points) {
+  let twice = 0, x = 0, z = 0;
+  for (let i = 0; i < points.length; i++) {
+    const a = points[i], b = points[(i + 1) % points.length];
+    const cross = a[0] * b[1] - b[0] * a[1];
+    twice += cross;
+    x += (a[0] + b[0]) * cross;
+    z += (a[1] + b[1]) * cross;
+  }
+  if (Math.abs(twice) < 1e-6) return centroid(points);
+  return { x: x / (3 * twice), z: z / (3 * twice) };
+}
+
+function projectRing(ring) {
+  return ring.map(([lon, lat]) => {
+    const p = project(lat, lon);
+    return [p.x, p.z];
+  });
+}
+
+function packRing(ring) { return ring.flatMap(([x, z]) => [Number(x.toFixed(1)), Number(z.toFixed(1))]); }
+
+/**
+ * Overture names the Negro, the Solimões and the Amazon only on their waterway centrelines; the
+ * surface polygons themselves are anonymous. Counting which centreline runs through a polygon is
+ * what tells black water from muddy, so the tint follows the real rivers instead of a fake diagonal.
+ */
+const muddyCentre = [], clearCentre = [];
+if (fs.existsSync(WATER_FILE)) {
+  for (const feature of readGeoJSON(WATER_FILE)) {
+    const name = featureName(feature.properties ?? {});
+    if (!name) continue;
+    const target = MUDDY_RIVER.test(name) ? muddyCentre : CLEAR_RIVER.test(name) ? clearCentre : null;
+    if (!target) continue;
+    for (const line of extractLines(feature.geometry)) for (const point of projectRing(line)) target.push(point);
+  }
+}
+
+function centreHits(points, ring, minX, maxX, minZ, maxZ) {
+  let hits = 0;
+  for (const [x, z] of points) {
+    if (x < minX || x > maxX || z < minZ || z > maxZ) continue;
+    if (pointInRing(x, z, ring)) hits++;
+  }
+  return hits;
+}
+
+const waterPolygons = [];
+const muddyIndices = [];
+const waterBounds = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+if (fs.existsSync(WATER_FILE)) {
+  for (const feature of readGeoJSON(WATER_FILE)) {
+    const props = feature.properties ?? {};
+    const klass = String(props.class ?? props.subtype ?? '').toLowerCase();
+    if (!WATER_CLASSES.has(klass)) continue;
+    const name = featureName(props);
+    for (const polygon of extractRings(feature.geometry)) {
+      if (!polygon.length) continue;
+      const outer = projectRing(polygon[0]);
+      if (outer.length < 3) continue;
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const [x, z] of outer) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+      }
+      if (minX > WATER_CLIP_X || maxX < -WATER_CLIP_X || minZ > WATER_CLIP_Z || maxZ < -WATER_CLIP_Z) continue;
+      const clippedOuter = simplifyRing(clipRing(outer), 5);
+      if (clippedOuter.length < 3 || polygonArea(clippedOuter) < 400) continue;
+
+      const rings = [packRing(clippedOuter)];
+      for (let i = 1; i < polygon.length; i++) {
+        const hole = simplifyRing(clipRing(projectRing(polygon[i])), 5);
+        // A river island smaller than a city block is not worth a hole in the surface.
+        if (hole.length >= 3 && polygonArea(hole) > 2500) rings.push(packRing(hole));
+      }
+
+      const muddyHits = centreHits(muddyCentre, outer, minX, maxX, minZ, maxZ);
+      const clearHits = centreHits(clearCentre, outer, minX, maxX, minZ, maxZ);
+      const centre = ringCentroid(clippedOuter);
+      // Lakes and igarapés carry no centreline, so the várzea south-east of the confluence decides.
+      const muddy = muddyHits || clearHits ? muddyHits > clearHits : centre.x > 8000 || centre.z > 6000;
+      if (muddy) muddyIndices.push(waterPolygons.length);
+      waterPolygons.push({ class: klass, name: name || null, muddy, rings });
+      for (const ring of rings) for (let i = 0; i < ring.length; i += 2) {
+        if (ring[i] < waterBounds.minX) waterBounds.minX = ring[i];
+        if (ring[i] > waterBounds.maxX) waterBounds.maxX = ring[i];
+        if (ring[i + 1] < waterBounds.minZ) waterBounds.minZ = ring[i + 1];
+        if (ring[i + 1] > waterBounds.maxZ) waterBounds.maxZ = ring[i + 1];
+      }
+    }
+  }
+}
+if (!waterPolygons.length) Object.assign(waterBounds, { minX: 0, maxX: 0, minZ: 0, maxZ: 0 });
+fs.writeFileSync(path.join(out, 'water.json'), JSON.stringify({
+  bounds: waterBounds, solimoes: muddyIndices, polygons: waterPolygons,
+}));
+
+/**
+ * The chunk worker decides land from water synchronously and cannot fetch water.json, so the same
+ * polygons are frozen into a 512x512 bitmask at 128 m. A cell is water when its centre is inside a
+ * polygon, resolved by scanline: every ring of a polygon feeds one crossing list and the even-odd
+ * rule subtracts the islands for free.
+ */
+const MASK_HALF = 32768, MASK_CELL = 128;
+const MASK_SIZE = (MASK_HALF * 2) / MASK_CELL;
+const MASK_STRIDE = MASK_SIZE / 8;
+const maskBits = new Uint8Array(MASK_STRIDE * MASK_SIZE);
+
+/** Index of the first cell whose centre is at or past `value`, on either axis. */
+function cellAtOrAfter(value) { return Math.ceil((value + MASK_HALF) / MASK_CELL - .5); }
+
+function rasterizeWater(polygons) {
+  const rows = new Map();
+  for (const polygon of polygons) {
+    rows.clear();
+    for (const ring of polygon.rings) {
+      const count = ring.length / 2;
+      for (let i = 0; i < count; i++) {
+        const j = (i + 1) % count;
+        const az = ring[i * 2 + 1], bz = ring[j * 2 + 1];
+        if (az === bz) continue;
+        const ax = ring[i * 2], bx = ring[j * 2];
+        // Half-open in z so a vertex shared by two edges is counted once and spans stay paired.
+        const from = Math.max(0, cellAtOrAfter(Math.min(az, bz)));
+        const to = Math.min(MASK_SIZE - 1, cellAtOrAfter(Math.max(az, bz)) - 1);
+        for (let row = from; row <= to; row++) {
+          const z = row * MASK_CELL + MASK_CELL / 2 - MASK_HALF;
+          let list = rows.get(row);
+          if (!list) { list = []; rows.set(row, list); }
+          list.push(ax + (bx - ax) * (z - az) / (bz - az));
+        }
+      }
+    }
+    for (const [row, list] of rows) {
+      list.sort((a, b) => a - b);
+      const base = row * MASK_STRIDE;
+      for (let i = 0; i + 1 < list.length; i += 2) {
+        const from = Math.max(0, cellAtOrAfter(list[i]));
+        const to = Math.min(MASK_SIZE - 1, cellAtOrAfter(list[i + 1]) - 1);
+        for (let col = from; col <= to; col++) maskBits[base + (col >> 3)] |= 1 << (col & 7);
+      }
+    }
+  }
+}
+rasterizeWater(waterPolygons);
+
+let landmaskWaterCells = 0;
+for (const byte of maskBits) for (let bit = 0; bit < 8; bit++) if (byte & (1 << bit)) landmaskWaterCells++;
+fs.writeFileSync(path.join(out, 'landmask.json'), JSON.stringify({
+  originX: -MASK_HALF, originZ: -MASK_HALF, cell: MASK_CELL,
+  width: MASK_SIZE, height: MASK_SIZE, bits: Buffer.from(maskBits).toString('base64'),
+}));
+
+/** Overture calls a Manaus bairro a macrohood; the other three appear a handful of times each. */
+const DISTRICT_SUBTYPES = new Set(['macrohood', 'microhood', 'neighborhood', 'locality']);
+const DISTRICT_RADIUS = 30000;
+
+const districts = [];
+if (fs.existsSync(DIVISIONS_FILE)) {
+  for (const feature of readGeoJSON(DIVISIONS_FILE)) {
+    const props = feature.properties ?? {};
+    const kind = String(props.subtype ?? '').toLowerCase();
+    if (!DISTRICT_SUBTYPES.has(kind)) continue;
+    const name = featureName(props);
+    if (!name) continue;
+    for (const polygon of extractRings(feature.geometry)) {
+      if (!polygon.length) continue;
+      const outer = simplifyRing(projectRing(polygon[0]), 15);
+      if (outer.length < 3) continue;
+      const centre = ringCentroid(outer);
+      if (Math.hypot(centre.x, centre.z) > DISTRICT_RADIUS) continue;
+      const rings = [packRing(outer)];
+      for (let i = 1; i < polygon.length; i++) {
+        const hole = simplifyRing(projectRing(polygon[i]), 15);
+        if (hole.length >= 3) rings.push(packRing(hole));
+      }
+      districts.push({ name, kind, x: Number(centre.x.toFixed(1)), z: Number(centre.z.toFixed(1)), rings });
+    }
+  }
+}
+fs.writeFileSync(path.join(out, 'districts.json'), JSON.stringify({ districts }));
+
 const manifest = {
   version: 1,
   generatedAt: new Date().toISOString(),
@@ -492,9 +756,13 @@ const manifest = {
   pois: 'pois.json',
   skyline: 'skyline.json',
   landmarks: 'landmarks.json',
+  water: 'water.json',
+  landmask: 'landmask.json',
+  districts: 'districts.json',
   stats: {
     buildings: buildingCount, tiles: tiles.size, roads: roads.length, pois: pois.length,
     reservedSkipped: skipped, skylineBlocks, landmarkFeatures: landmarks.length, namedRoads,
+    waterPolygons: waterPolygons.length, districtCount: districts.length, landmaskWaterCells,
   },
 };
 fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
@@ -502,8 +770,8 @@ fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null,
 const attribution = [
   'DR Manaus geographic data attribution',
   '',
-  'Buildings and transportation: © OpenStreetMap contributors, Overture Maps Foundation.',
-  'Overture Maps data accessed during development. Overture building and transportation themes are distributed under ODbL 1.0.',
+  'Buildings, transportation, water and divisions: © OpenStreetMap contributors, Overture Maps Foundation.',
+  'Overture Maps data accessed during development. Overture building, transportation, base (water) and divisions themes are distributed under ODbL 1.0.',
   'OpenStreetMap: https://www.openstreetmap.org/copyright',
   'Overture Maps: https://overturemaps.org/',
   '',
