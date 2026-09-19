@@ -120,6 +120,43 @@ try {
     return { districts: game.realCity.districts.size, here: game.realCity.districts.nearest(0, 0)?.name ?? null };
   });
 
+  // Every car must be ON a mapped drivable road, not merely near one.
+  const traffic = await page.evaluate(() => {
+    const game = window.__DR_MANAUS__;
+    if (!game.traffic) return { enabled: false };
+    const graph = game.realCity.roads_graph;
+    const mesh = game.worldRoot.getObjectByName('traffic-bodies');
+    const offenders = [];
+    let checked = 0;
+    if (mesh) {
+      const m = mesh.instanceMatrix.array;
+      for (let i = 0; i < mesh.count; i++) {
+        const x = m[i * 16 + 12], z = m[i * 16 + 14];
+        if (!Number.isFinite(x) || (x === 0 && z === 0)) continue;
+        checked++;
+        const hit = graph.nearest(x, z, 60);
+        const off = hit ? (() => {
+          const s = hit.segment, p = s.p;
+          let best = Infinity;
+          for (let k = 2; k < p.length; k += 2) {
+            const ax = p[k-2], az = p[k-1], bx = p[k], bz = p[k+1];
+            const dx = bx-ax, dz = bz-az, L2 = dx*dx+dz*dz || 1;
+            const u = Math.max(0, Math.min(1, ((x-ax)*dx + (z-az)*dz)/L2));
+            best = Math.min(best, Math.hypot(x-ax-dx*u, z-az-dz*u));
+          }
+          return best - s.width / 2;
+        })() : Infinity;
+        if (off > 3) offenders.push(Math.round(off));
+      }
+    }
+    return { enabled: true, active: game.traffic.stats.active, segments: game.traffic.stats.segments,
+             nodes: game.traffic.stats.nodes, checked, offenders: offenders.slice(0, 6), offCount: offenders.length };
+  });
+  if (traffic.enabled) {
+    if (!traffic.active) throw new Error('A malha viaria carregou mas nenhum carro apareceu.');
+    if (traffic.offCount) throw new Error(`${traffic.offCount} de ${traffic.checked} carros fora da faixa: ${traffic.offenders.join(', ')} m.`);
+  }
+
   // The pause menu has to open on Esc, stop the world taking input, and actually apply a change.
   await page.keyboard.press('Escape');
   await sleep(250);
@@ -182,6 +219,9 @@ try {
   console.log(places.districts
     ? `  bairros reais: ${places.districts} compilados, origem = ${places.here ?? 'sem correspondencia'}`
     : '  bairros reais: nao compilados ainda');
+  console.log(traffic.enabled
+    ? `  transito: ${traffic.active} carros sobre ${traffic.segments} vias e ${traffic.nodes} cruzamentos, ${traffic.checked} verificados na faixa`
+    : '  transito: sem malha viaria compilada');
   console.log(`  menu de pausa: ${paused.tabs} secoes, volume/fov/sensibilidade aplicados e salvos`);
   console.log(demolition.attempted
     ? `  destruicao: predio real derrubado e removido do mundo (${demolition.destroyed} registrado)`

@@ -16,11 +16,100 @@ function arch(batch: GeometryBatch, x: number, y: number, z: number, width: numb
   batch.box('gold', x, y + (height - r) / 2, z + .08, .09, height - r, .12, side);
 }
 
+export interface LandmarkBox { x: number; y: number; z: number; width: number; height: number; depth: number }
+
+/**
+ * The theatre does not stand on the street: it sits on a raised stone embasamento reached by a
+ * broad frontal staircase, and losing that was the most visible defect in the old model — the
+ * facade appeared to grow straight out of the pavement. The whole facade is built at ground level
+ * as before and then lifted onto the plinth, so the architecture above is untouched.
+ */
+export const TEATRO_PLINTH = 3.6;
+const STAIR_STEPS = 13, STAIR_FROM = 36.5, STAIR_TO = 50.5, STAIR_WIDTH = 34;
+
+/** Plinth, terrace and the grand staircase, all at ground level under the lifted facade. */
+function createTheatreBase(b: GeometryBatch): void {
+  // Embasamento: the stone mass the building stands on, with a moulded top edge.
+  b.box('stone', 0, TEATRO_PLINTH * .5, -1, 62, TEATRO_PLINTH, 74);
+  b.box('cream', 0, TEATRO_PLINTH - .18, -1, 63.4, .5, 75.4);
+  b.box('stone', 0, .35, -1, 64.6, .7, 77);
+
+  const rise = TEATRO_PLINTH / STAIR_STEPS, run = (STAIR_TO - STAIR_FROM) / STAIR_STEPS;
+  for (let step = 0; step < STAIR_STEPS; step++) {
+    // Each tread is its own box so the character's step-up can actually climb them.
+    const z = STAIR_TO - step * run - run * .5;
+    const top = rise * (step + 1);
+    b.box('cream', 0, top - rise * .5, z, STAIR_WIDTH - step * .18, rise, run + .06);
+  }
+  // Cheek walls and balustrades either side of the flight.
+  for (const side of [-1, 1]) {
+    const x = side * (STAIR_WIDTH * .5 + .9);
+    for (let step = 0; step < STAIR_STEPS; step++) {
+      const z = STAIR_TO - step * run - run * .5, top = rise * (step + 1);
+      b.box('stone', x, top * .5, z, 1.6, top + .2, run + .06);
+      b.box('cream', x, top + .55, z, 1.9, .9, run + .06);
+    }
+    // Pedestals with lamps where the staircase meets the street.
+    b.box('stone', x, .9, STAIR_TO + .8, 2.4, 1.8, 2.4);
+    b.cylinder('steel', x, 2.9, STAIR_TO + .8, .12, .16, 2.2, 8);
+    b.sphere('light', x, 4.3, STAIR_TO + .8, .42, 1, 1, 1);
+    // Side flights down from the terrace, matching the references.
+    for (let step = 0; step < 9; step++) {
+      const sr = TEATRO_PLINTH / 9;
+      b.box('cream', side * (32.6 + step * .62), sr * (step + 1) - sr * .5, 14, 1.3, sr, 9.5);
+    }
+  }
+  // Terrace balustrade across the front, broken where the staircase arrives.
+  for (const side of [-1, 1]) for (let i = 0; i < 7; i++) {
+    const x = side * (STAIR_WIDTH * .5 + 2.6 + i * 1.5);
+    if (Math.abs(x) > 30) continue;
+    b.cylinder('cream', x, TEATRO_PLINTH + .55, 35.6, .11, .14, 1.1, 6);
+  }
+  for (const side of [-1, 1]) b.box('cream', side * 23.8, TEATRO_PLINTH + 1.2, 35.6, 12.4, .22, .5);
+}
+
+/** Collision for the plinth, the climbable staircase and the walkable terrace. */
+export const TEATRO_COLLIDERS: readonly LandmarkBox[] = (() => {
+  const boxes: LandmarkBox[] = [];
+  const rise = TEATRO_PLINTH / STAIR_STEPS, run = (STAIR_TO - STAIR_FROM) / STAIR_STEPS;
+  for (let step = 0; step < STAIR_STEPS; step++) {
+    const z = STAIR_TO - step * run - run * .5, top = rise * (step + 1);
+    boxes.push({ x: 0, y: top * .5, z, width: STAIR_WIDTH, height: top, depth: run + .06 });
+  }
+  // The terrace: solid mass, so its top is a surface the player stands on.
+  boxes.push({ x: 0, y: TEATRO_PLINTH * .5, z: -1, width: 62, height: TEATRO_PLINTH, depth: 74 });
+  for (const side of [-1, 1]) for (let step = 0; step < 9; step++) {
+    const sr = TEATRO_PLINTH / 9;
+    boxes.push({ x: side * (32.6 + step * .62), y: sr * (step + 1) * .5, z: 14, width: 1.3, height: sr * (step + 1), depth: 9.5 });
+  }
+  // The building itself, lifted onto the plinth.
+  boxes.push({ x: 0, y: TEATRO_PLINTH + 11.5, z: -1, width: 55, height: 23, depth: 65 });
+  boxes.push({ x: 0, y: TEATRO_PLINTH + 12, z: -35, width: 33, height: 24, depth: 18 });
+  boxes.push({ x: 0, y: TEATRO_PLINTH + 24.5, z: -3, width: 25, height: 3, depth: 25 });
+  for (let layer = 0; layer < 6; layer++) {
+    const top = 27.5 + layer * 1.9, radius = Math.sqrt(Math.max(1, 12.6 ** 2 - (top - 25.4) ** 2)) * .7;
+    boxes.push({ x: 0, y: TEATRO_PLINTH + top - 1, z: -3, width: radius * 2, height: 2, depth: radius * 2 });
+  }
+  boxes.push({ x: 0, y: TEATRO_PLINTH + 38.25, z: 0, width: 3.1, height: .5, depth: 3.1 });
+  return boxes;
+})();
+
 /** Authored architectural silhouette: rustication, arcades, cornices and tiled hemispherical cupola. */
 export function createTheatre(): Group {
+  const group = new Group();
+  group.name = 'Teatro Amazonas';
+  const base = new GeometryBatch();
+  createTheatreBase(base);
+  group.add(base.build('Teatro Amazonas — embasamento e escadaria'));
+  const facade = theatreFacade();
+  facade.position.y = TEATRO_PLINTH;
+  group.add(facade);
+  return group;
+}
+
+function theatreFacade(): Group {
   const b = new GeometryBatch();
   b.box('stone', 0, .3, 0, 66, .6, 79);
-  for (let step = 0; step < 6; step++) b.box('cream', 0, .35 + step * .22, 39 - step * 1.25, 30 - step * .6, .25, 8);
   b.box('salmon', 0, 11.5, -1, 55, 22, 65);
   b.box('salmon', 0, 12, -34, 33, 23, 18);
   b.box('stone', 0, 1.2, -1, 57, 1.4, 67);

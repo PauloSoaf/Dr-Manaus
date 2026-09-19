@@ -2,7 +2,7 @@ import { Group, Mesh, SphereGeometry, TorusGeometry, Vector3 } from 'three/webgp
 import type { Collider, Landmark } from '../../core/types';
 import { LANDMARKS } from '../geodata/geodata';
 import { GeometryBatch, tree } from './GeometryBatch';
-import { createTheatre, createTheatreSilhouette } from './theatre';
+import { TEATRO_COLLIDERS, createTheatre, createTheatreSilhouette } from './theatre';
 import { createBridge, LANDMARK_BUILDERS, PONTA_COLLIDERS } from './models';
 import { ARENA_COLLIDERS, createArenaSilhouette } from './arena';
 import { bridgeDeckColliders, createBridgeDistant } from './bridge';
@@ -113,15 +113,8 @@ export class LandmarkManager {
   private addColliders(landmark: Landmark): void {
     const box = (x: number, y: number, z: number, width: number, height: number, depth: number) => this.allColliders.push({ x: landmark.x + x, y, z: landmark.z + z, width, height, depth, id: `landmark:${landmark.id}` });
     switch (landmark.id) {
-      case 'teatro':
-        box(0, 11.5, -1, 55, 23, 65); box(0, 12, -35, 33, 24, 18);
-        box(0, 24.5, -3, 25, 3, 25);
-        for (let layer = 0; layer < 6; layer++) {
-          const top = 27.5 + layer * 1.9, radius = Math.sqrt(Math.max(1, 12.6 ** 2 - (top - 25.4) ** 2)) * .7;
-          box(0, top - 1, -3, radius * 2, 2, radius * 2);
-        }
-        box(0, 38.25, 0, 3.1, .5, 3.1);
-        break;
+      // Includes the climbable staircase and the walkable terrace, not one sealed block.
+      case 'teatro': for (const item of TEATRO_COLLIDERS) box(item.x, item.y, item.z, item.width, item.height, item.depth); break;
       case 'largo': box(0, 5, 6, 4.5, 10, 4.5); box(66, 8, -23, 26, 16, 43); break;
       case 'mercado': box(0, 7, 0, 86, 14, 57); break;
       case 'porto': box(0, 6, -14, 115, 12, 30); for (const x of [-48, 48]) box(x, 1, 216, 15, 2, 365); break;
