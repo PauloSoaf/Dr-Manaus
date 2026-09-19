@@ -3,11 +3,11 @@ import type { Collider } from '../core/types';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { CharacterModel } from './CharacterModel';
 import type { InputController } from './InputController';
-import { SPACE } from '../core/config';
+import { SPACE, WORLD } from '../core/config';
 import { FLIGHT, type FlightSpeedMode } from './flightConfig';
 
 export class PlayerController {
-  readonly position = new Vector3(0, 38.5, 0);
+  readonly position = new Vector3(WORLD.spawn.x, WORLD.spawn.y, WORLD.spawn.z);
   readonly velocity = new Vector3();
   readonly forward = new Vector3(0, 0, -1);
   readonly character = new CharacterModel();

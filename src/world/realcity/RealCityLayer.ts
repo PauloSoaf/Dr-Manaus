@@ -7,6 +7,7 @@ import { REAL_CITY } from '../../core/config';
 import { RealCityMaterials } from './materials';
 import { RoadNetwork, type RoadRecord } from './roads';
 import { DistrictIndex } from './districts';
+import { RoadGraph } from '../traffic/RoadGraph';
 import {
   appendNearBuilding, appendShellBuilding, buildingExtent, createBuffers, districtCharacter, setDistrictSampler,
   type MeshBuffers, type RealBuilding,
@@ -26,6 +27,7 @@ export interface RealCityManifest {
   pois?: string;
   skyline?: string;
   districts?: string;
+  roadgraph?: string;
   stats?: Record<string, number>;
 }
 
@@ -124,6 +126,8 @@ export class RealCityLayer {
   private readonly focus = new Vector3();
   /** Real Manaus bairro boundaries, used for naming places and for tinting facades by district. */
   readonly districts = new DistrictIndex();
+  /** The drivable network: traffic and the rendered ribbons come from the same compiled data. */
+  readonly roads_graph = new RoadGraph();
   private skyline?: InstancedMesh;
   private skylineData = new Map<string, number[]>();
   private skylineDirty = true;
@@ -167,7 +171,7 @@ export class RealCityLayer {
       this.materials = new RealCityMaterials();
       this.materials.setNight(this.night);
       this.hideLegacyRoads();
-      await Promise.all([this.loadRoads(), this.loadSkyline(), this.loadDistricts()]);
+      await Promise.all([this.loadRoads(), this.loadSkyline(), this.loadDistricts(), this.loadRoadGraph()]);
     } catch {
       this.enabled = false;
     }
@@ -184,6 +188,15 @@ export class RealCityLayer {
       this.group.add(this.roads.group);
       this.metrics.roadTriangles = this.roads.triangleCount;
     } catch { /* The procedural road ribbons stay visible when the real network is missing. */ }
+  }
+
+  private async loadRoadGraph(): Promise<void> {
+    if (!this.manifest?.roadgraph) return;
+    try {
+      const response = await fetch(`${baseUrl()}geodata/real-city/${this.manifest.roadgraph}`);
+      if (!response.ok) return;
+      this.roads_graph.load(await response.json());
+    } catch { /* Without the graph there is simply no traffic; the city still renders. */ }
   }
 
   private async loadDistricts(): Promise<void> {

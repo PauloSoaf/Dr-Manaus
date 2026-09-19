@@ -1,6 +1,5 @@
 import { BufferGeometry, CylinderGeometry, Float32BufferAttribute, Group, TorusGeometry, Vector3 } from 'three/webgpu';
 import { GeometryBatch, palm, tree, type PaletteKey } from './GeometryBatch';
-import { BRIDGE } from '../geodata/geodata';
 import { wavePlazaGeometry } from './theatre';
 // The Arena has a bespoke model of its own; this module keeps re-exporting it for callers.
 import { createArena, type LandmarkBox } from './arena';
@@ -343,33 +342,8 @@ function pontaColliders(): LandmarkBox[] {
 
 export const PONTA_COLLIDERS: readonly LandmarkBox[] = pontaColliders();
 
-export function createBridge(): Group {
-  const b = new GeometryBatch();
-  // The crossing is laid out along local x and then turned onto the surveyed alignment, so the
-  // deck, the piers and the collision boxes all read the same constant.
-  const { angle, halfLength: half, deck } = BRIDGE;
-  const length = half * 2;
-  b.box('stone', 0, deck - 2, 0, length, 4, 28);
-  b.box('dark', 0, deck + .12, 0, length, .22, 24);
-  for (const z of [-13, 13]) { b.box('white', 0, deck + 1.2, z, length, 1.1, .7); b.box('light', 0, deck + 1.7, z, length, .1, .16); }
-  for (let x = -half + 32; x < half; x += 120) {
-    if (Math.abs(x) < 240) continue;
-    b.box('cream', x, deck / 2 - 2, 0, 8, deck + 1, 19);
-    b.box('cream', x, deck - 5, 0, 13, 4, 26);
-  }
-  for (const z of [-10.5, 10.5]) {
-    b.beam('cream', new Vector3(-24, -3, z), new Vector3(-8, 155, z), 3.4, 6);
-    b.beam('cream', new Vector3(24, -3, z), new Vector3(8, 155, z), 3.4, 6);
-    b.beam('cream', new Vector3(-8, 155, z), new Vector3(0, 185, z), 3, 6);
-    b.beam('cream', new Vector3(8, 155, z), new Vector3(0, 185, z), 3, 6);
-    for (let i = 1; i <= 16; i++) for (const side of [-1, 1]) b.beam('white', new Vector3(0, 88 + i * 5.4, z), new Vector3(side * (25 + i * 16), deck + 1, z), .28, 4);
-  }
-  b.box('cream', 0, 81, 0, 30, 4, 24);
-  b.box('cream', 0, 154, 0, 20, 4, 24);
-  b.box('light', 0, 185, 0, 1.7, 2, 24);
-  const group = b.build('Ponte Rio Negro — 3.595 km cable-stayed bridge'); group.rotation.y = angle;
-  return group;
-}
+import { createBridgeModel } from './bridge';
+export { createBridgeModel as createBridge };
 
 export function createIranduba(): Group {
   const b = new GeometryBatch();
@@ -450,5 +424,5 @@ export function createBosque(): Group {
 
 export const LANDMARK_BUILDERS: Record<string, () => Group> = {
   largo: createLargo, mercado: createMarket, porto: createPort, relogio: createClock, palacio: createPalace,
-  arena: createArena, ponta: createPonta, ponte: createBridge, iranduba: createIranduba, encontro: createMeeting, musa: createMusa, bosque: createBosque,
+  arena: createArena, ponta: createPonta, ponte: createBridgeModel, iranduba: createIranduba, encontro: createMeeting, musa: createMusa, bosque: createBosque,
 };

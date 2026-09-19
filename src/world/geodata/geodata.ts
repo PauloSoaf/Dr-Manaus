@@ -21,15 +21,6 @@ function place(id: string, name: string, shortName: string, lat: number, lon: nu
  * Cacau Pirera, on the far bank. The previous coordinate sat 2.2 km inside the Rio Negro: the
  * generalized shoreline called it land, but the compiled Overture water polygons do not.
  */
-/**
- * The crossing, measured off the compiled water polygons rather than guessed: the span between
- * the two banks along the real alignment comes out at 3 584 m, against the bridge's real 3 595 m.
- * `angle` matches how the model lays points out, as `(x·cos a, -x·sin a)` from the midpoint.
- * The half-length carries 16 m past the last water cell at each end, so the deck lands on the
- * bank rather than stopping over open river: 3 616 m of span against the real 3 595 m.
- */
-export const BRIDGE = { angle: -2.266, halfLength: 1808, deck: 53 } as const;
-
 export const IRANDUBA_CENTER = latLonToWorld(-3.1608, -60.0990);
 
 /** Approximate survey positions; a meter scale local projection, not a navigation map. */
@@ -42,7 +33,7 @@ export const LANDMARKS: Landmark[] = [
   place('palacio', 'Palácio Rio Negro', 'Palácio Rio Negro', -3.1350552, -60.0167709, 100, 19, 'Fachada dourada e jardins no centro histórico.'),
   place('arena', 'Arena da Amazônia', 'Arena da Amazônia', -3.08325175, -60.02800465, 210, 46, 'A trama branca da arena inspirada nas cestas amazônicas.'),
   place('ponta', 'Praia da Ponta Negra', 'Ponta Negra', -3.06375, -60.10830, 1050, 3, 'Grande orla da Ponta Negra, com praia, calçadão, anfiteatro e skyline residencial.'),
-  place('ponte', 'Ponte Jornalista Phelippe Daou', 'Ponte Rio Negro', -3.1273665, -60.0705973, 420, 56, 'Travessia estaiada do Rio Negro, representada em escala de quilômetros.'),
+  place('ponte', 'Ponte Jornalista Phelippe Daou', 'Ponte Rio Negro', -3.1266785, -60.0843740, 3400, 60, 'Travessia estaiada do Rio Negro, representada em escala de quilômetros.'),
   place('iranduba', 'Iranduba · Cacau Pirêra', 'Iranduba', -3.1608, -60.0990, 520, 18, 'Margem de Cacau Pirêra, porta de entrada de Iranduba após a travessia do Rio Negro.'),
   place('encontro', 'Encontro das Águas', 'Encontro das Águas', -3.1430, -59.9040, 450, 9, 'As águas escuras do Negro encontram as águas barrentas do Solimões.'),
   place('musa', 'MUSA — Museu da Amazônia', 'MUSA', -3.0071889, -59.9398508, 280, 45, 'Torre de observação acima da floresta da Reserva Ducke.'),

@@ -167,3 +167,54 @@ test('procedural buildings collapse by zeroing their instance, without rebuildin
     streamer.dispose(); restoreDocument();
   }
 });
+
+test('trees are solid, fall when hit, and take their own canopy with them', async () => {
+  const restoreDocument = stubDocument();
+  const root = new Group(), streamer = new WorldStreamer(root);
+  try {
+    // Deep in the forest north-east of the city, where vegetation is what the chunks generate.
+    const position = new Vector3(9000, 60, -14000);
+    await streamer.prepare(position);
+    for (let frame = 0; frame < 20; frame++) {
+      streamer.update(position, new Vector3(), 1 / 30);
+      await new Promise(resolve => setTimeout(resolve, 3));
+    }
+    const tree = streamer.colliders.find(collider => collider.id?.includes('/tree/'));
+    if (!tree?.id) return; // No vegetation generated here; nothing to assert.
+    assert.ok(tree.height > 2, 'a tree collider must have a real trunk height');
+    assert.ok(tree.width > .5, 'a tree must be wide enough for a beam to hit');
+
+    assert.equal(streamer.destroy(tree.id), true, 'a tree must be fellable');
+    assert.equal(streamer.colliders.some(collider => collider.id === tree.id), false);
+    assert.equal(streamer.destroy(tree.id), false, 'felling twice is a no-op');
+
+    const index = Number(tree.id.slice(tree.id.indexOf('/tree/') + 6));
+    // Only the chunk that owns the tree; every other chunk has its own instance at that index.
+    const key = tree.id.slice(0, tree.id.indexOf('/tree/'));
+    const owner = root.children.find(child => child.name === `chunk:${key}`);
+    assert.ok(owner, 'the felled tree must belong to a resident chunk');
+    let trunkGone = false, leavesGone = false;
+    owner.traverse(object => {
+      if (!(object instanceof InstancedMesh)) return;
+      const matrix = object.instanceMatrix.array as Float32Array;
+      if (object.name === 'tree-trunks' && index < object.count) {
+        const at = index * 16;
+        trunkGone = matrix[at] === 0 && matrix[at + 5] === 0 && matrix[at + 10] === 0;
+      }
+      if (object.name === 'tropical-canopy') {
+        const start = (owner.userData.canopyStart as Int32Array | undefined)?.[index];
+        const span = (owner.userData.canopySpan as Int32Array | undefined)?.[index] ?? 0;
+        if (start === undefined || !span) return;
+        leavesGone = true;
+        for (let n = 0; n < span; n++) {
+          const at = (start + n) * 16;
+          if (matrix[at] !== 0 || matrix[at + 5] !== 0 || matrix[at + 10] !== 0) leavesGone = false;
+        }
+      }
+    });
+    assert.equal(trunkGone, true, 'the trunk instance must be collapsed');
+    assert.equal(leavesGone, true, 'the canopy must not be left floating where the tree stood');
+  } finally {
+    streamer.dispose(); restoreDocument();
+  }
+});

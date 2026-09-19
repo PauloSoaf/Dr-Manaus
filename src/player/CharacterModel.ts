@@ -1,4 +1,8 @@
-import { BoxGeometry, CylinderGeometry, Group, IcosahedronGeometry, InstancedMesh, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, TorusGeometry } from 'three/webgpu';
+import { BoxGeometry, BufferGeometry, CylinderGeometry, Float32BufferAttribute, Group, IcosahedronGeometry, InstancedMesh, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, TorusGeometry, Vector3 } from 'three/webgpu';
+import { CosmicAura } from './cosmic/CosmicAura';
+import { CosmicMaterial, type CosmicLevel } from './cosmic/CosmicMaterial';
+
+export type { CosmicLevel };
 
 const skin = new MeshStandardMaterial({ color: 0x10162d, roughness: 0.22, metalness: 0.76, emissive: 0x25105e, emissiveIntensity: 1.05 });
 const dark = new MeshStandardMaterial({ color: 0x050714, roughness: 0.28, metalness: 0.9, emissive: 0x080d2c, emissiveIntensity: 0.55 });
@@ -13,6 +17,29 @@ const box = new BoxGeometry(1, 1, 1);
 const limb = new CylinderGeometry(0.115, 0.09, 1, 6);
 const head = new IcosahedronGeometry(0.23, 1);
 const ring = new TorusGeometry(0.42, 0.017, 5, 32);
+const ORIGIN = new Vector3();
+
+/**
+ * Bakes each vertex's rest-pose position in body metres, plus the part's own scale. One shared
+ * cosmic material can then paint a single continuous universe across every piece of the figure:
+ * `positionLocal` alone would restart it inside each box and cylinder, and a world-space mapping
+ * would either swim as the character moves or lag a frame behind it at mega speed.
+ */
+function cosmicGeometry(source: BufferGeometry, base: Vector3, x: number, y: number, z: number, sx: number, sy: number, sz: number): BufferGeometry {
+  const geometry = source.clone();
+  const local = geometry.getAttribute('position');
+  const body = new Float32Array(local.count * 3), scale = new Float32Array(local.count * 3);
+  for (let i = 0; i < local.count; i++) {
+    const slot = i * 3;
+    body[slot] = base.x + x + local.getX(i) * sx;
+    body[slot + 1] = base.y + y + local.getY(i) * sy;
+    body[slot + 2] = base.z + z + local.getZ(i) * sz;
+    scale[slot] = sx; scale[slot + 1] = sy; scale[slot + 2] = sz;
+  }
+  geometry.setAttribute('cosmicPos', new Float32BufferAttribute(body, 3));
+  geometry.setAttribute('cosmicScale', new Float32BufferAttribute(scale, 3));
+  return geometry;
+}
 
 export class CharacterModel {
   readonly group = new Group();
@@ -24,12 +51,24 @@ export class CharacterModel {
   readonly halo = new Group();
   readonly starfield?: InstancedMesh;
   private phase = 0;
+  private readonly universe?: CosmicMaterial;
+  private readonly aura?: CosmicAura;
+  private readonly baked: BufferGeometry[] = [];
+  private readonly facing = new Vector3(0, 0, -1);
+  private level: CosmicLevel | null = null;
+  private levelSpeed = 0;
 
   constructor(echo = false) {
     this.group.add(this.body);
+    // Echoes stay the old teal silhouette: three clones must not each pay for a universe.
+    if (!echo) this.universe = new CosmicMaterial();
+    const cosmicSurface = this.universe?.material;
     const part = (parent: Group, geometry: typeof box | typeof limb | typeof head | typeof ring, material: MeshStandardMaterial | MeshBasicMaterial, x: number, y: number, z: number, sx = 1, sy = 1, sz = 1): Mesh => {
-      const surface = echo ? (material === energy || material === gold || material === cosmic ? echoEnergy : echoSkin) : material;
-      const mesh = new Mesh(geometry, surface); mesh.position.set(x, y, z); mesh.scale.set(sx, sy, sz); mesh.castShadow = !echo; parent.add(mesh); return mesh;
+      const universal = !echo && (material === skin || material === dark) && cosmicSurface !== undefined;
+      const surface = echo ? (material === energy || material === gold || material === cosmic ? echoEnergy : echoSkin) : universal && cosmicSurface ? cosmicSurface : material;
+      let shape: BufferGeometry = geometry;
+      if (universal) { shape = cosmicGeometry(geometry, parent === this.body ? ORIGIN : parent.position, x, y, z, sx, sy, sz); this.baked.push(shape); }
+      const mesh = new Mesh(shape, surface); mesh.position.set(x, y, z); mesh.scale.set(sx, sy, sz); mesh.castShadow = !echo; parent.add(mesh); return mesh;
     };
     part(this.body, box, dark, 0, 1.16, 0, 0.44, 0.55, 0.26);
     part(this.body, box, skin, 0, 1.37, -0.035, 0.62, 0.38, 0.28);
@@ -60,6 +99,7 @@ export class CharacterModel {
     part(this.halo, ring, energy, 0, 0, 0.04, 1.12, 1.12, 1.12).rotation.x = 0.18;
     part(this.halo, ring, cosmic, 0, 0, 0.065, .88, .88, .88).rotation.set(.38, .16, Math.PI / 4);
     if (!echo) {
+      this.aura = new CosmicAura(this.group);
       this.starfield = new InstancedMesh(starGeometry, starMaterial, 30);
       const star = new Object3D();
       for (let i = 0; i < 30; i++) {
@@ -76,6 +116,17 @@ export class CharacterModel {
       this.starfield.instanceMatrix.needsUpdate = true;
       this.body.add(this.starfield);
     }
+  }
+
+  /**
+   * Drives the cosmic look from outside. Call it every frame before `animate`; `forward` is the
+   * player's world-space heading and only steers the aura trail. Left uncalled, `animate` derives
+   * a sensible level from the flags it already receives.
+   */
+  setCosmicLevel(level: CosmicLevel, speed: number, forward?: Vector3): void {
+    this.level = level;
+    this.levelSpeed = Number.isFinite(speed) ? Math.max(0, speed) : 0;
+    if (forward && forward.lengthSq() > 1e-6) this.facing.copy(forward);
   }
 
   animate(dt: number, speed: number, flying: boolean, boost: boolean, pose: string): void {
@@ -101,5 +152,17 @@ export class CharacterModel {
       this.starfield.rotation.z = this.phase * .035;
       this.starfield.scale.setScalar(1 + Math.sin(this.phase * 2.4) * .018);
     }
+    if (!this.universe && !this.aura) return;
+    const level = this.level ?? (pose ? 'power' : boost ? 'boost' : flying ? 'flight' : speed > .4 ? 'flight' : 'idle');
+    const pace = this.level ? this.levelSpeed : speed;
+    this.universe?.update(dt, level, pace);
+    this.aura?.update(dt, level, pace, this.facing);
+  }
+
+  dispose(): void {
+    this.aura?.dispose();
+    this.universe?.dispose();
+    for (const geometry of this.baked) geometry.dispose();
+    this.baked.length = 0;
   }
 }

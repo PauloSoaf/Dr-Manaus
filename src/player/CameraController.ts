@@ -3,6 +3,7 @@ import type { Collider } from '../core/types';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import type { InputController } from './InputController';
 import type { PlayerController } from './PlayerController';
+import { WORLD } from '../core/config';
 
 export class CameraController {
   yaw = 0;
@@ -29,7 +30,8 @@ export class CameraController {
     this.target.copy(player.position); this.target.y += 1.5 * player.size;
     if (this.intro && this.elapsed < 6) {
       const progress = MathUtils.smoothstep(this.elapsed, 0.4, 6);
-      this.yaw = progress * 2.94;
+      // Ends the fly-in facing the Teatro Amazonas across the Largo, the game's first sight.
+      this.yaw = WORLD.spawnYaw + (progress - 1) * 2.94;
       const distance = MathUtils.lerp(110, 9, progress);
       this.desired.set(Math.sin(this.yaw) * distance, MathUtils.lerp(27, 3.2, progress), Math.cos(this.yaw) * distance).add(this.target);
       this.globalPosition.lerp(this.desired, Math.min(1, dt * 5));

@@ -1,16 +1,17 @@
 import { Group, Mesh, SphereGeometry, TorusGeometry, Vector3 } from 'three/webgpu';
 import type { Collider, Landmark } from '../../core/types';
-import { BRIDGE, LANDMARKS } from '../geodata/geodata';
+import { LANDMARKS } from '../geodata/geodata';
 import { GeometryBatch, tree } from './GeometryBatch';
 import { createTheatre, createTheatreSilhouette } from './theatre';
 import { createBridge, LANDMARK_BUILDERS, PONTA_COLLIDERS } from './models';
 import { ARENA_COLLIDERS, createArenaSilhouette } from './arena';
+import { bridgeDeckColliders, createBridgeDistant } from './bridge';
 
 interface LandmarkNode { landmark: Landmark; anchor: Group; distant: Group; detailed?: Group; visibleDetail: boolean }
 
 function silhouette(id: string): Group {
   if (id === 'teatro') return createTheatreSilhouette();
-  if (id === 'ponte') return createBridge();
+  if (id === 'ponte') return createBridgeDistant();
   if (id === 'arena') return createArenaSilhouette();
   const b = new GeometryBatch();
   if (id === 'musa') {
@@ -89,10 +90,11 @@ export class LandmarkManager {
       node.anchor.visible = distance < (node.landmark.id === 'ponte' ? 28000 : 22000);
       if (!node.anchor.visible) continue;
       // Hysteresis ensures smooth flight near the detail boundary without repeated rebuilds.
-      const detailEnter = node.landmark.id === 'ponta' ? 3000 : node.landmark.id === 'iranduba' ? 2200 : 1400;
-      const detailExit = node.landmark.id === 'ponta' ? 3400 : node.landmark.id === 'iranduba' ? 2500 : 1750;
+      // The crossing is 6.4 km end to end, so it earns a far larger detail radius than a building.
+      const detailEnter = node.landmark.id === 'ponte' ? 4200 : node.landmark.id === 'ponta' ? 3000 : node.landmark.id === 'iranduba' ? 2200 : 1400;
+      const detailExit = node.landmark.id === 'ponte' ? 4800 : node.landmark.id === 'ponta' ? 3400 : node.landmark.id === 'iranduba' ? 2500 : 1750;
       const near = distance < (node.visibleDetail ? detailExit : detailEnter);
-      if (near && !node.detailed && !built && node.landmark.id !== 'ponte') {
+      if (near && !node.detailed && !built) {
         node.detailed = node.landmark.id === 'teatro' ? createTheatre() : LANDMARK_BUILDERS[node.landmark.id]?.();
         if (node.detailed) { node.anchor.add(node.detailed); built = true; }
       }
@@ -100,7 +102,7 @@ export class LandmarkManager {
       node.distant.visible = !node.visibleDetail;
       if (node.detailed) {
         node.detailed.visible = node.visibleDetail;
-        if (distance > 4800) { disposeGroup(node.detailed); node.detailed = undefined; }
+        if (distance > detailExit + 3000) { disposeGroup(node.detailed); node.detailed = undefined; }
       }
       node.anchor.traverse(object => { if (object instanceof Mesh) object.castShadow = distance < 350; });
     }
@@ -130,10 +132,9 @@ export class LandmarkManager {
       // colliders, so only the orla's own solid furniture is listed here.
       case 'ponta': for (const item of PONTA_COLLIDERS) box(item.x, item.y, item.z, item.width, item.height, item.depth); break;
       case 'ponte':
-        // Driven by the surveyed alignment so the collision deck cannot drift off the visual one.
-        for (let x = -BRIDGE.halfLength; x <= BRIDGE.halfLength; x += 25) {
-          box(x * Math.cos(BRIDGE.angle), BRIDGE.deck, -x * Math.sin(BRIDGE.angle), 31, 4, 33);
-        }
+        // Sampled from the same real centreline as the visible deck, so the surface the player
+        // lands on is the surface they can see.
+        for (const item of bridgeDeckColliders()) box(item.x, item.y, item.z, item.width, item.height, item.depth);
         break;
       case 'iranduba': box(0, 12, 0, 15, 24, 15); break;
       case 'encontro': box(0, 8.8, -4, 10, .4, 27); break;

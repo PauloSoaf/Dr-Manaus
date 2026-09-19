@@ -1,4 +1,5 @@
 import { BufferGeometry, Float32BufferAttribute, Group, Mesh, type Material } from 'three/webgpu';
+import { drawnByLandmark } from './ownership';
 
 export interface RoadRecord {
   class: string;
@@ -177,7 +178,7 @@ export class RoadNetwork {
   private buildArterial(): void {
     const out = ribbon();
     for (const road of this.records) {
-      if (!ARTERIAL_CLASSES.has(road.class)) continue;
+      if (!ARTERIAL_CLASSES.has(road.class) || drawnByLandmark(road)) continue;
       const half = Math.max(3, road.width) * .5, y = heightOf(road.class), rgb = colorOf(road.class);
       for (let i = 2; i < road.p.length; i += 2) {
         strip(out, road.p[i - 2], road.p[i - 1], road.p[i], road.p[i + 1], half, y, rgb, half * .9);
@@ -214,6 +215,7 @@ export class RoadNetwork {
         if (seen.has(index)) continue;
         seen.add(index);
         const road = this.records[index];
+        if (drawnByLandmark(road)) continue;
         const half = Math.max(3, road.width) * .5, y = heightOf(road.class), rgb = colorOf(road.class);
         for (let i = 2; i < road.p.length; i += 2) {
           const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];
@@ -238,7 +240,7 @@ export class RoadNetwork {
     const out = ribbon();
     const radius = RoadNetwork.MARKING_RADIUS, radiusSq = radius * radius;
     for (const road of this.records) {
-      if (!ARTERIAL_CLASSES.has(road.class) && road.class !== 'tertiary') continue;
+      if ((!ARTERIAL_CLASSES.has(road.class) && road.class !== 'tertiary') || drawnByLandmark(road)) continue;
       const y = heightOf(road.class) + .012;
       for (let i = 2; i < road.p.length; i += 2) {
         const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];
@@ -271,7 +273,7 @@ export class RoadNetwork {
     const mast: readonly [number, number, number] = [.24, .25, .26];
     const head: readonly [number, number, number] = [.95, .88, .70];
     for (const road of this.records) {
-      if (!ARTERIAL_CLASSES.has(road.class) && road.class !== 'tertiary') continue;
+      if ((!ARTERIAL_CLASSES.has(road.class) && road.class !== 'tertiary') || drawnByLandmark(road)) continue;
       const offset = Math.max(3, road.width) * .5 + 1.4;
       for (let i = 2; i < road.p.length; i += 2) {
         const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];

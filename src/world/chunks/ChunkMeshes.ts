@@ -95,11 +95,14 @@ export class ChunkMeshes {
     if (treeCount) {
       const trunks = make(this.trunk, this.bark, treeCount, 'tree-trunks');
       const crowns = make(this.crown, this.leaves, treeCount * 6, 'tropical-canopy');
+      // Which canopy instances belong to which trunk, so felling a tree takes its leaves with it.
+      const canopyStart = new Int32Array(treeCount), canopySpan = new Int32Array(treeCount);
       let leafCount = 0;
       for (let i = 0; i < treeCount; i++) {
         const p = i * TREE_STRIDE;
         const x = trees[p] - group.position.x, z = trees[p + 1] - group.position.z;
         const h = trees[p + 2], radius = trees[p + 3], palm = trees[p + 4] > .5;
+        canopyStart[i] = leafCount;
         this.set(trunks, i, x, h * .5, z, palm ? .3 : .5, h, palm ? .3 : .5);
         if (palm) {
           for (let leaf = 0; leaf < 5; leaf++) {
@@ -112,9 +115,17 @@ export class ChunkMeshes {
           this.set(crowns, leafCount, x, h - .5, z, radius, radius * .78, radius);
           crowns.setColorAt(leafCount++, this.color.setHex(i % 3 ? 0x537449 : 0x68864b));
         }
+        canopySpan[i] = leafCount - canopyStart[i];
+        // Trees are solid and fellable. The canopy width is what a beam or a fast pass will hit.
+        colliders.push({
+          x: trees[p], y: h * .5, z: trees[p + 1],
+          width: radius * 1.3, height: h, depth: radius * 1.3, id: `${payload.key}/tree/${i}`,
+        });
       }
       crowns.count = leafCount; crowns.castShadow = true;
       if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
+      group.userData.canopyStart = canopyStart;
+      group.userData.canopySpan = canopySpan;
     }
     group.traverse(object => { if (object instanceof InstancedMesh) { object.computeBoundingSphere(); object.computeBoundingBox(); } });
     return { group, colliders, bytes };

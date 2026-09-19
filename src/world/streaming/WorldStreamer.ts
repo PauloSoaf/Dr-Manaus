@@ -186,7 +186,7 @@ export class WorldStreamer {
    * three instances rather than any geometry rebuild.
    */
   destroy(colliderId: string): boolean {
-    const marker = colliderId.indexOf('/building/');
+    const marker = colliderId.indexOf('/building/') >= 0 ? colliderId.indexOf('/building/') : colliderId.indexOf('/tree/');
     if (marker <= 0 || colliderId.startsWith('hlod:') || this.destroyed.has(colliderId)) return false;
     const chunk = this.records.get(colliderId.slice(0, marker));
     if (!chunk) return false;
@@ -203,13 +203,29 @@ export class WorldStreamer {
   }
 
   private collapse(chunk: Chunk, colliderId: string): boolean {
-    const index = Number(colliderId.slice(colliderId.indexOf('/building/') + 10));
-    if (!chunk.group || !Number.isFinite(index)) return false;
+    if (!chunk.group) return false;
+    const tree = colliderId.indexOf('/tree/');
+    const index = Number(colliderId.slice((tree >= 0 ? tree + 6 : colliderId.indexOf('/building/') + 10)));
+    if (!Number.isFinite(index)) return false;
+    COLLAPSE.makeScale(0, 0, 0);
     let collapsed = false;
     for (const object of chunk.group.children) {
-      if (!(object instanceof InstancedMesh) || index >= object.count) continue;
+      if (!(object instanceof InstancedMesh)) continue;
+      if (tree >= 0) {
+        // A felled tree has to take its own canopy instances with it, not just the trunk.
+        if (object.name === 'tree-trunks' && index < object.count) {
+          object.setMatrixAt(index, COLLAPSE); object.instanceMatrix.needsUpdate = true; collapsed = true;
+        } else if (object.name === 'tropical-canopy') {
+          const start = (chunk.group.userData.canopyStart as Int32Array | undefined)?.[index];
+          const span = (chunk.group.userData.canopySpan as Int32Array | undefined)?.[index] ?? 0;
+          if (start === undefined) continue;
+          for (let n = 0; n < span && start + n < object.count; n++) object.setMatrixAt(start + n, COLLAPSE);
+          if (span) { object.instanceMatrix.needsUpdate = true; collapsed = true; }
+        }
+        continue;
+      }
+      if (index >= object.count) continue;
       if (object.name !== 'facades' && object.name !== 'terracotta-roofs' && object.name !== 'sidewalks') continue;
-      COLLAPSE.makeScale(0, 0, 0);
       object.setMatrixAt(index, COLLAPSE);
       object.instanceMatrix.needsUpdate = true;
       collapsed = true;

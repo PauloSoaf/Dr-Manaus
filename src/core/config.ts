@@ -3,7 +3,13 @@ export const WORLD = {
   horizonRadius: 24000, hysteresis: 64, maxActiveChunks: 64, maxCachedChunks: 30,
   maxRequests: 4, streamingBudgetMs: 4, prefetchSeconds: 2.8, originThreshold: 2048,
   maxNPCs: 32, maxVehicles: 20, maxParticles: 600, maxPhysicsBodies: 96,
-  groundY: 0, waterY: -3, spawn: { x: 0, y: 38.5, z: 0 },
+  groundY: 0, waterY: -3,
+  /**
+   * The Largo de São Sebastião, standing on the plaza facing the Teatro Amazonas. The projection
+   * origin stays on the theatre, 100 m north: moving it would rewrite all 648 compiled tiles for
+   * no gain, since floating origin already handles precision and everything is relative.
+   */
+  spawn: { x: 13.3, y: 2.2, z: 100.2 }, spawnYaw: .132,
 } as const;
 /** Streaming and representation bands for the compiled Overture/OpenStreetMap city. */
 export const REAL_CITY = {

@@ -433,8 +433,78 @@ function simplifyLine(points, threshold = 2.4) {
   return out;
 }
 
+/**
+ * Free-flow speed in m/s per class, used only where Overture carries no `speed_limits`. Manaus
+ * signs 60 on its avenues and 30 in the bairros, so these are the posted values, not design speeds.
+ */
+const DRIVABLE_SPEED = {
+  motorway: 27.8, trunk: 22.2, primary: 16.7, secondary: 13.9, tertiary: 11.1,
+  residential: 8.3, living_street: 5.6, unclassified: 8.3, service: 5.6,
+};
+
+/**
+ * Overture spells a one-way street as an access restriction that denies one heading. A restriction
+ * that is conditional on time, vehicle or transport mode is a bus lane or a delivery window, not a
+ * one-way, so only the unconditional ones count.
+ */
+function onewayOf(props) {
+  for (const rule of props.access_restrictions ?? []) {
+    const when = rule.when;
+    if (rule.access_type !== 'denied' || !when?.heading) continue;
+    if (when.during || when.using || when.vehicle || when.mode || when.recognized) continue;
+    return true;
+  }
+  return false;
+}
+
+function flaggedOf(props, flag) {
+  for (const rule of props.road_flags ?? []) if ((rule.values ?? []).includes(flag)) return true;
+  return false;
+}
+
+function speedOf(props, klass) {
+  for (const rule of props.speed_limits ?? []) {
+    const max = rule.max_speed;
+    if (!max || !Number.isFinite(max.value) || max.value <= 0) continue;
+    return max.unit === 'mph' ? max.value * .44704 : max.value / 3.6;
+  }
+  return DRIVABLE_SPEED[klass];
+}
+
+/**
+ * Douglas-Peucker on top of the chord filter. The chord filter keeps a vertex every 2.4 m even down
+ * a dead straight avenue; dropping the ones that lie within 35 cm of their own chord removes those
+ * without moving the centreline anywhere a car could notice against a 7 m ribbon.
+ */
+function simplifyDP(points, tolerance) {
+  if (points.length < 3) return points;
+  const keep = new Uint8Array(points.length);
+  keep[0] = 1; keep[points.length - 1] = 1;
+  const stack = [0, points.length - 1];
+  while (stack.length) {
+    const end = stack.pop(), start = stack.pop();
+    if (end - start < 2) continue;
+    const ax = points[start][0], az = points[start][1];
+    const dx = points[end][0] - ax, dz = points[end][1] - az;
+    const span = Math.hypot(dx, dz) || 1;
+    let worst = -1, at = -1;
+    for (let i = start + 1; i < end; i++) {
+      const d = Math.abs((points[i][0] - ax) * dz - (points[i][1] - az) * dx) / span;
+      if (d > worst) { worst = d; at = i; }
+    }
+    if (worst > tolerance) { keep[at] = 1; stack.push(start, at, at, end); }
+  }
+  const result = [];
+  for (let i = 0; i < points.length; i++) if (keep[i]) result.push(points[i]);
+  return result;
+}
+
 const roads = [];
 let namedRoads = 0;
+/** Raw drivable geometry held back for the graph pass, which needs connectors and full precision. */
+const graphRaw = [];
+const connectorRefs = new Map();
+let onewayFound = 0, widthRuleFound = 0, speedLimitFound = 0;
 if (fs.existsSync(ROADS_FILE)) {
   for (const feature of readGeoJSON(ROADS_FILE)) {
     const props = feature.properties ?? {};
@@ -459,9 +529,135 @@ if (fs.existsSync(ROADS_FILE)) {
       });
       if (name) namedRoads++;
     }
+    // A connector's `at` is a fraction of the whole feature, so only a single line can carry them.
+    if (geometries.length !== 1 || geometries[0].length < 2) continue;
+    const connectors = (props.connectors ?? [])
+      .filter(c => c?.connector_id && Number.isFinite(Number(c.at)))
+      .map(c => ({ id: String(c.connector_id), at: clamp(Number(c.at), 0, 1) }))
+      .sort((a, b) => a.at - b.at);
+    for (const connector of connectors) connectorRefs.set(connector.id, (connectorRefs.get(connector.id) ?? 0) + 1);
+    const ruleWidth = (props.width_rules ?? []).find(rule => Number.isFinite(rule?.value) && rule.value > 0);
+    if (ruleWidth) widthRuleFound++;
+    if ((props.speed_limits ?? []).some(rule => Number.isFinite(rule?.max_speed?.value))) speedLimitFound++;
+    const oneway = onewayOf(props);
+    if (oneway) onewayFound++;
+    const points = new Float64Array(geometries[0].length * 2);
+    for (let i = 0; i < geometries[0].length; i++) {
+      const p = project(geometries[0][i][1], geometries[0][i][0]);
+      points[i * 2] = p.x; points[i * 2 + 1] = p.z;
+    }
+    graphRaw.push({
+      // 40 bits of the Overture uuid: still traceable back to the source row, a tenth of the bytes.
+      id: String(feature.id ?? `r${graphRaw.length}`).replace(/-/g, '').slice(0, 10),
+      name: name || null, klass, oneway,
+      width: ruleWidth ? Number(ruleWidth.value) : width,
+      bridge: flaggedOf(props, 'is_bridge'),
+      speed: speedOf(props, klass),
+      points, connectors,
+    });
   }
 }
 fs.writeFileSync(path.join(out, 'roads.json'), JSON.stringify(roads));
+
+/**
+ * The drivable graph. Overture gives every segment a `connectors` list, so two streets that meet
+ * share a connector id and therefore a node index: that, and not proximity, is what turns 52k loose
+ * polylines into a network a car can be routed along. A connector that lands mid-way through a
+ * segment is a T-junction, so the segment is cut there — otherwise the stem of every T in the city
+ * would terminate against a road it never joins and traffic would pile into false dead ends.
+ */
+const graphNodes = [];
+const nodeByConnector = new Map();
+const nodeCells = new Map();
+/** Endpoints with no connector at all snap to anything within this radius; 4 m is a kerb, not a block. */
+const SNAP_RADIUS = 4;
+
+function nodeIndexOf(connectorId, x, z) {
+  if (connectorId) {
+    const hit = nodeByConnector.get(connectorId);
+    if (hit !== undefined) return hit;
+  } else {
+    const gx = Math.round(x / SNAP_RADIUS), gz = Math.round(z / SNAP_RADIUS);
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      for (const index of nodeCells.get(`${gx + dx},${gz + dz}`) ?? []) {
+        const node = graphNodes[index];
+        if ((node[0] - x) ** 2 + (node[1] - z) ** 2 <= SNAP_RADIUS * SNAP_RADIUS) return index;
+      }
+    }
+  }
+  const index = graphNodes.length;
+  graphNodes.push([x, z]);
+  if (connectorId) nodeByConnector.set(connectorId, index);
+  const key = `${Math.round(x / SNAP_RADIUS)},${Math.round(z / SNAP_RADIUS)}`;
+  const cell = nodeCells.get(key);
+  if (cell) cell.push(index); else nodeCells.set(key, [index]);
+  return index;
+}
+
+const graphSegments = [];
+let splitCount = 0;
+for (const record of graphRaw) {
+  const count = record.points.length / 2;
+  const cumulative = new Float64Array(count);
+  for (let i = 1; i < count; i++) {
+    cumulative[i] = cumulative[i - 1]
+      + Math.hypot(record.points[i * 2] - record.points[i * 2 - 2], record.points[i * 2 + 1] - record.points[i * 2 - 1]);
+  }
+  const total = cumulative[count - 1];
+  if (!(total > .5)) continue;
+  const pointAt = (distance) => {
+    let i = 1;
+    while (i < count - 1 && cumulative[i] < distance) i++;
+    const span = cumulative[i] - cumulative[i - 1] || 1;
+    const t = (distance - cumulative[i - 1]) / span;
+    return [
+      record.points[i * 2 - 2] + (record.points[i * 2] - record.points[i * 2 - 2]) * t,
+      record.points[i * 2 - 1] + (record.points[i * 2 + 1] - record.points[i * 2 - 1]) * t,
+    ];
+  };
+  // A cut is only worth making where a second drivable segment actually ends on that connector.
+  const marks = [{ at: 0, id: record.connectors.find(c => c.at <= 1e-6)?.id ?? null }];
+  for (const connector of record.connectors) {
+    if (connector.at <= 1e-6 || connector.at >= 1 - 1e-6) continue;
+    if ((connectorRefs.get(connector.id) ?? 0) < 2) continue;
+    if (connector.at * total < 3 || (1 - connector.at) * total < 3) continue;
+    marks.push(connector);
+    splitCount++;
+  }
+  const tail = record.connectors[record.connectors.length - 1];
+  marks.push({ at: 1, id: tail && tail.at >= 1 - 1e-6 ? tail.id : null });
+  for (let m = 0; m + 1 < marks.length; m++) {
+    const from = marks[m].at * total, to = marks[m + 1].at * total;
+    const piece = [m === 0 ? [record.points[0], record.points[1]] : pointAt(from)];
+    for (let i = 1; i < count - 1; i++) {
+      if (cumulative[i] > from + .05 && cumulative[i] < to - .05) piece.push([record.points[i * 2], record.points[i * 2 + 1]]);
+    }
+    piece.push(m + 2 === marks.length ? [record.points[count * 2 - 2], record.points[count * 2 - 1]] : pointAt(to));
+    const line = simplifyDP(simplifyLine(piece), .35);
+    if (line.length < 2) continue;
+    let length = 0;
+    for (let i = 1; i < line.length; i++) length += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1]);
+    if (length < .5) continue;
+    graphSegments.push({
+      id: marks.length > 2 ? `${record.id}~${m}` : record.id,
+      ...(record.name ? { name: record.name } : {}),
+      class: record.klass,
+      width: Number(record.width.toFixed(2)),
+      p: line.flatMap(([x, z]) => [Number(x.toFixed(1)), Number(z.toFixed(1))]),
+      ...(record.oneway ? { oneway: true } : {}),
+      ...(record.bridge ? { bridge: true } : {}),
+      speed: Number(record.speed.toFixed(2)),
+      a: nodeIndexOf(marks[m].id, line[0][0], line[0][1]),
+      b: nodeIndexOf(marks[m + 1].id, line[line.length - 1][0], line[line.length - 1][1]),
+    });
+  }
+}
+const graphRawCount = graphRaw.length;
+graphRaw.length = 0;
+fs.writeFileSync(path.join(out, 'roadgraph.json'), JSON.stringify({
+  segments: graphSegments,
+  nodes: graphNodes.map(([x, z]) => [Number(x.toFixed(1)), Number(z.toFixed(1))]),
+}));
 
 const pois = [];
 if (fs.existsSync(PLACES_FILE)) {
@@ -753,6 +949,7 @@ const manifest = {
   proceduralChunkSize: PROCEDURAL_CHUNK_SIZE,
   tiles: tileFiles,
   roads: 'roads.json',
+  roadgraph: 'roadgraph.json',
   pois: 'pois.json',
   skyline: 'skyline.json',
   landmarks: 'landmarks.json',
@@ -763,6 +960,7 @@ const manifest = {
     buildings: buildingCount, tiles: tiles.size, roads: roads.length, pois: pois.length,
     reservedSkipped: skipped, skylineBlocks, landmarkFeatures: landmarks.length, namedRoads,
     waterPolygons: waterPolygons.length, districtCount: districts.length, landmaskWaterCells,
+    roadSegments: graphSegments.length, roadNodes: graphNodes.length,
   },
 };
 fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2));
@@ -781,4 +979,8 @@ const attribution = [
 fs.writeFileSync(path.join(projectRoot, 'public', 'geodata', 'ATTRIBUTION.txt'), attribution.join('\n'));
 
 console.log(JSON.stringify(manifest.stats, null, 2));
+const graphBytes = fs.statSync(path.join(out, 'roadgraph.json')).size;
+console.log(`roadgraph: ${graphSegments.length} segments (${splitCount} cut at T-junctions), ${graphNodes.length} nodes, `
+  + `${(graphBytes / 1048576).toFixed(2)} MB · oneway ${(onewayFound / graphRawCount * 100).toFixed(1)}% `
+  + `· speed_limits ${(speedLimitFound / graphRawCount * 100).toFixed(1)}% · width_rules ${(widthRuleFound / graphRawCount * 100).toFixed(2)}%`);
 console.log(`Real city assets written to ${out}`);
