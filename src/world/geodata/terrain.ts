@@ -65,7 +65,7 @@ export function createTerrain(root: Group): void {
   // A backdrop under everything. The generalized shoreline disagrees with the compiled river in
   // places, and the real water surface is what paints the Rio Negro on top; without this plane a
   // stretch of genuine land that the old polyline called river would render as a hole in the world.
-  const backdrop = polygon([[-60000, -60000], [60000, -60000], [60000, 60000], [-60000, 60000]], green, -.6);
+  const backdrop = polygon([[-120000, -120000], [120000, -120000], [120000, 120000], [-120000, 120000]], green, -.6);
   backdrop.name = 'terrain-backdrop';
   terrain.add(backdrop);
   const opposite = SHORELINE.map(([x, z]) => [x, z + riverWidth(x)] as const);

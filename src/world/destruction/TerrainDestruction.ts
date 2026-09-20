@@ -187,7 +187,9 @@ export class TerrainDestruction implements TerrainProvider {
         const distance2 = (minimumX + x * STEP - crater.x) ** 2 + (minimumZ + z * STEP - crater.z) ** 2;
         const radial = Math.max(0, 1 - distance2 / (crater.radius * crater.radius));
         // Quantization is shared by the mask, vertices and collision height: no hidden floor.
-        const depth = Math.round(crater.depth * radial * radial / DEPTH_QUANTUM);
+        // A broad cavity with a steep exposed edge reads as excavation even from ground level.
+        const profile = 1 - (1 - radial) ** 4;
+        const depth = Math.round(crater.depth * profile / DEPTH_QUANTUM);
         const index = z * GRID + x;
         if (depth <= this.pixels[index * 4]) continue;
         this.pixels[index * 4] = depth; this.heights[index] = -depth * DEPTH_QUANTUM;
@@ -202,8 +204,11 @@ export class TerrainDestruction implements TerrainProvider {
       const length = Math.hypot(dx, 1, dz);
       this.normals[p] = -dx / length; this.normals[p + 1] = 1 / length; this.normals[p + 2] = -dz / length;
       const grain = ((Math.imul(Math.round(minimumX + x * STEP), 73856093) ^ Math.imul(Math.round(minimumZ + z * STEP), 19349663)) >>> 0) % 97 / 97;
-      const shade = .78 + grain * .22 + h * .01;
-      this.colors[p] = .28 * shade; this.colors[p + 1] = .17 * shade; this.colors[p + 2] = .09 * shade;
+      // Lighter exposed strata on the walls and dark soil at depth make the opening legible.
+      const depthFade = Math.max(.24, 1 + h / TERRAIN_DAMAGE.depthMax * .72);
+      const strata = .84 + .16 * Math.cos(h * 2.4);
+      const shade = (.85 + grain * .15) * depthFade * strata;
+      this.colors[p] = .46 * shade; this.colors[p + 1] = .255 * shade; this.colors[p + 2] = .115 * shade;
     }
     let count = 0;
     for (let z = lowZ; z < highZ; z++) for (let x = lowX; x < highX; x++) {

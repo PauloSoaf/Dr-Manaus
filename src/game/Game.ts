@@ -197,7 +197,7 @@ export class Game {
   private readonly watchedGround=new WeakSet<import('three/webgpu').Object3D>();
   private watchGround(object:import('three/webgpu').Object3D,ground=false):void{
     if(this.watchedGround.has(object))return;this.watchedGround.add(object);
-    ground ||= /Generalized Manaus|airport-pavement|sidewalks|real-city-road-network|largo-sao-sebastiao/.test(object.name);
+    ground ||= /Generalized Manaus|airport-pavement|sidewalks|destruction-scars|real-city-road-network|largo-sao-sebastiao/.test(object.name);
     if(ground&&object instanceof Mesh)this.terrain.registerSurface(object);
     for(const child of object.children)this.watchGround(child,ground);
     object.addEventListener('childadded',event=>this.watchGround(event.child,ground));
