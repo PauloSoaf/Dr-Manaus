@@ -4,7 +4,15 @@ import { mkdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const [original, output = 'public/assets/cosmic', startText = '2'] = process.argv.slice(2);
-if (!original) throw new Error('Usage: node scripts/assets/prepare-cosmic-video.mjs ORIGINAL [OUTPUT_DIR] [START_SECONDS]');
+if (!original) throw new Error('Usage: COSMIC_SOURCE_URL=... COSMIC_SOURCE_LICENCE=... node scripts/assets/prepare-cosmic-video.mjs ORIGINAL [OUTPUT_DIR] [START_SECONDS]');
+// ffmpeg is told to strip every tag below, so provenance survives only if it is captured HERE.
+// The first run of this script shipped a clip nobody could licence; that must not repeat.
+const sourceUrl = process.env.COSMIC_SOURCE_URL;
+const sourceLicence = process.env.COSMIC_SOURCE_LICENCE;
+if (!sourceUrl || !sourceLicence) {
+  throw new Error('Set COSMIC_SOURCE_URL and COSMIC_SOURCE_LICENCE so the asset can be attributed. '
+    + 'Optionally COSMIC_SOURCE_AUTHOR and COSMIC_SOURCE_ID.');
+}
 const start = Number(startText);
 if (!Number.isFinite(start) || start < 0) throw new Error('START_SECONDS must be nonnegative');
 const destination = path.resolve(output);
@@ -32,6 +40,8 @@ run(['-ss', '2', '-i', mp4, '-frames:v', '1', '-c:v', 'libwebp', '-quality', '88
 const files = Object.fromEntries(['galaxy.mp4', 'galaxy.webm', 'fallback.webp'].map(file => [file, statSync(path.join(destination, file)).size]));
 const total = Object.values(files).reduce((sum, size) => sum + size, 0);
 if (total > 3 * 1024 * 1024) throw new Error(`Assets exceed 3 MiB: ${total}. Reduce bitrate/CRF before committing.`);
-const metadata = { width: 960, height: 540, fps: 24, seconds: 8, sourceStart: start, blendSeconds: 1, audio: false, codecs: { mp4: 'H.264 High / yuv420p', webm: 'VP9 / yuv420p' }, files, totalBytes: total };
+const metadata = { width: 960, height: 540, fps: 24, seconds: 8, sourceStart: start, blendSeconds: 1, audio: false,
+  source: { url: sourceUrl, licence: sourceLicence, author: process.env.COSMIC_SOURCE_AUTHOR ?? null,
+    id: process.env.COSMIC_SOURCE_ID ?? null, preparedAt: new Date().toISOString() }, codecs: { mp4: 'H.264 High / yuv420p', webm: 'VP9 / yuv420p' }, files, totalBytes: total };
 writeFileSync(path.join(destination, 'asset-info.json'), JSON.stringify(metadata, null, 2) + '\n');
 console.log(JSON.stringify(metadata, null, 2));
