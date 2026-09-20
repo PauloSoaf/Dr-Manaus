@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { PerspectiveCamera, Vector3 } from 'three/webgpu';
-import { CosmicMaterial, STAR_LAYERS, starPixels } from '../src/player/cosmic/CosmicMaterial.ts';
+import { CosmicMaterial, NEBULA_ZOOM, STAR_LAYERS, starPixels } from '../src/player/cosmic/CosmicMaterial.ts';
 import { CosmicVideoSource } from '../src/player/cosmic/CosmicVideoSource.ts';
 import { CharacterModel } from '../src/player/CharacterModel.ts';
 
@@ -189,4 +189,27 @@ test('the star field is many small stars, not a few enormous ones', () => {
     }
   }
   assert.ok(cells.size > 500, `only ${cells.size} stars fall on the character`);
+});
+
+test('the clip is zoomed out far enough that its bright cores are not balls on the body', () => {
+  // The character covers roughly a tenth of the frame. At 1:1 a feature spanning a fifth of the
+  // clip lands on the body twice its own width, which is exactly how a galaxy core became a
+  // white ball. The zoom is what shrinks it back to something that reads as distant light.
+  assert.ok(NEBULA_ZOOM >= 3, `a zoom of ${NEBULA_ZOOM} leaves the clip's features too large`);
+  const bodyFractionOfFrame = .11;
+  const featureFractionOfClip = .2;
+  const onBody = featureFractionOfClip / NEBULA_ZOOM / bodyFractionOfFrame;
+  assert.ok(onBody < .6, `a clip feature would still cover ${(onBody * 100).toFixed(0)}% of the body`);
+});
+
+test('stars vary in size so a layer is a spread of magnitudes, not one stamp repeated', () => {
+  // `scale` runs 0.55 to 1.45 off the per-star hash, so within one layer the smallest and
+  // largest differ by more than two and a half times.
+  const spread = 1.45 / .55;
+  assert.ok(spread > 2, 'stars within a layer must differ noticeably in size');
+  // And across layers the range of apparent sizes has to stay inside what reads as a pinpoint.
+  const sizes = STAR_LAYERS.map(layer => starPixels(layer));
+  const smallest = Math.min(...sizes) * .55, largest = Math.max(...sizes) * 1.45;
+  assert.ok(smallest > .4, `the faintest star is ${smallest.toFixed(2)} px and would shimmer`);
+  assert.ok(largest < 3.2, `the brightest star is ${largest.toFixed(2)} px and would read as a blob`);
 });

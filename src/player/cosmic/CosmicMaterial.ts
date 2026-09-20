@@ -11,6 +11,9 @@ export type CosmicLevel = 'idle' | 'flight' | 'power' | 'boost' | 'mega';
 /** Where each flight state sits on the 0..1 ramp every term in the shader reads. */
 const LEVEL: Record<CosmicLevel, number> = { idle: .16, flight: .34, power: .66, boost: .74, mega: 1 };
 
+/** How much of the clip is shown inside the silhouette; 1 would be one-to-one with the frame. */
+export const NEBULA_ZOOM = 4.2;
+
 export interface CosmicMaterialOptions {
   source: CosmicTextureSource;
   seed?: number;
@@ -82,7 +85,14 @@ export class CosmicMaterial {
     // Screen space, corrected for the source's aspect and nudged by camera motion.
     const centred = screenUV.sub(.5);
     const framed = vec2(centred.x.mul(this.aspect.x), centred.y.mul(this.aspect.y));
-    const nebulaUV = framed.add(this.parallax.mul(.03)).add(.5);
+    // Zoomed out hard. At 1:1 the character covers a tenth of the frame, so a bright core in the
+    // clip landed on the body as a white ball the size of a fist. Showing several times more of
+    // the clip inside the same silhouette turns those cores back into distant light.
+    const zoomed = framed.mul(NEBULA_ZOOM).add(this.parallax.mul(.09));
+    // Mirrored tiling rather than `fract`, because the zoom takes the coordinate outside 0..1 and
+    // a hard wrap would put a seam down the middle of the body.
+    const pingPong = (v: Node<'float'>): Node<'float'> => fract(v.mul(.5)).mul(2).sub(1).abs();
+    const nebulaUV = vec2(pingPong(zoomed.x.add(.5)), pingPong(zoomed.y.add(.5)));
     // The star layer drifts faster than the nebula, which is what reads as depth inside the body.
     const starUV = framed.add(this.parallax.mul(.06)).add(.5);
 
@@ -95,10 +105,11 @@ export class CosmicMaterial {
     // instead of turning into a wash of pale violet.
     const luma = cosmos.r.mul(.3).add(cosmos.g.mul(.59)).add(cosmos.b.mul(.11));
     const deep = cosmos.mul(smoothstep(float(.015), float(.32), luma));
-    const bloom = smoothstep(float(.45), float(.95), luma);
-    // Lifted: the previous gain left the body reading as flat dark blue rather than as a nebula.
-    const nebula = deep.mul(float(1.9).add(this.intensity.mul(1.5)))
-      .add(color('#8ad7ff').mul(bloom).mul(float(.4).add(this.intensity.mul(.9))));
+    const lifted = deep.mul(float(1.9).add(this.intensity.mul(1.5)));
+    // Soft-clipped rather than added to. The old bloom term stacked on top of an already bright
+    // region, so the clip's cores saturated to flat white discs; this rolls them off instead.
+    const nebula = lifted.div(lifted.mul(.75).add(1))
+      .add(color('#6fb6ff').mul(smoothstep(float(.55), float(1), luma)).mul(this.intensity.mul(.35)));
 
     // Three star layers in the same screen plane, drifting at different rates so the field has
     // depth. Density matters more than it looks: the character covers a small part of the frame,
@@ -111,11 +122,16 @@ export class CosmicMaterial {
       const slide = vec2(this.phase.mul(spec.drift * .0012), this.phase.mul(-spec.drift * .0008));
       const p = starUV.add(slide).mul(spec.density).add(offset);
       const cell = floor(p), f = fract(p);
-      const h = cosmicHash(cell), j = cosmicHash(cell.add(19.37));
+      const h = cosmicHash(cell);
+      // `j` is derived from `h` rather than hashed again: halving the hash count per layer is
+      // most of this shader's cost, and the correlation is invisible in a star field.
+      const j = fract(h.mul(437.5853));
       // Off-centre placement stops the field reading as a grid.
       const centre = vec2(h, j).mul(.68).add(.16);
       const distance = f.sub(centre).length();
-      const point = float(1).sub(smoothstep(float(size * .3), float(size), distance));
+      // Size varies per star, so a layer is a spread of magnitudes rather than one stamp repeated.
+      const scale = float(.55).add(j.mul(.9));
+      const point = float(1).sub(smoothstep(float(size).mul(scale).mul(.3), float(size).mul(scale), distance));
       const twinkle = sin(this.phase.mul(1.7).add(j.mul(41.3))).mul(.26).add(.74);
       return point.mul(h.pow(spec.magnitude)).mul(twinkle);
     };
@@ -123,6 +139,14 @@ export class CosmicMaterial {
     for (let i = 1; i < STAR_LAYERS.length; i++) {
       stars = stars.add(starLayer(STAR_LAYERS[i], (seed >> (i * 8)) & 255).mul(STAR_LAYERS[i].weight));
     }
+    // Colour temperature, not just brightness. A real field runs from hot blue-white through
+    // white to cool amber, and a single tint is most of what makes a star field look printed.
+    const tintCell = floor(starUV.mul(STAR_LAYERS[1].density).add(7.1));
+    const temperature = cosmicHash(tintCell);
+    const starTint = mix(
+      mix(color('#9fc8ff'), color('#ffffff'), smoothstep(float(0), float(.55), temperature)),
+      color('#ffd9a8'), smoothstep(float(.72), float(1), temperature),
+    );
     // No halo pass: a four-times-wider blob on the sparse layer read as a handful of giant stars
     // rather than a few bright ones. Brightness comes from the weight, never from the size.
 
@@ -134,7 +158,7 @@ export class CosmicMaterial {
     const horizon = pow(float(1).sub(facing), float(7)).mul(.55);
 
     const body = nebula
-      .add(color('#eaf4ff').mul(stars).mul(float(1.15).add(this.intensity.mul(1.1))))
+      .add(starTint.mul(stars).mul(float(1.15).add(this.intensity.mul(1.1))))
       .add(rimColor.mul(rim).mul(float(.35).add(this.intensity.mul(1.9))))
       .add(color('#7fd8ff').mul(horizon).mul(float(.4).add(this.intensity)));
 
