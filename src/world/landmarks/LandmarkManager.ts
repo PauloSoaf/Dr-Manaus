@@ -27,8 +27,6 @@ function silhouette(id: string): Group {
     for (const x of [-27, 0, 27]) b.box('cream', x, 17, 6, 15, 2, 15);
   } else if (id === 'relogio') {
     b.cylinder('cream', 0, 7, 0, 1, 2, 14, 6); b.box('white', 0, 14, 0, 5, 3, 5); b.cylinder('green', 0, 16, 0, 0, 3.5, 2, 4);
-  } else if (id === 'largo') {
-    b.box('cream', 0, .06, 0, 132, .1, 124); b.box('stone', 0, 5, 6, 4.5, 10, 4.5);
   } else if (id === 'ponta') {
     // The residential skyline behind the beach is real compiled geometry now; only the sand, the
     // calçadão, the pier and the anfiteatro need standing in for, on the surveyed .51 rad shore.
@@ -72,8 +70,8 @@ export class LandmarkManager {
       const anchor = new Group(); anchor.name = landmark.name; anchor.position.set(landmark.x, 0, landmark.z);
       const distant = silhouette(landmark.id); anchor.add(distant);
       const node: LandmarkNode = { landmark, anchor, distant, visibleDetail: false };
-      if (landmark.id === 'teatro' || landmark.id === 'largo') {
-        node.detailed = landmark.id === 'teatro' ? createTheatre() : LANDMARK_BUILDERS.largo();
+      if (landmark.id === 'teatro') {
+        node.detailed = createTheatre();
         anchor.add(node.detailed); node.visibleDetail = true; distant.visible = false;
       }
       this.nodes.push(node); root.add(anchor);
@@ -115,7 +113,8 @@ export class LandmarkManager {
     switch (landmark.id) {
       // Includes the climbable staircase and the walkable terrace, not one sealed block.
       case 'teatro': for (const item of TEATRO_COLLIDERS) box(item.x, item.y, item.z, item.width, item.height, item.depth); break;
-      case 'largo': box(0, 5, 6, 4.5, 10, 4.5); box(66, 8, -23, 26, 16, 43); break;
+      // The Largo is drawn and collided by LargoDistrict, which owns the whole square.
+      case 'largo': break;
       case 'mercado': box(0, 7, 0, 86, 14, 57); break;
       case 'porto': box(0, 6, -14, 115, 12, 30); for (const x of [-48, 48]) box(x, 1, 216, 15, 2, 365); break;
       case 'relogio': box(0, 8.5, 0, 4.7, 17, 4.7); break;

@@ -21,9 +21,15 @@ export interface GeoReference {
 export const GEO_REFERENCES: readonly GeoReference[] = [
   { id: 'monumento', name: 'Monumento à Abertura dos Portos', lat: -3.130333, lon: -60.022528, source: 'Wikidata Q10332121' },
   { id: 'teatro', name: 'Teatro Amazonas', lat: -3.13027, lon: -60.02341, source: 'OSM way 794449274 footprint centre' },
-  { id: 'igreja', name: 'Igreja de São Sebastião', lat: -3.13066, lon: -60.02205, source: 'OSM, east side of the Largo' },
-  { id: 'juma', name: 'Juma Ópera', lat: -3.13003, lon: -60.02296, source: 'Rua 10 de Julho 481, facing the theatre' },
-  { id: 'valer', name: 'Valer Teatro · Roseiral', lat: -3.13072, lon: -60.02299, source: 'Rua José Clemente 600' },
+  // These were guessed from street addresses and were 60-130 m wrong; they now come from the
+  // compiled footprints and place records, which is what the game actually builds against.
+  { id: 'igreja', name: 'Igreja de São Sebastião', lat: -3.129708, lon: -60.022613, source: 'Overture cathedral footprint centroid' },
+  { id: 'juma', name: 'Juma Ópera', lat: -3.129813, lon: -60.023439, source: 'Overture place record, matched by containment' },
+  { id: 'valer', name: 'Valer Teatro · Roseiral', lat: -3.131169, lon: -60.022667, source: 'Overture place record, matched by containment' },
+  { id: 'tambaqui', name: 'Tambaqui de Banda', lat: -3.130912, lon: -60.022755, source: 'Overture place record' },
+  { id: 'casa-artes', name: 'Casa das Artes', lat: -3.130821, lon: -60.023080, source: 'Overture place record' },
+  { id: 'gisela', name: 'Tacacá da Gisela', lat: -3.130764, lon: -60.022453, source: 'Overture place record' },
+  { id: 'galeria', name: 'Galeria do Largo', lat: -3.130080, lon: -60.022130, source: 'Overture place record, matched by containment' },
   { id: 'arena', name: 'Arena da Amazônia', lat: -3.08325175, lon: -60.02800465, source: 'Overture stadium footprint' },
   { id: 'ponte', name: 'Ponte Rio Negro', lat: -3.1266785, lon: -60.0843740, source: 'Overture carriageway midpoint' },
   { id: 'ponta', name: 'Ponta Negra', lat: -3.06375, lon: -60.10830, source: 'Orla' },

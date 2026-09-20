@@ -661,8 +661,11 @@ test('the projection is anchored on the monument and every reference lands where
     const distance = Math.hypot(place.x, place.z);
     assert.ok(distance < 220, `${id} is ${distance.toFixed(0)} m from the square`);
   }
-  // Juma Ópera faces the theatre, so it sits on the opposite side of the square from it.
-  assert.ok(at('juma').x > teatro.x, 'Juma Ópera must not be west of the theatre');
+  // Every Largo reference must agree with what the game actually builds there.
+  const igreja = at('igreja');
+  assert.ok(igreja.z < -40, 'the church closes the south end of the square');
+  assert.ok(at('valer').z > 60, 'Valer Teatro is on the north side');
+  assert.ok(at('juma').x < -70, 'Juma Ópera stands beside the theatre');
 
   // Round trip, and the compiled dataset must share the same origin.
   const back = probeWorld(teatro.x, teatro.z);
