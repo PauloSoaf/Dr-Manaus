@@ -42,7 +42,7 @@ export const IRANDUBA_CENTER = latLonToWorld(-3.1608, -60.0990);
 
 /** Approximate survey positions; a meter scale local projection, not a navigation map. */
 export const LANDMARKS: Landmark[] = [
-  place('teatro', 'Teatro Amazonas', 'Teatro Amazonas', -3.13027, -60.02341, 92, 38.5, 'A cúpula do coração de Manaus. Arquitetura estilizada, criada para este mundo.'),
+  place('teatro', 'Teatro Amazonas', 'Teatro Amazonas', -3.1302764, -60.0232792, 92, 42, 'A cúpula do coração de Manaus. Arquitetura estilizada, criada para este mundo.'),
   place('largo', 'Largo de São Sebastião', 'Largo S. Sebastião', -3.130333, -60.022528, 130, 0.3, 'Ondas em pedra portuguesa, palmeiras e o Monumento à Abertura dos Portos.'),
   place('mercado', 'Mercado Municipal Adolpho Lisboa', 'Mercado Adolpho Lisboa', -3.1399498, -60.02355, 100, 18, 'Pavilhões de ferro e vitrais à beira do Rio Negro.'),
   place('porto', 'Porto de Manaus', 'Porto de Manaus', -3.13944, -60.02700, 150, 12, 'Cais flutuantes e barcos regionais conectam a cidade aos rios.'),

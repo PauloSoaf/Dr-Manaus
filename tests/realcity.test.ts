@@ -493,9 +493,11 @@ test('no landmark stands in the Rio Negro once the real water polygons are consu
   const largo = LANDMARKS.find(landmark => landmark.id === 'largo')!;
   const teatro = LANDMARKS.find(landmark => landmark.id === 'teatro')!;
   assert.ok(Math.hypot(largo.x, largo.z) < 1, 'the monument must be the origin of the world');
+  // The landmark anchors the theatre's compiled footprint CENTROID, which is 84 m from the
+  // monument; the OSM way node is 98 m. A 63 m long building has no single distance.
   const apart = Math.hypot(teatro.x - largo.x, teatro.z - largo.z);
-  assert.ok(apart > 90 && apart < 110, `the theatre is ${apart.toFixed(0)} m from the monument`);
-  assert.ok(teatro.x < -80, 'the theatre lies west of the square, not south of it');
+  assert.ok(apart > 75 && apart < 110, `the theatre is ${apart.toFixed(0)} m from the monument`);
+  assert.ok(teatro.x < -70, 'the theatre lies west of the square, not south of it');
 });
 
 test('facade colour follows the real bairro boundaries, not one palette for the whole city', () => {
@@ -650,10 +652,11 @@ test('the projection is anchored on the monument and every reference lands where
   };
   // The theatre is a separate place roughly 98 m WEST of the square, not on top of it.
   const teatro = at('teatro');
-  assert.ok(teatro.x < -80 && teatro.x > -115, `the theatre projects to x=${teatro.x.toFixed(0)}`);
+  assert.ok(teatro.x < -70 && teatro.x > -115, `the theatre projects to x=${teatro.x.toFixed(0)}`);
   assert.ok(Math.abs(teatro.z) < 30, `the theatre projects to z=${teatro.z.toFixed(0)}`);
+  // Measured to the footprint centroid the theatre is 84 m away; to its OSM node, 98 m.
   const apart = Math.hypot(teatro.x, teatro.z);
-  assert.ok(apart > 90 && apart < 110, `the theatre is ${apart.toFixed(1)} m from the monument`);
+  assert.ok(apart > 75 && apart < 110, `the theatre is ${apart.toFixed(1)} m from the monument`);
 
   // The Largo venues all belong to the square, within a couple of hundred metres.
   for (const id of ['igreja', 'juma', 'valer']) {
@@ -674,5 +677,5 @@ test('the projection is anchored on the monument and every reference lands where
     assert.equal(manifest.origin.lat, GEO_ORIGIN.lat, 'the compiled tiles must use this origin');
     assert.equal(manifest.origin.lon, GEO_ORIGIN.lon);
   }
-  assert.ok(geoDistance(at('monumento'), at('teatro')) > 90);
+  assert.ok(geoDistance(at('monumento'), at('teatro')) > 75);
 });

@@ -20,7 +20,7 @@ export interface GeoReference {
  */
 export const GEO_REFERENCES: readonly GeoReference[] = [
   { id: 'monumento', name: 'Monumento à Abertura dos Portos', lat: -3.130333, lon: -60.022528, source: 'Wikidata Q10332121' },
-  { id: 'teatro', name: 'Teatro Amazonas', lat: -3.13027, lon: -60.02341, source: 'OSM way 794449274 footprint centre' },
+  { id: 'teatro', name: 'Teatro Amazonas', lat: -3.1302764, lon: -60.0232792, source: 'Overture entertainment footprint centroid' },
   // These were guessed from street addresses and were 60-130 m wrong; they now come from the
   // compiled footprints and place records, which is what the game actually builds against.
   { id: 'igreja', name: 'Igreja de São Sebastião', lat: -3.129708, lon: -60.022613, source: 'Overture cathedral footprint centroid' },

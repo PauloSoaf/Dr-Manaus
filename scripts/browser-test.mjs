@@ -220,7 +220,9 @@ try {
   if (resumed.open || !resumed.inputEnabled) throw new Error('Esc nao retomou o jogo.');
 
   await page.keyboard.press('f');
-  await page.waitForFunction(() => window.__DR_MANAUS__.player.state !== 'Grounded', null, { timeout: 3_000 });
+  // Generous: the showcase square builds during the first frames, and software rasterisation
+  // runs at a few frames a second, so a keypress can take a moment to be consumed.
+  await page.waitForFunction(() => window.__DR_MANAUS__.player.state !== 'Grounded', null, { timeout: 20_000 });
   const flightState = await page.evaluate(() => window.__DR_MANAUS__.player.state);
 
   if (errors.length) throw new Error(`Erros no navegador:\n${errors.join('\n')}`);

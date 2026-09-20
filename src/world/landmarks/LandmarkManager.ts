@@ -2,7 +2,7 @@ import { Group, Mesh, SphereGeometry, TorusGeometry, Vector3 } from 'three/webgp
 import type { Collider, Landmark } from '../../core/types';
 import { LANDMARKS } from '../geodata/geodata';
 import { GeometryBatch, tree } from './GeometryBatch';
-import { TEATRO_COLLIDERS, createTheatre, createTheatreSilhouette } from './theatre';
+import { TEATRO_COLLIDERS, createTeatroFar, createTeatroMedium, createTeatroNear } from './largo/teatro';
 import { createBridge, LANDMARK_BUILDERS, PONTA_COLLIDERS } from './models';
 import { ARENA_COLLIDERS, createArenaSilhouette } from './arena';
 import { bridgeDeckColliders, createBridgeDistant } from './bridge';
@@ -10,7 +10,7 @@ import { bridgeDeckColliders, createBridgeDistant } from './bridge';
 interface LandmarkNode { landmark: Landmark; anchor: Group; distant: Group; detailed?: Group; visibleDetail: boolean }
 
 function silhouette(id: string): Group {
-  if (id === 'teatro') return createTheatreSilhouette();
+  if (id === 'teatro') return createTeatroFar();
   if (id === 'ponte') return createBridgeDistant();
   if (id === 'arena') return createArenaSilhouette();
   const b = new GeometryBatch();
@@ -71,7 +71,7 @@ export class LandmarkManager {
       const distant = silhouette(landmark.id); anchor.add(distant);
       const node: LandmarkNode = { landmark, anchor, distant, visibleDetail: false };
       if (landmark.id === 'teatro') {
-        node.detailed = createTheatre();
+        node.detailed = createTeatroNear();
         anchor.add(node.detailed); node.visibleDetail = true; distant.visible = false;
       }
       this.nodes.push(node); root.add(anchor);
@@ -93,7 +93,7 @@ export class LandmarkManager {
       const detailExit = node.landmark.id === 'ponte' ? 4800 : node.landmark.id === 'ponta' ? 3400 : node.landmark.id === 'iranduba' ? 2500 : 1750;
       const near = distance < (node.visibleDetail ? detailExit : detailEnter);
       if (near && !node.detailed && !built) {
-        node.detailed = node.landmark.id === 'teatro' ? createTheatre() : LANDMARK_BUILDERS[node.landmark.id]?.();
+        node.detailed = node.landmark.id === 'teatro' ? createTeatroNear() : LANDMARK_BUILDERS[node.landmark.id]?.();
         if (node.detailed) { node.anchor.add(node.detailed); built = true; }
       }
       node.visibleDetail = near && !!node.detailed;

@@ -1,6 +1,5 @@
 import { BufferGeometry, CylinderGeometry, Float32BufferAttribute, Group, TorusGeometry, Vector3 } from 'three/webgpu';
 import { GeometryBatch, palm, tree, type PaletteKey } from './GeometryBatch';
-import { wavePlazaGeometry } from './theatre';
 // The Arena has a bespoke model of its own; this module keeps re-exporting it for callers.
 import { createArena, type LandmarkBox } from './arena';
 export { createArena };
@@ -24,42 +23,6 @@ function windowRows(b: GeometryBatch, width: number, front: number, y: number, s
   }
 }
 
-export function createLargo(): Group {
-  const b = new GeometryBatch();
-  b.box('cream', 0, -.1, 0, 132, .4, 124);
-  b.add(wavePlazaGeometry(126, 118), 'dark');
-  for (const x of [-57, 57]) for (const z of [-44, -15, 14, 43]) {
-    b.cylinder('stone', x, .25, z, 3, 3, .5, 12);
-    palm(b, x, z, 12 + (z % 3), z / 4);
-    lamp(b, x + (x > 0 ? -7 : 7), z);
-  }
-  for (const x of [-36, 36]) for (const z of [-38, 32]) bench(b, x, z);
-  // Monumento à Abertura dos Portos: stepped pedestal, figures and winged summit.
-  b.cylinder('stone', 0, .4, 6, 7.2, 8, .8, 8);
-  b.cylinder('cream', 0, 1.25, 6, 5.8, 6.6, .9, 8);
-  b.box('cream', 0, 4.7, 6, 4.2, 6.4, 4.2);
-  b.box('stone', 0, 8.1, 6, 5.1, .6, 5.1);
-  b.cylinder('dark', 0, 9.8, 6, .65, 1.1, 3, 8);
-  b.sphere('dark', 0, 11.6, 6, .65);
-  b.beam('dark', new Vector3(0, 10.8, 6), new Vector3(2.5, 12.4, 6), .3);
-  b.beam('dark', new Vector3(0, 10.8, 6), new Vector3(-2.2, 12, 6), .3);
-  for (const x of [-4.8, 4.8]) b.sphere('dark', x, 2.2, 6, 1.2, 1, .7, 1.6);
-  // Igreja de São Sebastião, a second authored silhouette adjoining the square.
-  b.box('cream', 66, 8, -23, 26, 16, 43);
-  b.box('white', 66, 8.5, -.9, 27.5, 17, 1.5);
-  b.box('red', 66, 16.5, -24, 27, 1.3, 43);
-  b.box('glass', 66, 4.5, .1, 4.5, 8, .4);
-  b.add(new TorusGeometry(2.6, .45, 6, 20), 'gold', 66, 12, .2);
-  b.sphere('glass', 66, 12, .25, 2.1, 1, 1, .05);
-  for (const x of [55, 77]) {
-    b.box('white', x, 11, -2, 6, 22, 7);
-    b.box('glass', x, 18, 1.65, 2, 4, .2);
-    b.cylinder('cream', x, 24.5, -2, 0, 4.1, 6, 4);
-    b.box('gold', x, 28.4, -2, .28, 3, .28);
-    b.box('gold', x, 28.8, -2, 1.6, .25, .25);
-  }
-  return b.build('Largo de São Sebastião and church');
-}
 
 export function createMarket(): Group {
   const b = new GeometryBatch();
@@ -423,6 +386,6 @@ export function createBosque(): Group {
 }
 
 export const LANDMARK_BUILDERS: Record<string, () => Group> = {
-  largo: createLargo, mercado: createMarket, porto: createPort, relogio: createClock, palacio: createPalace,
+  mercado: createMarket, porto: createPort, relogio: createClock, palacio: createPalace,
   arena: createArena, ponta: createPonta, ponte: createBridgeModel, iranduba: createIranduba, encontro: createMeeting, musa: createMusa, bosque: createBosque,
 };

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Mesh, Vector3 } from 'three/webgpu';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld.ts';
-import { TEATRO_COLLIDERS, TEATRO_PLINTH, createTheatre, createTheatreSilhouette } from '../src/world/landmarks/theatre.ts';
+import { TEATRO_COLLIDERS, TEATRO_PLINTH, createTeatroFar, createTeatroMedium, createTeatroNear } from '../src/world/landmarks/largo/teatro.ts';
 
 function triangles(group: { traverse: (visit: (object: unknown) => void) => void }): number {
   let total = 0;
@@ -12,7 +12,7 @@ function triangles(group: { traverse: (visit: (object: unknown) => void) => void
 
 test('the theatre stands on a raised plinth reached by a real staircase', () => {
   assert.ok(TEATRO_PLINTH > 2.5, 'the embasamento must actually lift the building off the street');
-  const group = createTheatre();
+  const group = createTeatroNear();
   let lowest = Infinity, highest = -Infinity;
   group.traverse(object => {
     if (!(object instanceof Mesh)) return;
@@ -30,19 +30,23 @@ test('the theatre stands on a raised plinth reached by a real staircase', () => 
 
 test('the staircase is climbable and the terrace is a surface you can stand on', () => {
   const physics = new PhysicsWorld();
-  const position = new Vector3(0, .1, 54), velocity = new Vector3();
-  // Walk north into the theatre for ten seconds with the character's own step-up height.
-  for (let frame = 0; frame < 600; frame++) {
-    velocity.set(0, -6, -4);
+  // The theatre faces EAST toward the monument, so the approach is from +X walking west.
+  const position = new Vector3(56, .1, 0), velocity = new Vector3();
+  for (let frame = 0; frame < 900; frame++) {
+    velocity.set(-4, -6, 0);
     physics.move(position, velocity, 1 / 60, .32, 2.1, TEATRO_COLLIDERS, .55);
   }
   assert.ok(Math.abs(position.y - TEATRO_PLINTH) < .3,
     `the character ended at ${position.y.toFixed(2)} m instead of the ${TEATRO_PLINTH} m terrace`);
-  assert.ok(position.z < 36, 'the character must have got past the bottom of the flight');
+  assert.ok(position.x < 40, 'the character must have got past the bottom of the flight');
 
   // No single step may be taller than the character can step up, or the stairs become a wall.
-  const treads = TEATRO_COLLIDERS.filter(box => box.depth < 2 && box.width > 20).map(box => box.y * 2).sort((a, b) => a - b);
-  assert.ok(treads.length > 6, `only ${treads.length} treads found`);
+  // The flight is split into segments across the frontage, so several boxes share each level.
+  const levels = [...new Set(TEATRO_COLLIDERS
+    .filter(box => box.width < 2.6 && box.depth > 3 && box.height < TEATRO_PLINTH + .1)
+    .map(box => Number((box.y * 2).toFixed(2))))].sort((a, b) => a - b);
+  const treads = levels;
+  assert.ok(treads.length > 6, `only ${treads.length} tread levels found`);
   for (let i = 1; i < treads.length; i++) {
     assert.ok(treads[i] - treads[i - 1] <= .55, `a step rises ${(treads[i] - treads[i - 1]).toFixed(2)} m`);
   }
@@ -50,7 +54,7 @@ test('the staircase is climbable and the terrace is a surface you can stand on',
 
 test('the theatre keeps the building itself solid above the plinth', () => {
   // The main volume must be lifted with the facade, or the player would walk through the walls.
-  const mass = TEATRO_COLLIDERS.find(box => box.width > 50 && box.height > 20);
+  const mass = TEATRO_COLLIDERS.find(box => box.width > 30 && box.height > 18);
   assert.ok(mass, 'the main volume must have a collider');
   assert.ok(mass.y > TEATRO_PLINTH, 'the main volume sits on the plinth, not in it');
   const dome = TEATRO_COLLIDERS.reduce((best, box) => box.y > best.y ? box : best, TEATRO_COLLIDERS[0]);
@@ -58,10 +62,10 @@ test('the theatre keeps the building itself solid above the plinth', () => {
 });
 
 test('the detailed theatre stays affordable and the distant one much cheaper', () => {
-  const near = triangles(createTheatre()), far = triangles(createTheatreSilhouette());
+  const near = triangles(createTeatroNear()), far = triangles(createTeatroFar());
   assert.ok(near > 12000, 'the showcase model must carry real detail');
   assert.ok(near < 70000, `the detailed theatre costs ${near} triangles`);
   assert.ok(far < near / 3, `the distant theatre costs ${far} against ${near}`);
   // Deterministic: the same call twice must produce the same geometry.
-  assert.equal(triangles(createTheatre()), near);
+  assert.equal(triangles(createTeatroNear()), near);
 });
