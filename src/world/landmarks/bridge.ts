@@ -42,7 +42,7 @@ function buildPath(): BridgePath {
 export const BRIDGE_PATH = buildPath();
 
 /** Arc length of the navigable water crossing, measured off the compiled river polygons. */
-const WATER_FROM = 464, WATER_TO = 5714;
+const WATER_FROM = 331, WATER_TO = 5847;
 const MAIN_SPAN_CENTRE = (WATER_FROM + WATER_TO) * .5;
 const MAIN_SPAN_HALF = 200;
 const DECK_LOW = 11, DECK_HIGH = 53;

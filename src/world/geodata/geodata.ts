@@ -5,7 +5,19 @@ import { LAND_MASK, type LandMaskPayload } from './landmask';
 import landmask from '../../../public/geodata/real-city/landmask.json';
 LAND_MASK.load(landmask as LandMaskPayload);
 
-export const GEO_ORIGIN = { lat: -3.1303, lon: -60.0234 } as const;
+/**
+ * World zero is the Monumento à Abertura dos Portos, at the centre of the Largo de São Sebastião
+ * (Wikidata Q10332121). The Teatro Amazonas is a separate place about 98 m west of it — the old
+ * origin conflated the two, and the `largo` landmark was additionally placed 100 m SOUTH of the
+ * theatre when the monument is 97 m EAST, so the whole square was 128 m out in the wrong
+ * direction. Every compiled asset is regenerated against this origin.
+ */
+export const GEO_ORIGIN = { lat: -3.130333, lon: -60.022528 } as const;
+/**
+ * The generalized shoreline and the legacy OSM road sketch were hand-drawn against the previous
+ * origin, so they are translated rather than left 97 m adrift from the compiled river and streets.
+ */
+const LEGACY_ORIGIN = { lat: -3.1303, lon: -60.0234 } as const;
 const METERS_PER_DEGREE = 111320;
 const LONGITUDE_SCALE = METERS_PER_DEGREE * Math.cos(GEO_ORIGIN.lat * Math.PI / 180);
 export function latLonToWorld(lat: number, lon: number): { x: number; z: number } {
@@ -14,6 +26,11 @@ export function latLonToWorld(lat: number, lon: number): { x: number; z: number 
 export function worldToLatLon(x: number, z: number): { lat: number; lon: number } {
   return { lat: GEO_ORIGIN.lat - z / METERS_PER_DEGREE, lon: GEO_ORIGIN.lon + x / LONGITUDE_SCALE };
 }
+const LEGACY_SHIFT = {
+  x: (LEGACY_ORIGIN.lon - GEO_ORIGIN.lon) * (METERS_PER_DEGREE * Math.cos(GEO_ORIGIN.lat * Math.PI / 180)),
+  z: (GEO_ORIGIN.lat - LEGACY_ORIGIN.lat) * METERS_PER_DEGREE,
+};
+
 function place(id: string, name: string, shortName: string, lat: number, lon: number, radius: number, spawnHeight: number, description: string): Landmark {
   return { id, name, shortName, lat, lon, radius, spawnHeight, description, ...latLonToWorld(lat, lon) };
 }
@@ -25,8 +42,8 @@ export const IRANDUBA_CENTER = latLonToWorld(-3.1608, -60.0990);
 
 /** Approximate survey positions; a meter scale local projection, not a navigation map. */
 export const LANDMARKS: Landmark[] = [
-  place('teatro', 'Teatro Amazonas', 'Teatro Amazonas', -3.1303, -60.0234, 92, 38.5, 'A cúpula do coração de Manaus. Arquitetura estilizada, criada para este mundo.'),
-  place('largo', 'Largo de São Sebastião', 'Largo S. Sebastião', -3.13120, -60.02328, 85, 0.3, 'Ondas em pedra portuguesa, palmeiras e o Monumento à Abertura dos Portos.'),
+  place('teatro', 'Teatro Amazonas', 'Teatro Amazonas', -3.13027, -60.02341, 92, 38.5, 'A cúpula do coração de Manaus. Arquitetura estilizada, criada para este mundo.'),
+  place('largo', 'Largo de São Sebastião', 'Largo S. Sebastião', -3.130333, -60.022528, 130, 0.3, 'Ondas em pedra portuguesa, palmeiras e o Monumento à Abertura dos Portos.'),
   place('mercado', 'Mercado Municipal Adolpho Lisboa', 'Mercado Adolpho Lisboa', -3.1399498, -60.02355, 100, 18, 'Pavilhões de ferro e vitrais à beira do Rio Negro.'),
   place('porto', 'Porto de Manaus', 'Porto de Manaus', -3.13944, -60.02700, 150, 12, 'Cais flutuantes e barcos regionais conectam a cidade aos rios.'),
   place('relogio', 'Relógio Municipal', 'Relógio Municipal', -3.13809, -60.02490, 45, 17, 'O relógio histórico da avenida Eduardo Ribeiro.'),
@@ -41,13 +58,15 @@ export const LANDMARKS: Landmark[] = [
 ];
 
 /** Hand-generalized northern shoreline, in meters. Detailed river survey is not claimed. */
-export const SHORELINE: readonly (readonly [number, number])[] = [
+const RAW_SHORELINE: readonly (readonly [number, number])[] = [
   [-50000, -32000], [-24000, -18700], [-17000, -12700], [-12500, -10000], [-10800, -8450], [-9850, -7850],
   [-9300, -6800], [-8600, -5300], [-7600, -3300], [-7150, -2500], [-6500, -2250], [-5700, -2100],
   [-4600, -1300], [-3500, 820], [-2250, 1120], [-900, 1380], [400, 1490], [1350, 1770],
   [2300, 1650], [3350, 1180], [4050, 1490], [5200, 2070], [7000, 2250], [8800, 1400],
   [11000, 900], [13000, 500], [15300, -650], [17800, -750], [21000, 1400], [29000, 3000], [50000, 6000],
 ];
+export const SHORELINE: readonly (readonly [number, number])[] =
+  RAW_SHORELINE.map(([x, z]) => [x + LEGACY_SHIFT.x, z + LEGACY_SHIFT.z] as const);
 export function shoreZ(x: number): number {
   for (let i = 1; i < SHORELINE.length; i++) {
     const a = SHORELINE[i - 1], b = SHORELINE[i];
@@ -72,7 +91,9 @@ export function isUrban(x: number, z: number): boolean {
 }
 
 export interface GeoRoad { id: number; name: string; kind: string; points: number[][] }
-export const OSM_ROADS: GeoRoad[] = osmRoads;
+export const OSM_ROADS: GeoRoad[] = (osmRoads as GeoRoad[]).map(road => ({
+  ...road, points: road.points.map(([x, z]) => [x + LEGACY_SHIFT.x, z + LEGACY_SHIFT.z]),
+}));
 type RoadSegment = { ax: number; az: number; bx: number; bz: number; width: number };
 const roadIndex = new Map<string, RoadSegment[]>();
 const CELL = 256;

@@ -382,7 +382,7 @@ export class RealCityLayer {
     this.refreshRichness();
     this.classifyCells(position, speed);
     this.runJobs();
-    this.roads?.update(position.x, position.z);
+    this.roads?.update(position.x, position.z, speed);
     if (this.roads) this.metrics.roadTriangles = this.roads.triangleCount;
     if (this.collidersDirty) { this.collidersDirty = false; this.refreshColliders(); }
     // One flush per frame: a rampage collapses many buildings but uploads their ranges together.

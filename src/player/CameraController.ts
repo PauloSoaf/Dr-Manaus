@@ -12,6 +12,8 @@ export class CameraController {
   sensitivity = 1;
   invertY = false;
   baseFov = 57;
+  /** Extra degrees contributed by the speed effect, already damped by the caller. */
+  speedFov = 0;
   intro = true;
   private elapsed = 0;
   private shakeAmount = 0;
@@ -52,7 +54,7 @@ export class CameraController {
       if (this.globalPosition.distanceToSquared(this.desired) > 400 * 400) this.globalPosition.copy(this.desired);
       else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstruction ? 25 : 9)));
     }
-    const targetFov = this.baseFov + Math.min(17, player.velocity.length() * 0.028);
+    const targetFov = Math.min(112, this.baseFov + Math.min(17, player.velocity.length() * 0.028) + this.speedFov);
     this.camera.fov = MathUtils.lerp(this.camera.fov, targetFov, 1 - Math.exp(-dt * 3));
     this.camera.updateProjectionMatrix();
     this.camera.position.copy(this.globalPosition).sub(origin);

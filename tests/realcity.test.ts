@@ -19,6 +19,7 @@ import { ARTERIAL_CLASSES, RoadNetwork, type RoadRecord } from '../src/world/rea
 import { RealCityLayer } from '../src/world/realcity/RealCityLayer.ts';
 import { DistrictIndex } from '../src/world/realcity/districts.ts';
 import { LandMask } from '../src/world/geodata/landmask.ts';
+import { GEO_REFERENCES, geoDistance, probeLatLon, probeWorld } from '../src/world/geodata/GeoDebug.ts';
 
 const DATA = path.resolve('public/geodata/real-city');
 const manifestPath = path.join(DATA, 'manifest.json');
@@ -179,13 +180,16 @@ test('the road network separates arterials from streets and only stripes what ca
   const network = new RoadNetwork(records, material);
   const arterial = network.statistics.arterialTriangles;
   assert.ok(arterial > 0, 'arterials are built once and never stream');
-  network.update(0, 0);
+  // Local streets, markings and furniture rebuild one stage per call: together they cost 58 ms,
+  // a four-frame stall every time the player crossed the dead band.
+  const settle = (x: number, z: number, speed = 0) => { for (let i = 0; i < 4; i++) network.update(x, z, speed); };
+  settle(0, 0);
   assert.ok(network.statistics.localTriangles > 0, 'nearby streets must appear');
   assert.ok(network.statistics.markingTriangles > 0, 'arterial centre lines appear near the player');
   const nearby = network.statistics.localTriangles;
 
   // Twelve kilometres away, the distant neighbourhood's streets and all markings must be gone.
-  network.update(12000, 12000);
+  settle(12000, 12000);
   assert.equal(network.statistics.arterialTriangles, arterial, 'arterials never rebuild');
   assert.equal(network.statistics.markingTriangles, 0, 'markings cost nothing away from the player');
   assert.ok(network.statistics.localTriangles < nearby);
@@ -202,7 +206,8 @@ test('street furniture only exists near the player and never stands on a buildin
     { class: 'residential', width: 7, p: [0, 40, 300, 40] },
   ];
   const network = new RoadNetwork(records, material, lamps);
-  network.update(0, 0);
+  const settle = (x: number, z: number, speed = 0) => { for (let i = 0; i < 4; i++) network.update(x, z, speed); };
+  settle(0, 0);
   const furniture = network.group.children.find(child => child.name === 'real-roads-lamps') as Mesh | undefined;
   assert.ok(furniture, 'lamps and street trees must be built near the player');
   const positions = furniture.geometry.getAttribute('position');
@@ -219,9 +224,17 @@ test('street furniture only exists near the player and never stands on a buildin
     assert.ok(Math.abs(z) > 5 || Math.abs(z - 40) > 3.4, 'furniture must sit off the centre line');
   }
   // Away from the player it costs nothing at all.
-  network.update(20000, 20000);
-  const far = network.group.children.find(child => child.name === 'real-roads-lamps');
-  assert.equal(far, undefined, 'street furniture must not exist away from the player');
+  settle(20000, 20000);
+  assert.equal(network.group.children.find(child => child.name === 'real-roads-lamps'), undefined,
+    'street furniture must not exist away from the player');
+
+  // Above cruise speed the whole detail tier is dropped rather than rebuilt every few frames.
+  settle(0, 0);
+  assert.ok(network.statistics.localTriangles > 0, 'detail returns when the player slows down');
+  settle(6000, 0, 5000);
+  assert.equal(network.statistics.localTriangles, 0, 'local streets are dropped at speed');
+  assert.equal(network.statistics.markingTriangles, 0, 'lane paint is dropped at speed');
+  assert.equal(network.group.children.find(child => child.name === 'real-roads-lamps'), undefined);
   network.dispose();
 });
 
@@ -453,17 +466,36 @@ test('no landmark stands in the Rio Negro once the real water polygons are consu
   assert.equal(mask.load(JSON.parse(readFileSync(file, 'utf8'))), true);
   // A bridge, a floating harbour and a river confluence belong over water by definition.
   const overWater = new Set(['ponte', 'porto', 'encontro']);
+  // The mask is a 128 m grid, so a waterfront landmark legitimately lands in a coastal cell.
+  // What must not happen is one sitting out in open water, so the test is distance to dry land.
+  const dryWithin = (x: number, z: number, reach: number): boolean => {
+    for (let radius = 0; radius <= reach; radius += 32) {
+      for (let a = 0; a < 16; a++) {
+        const px = x + Math.cos(a / 16 * Math.PI * 2) * radius, pz = z + Math.sin(a / 16 * Math.PI * 2) * radius;
+        if (!mask.isWater(px, pz)) return true;
+      }
+    }
+    return false;
+  };
   const drowned: string[] = [];
   for (const landmark of LANDMARKS) {
     if (overWater.has(landmark.id) || !mask.covers(landmark.x, landmark.z)) continue;
-    if (mask.isWater(landmark.x, landmark.z)) drowned.push(landmark.id);
+    if (mask.isWater(landmark.x, landmark.z) && !dryWithin(landmark.x, landmark.z, 160)) drowned.push(landmark.id);
   }
-  assert.deepEqual(drowned, [], 'these landmarks sit inside the real river');
+  assert.deepEqual(drowned, [], 'these landmarks sit out in the real river');
   // Iranduba specifically has to be on the far bank, not merely out of the water.
   const iranduba = LANDMARKS.find(landmark => landmark.id === 'iranduba')!;
   assert.equal(mask.isWater(iranduba.x, iranduba.z), false);
   assert.equal(mask.isWater(iranduba.x, iranduba.z - 2000), true,
     'the far bank must have the Rio Negro between it and Manaus');
+
+  // The square is world zero and the theatre is a separate place ~98 m west of it.
+  const largo = LANDMARKS.find(landmark => landmark.id === 'largo')!;
+  const teatro = LANDMARKS.find(landmark => landmark.id === 'teatro')!;
+  assert.ok(Math.hypot(largo.x, largo.z) < 1, 'the monument must be the origin of the world');
+  const apart = Math.hypot(teatro.x - largo.x, teatro.z - largo.z);
+  assert.ok(apart > 90 && apart < 110, `the theatre is ${apart.toFixed(0)} m from the monument`);
+  assert.ok(teatro.x < -80, 'the theatre lies west of the square, not south of it');
 });
 
 test('facade colour follows the real bairro boundaries, not one palette for the whole city', () => {
@@ -603,4 +635,41 @@ test('dropping facade detail never drops collision with the buildings it was dra
   } finally {
     layer.dispose(); globalThis.fetch = previous;
   }
+});
+
+test('the projection is anchored on the monument and every reference lands where it should', () => {
+  // World zero is the Monumento à Abertura dos Portos, not the theatre.
+  assert.equal(GEO_ORIGIN.lat, -3.130333);
+  assert.equal(GEO_ORIGIN.lon, -60.022528);
+  const monument = probeLatLon(GEO_ORIGIN.lat, GEO_ORIGIN.lon);
+  assert.ok(Math.abs(monument.x) < 1e-6 && Math.abs(monument.z) < 1e-6, 'the monument must project to 0,0');
+
+  const at = (id: string) => {
+    const reference = GEO_REFERENCES.find(item => item.id === id)!;
+    return probeLatLon(reference.lat, reference.lon);
+  };
+  // The theatre is a separate place roughly 98 m WEST of the square, not on top of it.
+  const teatro = at('teatro');
+  assert.ok(teatro.x < -80 && teatro.x > -115, `the theatre projects to x=${teatro.x.toFixed(0)}`);
+  assert.ok(Math.abs(teatro.z) < 30, `the theatre projects to z=${teatro.z.toFixed(0)}`);
+  const apart = Math.hypot(teatro.x, teatro.z);
+  assert.ok(apart > 90 && apart < 110, `the theatre is ${apart.toFixed(1)} m from the monument`);
+
+  // The Largo venues all belong to the square, within a couple of hundred metres.
+  for (const id of ['igreja', 'juma', 'valer']) {
+    const place = at(id);
+    const distance = Math.hypot(place.x, place.z);
+    assert.ok(distance < 220, `${id} is ${distance.toFixed(0)} m from the square`);
+  }
+  // Juma Ópera faces the theatre, so it sits on the opposite side of the square from it.
+  assert.ok(at('juma').x > teatro.x, 'Juma Ópera must not be west of the theatre');
+
+  // Round trip, and the compiled dataset must share the same origin.
+  const back = probeWorld(teatro.x, teatro.z);
+  assert.ok(Math.abs(back.lat - at('teatro').lat) < 1e-9 && Math.abs(back.lon - at('teatro').lon) < 1e-9);
+  if (manifest) {
+    assert.equal(manifest.origin.lat, GEO_ORIGIN.lat, 'the compiled tiles must use this origin');
+    assert.equal(manifest.origin.lon, GEO_ORIGIN.lon);
+  }
+  assert.ok(geoDistance(at('monumento'), at('teatro')) > 90);
 });

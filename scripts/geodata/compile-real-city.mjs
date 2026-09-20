@@ -7,7 +7,9 @@ const raw = path.join(projectRoot, 'data', 'raw-geodata');
 const out = path.join(projectRoot, 'public', 'geodata', 'real-city');
 const chunksDir = path.join(out, 'tiles');
 
-const ORIGIN = { lat: -3.1303, lon: -60.0234 };
+// World zero is the Monumento à Abertura dos Portos at the centre of the Largo de São Sebastião.
+// Must stay identical to GEO_ORIGIN in src/world/geodata/geodata.ts; a test asserts it.
+const ORIGIN = { lat: -3.130333, lon: -60.022528 };
 const METERS_PER_DEGREE = 111320;
 const LONGITUDE_SCALE = METERS_PER_DEGREE * Math.cos(ORIGIN.lat * Math.PI / 180);
 const TILE_SIZE = 1024;

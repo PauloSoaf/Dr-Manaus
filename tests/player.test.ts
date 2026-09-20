@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Group, PerspectiveCamera, Vector3 } from 'three/webgpu';
+import { Group, PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
+import { SpeedVFX } from '../src/rendering/SpeedVFX.ts';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld.ts';
 import { PlayerController } from '../src/player/PlayerController.ts';
 import { FLIGHT } from '../src/player/flightConfig.ts';
@@ -225,4 +226,42 @@ test('clones attack the designated target and expire; temporal perception uses r
   game.powers.use('temporal'); assert.equal(game.powers.temporal, true);
   game.powers.update(18.1, 0.01); assert.equal(game.powers.temporal, false);
   game.powers.update(3, 3); assert.equal(game.powers.cloneCount, 0); game.powers.dispose();
+});
+
+test('the speed effect ramps and fades instead of switching on, and stays off at rest', () => {
+  const vfx = new SpeedVFX(new Scene());
+  try {
+    assert.equal(vfx.level, 0, 'nothing at all while standing still');
+    vfx.update(1 / 60, 'normal', 0);
+    assert.equal(vfx.level, 0);
+
+    // Entering super must build over several frames, never appear in one.
+    vfx.update(1 / 60, 'super', 2000);
+    const firstFrame = vfx.level;
+    assert.ok(firstFrame > 0 && firstFrame < .2, `the effect jumped to ${firstFrame.toFixed(2)} in one frame`);
+    for (let i = 0; i < 120; i++) vfx.update(1 / 60, 'super', 2000);
+    const settled = vfx.level;
+    assert.ok(settled > .5 && settled < .95, `super settled at ${settled.toFixed(2)}`);
+    assert.ok(vfx.fovBoost > 10, 'the field of view must open with the effect');
+
+    // Mega is visibly stronger than super.
+    for (let i = 0; i < 180; i++) vfx.update(1 / 60, 'mega', 8000);
+    assert.ok(vfx.level > settled + .1, 'mega must read stronger than super');
+    const megaFov = vfx.fovBoost;
+    assert.ok(megaFov > 25 && megaFov < 40, `mega opens the field of view to +${megaFov.toFixed(0)} degrees`);
+
+    // Releasing decays gradually and reaches exactly zero rather than lingering.
+    for (let i = 0; i < 600; i++) vfx.update(1 / 60, 'normal', 0);
+    assert.equal(vfx.level, 0, 'the effect must clear completely once the player slows down');
+    assert.equal(vfx.fovBoost, 0);
+
+    // Shake follows acceleration, so a steady cruise is smooth and entering the band is not.
+    for (let i = 0; i < 180; i++) vfx.update(1 / 60, 'mega', 8000);
+    assert.ok(vfx.shakeFor(0) < .001, 'holding a constant speed must not shake the camera');
+    assert.ok(vfx.shakeFor(9000) > .01, 'hard acceleration must be felt');
+    assert.ok(vfx.shakeFor(1e9) <= .5, 'the shake is clamped');
+    // A non-finite frame must not poison the ramp.
+    vfx.update(Number.NaN, 'mega', 8000);
+    assert.ok(Number.isFinite(vfx.level));
+  } finally { vfx.dispose(); }
 });

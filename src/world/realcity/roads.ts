@@ -139,12 +139,18 @@ export class RoadNetwork {
   private lamps?: Mesh;
   private lastX = Infinity;
   private lastZ = Infinity;
+  /** Street furniture and markings live on their own index; scanning all 52 000 roads cost 7.8 ms. */
+  private readonly furniture = new Map<string, number[]>();
+  /** One rebuild stage per frame: doing all three at once cost 58 ms, a four-frame stall. */
+  private pending: ('local' | 'markings' | 'lamps' | 'clear')[] = [];
   private readonly stats: RoadStats = { arterialTriangles: 0, localTriangles: 0, markingTriangles: 0 };
 
   /** Local streets are indexed on this grid so a rebuild touches only nearby records. */
   static readonly CELL = 512;
   static readonly LOCAL_RADIUS = 1500;
   static readonly MARKING_RADIUS = 620;
+  /** Above this, lane paint and lamp posts are invisible and not worth a millisecond. */
+  static readonly DETAIL_SPEED = 450;
 
   constructor(
     private readonly records: readonly RoadRecord[],
@@ -154,6 +160,8 @@ export class RoadNetwork {
     this.group.name = 'real-city-road-network';
     for (let index = 0; index < records.length; index++) {
       const road = records[index];
+      const marked = ARTERIAL_CLASSES.has(road.class) || road.class === 'tertiary';
+      if (marked && !drawnByLandmark(road)) this.index(this.furniture, road, index);
       if (ARTERIAL_CLASSES.has(road.class)) continue;
       let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
       for (let i = 0; i < road.p.length; i += 2) {
@@ -170,6 +178,36 @@ export class RoadNetwork {
       }
     }
     this.buildArterial();
+  }
+
+  /** Buckets a record on the uniform grid used by both the local and the furniture indexes. */
+  private index(into: Map<string, number[]>, road: RoadRecord, at: number): void {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < road.p.length; i += 2) {
+      const x = road.p[i], z = road.p[i + 1];
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    for (let cz = Math.floor(minZ / RoadNetwork.CELL); cz <= Math.floor(maxZ / RoadNetwork.CELL); cz++) {
+      for (let cx = Math.floor(minX / RoadNetwork.CELL); cx <= Math.floor(maxX / RoadNetwork.CELL); cx++) {
+        const key = `${cx},${cz}`;
+        const list = into.get(key);
+        if (list) list.push(at); else into.set(key, [at]);
+      }
+    }
+  }
+
+  /** Record indices whose bounding box overlaps the query radius, without touching the rest. */
+  private gather(into: Map<string, number[]>, x: number, z: number, radius: number): number[] {
+    const found: number[] = [], seen = new Set<number>();
+    for (let cz = Math.floor((z - radius) / RoadNetwork.CELL); cz <= Math.floor((z + radius) / RoadNetwork.CELL); cz++) {
+      for (let cx = Math.floor((x - radius) / RoadNetwork.CELL); cx <= Math.floor((x + radius) / RoadNetwork.CELL); cx++) {
+        const list = into.get(`${cx},${cz}`);
+        if (!list) continue;
+        for (const at of list) if (!seen.has(at)) { seen.add(at); found.push(at); }
+      }
+    }
+    return found;
   }
 
   get triangleCount(): number { return this.stats.arterialTriangles + this.stats.localTriangles + this.stats.markingTriangles; }
@@ -193,13 +231,30 @@ export class RoadNetwork {
     this.group.add(this.arterial);
   }
 
-  update(x: number, z: number): void {
-    // A 320 m dead band keeps a fast traversal from rebuilding the local network every frame.
-    if (Math.hypot(x - this.lastX, z - this.lastZ) < 320) return;
-    this.lastX = x; this.lastZ = z;
-    this.buildLocal(x, z);
-    this.buildMarkings(x, z);
-    this.buildLamps(x, z);
+  /**
+   * Local streets, lane markings and street furniture are what the player can only see from close
+   * up, so above cruise speed they are dropped outright rather than rebuilt every few frames. What
+   * survives is staged one piece per call: the three together cost 58 ms, which is a visible stall.
+   */
+  update(x: number, z: number, speed = 0): void {
+    const detailed = speed < RoadNetwork.DETAIL_SPEED;
+    // The dead band grows with speed: at 5 000 m/s a 320 m band fires every four frames.
+    const band = detailed ? 320 : 4000;
+    if (Math.hypot(x - this.lastX, z - this.lastZ) >= band) {
+      this.lastX = x; this.lastZ = z;
+      this.pending = detailed ? ['local', 'markings', 'lamps'] : ['clear'];
+    }
+    const stage = this.pending.shift();
+    if (!stage) return;
+    if (stage === 'clear') {
+      disposeMesh(this.local); disposeMesh(this.markings); disposeMesh(this.lamps);
+      this.local = this.markings = this.lamps = undefined;
+      this.stats.localTriangles = this.stats.markingTriangles = 0;
+      return;
+    }
+    if (stage === 'local') this.buildLocal(x, z);
+    else if (stage === 'markings') this.buildMarkings(x, z);
+    else this.buildLamps(x, z);
   }
 
   private buildLocal(x: number, z: number): void {
@@ -239,8 +294,8 @@ export class RoadNetwork {
   private buildMarkings(x: number, z: number): void {
     const out = ribbon();
     const radius = RoadNetwork.MARKING_RADIUS, radiusSq = radius * radius;
-    for (const road of this.records) {
-      if ((!ARTERIAL_CLASSES.has(road.class) && road.class !== 'tertiary') || drawnByLandmark(road)) continue;
+    for (const at of this.gather(this.furniture, x, z, radius)) {
+      const road = this.records[at];
       const y = heightOf(road.class) + .012;
       for (let i = 2; i < road.p.length; i += 2) {
         const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];
@@ -272,8 +327,8 @@ export class RoadNetwork {
     const radius = RoadNetwork.MARKING_RADIUS, radiusSq = radius * radius;
     const mast: readonly [number, number, number] = [.24, .25, .26];
     const head: readonly [number, number, number] = [.95, .88, .70];
-    for (const road of this.records) {
-      if ((!ARTERIAL_CLASSES.has(road.class) && road.class !== 'tertiary') || drawnByLandmark(road)) continue;
+    for (const at of this.gather(this.furniture, x, z, radius)) {
+      const road = this.records[at];
       const offset = Math.max(3, road.width) * .5 + 1.4;
       for (let i = 2; i < road.p.length; i += 2) {
         const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];
@@ -312,6 +367,8 @@ export class RoadNetwork {
     disposeMesh(this.arterial); disposeMesh(this.local); disposeMesh(this.markings); disposeMesh(this.lamps);
     this.arterial = this.local = this.markings = this.lamps = undefined;
     this.buckets.clear();
+    this.furniture.clear();
+    this.pending.length = 0;
     this.group.removeFromParent();
   }
 }

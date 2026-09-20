@@ -2,14 +2,17 @@ export const WORLD = {
   chunkSize: 128, detailRadius: 480, mediumRadius: 1350, aggregateRadius: 5400,
   horizonRadius: 24000, hysteresis: 64, maxActiveChunks: 64, maxCachedChunks: 30,
   maxRequests: 4, streamingBudgetMs: 4, prefetchSeconds: 2.8, originThreshold: 2048,
+  /** Hard ceiling on chunk activations per frame: a time budget alone still let bursts through. */
+  maxActivationsPerFrame: 2,
+  /** Above this the world is passing too fast for actors to be worth simulating. */
+  actorSpeedLimit: 420, actorCutoffSpeed: 1400,
   maxNPCs: 32, maxVehicles: 20, maxParticles: 600, maxPhysicsBodies: 96,
   groundY: 0, waterY: -3,
   /**
-   * The Largo de São Sebastião, standing on the plaza facing the Teatro Amazonas. The projection
-   * origin stays on the theatre, 100 m north: moving it would rewrite all 648 compiled tiles for
-   * no gain, since floating origin already handles precision and everything is relative.
+   * On the Largo de São Sebastião, east of the Monumento à Abertura dos Portos, which is world
+   * zero, looking west across the square at the Teatro Amazonas 98 m away.
    */
-  spawn: { x: 13.3, y: 2.2, z: 100.2 }, spawnYaw: .132,
+  spawn: { x: 38, y: 2.2, z: 12 }, spawnYaw: 1.432,
 } as const;
 /** Streaming and representation bands for the compiled Overture/OpenStreetMap city. */
 export const REAL_CITY = {

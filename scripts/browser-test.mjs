@@ -120,6 +120,19 @@ try {
     return { districts: game.realCity.districts.size, here: game.realCity.districts.nearest(0, 0)?.name ?? null };
   });
 
+  // The square is world zero and the theatre is a separate place ~98 m west of it.
+  const geo = await page.evaluate(() => {
+    const game = window.__DR_MANAUS__;
+    return {
+      spawn: { x: game.player.position.x, z: game.player.position.z },
+      district: document.querySelector('#district').textContent,
+      marks: game.geoDebug.report().slice(0, 5),
+    };
+  });
+  if (Math.hypot(geo.spawn.x, geo.spawn.z) > 200) {
+    throw new Error(`O jogador nao nasceu no Largo: ${geo.spawn.x.toFixed(0)}, ${geo.spawn.z.toFixed(0)}.`);
+  }
+
   // Every car must be ON a mapped drivable road, not merely near one.
   const traffic = await page.evaluate(() => {
     const game = window.__DR_MANAUS__;
@@ -219,6 +232,7 @@ try {
   console.log(places.districts
     ? `  bairros reais: ${places.districts} compilados, origem = ${places.here ?? 'sem correspondencia'}`
     : '  bairros reais: nao compilados ainda');
+  console.log(`  geografia: spawn ${geo.spawn.x.toFixed(0)},${geo.spawn.z.toFixed(0)} em ${geo.district} | ${geo.marks.join(' | ')}`);
   console.log(traffic.enabled
     ? `  transito: ${traffic.active} carros sobre ${traffic.segments} vias e ${traffic.nodes} cruzamentos, ${traffic.checked} verificados na faixa`
     : '  transito: sem malha viaria compilada');

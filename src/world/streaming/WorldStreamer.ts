@@ -157,9 +157,10 @@ export class WorldStreamer {
       });
     }
     const ready = [...this.records.values()].filter(chunk => chunk.state === ChunkState.READY).sort((a, b) => a.priority - b.priority);
-    let changed = false;
+    let changed = false, activated = 0;
     for (const chunk of ready) {
-      if (performance.now() - start >= WORLD.streamingBudgetMs) break;
+      // A time budget alone still allowed a burst of geometry uploads in one frame.
+      if (activated >= WORLD.maxActivationsPerFrame || performance.now() - start >= WORLD.streamingBudgetMs) break;
       if (!this.wanted.has(chunk.key) && !this.pinned.has(chunk.key)) { chunk.state = ChunkState.CACHED; continue; }
       if (this.active.size >= WORLD.maxActiveChunks) {
         const victim = [...this.active].map(key => this.records.get(key)!).filter(item => !this.pinned.has(item.key) && !this.wanted.has(item.key))
@@ -173,7 +174,7 @@ export class WorldStreamer {
         if (this.destroyed.size) for (const collider of built.colliders) if (this.destroyed.has(collider.id ?? '')) this.collapse(chunk, collider.id!);
       }
       if (chunk.group) this.root.add(chunk.group);
-      chunk.state = ChunkState.ACTIVE; chunk.touched = this.clock; this.active.add(chunk.key); changed = true;
+      chunk.state = ChunkState.ACTIVE; chunk.touched = this.clock; this.active.add(chunk.key); changed = true; activated++;
     }
     if (changed) this.refreshColliders();
     this.evict();
