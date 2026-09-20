@@ -29,6 +29,7 @@ export function createMarket(): Group {
   b.box('stone', 0, .4, 0, 100, .8, 72);
   for (const x of [-29, 0, 29]) {
     const width = x === 0 ? 32 : 23, h = x === 0 ? 12 : 9;
+    b.entity(`landmark:mercado/pavilion/${x}`, { x, y: h * .5, z: 0, width, height: h, depth: 57 }, () => {
     b.box('cream', x, h / 2, 0, width, h, 57);
     b.add(new CylinderGeometry(width / 2, width / 2, 59, 14, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).rotateY(Math.PI / 2), 'red', x, h, 0);
     for (let z = -25; z <= 25; z += 5) {
@@ -40,6 +41,7 @@ export function createMarket(): Group {
       b.box('green', x + dx + 1.8, h / 2, 29, .24, h + 1, .45);
     }
     b.box('green', x, h, 29, width, .6, .6);
+    });
   }
   for (const x of [-46, 46]) for (const z of [-29, 29]) palm(b, x, z, 12);
   for (let x = -40; x <= 40; x += 8) { b.box('gold', x, 1.7, 38, 5, .2, 3); b.box('salmon', x, .8, 38, 4.5, 1.6, 2.5); }
@@ -149,6 +151,7 @@ const KIOSK_INLAND = 88;
 /** A quiosque: masonry body, service window, tiled roof and the shade sail over its tables. */
 function kiosk(b: GeometryBatch, along: number, tone: PaletteKey): void {
   const [x, z] = shore(0, 0, along, KIOSK_INLAND);
+  b.entity(`landmark:ponta/kiosk/${along}`, undefined, () => {
   b.box(tone, x, 1.7, z, 9, 3.4, 8, ORLA);
   b.box('red', x, 3.65, z, 10.6, .5, 9.6, ORLA);
   const [gx, gz] = shore(x, z, 0, -4.7);
@@ -159,6 +162,7 @@ function kiosk(b: GeometryBatch, along: number, tone: PaletteKey): void {
     const [px, pz] = shore(cx, cz, sa, si);
     b.cylinder('steel', px, 1.5, pz, .09, .09, 3, 6);
   }
+  });
 }
 
 /** Beach umbrellas: the rented shade that covers the sand in front of the quiosques. */
@@ -255,15 +259,18 @@ export function createPonta(): Group {
   for (const [n, a] of KIOSK_ALONG.entries()) kiosk(b, a, tones[n % tones.length]);
   for (let n = 0; n < 20; n++) umbrella(b, -355 + n * 33, -12 - (n % 3) * 16, shades[n % shades.length]);
   for (const a of [-320, -140, 60]) court(b, a, -25);
-  pier(b);
+  b.entity('landmark:ponta/pier', undefined, () => pier(b));
 
   // Praça and anfiteatro: a paved plaza, the stepped bowl and the covered stage it faces.
   const [ax, az] = shore(0, 0, BOWL_ALONG, BOWL_INLAND);
   b.box('stone', ax, .18, az, 165, .36, 370, ORLA);
+  b.entity('landmark:ponta/amphitheatre', undefined, () => {
   for (let step = 0; step < 11; step++) {
     b.add(new TorusGeometry(22 + step * 4.2, 1.35, 4, 36, Math.PI).rotateX(Math.PI / 2), 'stone', ax, 1.2 + step * .68, az, 0, ORLA + Math.PI / 2);
   }
+  });
   const [sx, sz] = shore(0, 0, BOWL_ALONG, STAGE_INLAND);
+  b.entity('landmark:ponta/stage', undefined, () => {
   b.box('stone', sx, 1.1, sz, 24, 2.2, 34, ORLA);
   b.box('dark', sx, 2.3, sz, 22, .2, 32, ORLA);
   const [wx, wz] = shore(sx, sz, 0, 11);
@@ -274,6 +281,7 @@ export function createPonta(): Group {
   }
   b.box('dark', sx, 10.4, sz, 26, .8, 36, ORLA);
   for (const sa of [-11, 11]) { const [px, pz] = shore(sx, sz, sa, -9); b.box('dark', px, 4, pz, 1.4, 5, 1.8, ORLA); }
+  });
   for (const sa of [-150, 150]) for (const si of [20, 62]) {
     const [tx, tz] = shore(ax, az, sa, si);
     tree(b, tx, tz, 15 + ((sa + si) & 3), sa * .01);
@@ -287,19 +295,19 @@ function pontaColliders(): LandmarkBox[] {
   const out: LandmarkBox[] = [];
   // The seating bowl rises inland of its centre, so the box covers the stepped half only.
   const [bx, bz] = shore(0, 0, BOWL_ALONG, BOWL_INLAND + 32);
-  out.push({ x: bx, y: 4.2, z: bz, width: 70, height: 8.4, depth: 132 });
+  out.push({ id: 'landmark:ponta/amphitheatre', x: bx, y: 4.2, z: bz, width: 70, height: 8.4, depth: 132 });
   const [sx, sz] = shore(0, 0, BOWL_ALONG, STAGE_INLAND);
-  out.push({ x: sx, y: 1.1, z: sz, width: 24, height: 2.2, depth: 34 });
-  out.push({ x: sx, y: 10.4, z: sz, width: 26, height: .8, depth: 36 });
+  out.push({ id: 'landmark:ponta/stage', x: sx, y: 1.1, z: sz, width: 24, height: 2.2, depth: 34 });
+  out.push({ id: 'landmark:ponta/stage', x: sx, y: 10.4, z: sz, width: 26, height: .8, depth: 36 });
   for (const a of KIOSK_ALONG) {
     const [x, z] = shore(0, 0, a, KIOSK_INLAND);
-    out.push({ x, y: 1.9, z, width: 10.6, height: 3.8, depth: 9.6 });
+    out.push({ id: `landmark:ponta/kiosk/${a}`, x, y: 1.9, z, width: 10.6, height: 3.8, depth: 9.6 });
   }
   const [dx, dz] = shore(0, 0, PIER_ALONG, 20 - PIER_LENGTH / 2);
-  out.push({ x: dx, y: 1.5, z: dz, width: PIER_LENGTH, height: .55, depth: 12 });
+  out.push({ id: 'landmark:ponta/pier', x: dx, y: 1.5, z: dz, width: PIER_LENGTH, height: .55, depth: 12 });
   const [hx, hz] = shore(0, 0, PIER_ALONG, 20 - PIER_LENGTH - 9);
-  out.push({ x: hx, y: 1.5, z: hz, width: 20, height: .55, depth: 22 });
-  out.push({ x: hx, y: 5.4, z: hz, width: 22, height: .5, depth: 24 });
+  out.push({ id: 'landmark:ponta/pier', x: hx, y: 1.5, z: hz, width: 20, height: .55, depth: 22 });
+  out.push({ id: 'landmark:ponta/pier', x: hx, y: 5.4, z: hz, width: 22, height: .5, depth: 24 });
   return out;
 }
 
@@ -321,8 +329,10 @@ export function createIranduba(): Group {
     const h = 6 + ((row * row + col * col) % 4) * 2.4;
     const w = 34 + ((row + col + 20) % 3) * 7;
     const d = 27 + ((row - col + 20) % 3) * 6;
+    b.entity(`landmark:iranduba/house/${row},${col}`, { x, y: h / 2, z, width: w, height: h, depth: d }, () => {
     b.box(facades[(row * 7 + col * 11 + 99) % facades.length], x, h / 2, z, w, h, d);
     if ((row + col) % 3 === 0) b.box('glass', x, h * .63, z + d * .505, w * .58, h * .2, .18);
+    });
   }
   for (let i = 0; i < 24; i++) {
     const angle = i * 2.399, radius = 270 + (i % 5) * 34;

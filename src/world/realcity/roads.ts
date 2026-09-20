@@ -1,4 +1,6 @@
-import { BufferGeometry, Float32BufferAttribute, Group, Mesh, type Material } from 'three/webgpu';
+import { BufferAttribute, BufferGeometry, Float32BufferAttribute, Group, Mesh, type Material, type Vector3 } from 'three/webgpu';
+import type { Collider } from '../../core/types';
+import { REAL_CITY } from '../../core/config';
 import { drawnByLandmark } from './ownership';
 
 export interface RoadRecord {
@@ -132,6 +134,11 @@ export interface RoadStats { arterialTriangles: number; localTriangles: number; 
  */
 export class RoadNetwork {
   readonly group = new Group();
+  readonly colliders: Collider[] = [];
+  collidersChanged = false;
+  private readonly destroyed = new Map<string, Collider>();
+  private readonly spans = new Map<string, { first: number; count: number }>();
+  private lastDetailed = true;
   private readonly buckets = new Map<string, number[]>();
   private arterial?: Mesh;
   private local?: Mesh;
@@ -237,11 +244,13 @@ export class RoadNetwork {
    * survives is staged one piece per call: the three together cost 58 ms, which is a visible stall.
    */
   update(x: number, z: number, speed = 0): void {
+    this.collidersChanged = false;
     const detailed = speed < RoadNetwork.DETAIL_SPEED;
     // The dead band grows with speed: at 5 000 m/s a 320 m band fires every four frames.
     const band = detailed ? 320 : 4000;
-    if (Math.hypot(x - this.lastX, z - this.lastZ) >= band) {
+    if (detailed !== this.lastDetailed || Math.hypot(x - this.lastX, z - this.lastZ) >= band) {
       this.lastX = x; this.lastZ = z;
+      this.lastDetailed = detailed;
       this.pending = detailed ? ['local', 'markings', 'lamps'] : ['clear'];
     }
     const stage = this.pending.shift();
@@ -250,6 +259,7 @@ export class RoadNetwork {
       disposeMesh(this.local); disposeMesh(this.markings); disposeMesh(this.lamps);
       this.local = this.markings = this.lamps = undefined;
       this.stats.localTriangles = this.stats.markingTriangles = 0;
+      this.colliders.length = 0; this.spans.clear(); this.collidersChanged = true;
       return;
     }
     if (stage === 'local') this.buildLocal(x, z);
@@ -323,6 +333,7 @@ export class RoadNetwork {
   /** Street lighting along the real avenues, close enough that a single draw covers it. */
   private buildLamps(x: number, z: number): void {
     if (!this.lampMaterial) return;
+    this.colliders.length = 0; this.spans.clear(); this.collidersChanged = true;
     const out = ribbon();
     const radius = RoadNetwork.MARKING_RADIUS, radiusSq = radius * radius;
     const mast: readonly [number, number, number] = [.24, .25, .26];
@@ -340,16 +351,27 @@ export class RoadNetwork {
         // Alternating sides every 38 m, the way an arterial is actually lit.
         for (let t = 10, side = 1; t < length - 6; t += 38, side = -side) {
           const px = ax + ux * t + nx * offset * side, pz = az + uz * t + nz * offset * side;
-          post(out, px, 0, pz, .34, 8.4, .34, mast, 0);
-          post(out, px - nx * side * 1.1, 8, pz - nz * side * 1.1, 2.6, .34, .42, mast, 0);
-          post(out, px - nx * side * 2, 7.55, pz - nz * side * 2, 1.15, .5, .62, head, 1);
+          const lampId = `road:lamp:${at}:${i}:${t}`, treeId = `road:tree:${at}:${i}:${t}`;
+          if (!this.destroyed.has(lampId)) {
+            const first = out.position.length;
+            post(out, px, 0, pz, .34, 8.4, .34, mast, 0);
+            post(out, px - nx * side * 1.1, 8, pz - nz * side * 1.1, 2.6, .34, .42, mast, 0);
+            post(out, px - nx * side * 2, 7.55, pz - nz * side * 2, 1.15, .5, .62, head, 1);
+            this.spans.set(lampId, { first, count: out.position.length - first });
+            this.colliders.push({ id: lampId, x: px, y: 4.2, z: pz, width: 3, depth: 3, height: 8.4 });
+          }
           // A street tree between every pair of lamps: never inside a footprint, because a road is not.
           const tx = ax + ux * (t + 19) + nx * (offset + 1.6) * -side;
           const tz = az + uz * (t + 19) + nz * (offset + 1.6) * -side;
           const tint = ((Math.abs(Math.round(tx) * 31 + Math.round(tz) * 17)) % 5) / 5;
-          post(out, tx, 0, tz, .42, 3.6 + tint * 1.4, .42, TRUNK, 0);
-          canopy(out, tx, 4.6 + tint * 1.4, tz, 2.5 + tint * 1.3, 2.4 + tint * 1.1,
-            [.20 + tint * .10, .38 + tint * .12, .19 + tint * .07]);
+          if (!this.destroyed.has(treeId)) {
+            const first = out.position.length, height = 7 + tint * 2.5, width = 5 + tint * 2.6;
+            post(out, tx, 0, tz, .42, 3.6 + tint * 1.4, .42, TRUNK, 0);
+            canopy(out, tx, 4.6 + tint * 1.4, tz, 2.5 + tint * 1.3, 2.4 + tint * 1.1,
+              [.20 + tint * .10, .38 + tint * .12, .19 + tint * .07]);
+            this.spans.set(treeId, { first, count: out.position.length - first });
+            this.colliders.push({ id: treeId, x: tx, y: height * .5, z: tz, width, depth: width, height });
+          }
         }
       }
     }
@@ -363,12 +385,41 @@ export class RoadNetwork {
     this.group.add(this.lamps);
   }
 
+  destroy(id: string): boolean {
+    if (this.destroyed.has(id)) return false;
+    const index = this.colliders.findIndex(collider => collider.id === id), span = this.spans.get(id);
+    if (index < 0 || !span || !this.lamps) return false;
+    const attribute = this.lamps.geometry.getAttribute('position');
+    if (!(attribute instanceof BufferAttribute)) return false;
+    (attribute.array as Float32Array).fill(0, span.first, span.first + span.count);
+    attribute.addUpdateRange(span.first, span.count); attribute.needsUpdate = true;
+    this.destroyed.set(id, this.colliders[index]); this.colliders.splice(index, 1); this.collidersChanged = true;
+    if (this.destroyed.size > REAL_CITY.maxDestroyed) {
+      const oldest = this.destroyed.keys().next().value;
+      if (oldest !== undefined) this.destroyed.delete(oldest);
+      if (!this.pending.includes('lamps') && this.lastDetailed) this.pending.push('lamps');
+    }
+    return true;
+  }
+
+  restore(position: Vector3, radius: number): number {
+    let count = 0;
+    for (const [id, box] of this.destroyed) {
+      const dx = Math.max(0, Math.abs(position.x - box.x) - box.width / 2), dy = Math.max(0, Math.abs(position.y - box.y) - box.height / 2), dz = Math.max(0, Math.abs(position.z - box.z) - box.depth / 2);
+      if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
+      this.destroyed.delete(id); count++;
+    }
+    if (count && !this.pending.includes('lamps') && this.lastDetailed) this.pending.push('lamps');
+    return count;
+  }
+
   dispose(): void {
     disposeMesh(this.arterial); disposeMesh(this.local); disposeMesh(this.markings); disposeMesh(this.lamps);
     this.arterial = this.local = this.markings = this.lamps = undefined;
     this.buckets.clear();
     this.furniture.clear();
     this.pending.length = 0;
+    this.colliders.length = 0; this.destroyed.clear(); this.spans.clear();
     this.group.removeFromParent();
   }
 }

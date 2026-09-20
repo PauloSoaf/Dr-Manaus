@@ -5,6 +5,7 @@ import { ChunkState, chunkKey, type Chunk } from '../chunks/Chunk';
 import { ChunkMeshes } from '../chunks/ChunkMeshes';
 import { planChunks, type ChunkDemand } from './ChunkPriority';
 import { GenerationPool } from './GenerationPool';
+import { generateChunk } from '../chunks/BuildingGenerator';
 
 const PREPARE_TIMEOUT_MS = 20_000;
 /** Shared scratch matrix: collapsing a building must not allocate mid-rampage. */
@@ -35,6 +36,8 @@ export class WorldStreamer {
   /** Levelled procedural buildings, so a chunk rebuild never resurrects one. */
   private readonly destroyed = new Set<string>();
   private readonly destroyedOrder: string[] = [];
+  private readonly destroyedLocations = new Map<string, Collider>();
+  private revision = 0;
 
   constructor(private readonly root: Group) {
     this.debugRoot.name = 'chunk-boundaries'; this.debugRoot.visible = false; root.add(this.debugRoot);
@@ -45,6 +48,10 @@ export class WorldStreamer {
 
   get colliders(): Collider[] { return this.colliderList; }
   get activeKeys(): ReadonlySet<string> { return this.active; }
+  get destroyedIds(): ReadonlySet<string> { return this.destroyed; }
+  get destroyedBounds(): ReadonlyMap<string, Collider> { return this.destroyedLocations; }
+  get destructionRevision(): number { return this.revision; }
+  isDestroyed(id: string): boolean { return this.destroyed.has(id.startsWith('hlod:') ? id.slice(5) : id); }
   get stats(): { active: number; cached: number; queued: number; streamMs: number; loadedMB: number } {
     let cached = 0, queued = 0, bytes = 0;
     for (const chunk of this.records.values()) {
@@ -172,6 +179,7 @@ export class WorldStreamer {
         const built = this.meshes.create(chunk.payload);
         chunk.group = built.group; chunk.colliders = built.colliders; chunk.bytes = built.bytes;
         if (this.destroyed.size) for (const collider of built.colliders) if (this.destroyed.has(collider.id ?? '')) this.collapse(chunk, collider.id!);
+        chunk.colliders = chunk.colliders.filter(collider => !this.destroyed.has(collider.id ?? ''));
       }
       if (chunk.group) this.root.add(chunk.group);
       chunk.state = ChunkState.ACTIVE; chunk.touched = this.clock; this.active.add(chunk.key); changed = true; activated++;
@@ -189,18 +197,54 @@ export class WorldStreamer {
   destroy(colliderId: string): boolean {
     const marker = colliderId.indexOf('/building/') >= 0 ? colliderId.indexOf('/building/') : colliderId.indexOf('/tree/');
     if (marker <= 0 || colliderId.startsWith('hlod:') || this.destroyed.has(colliderId)) return false;
-    const chunk = this.records.get(colliderId.slice(0, marker));
-    if (!chunk) return false;
+    const key = colliderId.slice(0, marker), parts = key.split(',').map(Number);
+    if (parts.length !== 2 || !parts.every(Number.isInteger)) return false;
+    const chunk = this.records.get(key);
+    // A medium proxy may be hit before detailed streaming arrives; its deterministic record owns
+    // the same id, so the destruction can be recorded without loading a detailed neighborhood.
+    const payload = chunk?.payload ?? generateChunk(parts[0], parts[1]);
+    const bounds = ChunkMeshes.collider(payload, colliderId);
+    if (!bounds) return false;
     this.destroyed.add(colliderId);
+    this.destroyedLocations.set(colliderId, bounds); this.revision++;
     this.destroyedOrder.push(colliderId);
     if (this.destroyedOrder.length > WORLD.maxActiveChunks * 200) {
       const evicted = this.destroyedOrder.shift();
-      if (evicted !== undefined) this.destroyed.delete(evicted);
+      if (evicted !== undefined) {
+        this.destroyed.delete(evicted); this.destroyedLocations.delete(evicted);
+        const oldKey = evicted.slice(0, evicted.indexOf('/')), old = this.records.get(oldKey);
+        if (old?.group && old.payload) { const restored = this.meshes.restore(old.group, old.payload, evicted); if (restored) old.colliders.push(restored); }
+      }
     }
-    if (!this.collapse(chunk, colliderId)) return false;
-    const index = chunk.colliders.findIndex(collider => collider.id === colliderId);
-    if (index >= 0) { chunk.colliders.splice(index, 1); this.refreshColliders(); }
+    if (chunk) {
+      this.collapse(chunk, colliderId);
+      const index = chunk.colliders.findIndex(collider => collider.id === colliderId);
+      if (index >= 0) chunk.colliders.splice(index, 1);
+    }
+    this.refreshColliders();
     return true;
+  }
+
+  /** Restores nearby records even when their detailed chunk has already been evicted. */
+  restore(position: Vector3, radius: number): number {
+    if (!Number.isFinite(radius) || radius < 0) return 0;
+    let count = 0;
+    for (const [id, box] of this.destroyedLocations) {
+      const dx = Math.max(0, Math.abs(position.x - box.x) - box.width / 2);
+      const dy = Math.max(0, Math.abs(position.y - box.y) - box.height / 2);
+      const dz = Math.max(0, Math.abs(position.z - box.z) - box.depth / 2);
+      if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
+      this.destroyed.delete(id); this.destroyedLocations.delete(id);
+      const order = this.destroyedOrder.indexOf(id); if (order >= 0) this.destroyedOrder.splice(order, 1);
+      const chunk = this.records.get(id.slice(0, id.indexOf('/')));
+      if (chunk?.group && chunk.payload) {
+        const collider = this.meshes.restore(chunk.group, chunk.payload, id);
+        if (collider && !chunk.colliders.some(item => item.id === id)) chunk.colliders.push(collider);
+      }
+      count++;
+    }
+    if (count) { this.revision++; this.refreshColliders(); }
+    return count;
   }
 
   private collapse(chunk: Chunk, colliderId: string): boolean {
@@ -246,7 +290,7 @@ export class WorldStreamer {
   }
   private refreshColliders(): void {
     this.colliderList = [];
-    for (const key of this.active) this.colliderList.push(...this.records.get(key)!.colliders);
+    for (const key of this.active) for (const collider of this.records.get(key)!.colliders) if (!this.destroyed.has(collider.id ?? '')) this.colliderList.push(collider);
     this.debugDirty = true;
   }
   private refreshDebug(): void {
@@ -264,6 +308,7 @@ export class WorldStreamer {
     this.disposed = true; this.generators.dispose();
     for (const chunk of this.records.values()) if (chunk.group) this.meshes.disposeChunk(chunk.group);
     this.records.clear(); this.active.clear(); this.colliderList.length = 0;
+    this.destroyed.clear(); this.destroyedOrder.length = 0; this.destroyedLocations.clear();
     this.debugRoot.removeFromParent(); this.boundsGeometry.dispose(); this.boundsMaterial.dispose(); this.meshes.dispose();
   }
 }

@@ -137,6 +137,49 @@ export class ChunkMeshes {
     this.matrix.compose(this.position, this.rotation, this.scale); mesh.setMatrixAt(index, this.matrix);
   }
 
+  /** Reconstructs one instance family from its immutable worker payload, including every palm leaf. */
+  restore(group: Group, payload: ChunkPayload, id: string): Collider | null {
+    const collider = ChunkMeshes.collider(payload, id);
+    if (!collider) return null;
+    const tree = id.includes('/tree/'), index = Number(id.slice(id.lastIndexOf('/') + 1));
+    const data = tree ? payload.trees : payload.buildings, p = index * (tree ? TREE_STRIDE : BUILDING_STRIDE);
+    const x = data[p] - group.position.x, z = data[p + 1] - group.position.z;
+    for (const mesh of group.children) {
+      if (!(mesh instanceof InstancedMesh)) continue;
+      if (!tree) {
+        const w = data[p + 2], h = data[p + 3], d = data[p + 4], roof = data[p + 8];
+        if (mesh.name === 'facades') this.set(mesh, index, x, h * .5 + .25, z, w, h, d);
+        else if (mesh.name === 'terracotta-roofs') this.set(mesh, index, x, h + .25, z, w + 1.4, roof, d + 1.4);
+        else if (mesh.name === 'sidewalks') this.set(mesh, index, x, .1, z, w + 4.5, .2, d + 4.5);
+        else continue;
+      } else {
+        const h = data[p + 2], radius = data[p + 3], palm = data[p + 4] > .5;
+        if (mesh.name === 'tree-trunks') this.set(mesh, index, x, h * .5, z, palm ? .3 : .5, h, palm ? .3 : .5);
+        else if (mesh.name === 'tropical-canopy') {
+          const start = (group.userData.canopyStart as Int32Array)[index];
+          if (palm) for (let leaf = 0; leaf < 5; leaf++) {
+            const angle = leaf / 5 * Math.PI * 2 + index;
+            this.set(mesh, start + leaf, x + Math.cos(angle) * 1.6, h - .25, z + Math.sin(angle) * 1.6, radius * 1.15, .4, .85, -angle);
+          }
+          else this.set(mesh, start, x, h - .5, z, radius, radius * .78, radius);
+        } else continue;
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+    return collider;
+  }
+
+  static collider(payload: ChunkPayload, id: string): Collider | null {
+    const tree = id.includes('/tree/'), prefix = `${payload.key}/${tree ? 'tree' : 'building'}/`;
+    if (!id.startsWith(prefix)) return null;
+    const index = Number(id.slice(prefix.length));
+    const data = tree ? payload.trees : payload.buildings, stride = tree ? TREE_STRIDE : BUILDING_STRIDE, p = index * stride;
+    if (!Number.isInteger(index) || index < 0 || p + stride > data.length) return null;
+    const height = tree ? data[p + 2] : data[p + 3] + data[p + 8];
+    return { id, x: data[p], y: height * .5, z: data[p + 1], height,
+      width: tree ? data[p + 3] * 1.3 : data[p + 2], depth: tree ? data[p + 3] * 1.3 : data[p + 4] };
+  }
+
   disposeChunk(group: Group): void {
     group.removeFromParent(); group.traverse(object => { if (object instanceof InstancedMesh) object.dispose(); });
     group.clear();

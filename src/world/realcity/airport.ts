@@ -1,6 +1,7 @@
 import { CylinderGeometry, Group, Mesh } from 'three/webgpu';
 import { GeometryBatch, type PaletteKey } from '../landmarks/GeometryBatch';
 import { latLonToWorld } from '../geodata/geodata';
+import type { AuthoredDestruction } from '../destruction/AuthoredDestruction';
 
 /**
  * Aeroporto Internacional Eduardo Gomes. Overture ships no aeroway geometry for Manaus, so the
@@ -24,7 +25,7 @@ const MID_X = (HEAD.x + TAIL.x) / 2, MID_Z = (HEAD.z + TAIL.z) / 2;
 const APRON_ACROSS = 440, TAXI_A = 190, TAXI_B = 300;
 const GRASS_Y = .12, PAVE_Y = .25, MARK_Y = .56;
 
-export interface WorldBox { x: number; y: number; z: number; width: number; height: number; depth: number }
+export interface WorldBox { id?: string; x: number; y: number; z: number; width: number; height: number; depth: number }
 export interface WorldDisc { x: number; z: number; radius: number }
 
 /** Runway frame: `along` runs 10 to 28 from the midpoint, `across` is positive toward the terminal. */
@@ -125,27 +126,33 @@ function apron(b: GeometryBatch): void {
   }
   for (const along of [-500, -260]) {
     const p = at(along, 520);
+    b.entity(`airport:hangar:${along}`, undefined, () => {
     b.box('steel', p.x, 7, p.z, 120, 14, 70, YAW);
     b.add(new CylinderGeometry(35, 35, 118, 10, 1, false, 0, Math.PI).rotateZ(Math.PI / 2).scale(1, .32, 1), 'stone', p.x, 14, p.z, 0, YAW);
     b.box('dark', p.x, 5, p.z, 118, 10, .6, YAW);
+    });
   }
   for (let i = 0; i < 4; i++) {
     const p = at(700 + (i % 2) * 34, 560 + Math.floor(i / 2) * 34);
+    b.entity(`airport:tank:${i}`, {x:p.x,y:6,z:p.z,width:23,height:13,depth:23}, () => {
     b.cylinder('white', p.x, 6, p.z, 11, 11, 12, 12);
     b.cylinder('stone', p.x, 12.4, p.z, 11.4, 11.4, .8, 12);
+    });
   }
 }
 
-export function createAirport(): Group {
+export function createAirport(destruction?: AuthoredDestruction): Group {
   const flat = new GeometryBatch(), built = new GeometryBatch();
   runway(flat); taxiways(flat); apron(flat);
-  terminal(built); tower(built);
+  built.entity('airport:terminal', undefined, () => terminal(built));
+  built.entity('airport:tower', undefined, () => tower(built));
   const group = new Group();
   group.name = 'Aeroporto Internacional Eduardo Gomes — pista 10/28';
   // Pavement is 2.7 km of flat quad: casting shadows from it only bloats the shadow frustum.
   const ground = flat.build('airport-pavement');
   ground.traverse(object => { if (object instanceof Mesh) object.castShadow = false; });
   group.add(ground, built.build('airport-structures'));
+  if(destruction){for(const box of AIRPORT_COLLIDERS)destruction.addCollider(box);destruction.register(group,'airport:ground',{x:0,z:0});}
   return group;
 }
 
@@ -174,6 +181,7 @@ function colliders(): WorldBox[] {
   const mast = latLonToWorld(TOWER.lat, TOWER.lon);
   out.push({ x: mast.x, y: 17, z: mast.z, width: 12, height: 34, depth: 12 });
   out.push({ x: mast.x, y: 38.6, z: mast.z, width: 18, height: 9, depth: 18 });
+  out.forEach((box,i)=>{box.id=i<17?'airport:terminal':i<19?`airport:hangar:${[-500,-260][i-17]}`:'airport:tower';});
   return out;
 }
 

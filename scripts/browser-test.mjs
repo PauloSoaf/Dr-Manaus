@@ -37,13 +37,13 @@ try {
   await waitForServer();
   browser = await chromium.launch({
     headless: true,
-    args: ['--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-webgl'],
+    args: [...(process.env.DR_BROWSER_GPU?[]:['--use-angle=swiftshader']), '--ignore-gpu-blocklist', '--enable-webgl'],
   });
 
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = [];
 
-  page.on('pageerror', error => errors.push(`pageerror: ${error.message}`));
+  page.on('pageerror', error => {errors.push(`pageerror: ${error.message}`);console.error(error.message);});
   page.on('crash', () => errors.push('crash: a aba do navegador caiu'));
   page.on('console', message => {
     if (message.type() === 'error') errors.push(`console: ${message.text()}`);
@@ -225,6 +225,19 @@ try {
   await page.waitForFunction(() => window.__DR_MANAUS__.player.state !== 'Grounded', null, { timeout: 20_000 });
   const flightState = await page.evaluate(() => window.__DR_MANAUS__.player.state);
 
+  const destructionCoverage = await page.evaluate(() => {
+    const game=window.__DR_MANAUS__, point=game.player.position.clone();point.y=0;
+    game.terrain.damageAt(point,22,2600);game.terrain.update(point,game.origin);
+    const depth=game.terrain.heightAt(point.x,point.z), surfaces=game.terrain.stats.surfaces;
+    const victim=game.largo.colliders.find(c=>c.id?.startsWith('largo:venue:'))??game.largo.colliders.find(c=>c.id==='largo:monumento');
+    const removed=victim&&game.destructible.destroy(victim.id)&&!game.largo.colliders.some(c=>c.id===victim.id);
+    const restored=game.largo.restore(point,1000);
+    return {depth,surfaces,removed,restored,terrain:game.terrain.stats};
+  });
+  await page.waitForTimeout(1200);
+  await page.screenshot({path:'artifacts/destruction-browser.png'});
+  if(destructionCoverage.depth>=-3||destructionCoverage.surfaces<3||!destructionCoverage.removed||!destructionCoverage.restored)throw new Error(`Destruction coverage failed: ${JSON.stringify(destructionCoverage)}`);
+  console.log(`  authored destruction + crater: ${JSON.stringify(destructionCoverage)}`);
   if (errors.length) throw new Error(`Erros no navegador:\n${errors.join('\n')}`);
   console.log(`DR Manaus browser smoke OK | ${boot.backend} | chunks=${boot.activeChunks} | ${boot.state} -> ${flightState}`);
   console.log(city.enabled

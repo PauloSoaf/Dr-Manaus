@@ -2,7 +2,7 @@ import { BoxGeometry, Group, Vector3 } from 'three/webgpu';
 import { GeometryBatch, type PaletteKey } from '../GeometryBatch';
 import largo from './largo.json';
 
-export interface LandmarkBox { x: number; y: number; z: number; width: number; height: number; depth: number }
+export interface LandmarkBox { x: number; y: number; z: number; width: number; height: number; depth: number; id?: string }
 
 export interface SpecialVenue {
   id: string;
@@ -30,6 +30,12 @@ export const LARGO_VENUES: readonly SpecialVenue[] = largo.venues as SpecialVenu
 
 export function venue(id: string): SpecialVenue | undefined {
   return LARGO_VENUES.find(item => item.id === id);
+}
+
+/** Several businesses may share one surveyed building; that physical building collapses once. */
+export function venueDestructionId(item: SpecialVenue): string {
+  const first = item.building && LARGO_VENUES.find(other => other.building?.x === item.building!.x && other.building?.z === item.building!.z);
+  return `largo:venue:${first ? first.id : item.id}`;
 }
 
 /** Human scale, in metres. Every facade element below is sized from these, never by eye. */
@@ -146,7 +152,7 @@ export function createLargoVenues(): Group {
   const b = new GeometryBatch();
   for (const item of LARGO_VENUES) {
     if (!item.building) continue;
-    frontage(b, item);
+    b.entity(venueDestructionId(item), undefined, () => frontage(b, item));
   }
   return b.build('Largo de São Sebastião — casario');
 }
@@ -159,8 +165,10 @@ export function createLargoVenuesDistant(): Group {
     if (!plot) continue;
     const tone = PALETTE[item.kind] ?? PALETTE.culture;
     const height = Math.max(item.floors * FLOOR, Math.min(plot.height, item.floors * FLOOR + 3));
-    b.box(tone.wall, plot.x, height * .5, plot.z, plot.width, height, plot.depth, plot.angle);
-    b.box(tone.roof, plot.x, height + .3, plot.z, plot.width + .6, .6, plot.depth + .6, plot.angle);
+    b.entity(venueDestructionId(item), undefined, () => {
+      b.box(tone.wall, plot.x, height * .5, plot.z, plot.width, height, plot.depth, plot.angle);
+      b.box(tone.roof, plot.x, height + .3, plot.z, plot.width + .6, .6, plot.depth + .6, plot.angle);
+    });
   }
   return b.build('Largo — casario distante');
 }
@@ -173,6 +181,7 @@ export const VENUE_COLLIDERS: readonly LandmarkBox[] = LARGO_VENUES.flatMap(item
   // Axis-aligned, so a rotated frontage takes the larger of its two extents.
   const cos = Math.abs(Math.cos(plot.angle)), sin = Math.abs(Math.sin(plot.angle));
   return [{
+    id: venueDestructionId(item),
     x: plot.x, y: height * .5, z: plot.z,
     width: plot.width * cos + plot.depth * sin,
     height,

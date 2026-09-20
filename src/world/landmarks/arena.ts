@@ -12,7 +12,7 @@ const PODIUM_X = 148, PODIUM_Z = 178, PODIUM_Y = 3;
 const ROOF_IN_X = 59, ROOF_IN_Z = 83, ROOF_DEPTH = 46;
 const RIBS = 46, LEAN = Math.PI * 2 / RIBS * 3, TIERS = 7;
 
-export interface LandmarkBox { x: number; y: number; z: number; width: number; height: number; depth: number }
+export interface LandmarkBox { x: number; y: number; z: number; width: number; height: number; depth: number; id?: string }
 
 /** Boxes laid tangent to the ellipse: `depth` runs radially, so a ring reads as one solid band. */
 function band(b: GeometryBatch, mat: PaletteKey, ax: number, bz: number, y: number, height: number, depth: number, count: number, overlap = 1.12): void {

@@ -17,13 +17,16 @@ import { LandmarkManager } from '../world/landmarks/LandmarkManager';
 import { createTerrain } from '../world/geodata/terrain';
 import { GeoDebug } from '../world/geodata/GeoDebug';
 import { LargoDistrict } from '../world/landmarks/largo';
-import { AIRPORT_COLLIDERS, createAirport } from '../world/realcity/airport';
+import { createAirport } from '../world/realcity/airport';
 import { LANDMARKS, isLand } from '../world/geodata/geodata';
 import { InputController } from '../player/InputController';
 import { PlayerController } from '../player/PlayerController';
 import { CameraController } from '../player/CameraController';
 import { PowerSystem } from '../player/powers/PowerSystem';
 import type { CosmicLevel } from '../player/CharacterModel';
+import { TerrainDestruction } from '../world/destruction/TerrainDestruction';
+import { AuthoredDestruction } from '../world/destruction/AuthoredDestruction';
+import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { DestructionSystem } from '../world/destruction/DestructionSystem';
 import { TrafficSystem } from '../world/traffic/TrafficSystem';
 import { PopulationManager } from '../entities/PopulationManager';
@@ -36,6 +39,7 @@ export class Game {
   readonly worldRoot=new Group();readonly origin=new Vector3();readonly player:PlayerController;readonly input:InputController;readonly camera:CameraController;
   readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
+  readonly terrain:TerrainDestruction;readonly airport=new AuthoredDestruction();
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
   stressReport:FrameSample[]=[];private stressRoute:Vector3[]=[];private stressIndex=0;private stressSampleTime=0;
   private lastTime=0;private discoveryTime=0;private telemetryTime=0;private cpu=0;private colliders:Collider[]=[];private playerLocal=new Vector3();private direction=new Vector3();
@@ -46,8 +50,10 @@ export class Game {
   constructor(container:HTMLElement){
     this.rendering=new RendererManager(container);this.worldRoot.name='Manaus · global meters';this.rendering.scene.add(this.worldRoot);
     this.atmosphere=new Atmosphere(this.rendering.scene);this.space=new SpaceLayer(this.rendering.scene,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
-    createTerrain(this.worldRoot);this.worldRoot.add(createAirport());this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
-    this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);
+    this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
+    createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
+    this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);this.hlod.setDestructionSource(this.streamer);
+    this.watchGround(this.worldRoot);
     this.input=new InputController(this.rendering.renderer.domElement);this.player=new PlayerController(this.worldRoot,this.input);this.camera=new CameraController(this.rendering.camera,this.input);
     this.population=new PopulationManager(this.worldRoot);
     this.missions=new MissionManager(this.worldRoot,this.save,message=>this.hud?.notify(message));
@@ -55,7 +61,7 @@ export class Game {
     this.powers=new PowerSystem(this.worldRoot,this.player,this.rendering.camera,this.input,{
       targets:()=>[...this.population.targets,...this.missions.targets],
       hit:(id,force)=>{this.missions.hit(id,force)||this.population.hit(id,force);},
-      reconstruct:(position,radius)=>this.population.reconstruct(position,radius),
+      reconstruct:(position,radius)=>this.population.reconstruct(position,radius)+this.realCity.restore(position,radius)+this.streamer.restore(position,radius)+this.landmarks.restore(position,radius)+this.largo.restore(position,radius)+this.airport.restore(position,radius)+this.terrain.restoreAt(position,radius),
       impulse:(position,radius,force)=>{this.population.impulse(position,radius,force);this.camera.shake(.45);},
       damage:(point,radius,amount)=>this.destruction.damageAt(point,radius,amount),prepare:destination=>this.streamer.prepare(destination),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.origin,getColliders:()=>this.colliders,
     });
@@ -163,6 +169,7 @@ export class Game {
     this.playerLocal.copy(this.player.position).sub(this.origin);this.atmosphere.setAltitude(this.player.position.y);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(this.player.position.y,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=this.weather.update(worldDt,this.player.position,this.atmosphere.weather);if(flash)this.atmosphere.sun.intensity+=flash;
     this.audio.update(this.player.velocity.length(),this.player.position.y,['rain','storm'].includes(this.atmosphere.weather),!isLand(this.player.position.x,this.player.position.z));
     this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
+    this.terrain.update(this.player.position,this.origin);
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
@@ -178,18 +185,23 @@ export class Game {
     for(const collider of this.hlod.colliders)if(!this.realCity.replacesCollider(collider))list.push(collider);
     for(const collider of this.landmarks.colliders)list.push(collider);
     for(const collider of this.largo.colliders)list.push(collider);
-    for(const collider of AIRPORT_COLLIDERS)list.push(collider);
+    this.airport.appendColliders(list,this.player.position,1600);
     for(const collider of this.population.colliders)list.push(collider);
   }
-  /**
-   * The destructible view of the world: real Overture footprints collapse their own vertex span,
-   * procedural blocks zero their instance, and everything else (landmarks, terrain, distant LOD)
-   * declines by returning false.
-   */
   readonly destructible={
     colliders:():readonly Collider[]=>this.colliders,
-    destroy:(colliderId:string):boolean=>this.realCity.destroy(colliderId)||this.streamer.destroy(colliderId),
+    destroy:(id:string):boolean=>{id=id.replace(/^hlod:/,'');return this.realCity.destroy(id)||this.streamer.destroy(id)||this.landmarks.destroy(id)||this.largo.destroy(id)||this.airport.destroy(id);},
+    deform:(point:Vector3,radius:number,damage:number)=>this.terrain.damageAt(point,radius,damage),
   };
+  /** Register newly built surfaces once, including streamed roads and plaza LOD changes. */
+  private readonly watchedGround=new WeakSet<import('three/webgpu').Object3D>();
+  private watchGround(object:import('three/webgpu').Object3D,ground=false):void{
+    if(this.watchedGround.has(object))return;this.watchedGround.add(object);
+    ground ||= /Generalized Manaus|airport-pavement|sidewalks|real-city-road-network|largo-sao-sebastiao/.test(object.name);
+    if(ground&&object instanceof Mesh)this.terrain.registerSurface(object);
+    for(const child of object.children)this.watchGround(child,ground);
+    object.addEventListener('childadded',event=>this.watchGround(event.child,ground));
+  }
   /** Named from the real compiled bairro boundaries; throttled with the discovery sweep. */
   private updateDistrict(){
     const bairro=this.realCity.districts.nearest(this.player.position.x,this.player.position.z,2500);

@@ -3,7 +3,9 @@ import bridgeData from '../geodata/bridge.json';
 import { LANDMARKS } from '../geodata/geodata';
 import { GeometryBatch } from './GeometryBatch';
 
-export interface LandmarkBox { x: number; y: number; z: number; width: number; height: number; depth: number }
+export interface LandmarkBox { x: number; y: number; z: number; width: number; height: number; depth: number; id?: string }
+const DESTRUCTIBLE_SECTION = 26;
+function sectionId(s: number): string { return `landmark:ponte/section/${Math.floor(s / DESTRUCTIBLE_SECTION)}`; }
 
 /**
  * The Ponte Jornalista Phelippe Daou, laid out on the centreline that actually exists in the
@@ -108,11 +110,12 @@ export function createBridge(anchor: Anchor): Group {
 
   // Deck, one box per section, each oriented to the local tangent so the curve reads as a curve
   // and widened to whatever the two carriageways are actually doing at that point.
-  const step = 26;
+  const step = DESTRUCTIBLE_SECTION;
   for (let s = 0; s < BRIDGE_PATH.length; s += step) {
     const angle = headingAt(s + step * .5, position, tangent);
     const half = halfWidthAt(s + step * .5), width = half * 2;
     const x = position.x - anchor.x, z = position.z - anchor.z, y = position.y;
+    b.entity(sectionId(s), undefined, () => {
     b.box('stone', x, y, z, width, 1.9, step + 1.2, angle);
     b.box('white', x, y + 1.5, z, width + .8, .5, step + 1.2, angle);
     // Parapets either side, offset along the local normal.
@@ -120,6 +123,7 @@ export function createBridge(anchor: Anchor): Group {
     for (const side of [-1, 1]) {
       b.box('steel', x + nx * half * side, y + 2.3, z + nz * half * side, .5, 1.5, step + 1.2, angle);
     }
+    });
   }
 
   // Piers, closer together over the approaches and absent across the navigation span.
@@ -129,16 +133,21 @@ export function createBridge(anchor: Anchor): Group {
     const half = halfWidthAt(s);
     const x = position.x - anchor.x, z = position.z - anchor.z, top = position.y;
     const nx = tangent.z, nz = -tangent.x;
+    b.entity(sectionId(s), undefined, () => {
     for (const side of [-1, 1]) {
       const px = x + nx * half * .52 * side, pz = z + nz * half * .52 * side;
       b.box('stone', px, top * .5 - 1, pz, 3.4, top + 2, 4.2, angle);
     }
     b.box('stone', x, top - 2.6, z, half * 1.84, 2, 5, angle);
+    });
   }
 
   // Two towers and their stay cables: the shape that makes this bridge recognisable.
   for (const side of [-1, 1]) {
     const s = MAIN_SPAN_CENTRE + side * MAIN_SPAN_HALF;
+    const towerPosition = new Vector3(), towerTangent = new Vector3();
+    sampleBridge(s, towerPosition, towerTangent);
+    b.entity(`landmark:ponte/tower/${side}`, { x: towerPosition.x - anchor.x, y: towerPosition.y + TOWER_HEIGHT * .5, z: towerPosition.z - anchor.z, width: 8, height: TOWER_HEIGHT, depth: 8 }, () => {
     const angle = headingAt(s, position, tangent);
     const x = position.x - anchor.x, z = position.z - anchor.z, deck = position.y;
     const nx = tangent.z, nz = -tangent.x;
@@ -168,6 +177,7 @@ export function createBridge(anchor: Anchor): Group {
         }
       }
     }
+    });
   }
 
   return b.build('Ponte Jornalista Phelippe Daou — real Overture centreline');
@@ -177,15 +187,15 @@ export function createBridge(anchor: Anchor): Group {
 export function createBridgeSilhouette(anchor: Anchor): Group {
   const b = new GeometryBatch();
   const position = new Vector3(), tangent = new Vector3();
-  const step = 120;
+  const step = DESTRUCTIBLE_SECTION;
   for (let s = 0; s < BRIDGE_PATH.length; s += step) {
     const angle = headingAt(s + step * .5, position, tangent);
-    b.box('stone', position.x - anchor.x, position.y, position.z - anchor.z, halfWidthAt(s) * 2, 2.4, step + 2, angle);
+    b.entity(sectionId(s), undefined, () => b.box('stone', position.x - anchor.x, position.y, position.z - anchor.z, halfWidthAt(s) * 2, 2.4, step + 2, angle));
   }
   for (const side of [-1, 1]) {
     const angle = headingAt(MAIN_SPAN_CENTRE + side * MAIN_SPAN_HALF, position, tangent);
-    b.box('white', position.x - anchor.x, position.y + TOWER_HEIGHT * .5, position.z - anchor.z,
-      halfWidthAt(MAIN_SPAN_CENTRE + side * MAIN_SPAN_HALF) * 1.8, TOWER_HEIGHT, 4, angle);
+    b.entity(`landmark:ponte/tower/${side}`, undefined, () => b.box('white', position.x - anchor.x, position.y + TOWER_HEIGHT * .5, position.z - anchor.z,
+      halfWidthAt(MAIN_SPAN_CENTRE + side * MAIN_SPAN_HALF) * 1.8, TOWER_HEIGHT, 4, angle));
   }
   return b.build('Ponte Rio Negro distant');
 }
@@ -197,7 +207,7 @@ export function createBridgeSilhouette(anchor: Anchor): Group {
 export function bridgeColliders(anchor: Anchor): LandmarkBox[] {
   const boxes: LandmarkBox[] = [];
   const position = new Vector3(), tangent = new Vector3();
-  const step = 24;
+  const step = DESTRUCTIBLE_SECTION;
   for (let s = 0; s < BRIDGE_PATH.length; s += step) {
     sampleBridge(s + step * .5, position, tangent);
     // Axis-aligned boxes are generous on a diagonal run, which is what keeps the deck landable.
@@ -205,6 +215,7 @@ export function bridgeColliders(anchor: Anchor): LandmarkBox[] {
     const across = Math.abs(tangent.z) * width + Math.abs(tangent.x) * step;
     const along = Math.abs(tangent.x) * width + Math.abs(tangent.z) * step;
     boxes.push({
+      id: sectionId(s),
       x: position.x - anchor.x, y: position.y, z: position.z - anchor.z,
       width: across + 2, height: 3.4, depth: along + 2,
     });

@@ -14,6 +14,7 @@ import {
 } from './buildingGeometry';
 
 interface PackedTile { key: string; tx: number; tz: number; buildings: RealBuilding[] }
+interface RuinedBuilding { bounds: Collider; tile: string; blocks: number[] }
 
 export interface RealCityManifest {
   version: number;
@@ -121,9 +122,13 @@ export class RealCityLayer {
   /** Buildings the player has levelled. Bounded, because a long flight would otherwise grow it forever. */
   private readonly destroyed = new Set<string>();
   private readonly destroyedOrder: string[] = [];
+  private readonly destroyedRecords = new Map<string, RuinedBuilding>();
+  private readonly ruinedSkyline = new Map<string, Map<number, number>>();
   private readonly touchedGeometry = new Set<Mesh>();
   private collidersDirty = false;
   private readonly focus = new Vector3();
+  private readonly colliderFocus = new Vector3();
+  private readonly colliderCandidates: Collider[] = [];
   /** Real Manaus bairro boundaries, used for naming places and for tinting facades by district. */
   readonly districts = new DistrictIndex();
   /** The drivable network: traffic and the rendered ribbons come from the same compiled data. */
@@ -273,6 +278,7 @@ export class RealCityLayer {
       const [tx, tz] = key.split(',').map(Number);
       const originX = tx * size, originZ = tz * size;
       for (let p = 0; p + 7 < blocks.length; p += 8) {
+        if (this.ruinedSkyline.get(key)?.has(p)) continue;
         if (index >= mesh.instanceMatrix.count) break;
         matrix.makeScale(blocks[p + 2], blocks[p + 4], blocks[p + 3]);
         matrix.setPosition(originX + blocks[p], 0, originZ + blocks[p + 1]);
@@ -293,6 +299,7 @@ export class RealCityLayer {
    * mega speed costs a few hundred bytes of transfer instead of a seven-megabyte re-upload.
    */
   destroy(colliderId: string): boolean {
+    if (colliderId.startsWith('road:')) { const result = this.roads?.destroy(colliderId) ?? false; if (result) this.refreshColliders(); return result; }
     if (!this.enabled || !colliderId.startsWith('real:')) return false;
     const id = colliderId.slice(5);
     if (this.destroyed.has(id)) return false;
@@ -300,18 +307,71 @@ export class RealCityLayer {
     this.destroyedOrder.push(id);
     if (this.destroyedOrder.length > REAL_CITY.maxDestroyed) {
       const evicted = this.destroyedOrder.shift();
-      if (evicted !== undefined) this.destroyed.delete(evicted);
+      if (evicted !== undefined) {
+        this.destroyed.delete(evicted); this.releaseRuin(evicted);
+      }
     }
     for (const tile of this.tiles.values()) {
       this.collapse(tile.detail, tile.detailRanges.get(id));
       this.collapse(tile.shell, tile.shellRanges.get(id));
       for (let i = tile.colliders.length - 1; i >= 0; i--) {
-        if (tile.colliders[i].id === colliderId) { tile.colliders.splice(i, 1); this.collidersDirty = true; }
+        if (tile.colliders[i].id === colliderId) {
+          this.recordRuin(id, tile.key, tile.colliders[i]);
+          tile.colliders.splice(i, 1); this.collidersDirty = true;
+        }
       }
     }
     // True once the building is gone from the world, whether or not a mesh happened to be
     // resident to collapse: a rebuilt tier skips it either way, so the caller must not retry.
     return true;
+  }
+
+  private recordRuin(id: string, key: string, bounds: Collider): void {
+    if (this.destroyedRecords.has(id)) return;
+    const blocks = this.skylineData.get(key), affected: number[] = [];
+    const tile = this.tiles.get(key);
+    if (blocks && tile) {
+      let nearest = -1, distance = Infinity;
+      for (let p = 0; p + 7 < blocks.length; p += 8) {
+        const dx = Math.abs(tile.originX + blocks[p] - bounds.x), dz = Math.abs(tile.originZ + blocks[p + 1] - bounds.z);
+        if (dx <= (blocks[p + 2] + bounds.width) / 2 && dz <= (blocks[p + 3] + bounds.depth) / 2) affected.push(p);
+        if (dx * dx + dz * dz < distance) { distance = dx * dx + dz * dz; nearest = p; }
+      }
+      // A skyline mass summarizes several footprints; suppress its nearest mass when a footprint
+      // lies between boxes, rather than resurrecting that mass when the detailed tile is evicted.
+      if (!affected.length && nearest >= 0) affected.push(nearest);
+    }
+    const counts = this.ruinedSkyline.get(key) ?? new Map<number, number>();
+    for (const p of affected) counts.set(p, (counts.get(p) ?? 0) + 1);
+    this.ruinedSkyline.set(key, counts); this.destroyedRecords.set(id, { bounds, tile: key, blocks: affected }); this.skylineDirty = true;
+  }
+
+  private releaseRuin(id: string, rebuild = true): void {
+    const record = this.destroyedRecords.get(id); if (!record) return;
+    const counts = this.ruinedSkyline.get(record.tile);
+    if (counts) {
+      for (const block of record.blocks) { const remaining = (counts.get(block) ?? 1) - 1; if (remaining > 0) counts.set(block, remaining); else counts.delete(block); }
+      if (!counts.size) this.ruinedSkyline.delete(record.tile);
+    }
+    this.destroyedRecords.delete(id); this.skylineDirty = true;
+    const tile = this.tiles.get(record.tile); if (tile && rebuild) this.schedule(tile);
+  }
+
+  restore(position: Vector3, radius: number): number {
+    if (!Number.isFinite(radius) || radius < 0) return 0;
+    let count = this.roads?.restore(position, radius) ?? 0;
+    const affected = new Set<string>();
+    for (const [id, record] of this.destroyedRecords) {
+      const box = record.bounds;
+      const dx = Math.max(0, Math.abs(position.x - box.x) - box.width / 2), dy = Math.max(0, Math.abs(position.y - box.y) - box.height / 2), dz = Math.max(0, Math.abs(position.z - box.z) - box.depth / 2);
+      if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
+      this.destroyed.delete(id); affected.add(record.tile); this.releaseRuin(id, false);
+      const order = this.destroyedOrder.indexOf(id); if (order >= 0) this.destroyedOrder.splice(order, 1);
+      count++;
+    }
+    for (const key of affected) { const tile = this.tiles.get(key); if (tile) this.schedule(tile); }
+    if (count) this.collidersDirty = true;
+    return count;
   }
 
   private collapse(mesh: Mesh | undefined, packed: number | undefined): boolean {
@@ -358,6 +418,7 @@ export class RealCityLayer {
 
   update(position: Vector3, velocity: Vector3, dt: number): void {
     if (!this.enabled || !this.manifest) return;
+    if (this.colliderFocus.distanceToSquared(position) > 32 * 32) { this.colliderFocus.copy(position); this.collidersDirty = true; }
     const speed = Math.hypot(velocity.x, velocity.y, velocity.z);
     this.speed = speed;
     // At speed the ring moves ahead of the player and narrows: what is behind can no longer be seen.
@@ -384,7 +445,7 @@ export class RealCityLayer {
     this.runJobs();
     this.roads?.update(position.x, position.z, speed);
     if (this.roads) this.metrics.roadTriangles = this.roads.triangleCount;
-    if (this.collidersDirty) { this.collidersDirty = false; this.refreshColliders(); }
+    if (this.collidersDirty || this.roads?.collidersChanged) { this.collidersDirty = false; this.refreshColliders(); }
     // One flush per frame: a rampage collapses many buildings but uploads their ranges together.
     if (this.touchedGeometry.size) {
       for (const mesh of this.touchedGeometry) {
@@ -546,6 +607,7 @@ export class RealCityLayer {
       if (!this.tiles.has(job.tile.key)) { this.jobs.shift(); continue; }
       while (job.index < job.list.length) {
         const building = job.list[job.index++];
+        if (this.destroyed.has(building.id)) continue;
         const first = job.buffers.position.length / 3;
         const collider = job.rich
           ? appendNearBuilding(job.buffers, building)
@@ -572,13 +634,14 @@ export class RealCityLayer {
     const geometry = geometryFrom(job.buffers, job.rich);
     if (job.kind === 'detail') {
       disposeMesh(tile.detail); tile.detail = undefined;
-      tile.colliders = job.colliders;
+      tile.colliders = job.colliders.filter(collider => !this.destroyed.has(collider.id?.slice(5) ?? ''));
       tile.detailRanges = job.ranges;
       if (geometry) {
         const mesh = new Mesh(geometry, material);
         mesh.name = `real-detail:${tile.key}`;
         mesh.castShadow = true; mesh.receiveShadow = true;
         tile.group.add(mesh); tile.detail = mesh;
+        for (const [id, packed] of job.ranges) if (this.destroyed.has(id)) this.collapse(mesh, packed);
       }
       this.refreshColliders();
     } else {
@@ -590,6 +653,7 @@ export class RealCityLayer {
         // Shells never cast shadows: they exist precisely where per-object shadows stop paying off.
         mesh.receiveShadow = true;
         tile.group.add(mesh); tile.shell = mesh;
+        for (const [id, packed] of job.ranges) if (this.destroyed.has(id)) this.collapse(mesh, packed);
       }
     }
     this.recount();
@@ -613,12 +677,16 @@ export class RealCityLayer {
    */
   private refreshColliders(): void {
     this.colliderList.length = 0;
+    this.colliderCandidates.length = 0;
     for (const tile of this.tiles.values()) {
       for (const collider of tile.colliders) {
-        if (this.colliderList.length >= REAL_CITY.maxColliders) break;
-        this.colliderList.push(collider);
+        if (!this.destroyed.has(collider.id?.slice(5) ?? '')) this.colliderCandidates.push(collider);
       }
     }
+    if (this.roads) this.colliderCandidates.push(...this.roads.colliders);
+    const position = this.colliderFocus;
+    this.colliderCandidates.sort((a, b) => (a.x - position.x) ** 2 + (a.z - position.z) ** 2 - ((b.x - position.x) ** 2 + (b.z - position.z) ** 2));
+    for (let i = 0; i < Math.min(REAL_CITY.maxColliders, this.colliderCandidates.length); i++) this.colliderList.push(this.colliderCandidates[i]);
     this.metrics.colliders = this.colliderList.length;
   }
 
@@ -645,7 +713,7 @@ export class RealCityLayer {
 
   replaces(colliderId?: string): boolean {
     if (!this.enabled || !colliderId || colliderId.startsWith('real:')) return false;
-    const marker = colliderId.indexOf('/building/');
+    const marker = colliderId.includes('/building/') ? colliderId.indexOf('/building/') : colliderId.indexOf('/tree/');
     if (marker <= 0) return false;
     const key = colliderId.slice(0, marker);
     const start = key.startsWith('hlod:') ? 5 : 0;
@@ -702,6 +770,7 @@ export class RealCityLayer {
     this.materials?.dispose();
     this.colliderList.length = 0;
     this.destroyed.clear(); this.destroyedOrder.length = 0; this.touchedGeometry.clear();
+    this.destroyedRecords.clear(); this.ruinedSkyline.clear(); this.colliderCandidates.length = 0;
     this.realTiles.clear();
     this.group.removeFromParent();
   }

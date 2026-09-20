@@ -6,6 +6,7 @@ import { BUILDING_STRIDE, TREE_STRIDE, chunkKey, type ChunkPayload } from '../ch
 import { chunkSeed, generateChunk, seededRandom, urbanDensity } from '../chunks/BuildingGenerator';
 
 interface Aggregate { x: number; z: number; w: number; d: number; h: number; color: number }
+interface DestructionSource { readonly destroyedIds: ReadonlySet<string>; readonly destroyedBounds: ReadonlyMap<string, Collider>; readonly destructionRevision: number }
 
 const CITY_COLORS = [0xc98d70, 0xc8b384, 0x88a39d, 0xa6a68d, 0xb86f5d, 0x7f9694] as const;
 const PONTA_COLORS = [0xcda77c, 0xd4c49e, 0x75969b, 0xb88770, 0x8ca3a0] as const;
@@ -48,6 +49,9 @@ export class HLODManager {
   private lastBuild = 0;
   private detailRadius: number = WORLD.detailRadius;
   private dirty = true;
+  private destruction?: DestructionSource;
+  private destructionRevision = -1;
+  private readonly ruinedCells = new Set<string>();
 
   constructor(root: Group) {
     this.group.name = 'city-hierarchical-lod'; root.add(this.group);
@@ -71,6 +75,7 @@ export class HLODManager {
     // Forces the next update to rebuild the aggregate and horizon rings against the new coverage.
     this.distantPosition.set(Infinity, Infinity, Infinity);
   }
+  setDestructionSource(source: DestructionSource): void { this.destruction = source; this.destructionRevision = -1; this.dirty = true; }
 
   private realCovers(x: number, z: number): boolean {
     if (!this.realTiles) return false;
@@ -84,6 +89,12 @@ export class HLODManager {
   }
 
   update(position: Vector3, activeKeys?: ReadonlySet<string>): void {
+    const destructionChanged = this.destruction !== undefined && this.destructionRevision !== this.destruction.destructionRevision;
+    if (destructionChanged && this.destruction) {
+      this.destructionRevision = this.destruction.destructionRevision; this.ruinedCells.clear();
+      for (const id of this.destruction.destroyedIds) if (id.includes('/building/')) this.ruinedCells.add(id.slice(0, id.indexOf('/')));
+      this.dirty = true; this.distantPosition.set(Infinity, Infinity, Infinity);
+    }
     const dx = position.x - this.previous.x, dz = position.z - this.previous.z;
     if (dx * dx + dz * dz > WORLD.chunkSize * WORLD.chunkSize) {
       this.previous.copy(position); this.planMedium(position); this.dirty = true;
@@ -107,7 +118,7 @@ export class HLODManager {
     const coverageChanged = coverage !== this.coverage;
     if (coverageChanged) { this.coverage = coverage; this.dirty = true; }
     // Coverage swaps in the same frame as detailed activation: never double-render near facades.
-    if (this.dirty && (coverageChanged || now - this.lastBuild > 85)) {
+    if (this.dirty && (destructionChanged || coverageChanged || now - this.lastBuild > 85)) {
       this.rebuildMedium(position, activeKeys); this.lastBuild = now; this.dirty = false;
     }
     const farX = position.x - this.distantPosition.x, farZ = position.z - this.distantPosition.z;
@@ -142,6 +153,7 @@ export class HLODManager {
       if (fade <= 0) continue;
       const data = payload.buildings;
       for (let p = 0; p < data.length && index < 10000; p += BUILDING_STRIDE) {
+        if (this.destruction?.destroyedIds.has(`${key}/building/${p / BUILDING_STRIDE}`)) continue;
         const h = (data[p + 3] + data[p + 8] * .5) * fade;
         const x = data[p], z = data[p + 1];
         this.set(this.medium, index, x, h * .5, z, data[p + 2], h, data[p + 4]);
@@ -153,7 +165,7 @@ export class HLODManager {
           this.medium.setColorAt(index++, this.color.setRGB(data[p + 5] * .68, data[p + 6] * .70, data[p + 7] * .72));
         }
         const dx = x - position.x, dz = z - position.z;
-        if (dx * dx + dz * dz <= collisionRadiusSq) {
+        if (dx * dx + dz * dz <= collisionRadiusSq && this.colliderList.length < 900) {
           const fullHeight = data[p + 3] + data[p + 8];
           this.colliderList.push({
             x, y: fullHeight * .5, z,
@@ -163,8 +175,11 @@ export class HLODManager {
         }
       }
       for (let p = 0; p < payload.trees.length && canopyIndex < 8000; p += TREE_STRIDE) {
+        if (this.destruction?.destroyedIds.has(`${key}/tree/${p / TREE_STRIDE}`)) continue;
         const tree = payload.trees, radius = tree[p + 3] * fade;
         this.set(this.canopy, canopyIndex++, tree[p], tree[p + 2] * fade, tree[p + 1], radius, radius * .7, radius);
+        const dx = tree[p] - position.x, dz = tree[p + 1] - position.z;
+        if (dx * dx + dz * dz <= collisionRadiusSq && this.colliderList.length < 900) this.colliderList.push({ id: `hlod:${key}/tree/${p / TREE_STRIDE}`, x: tree[p], y: tree[p + 2] * .5, z: tree[p + 1], width: tree[p + 3] * 1.3, height: tree[p + 2], depth: tree[p + 3] * 1.3 });
       }
     }
     this.medium.count = index; this.medium.instanceMatrix.needsUpdate = true;
@@ -203,7 +218,7 @@ export class HLODManager {
     for (const node of this.aggregates) {
       const distance = Math.hypot(node.x - position.x, node.z - position.z);
       if (distance < WORLD.mediumRadius - WORLD.hysteresis || distance > WORLD.aggregateRadius + WORLD.hysteresis || index >= 8000) continue;
-      if (this.realCovers(node.x, node.z)) continue;
+      if (this.realCovers(node.x, node.z) || this.ruinedCells.has(chunkKey(Math.floor(node.x / WORLD.chunkSize), Math.floor(node.z / WORLD.chunkSize)))) continue;
       const fade = Math.min(1, Math.max(0, (distance - WORLD.mediumRadius + WORLD.hysteresis) / 180),
         Math.max(0, (WORLD.aggregateRadius + WORLD.hysteresis - distance) / 180));
       this.set(this.aggregate, index, node.x, node.h * fade * .5, node.z, node.w, node.h * fade, node.d);
@@ -215,7 +230,7 @@ export class HLODManager {
     for (const node of this.horizons) {
       const distance = Math.hypot(node.x - position.x, node.z - position.z);
       if (distance < WORLD.aggregateRadius - WORLD.hysteresis || distance > WORLD.horizonRadius || index >= 2400) continue;
-      if (this.realCovers(node.x, node.z)) continue;
+      if (this.realCovers(node.x, node.z) || this.ruinedCells.has(chunkKey(Math.floor(node.x / WORLD.chunkSize), Math.floor(node.z / WORLD.chunkSize)))) continue;
       const fade = Math.min(1, Math.max(0, (distance - WORLD.aggregateRadius + WORLD.hysteresis) / 380));
       this.set(this.horizon, index, node.x, node.h * fade * .5, node.z, node.w, node.h * fade, node.d);
       this.horizon.setColorAt(index++, this.color.setHex(node.color));

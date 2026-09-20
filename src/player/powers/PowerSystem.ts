@@ -129,7 +129,7 @@ export class PowerSystem {
     if (!hit) return;
     this.destination.copy(hit.point);
     if (hit.collider) this.destination.y = hit.collider.y + hit.collider.height / 2 + 0.08;
-    else this.destination.y = 0.08;
+    else this.destination.y = hit.point.y + 0.08;
   }
 
   private acquireTarget(maxDistance = 1200): Target | null {
@@ -266,6 +266,6 @@ export class PowerSystem {
 
   dispose(): void {
     this.effects.dispose(); this.indicator.removeFromParent(); this.indicator.geometry.dispose(); (this.indicator.material as MeshBasicMaterial).dispose();
-    for (const clone of this.clones) clone.character.group.removeFromParent();
+    for (const clone of this.clones) clone.character.dispose();
   }
 }

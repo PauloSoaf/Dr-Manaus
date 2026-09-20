@@ -1,0 +1,43 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Group, Vector3 } from 'three/webgpu';
+import { TerrainDestruction, TERRAIN_DAMAGE } from '../src/world/destruction/TerrainDestruction.ts';
+import { PhysicsWorld } from '../src/physics/PhysicsWorld.ts';
+import { AuthoredDestruction } from '../src/world/destruction/AuthoredDestruction.ts';
+import { createAirport } from '../src/world/realcity/airport.ts';
+import { createCharacterGeometry } from '../src/player/CharacterGeometry.ts';
+
+test('crater has matching visible depth, raycast and landing; reconstruction restores ground',()=>{
+  const terrain=new TerrainDestruction(new Group()), p=new Vector3();
+  assert.equal(terrain.damageAt(new Vector3(0,100,0),20,2600),false);
+  terrain.damageAt(p,20,2600);terrain.update(p,p);PhysicsWorld.setTerrain(terrain);
+  try{
+    assert.ok(terrain.heightAt(0,0)<-6);assert.ok(terrain.stats.triangles>0);
+    const hit=PhysicsWorld.raycast(new Vector3(0,30,0),new Vector3(0,-1,0),[],100,0,true)!;
+    assert.ok(Math.abs(hit.point.y-terrain.heightAt(0,0))<.001);
+    assert.ok(PhysicsWorld.safeLanding(new Vector3(0,-50,0),[],.3,2).y<-5);
+    const position=new Vector3(0,1,0),velocity=new Vector3(0,-30,0);
+    new PhysicsWorld().move(position,velocity,1,.3,2,[]);assert.ok(position.y<-5);
+    const depth=terrain.heightAt(0,0);terrain.update(p,new Vector3(1024,0,1024));assert.equal(terrain.heightAt(0,0),depth);
+    assert.equal(terrain.restoreAt(p,30),1);terrain.update(p,p);assert.equal(terrain.heightAt(0,0),0);
+  }finally{PhysicsWorld.setTerrain(null);terrain.dispose();}
+});
+test('terrain bounds stored craters, active topology and idle rebuilds',()=>{
+  const terrain=new TerrainDestruction(new Group()),p=new Vector3();
+  for(let i=0;i<300;i++)terrain.damageAt(new Vector3(i*50,0,0),8,100);
+  terrain.update(p,p);assert.equal(terrain.stats.stored,TERRAIN_DAMAGE.maxStored);assert.ok(terrain.stats.active<=32);
+  const revision=terrain.stats.revision;terrain.update(p,p);assert.equal(terrain.stats.revision,revision);terrain.dispose();
+});
+test('airport terminal, hangars, tower and tanks destroy and reconstruct independently',()=>{
+  const registry=new AuthoredDestruction();createAirport(registry);
+  for(const id of ['airport:terminal','airport:hangar:-500','airport:hangar:-260','airport:tower','airport:tank:0'])assert.equal(registry.destroy(id),true,id);
+  assert.equal(registry.destroyedCount,5);assert.equal(registry.destroy('airport:terminal'),false);
+  assert.equal(registry.restore(new Vector3(),100000),5);assert.equal(registry.destroy('airport:terminal'),true);registry.dispose();
+});
+test('human skin keeps hero scale, bounded triangles and normalized articulation weights',()=>{
+  const {skin,accents}=createCharacterGeometry(),box=skin.boundingBox!;
+  assert.ok(box.max.y>2&&box.max.y<2.1);assert.ok(box.max.x-box.min.x<.8);assert.ok(skin.getAttribute('position').count/3<15000);
+  const weights=skin.getAttribute('skinWeight'),bones=skin.getAttribute('skinIndex');const used=new Set<number>();
+  for(let i=0;i<weights.count;i++){assert.ok(Math.abs(weights.getX(i)+weights.getY(i)-1)<1e-6);used.add(bones.getX(i));used.add(bones.getY(i));}
+  assert.equal(used.size,11);skin.dispose();accents.dispose();
+});

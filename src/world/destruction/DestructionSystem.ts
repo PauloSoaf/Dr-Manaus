@@ -13,6 +13,7 @@ export interface DestructibleWorld {
    * Returns false when the id is not destructible (landmarks, terrain, distant LOD).
    */
   destroy(colliderId: string): boolean;
+  deform?(point: Vector3, radius: number, damage: number): boolean;
 }
 
 interface Damage { amount: number; threshold: number; touched: number }
@@ -34,6 +35,7 @@ export class DestructionSystem {
   private readonly free: Damage[] = [];
   private time = 0;
   private frame = 0;
+  private lastDeformation=-Infinity;
   private ploughFrame = -1;
   private ploughCount = 0;
   private evictTimer = DESTRUCTION.evictInterval;
@@ -68,6 +70,8 @@ export class DestructionSystem {
 
   /** A beam/impact at a point with a blast radius. Returns how many buildings collapsed. */
   damageAt(point: Vector3, radius: number, damage: number): number {
+    if(!Number.isFinite(point.x+point.y+point.z+radius+damage)||radius<=0||damage<=0)return 0;
+    this.world.deform?.(point,radius,damage);
     const colliders = this.world.colliders();
     const radiusSq = radius * radius;
     let collapsed = 0;
@@ -108,6 +112,7 @@ export class DestructionSystem {
     // The sweep is capped in metres so a stall or a teleport cannot turn one frame into a
     // kilometre-long scan; damage stays proportional to the real dt either way.
     const travel = Math.min(speed * dt, DESTRUCTION.ploughMaxSweep);
+    if(this.time-this.lastDeformation>=.12){this.world.deform?.(position,Math.min(22,4+speed*.003),speed*dt);this.lastDeformation=this.time;}
     const inverse = 1 / speed;
     const dirX = velocity.x * inverse, dirY = velocity.y * inverse, dirZ = velocity.z * inverse;
     const radius = Math.min(DESTRUCTION.ploughMaxRadius, DESTRUCTION.ploughRadius + speed * DESTRUCTION.ploughRadiusPerSpeed);

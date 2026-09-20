@@ -1,7 +1,7 @@
 import { BoxGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, MeshStandardMaterial, SphereGeometry } from 'three/webgpu';
 import { GeometryBatch } from '../GeometryBatch';
 import { clearance, isPaved, zoneAt, type LargoZone } from './plaza';
-import { LARGO_VENUES } from './venues';
+import { LARGO_VENUES, venueDestructionId } from './venues';
 
 /**
  * The furniture of the square, placed by ZONE rather than scattered.
@@ -54,6 +54,12 @@ function instanced(root: Group, name: string, geometry: BoxGeometry | CylinderGe
   }
   mesh.castShadow = true; mesh.receiveShadow = true;
   root.add(mesh);
+  if (name === 'largo-trunks' || name === 'largo-canopies' || name === 'largo-planters') {
+    mesh.userData.authoredInstances = items.map((item, index) => ({
+      id: `largo:tree/${item.x.toFixed(2)},${item.z.toFixed(2)}`, index,
+      ...(name === 'largo-trunks' ? { collider: { x: item.x, y: 3.7, z: item.z, width: .8, height: 7.4, depth: .8 } } : {}),
+    }));
+  }
 }
 
 /**
@@ -153,9 +159,11 @@ export function createVendorSigns(): Group {
   const b = new GeometryBatch();
   for (const item of LARGO_VENUES) {
     if (item.kind !== 'stall') continue;
+    b.entity(venueDestructionId(item), { x: item.x, y: 1.5, z: item.z, width: 3, height: 3.2, depth: 2.6 }, () => {
     b.box('white', item.x, 1.4, item.z, 2.4, 2.8, 2, 0);
     b.box('red', item.x, 3, item.z, 3, .3, 2.6, 0);
     b.box('gold', item.x, 2.55, item.z + 1.05, 2.2, .5, .12, 0);
+    });
   }
   return b.build('Largo — barracas');
 }

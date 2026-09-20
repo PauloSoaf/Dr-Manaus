@@ -1,5 +1,5 @@
 ﻿import { Bone, Group, Mesh, MeshBasicMaterial, Skeleton, SkinnedMesh, Vector3, type PerspectiveCamera } from 'three/webgpu';
-import { createCharacterGeometry } from './CharacterGeometry';
+import { createCharacterGeometry, HUMAN_RIG } from './CharacterGeometry';
 import { CosmicAura } from './cosmic/CosmicAura';
 import { CosmicTrail } from './cosmic/CosmicTrail';
 import { CosmicMaterial, type CosmicLevel } from './cosmic/CosmicMaterial';
@@ -11,6 +11,9 @@ export class CharacterModel {
   readonly body = new Bone();
   readonly leftArm = new Bone(); readonly rightArm = new Bone();
   readonly leftLeg = new Bone(); readonly rightLeg = new Bone();
+  readonly leftForearm = new Bone(); readonly rightForearm = new Bone();
+  readonly leftShin = new Bone(); readonly rightShin = new Bone();
+  readonly leftHand = new Bone(); readonly rightHand = new Bone();
   readonly cosmicSource?: CosmicVideoSource;
   readonly cosmicMaterial?: CosmicMaterial;
   readonly surface: SkinnedMesh;
@@ -30,11 +33,16 @@ export class CharacterModel {
     this.surface=new SkinnedMesh(geometry.skin,this.cosmicMaterial?.material??this.echoMaterial!);
     this.surface.name='cosmic-silhouette';this.surface.castShadow=!echo;this.surface.frustumCulled=false;
     this.group.add(this.surface,this.body);
-    this.leftArm.position.set(-.36,1.46,0);this.rightArm.position.set(.36,1.46,0);
-    this.leftLeg.position.set(-.137,.96,0);this.rightLeg.position.set(.137,.96,0);
+    this.leftArm.position.set(-HUMAN_RIG.shoulderX,HUMAN_RIG.shoulderY,0);this.rightArm.position.set(HUMAN_RIG.shoulderX,HUMAN_RIG.shoulderY,0);
+    this.leftLeg.position.set(-HUMAN_RIG.hipX,HUMAN_RIG.hipY,0);this.rightLeg.position.set(HUMAN_RIG.hipX,HUMAN_RIG.hipY,0);
     this.body.add(this.leftArm,this.rightArm,this.leftLeg,this.rightLeg);
+    for(const [arm,forearm,hand,side] of [[this.leftArm,this.leftForearm,this.leftHand,-1],[this.rightArm,this.rightForearm,this.rightHand,1]] as const){
+      forearm.position.set(side*.03,HUMAN_RIG.elbowY-HUMAN_RIG.shoulderY,-.007);arm.add(forearm);
+      hand.position.set(side*.01,HUMAN_RIG.wristY-HUMAN_RIG.elbowY,-.009);forearm.add(hand);
+    }
+    for(const [leg,shin] of [[this.leftLeg,this.leftShin],[this.rightLeg,this.rightShin]]){shin.position.set(0,HUMAN_RIG.kneeY-HUMAN_RIG.hipY,-.016);leg.add(shin);}
     this.group.updateMatrixWorld(true);
-    this.skeleton=new Skeleton([this.body,this.leftArm,this.rightArm,this.leftLeg,this.rightLeg]);
+    this.skeleton=new Skeleton([this.body,this.leftArm,this.rightArm,this.leftLeg,this.rightLeg,this.leftForearm,this.rightForearm,this.leftShin,this.rightShin,this.leftHand,this.rightHand]);
     this.surface.bind(this.skeleton);
     this.accents=new Mesh(geometry.accents,this.accentMaterial);this.accents.name='cosmic-eyes-and-sigil';this.body.add(this.accents);
     if(!echo){this.aura=new CosmicAura(this.group);this.trail=new CosmicTrail(this.group);}
@@ -57,6 +65,12 @@ export class CharacterModel {
     if(['shockwave','reconstruct','teleport'].includes(pose)){left=-1.25;right=-1.25;}
     this.leftArm.rotation.x+=(left-this.leftArm.rotation.x)*smooth;this.rightArm.rotation.x+=(right-this.rightArm.rotation.x)*smooth;
     this.leftArm.rotation.z=flying||pose==='giant'?.23:.07;this.rightArm.rotation.z=flying||pose==='giant'?-.23:-.07;
+    const bend=(bone:Bone,target:number)=>{bone.rotation.x+=(target-bone.rotation.x)*smooth;};
+    bend(this.leftForearm,flying?-.25:-.12-Math.max(0,swing)*.5);
+    bend(this.rightForearm,pose==='energy'?-.07:flying?-.25:-.12-Math.max(0,-swing)*.5);
+    bend(this.leftShin,flying?.22:Math.max(0,-swing)*1.05);
+    bend(this.rightShin,flying?.32:Math.max(0,swing)*1.05);
+    this.leftHand.rotation.x=-.035;this.rightHand.rotation.x=pose==='energy'?-.12:-.035;
     const level:CosmicLevel=pose?'power':this.level??(boost?'boost':flying?'flight':'idle'),pace=this.level?this.levelSpeed:speed;
     this.cosmicSource?.update(dt);this.cosmicSource?.setPlaybackRate(flying?1.1:1);
     this.cosmicMaterial?.update(dt,level,pace);
