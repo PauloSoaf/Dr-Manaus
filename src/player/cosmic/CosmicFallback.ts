@@ -29,7 +29,7 @@ export function proceduralCosmos(uv: Vec2, phase: Float, seed: number): Node<'ve
   const veil = smoothstep(.44, .79, cloud);
   const filament = smoothstep(.66, .91, cloud).mul(smoothstep(.3, .8, fine));
   const deep = mix(color('#310c70'), color('#173d91'), smoothstep(.27, .77, broad));
-  return color('#010107').add(deep.mul(veil).mul(1.4))
+  return color('#010107').rgb.add(deep.mul(veil).mul(1.4))
     .add(mix(color('#9544d1'), color('#45bfd1'), fine).mul(filament).mul(.72));
 }
 

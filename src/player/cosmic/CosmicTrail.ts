@@ -88,8 +88,8 @@ export class CosmicTrail {
   }
 
   private writeRibbons(maxLength: number, size: number): void {
-    let distance = 0;
     this.a.copy(this.direction).multiplyScalar(-Math.min(0.9 * size, 3));
+    let distance = this.a.length();
     const halfWidth = Math.min(0.7, 0.085 * size);
     for (let i = 1; i < this.count; i++) {
       const index = (this.head - i + COSMIC_TRAIL_BUDGET.samples) % COSMIC_TRAIL_BUDGET.samples;
