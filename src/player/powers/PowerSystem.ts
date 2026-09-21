@@ -1,4 +1,4 @@
-import { CylinderGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, TorusGeometry, Vector3 } from 'three/webgpu';
+import { AdditiveBlending, SphereGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, TorusGeometry, Vector3 } from 'three/webgpu';
 import { DESTRUCTION } from '../../core/config';
 import type { Collider, Target } from '../../core/types';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
@@ -30,7 +30,10 @@ interface Clone { character: CharacterModel; life: number; attackTimer: number; 
 export class PowerSystem {
   laserActive=false;
   private laserTick=0;
-  private readonly laser=new Mesh(new CylinderGeometry(1,1,1,8),new MeshBasicMaterial({color:0x77fff1,toneMapped:false}));
+  private readonly laser=new Mesh(new CylinderGeometry(1,1,1,8),new MeshBasicMaterial({color:0xdffff8,toneMapped:false}));
+  private readonly laserGlow=new Mesh(new CylinderGeometry(1,1,1,10),new MeshBasicMaterial({color:0x25e9ff,transparent:true,opacity:.28,blending:AdditiveBlending,depthWrite:false,toneMapped:false}));
+  private readonly laserImpact=new Mesh(new SphereGeometry(1,12,8),new MeshBasicMaterial({color:0xaaffee,transparent:true,opacity:.8,blending:AdditiveBlending,depthWrite:false,toneMapped:false}));
+  private readonly laserRing=new Mesh(new TorusGeometry(1,.065,6,32),new MeshBasicMaterial({color:0x48dcff,transparent:true,opacity:.6,blending:AdditiveBlending,depthWrite:false,toneMapped:false}));
   private readonly laserAxis=new Vector3(0,1,0);
   temporal = false;
   selected = 'energy';
@@ -57,6 +60,8 @@ export class PowerSystem {
   constructor(private readonly root: Group, private readonly player: PlayerController, private readonly camera: PerspectiveCamera, private readonly input: InputController, private readonly hooks: PowerHooks) {
     this.effects = new EffectPool(root);
     this.laser.visible=false;this.laser.name="continuous-laser";root.add(this.laser);
+    this.laserGlow.name='laser-glow';this.laserImpact.name='laser-impact';this.laserRing.name='laser-impact-ring';
+    for(const effect of [this.laserGlow,this.laserImpact,this.laserRing]){effect.visible=false;effect.frustumCulled=false;root.add(effect);}
     this.indicator = new Mesh(new TorusGeometry(1.5, 0.06, 6, 48), new MeshBasicMaterial({ color: 0x8cffdc, transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false }));
     this.indicator.rotation.x = -Math.PI / 2; this.indicator.visible = false; root.add(this.indicator);
     for (let i = 0; i < 3; i++) {
@@ -180,12 +185,22 @@ export class PowerSystem {
 
   private updateLaser(dt:number):void{
     this.laser.visible=this.laserActive&&this.input.enabled&&!this.teleporting;
+    this.laserGlow.visible=this.laser.visible;this.laserImpact.visible=false;this.laserRing.visible=false;
     if(!this.laser.visible)return;
     const hit=this.aimBeam(Math.max(1600,this.player.size*24));
     this.offset.subVectors(this.aimPoint,this.emission);const length=this.offset.length();
     this.laser.position.copy(this.emission).addScaledVector(this.offset,.5);
     this.laser.quaternion.setFromUnitVectors(this.laserAxis,this.offset.normalize());
     const width=.07*this.player.size;this.laser.scale.set(width,length,width);
+    const pulse=1+Math.sin(this.time*32)*.12;
+    this.laserGlow.position.copy(this.laser.position);this.laserGlow.quaternion.copy(this.laser.quaternion);this.laserGlow.scale.set(width*3*pulse,length,width*3*pulse);
+    this.laserImpact.visible=this.laserRing.visible=!!hit;
+    if(hit){
+      this.laserImpact.position.copy(this.aimPoint);this.laserImpact.scale.setScalar(Math.max(.35,width*3.5)*pulse);
+      this.laserRing.position.copy(this.aimPoint);this.laserRing.quaternion.copy(this.laser.quaternion);this.laserRing.rotateX(Math.PI/2);
+      this.laserRing.scale.setScalar(Math.max(.8,width*6)*(1+(this.time*3)%1));
+      (this.laserRing.material as MeshBasicMaterial).opacity=.7*(1-(this.time*3)%1);
+    }
     this.player.powerPose('energy',.15);this.laserTick-=dt;
     if(this.laserTick<=0){this.laserTick=.1;if(hit)this.hooks.damage?.(this.aimPoint,3*Math.pow(this.player.size,.7),220*this.player.size);}
   }
@@ -304,6 +319,7 @@ export class PowerSystem {
   }
 
   dispose(): void {
+    for(const effect of [this.laserGlow,this.laserImpact,this.laserRing]){effect.geometry.dispose();(effect.material as MeshBasicMaterial).dispose();effect.removeFromParent();}
     this.laser.geometry.dispose();(this.laser.material as MeshBasicMaterial).dispose();this.laser.removeFromParent();
     this.effects.dispose(); this.indicator.removeFromParent(); this.indicator.geometry.dispose(); (this.indicator.material as MeshBasicMaterial).dispose();
     for (const clone of this.clones) clone.character.dispose();

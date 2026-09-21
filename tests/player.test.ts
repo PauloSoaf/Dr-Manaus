@@ -274,8 +274,8 @@ test('giant sizes reach 200 m and one kilometre then return to normal',()=>{
 test('continuous laser stays visible between damage ticks and stops when paused or toggled off',()=>{
  let damage=0;const h=harness({getColliders:()=>[{id:'wall',x:0,y:10,z:-30,width:30,height:30,depth:2}],damage:()=>{damage++;return 0;}});
  h.powers.use('laser');for(let i=0;i<60;i++)h.powers.update(1/60,1/60);
- assert.equal(h.root.getObjectByName('continuous-laser')!.visible,true);assert.ok(damage>=8&&damage<=11);
- h.input.enabled=false;h.powers.update(.1,.1);assert.equal(h.root.getObjectByName('continuous-laser')!.visible,false);
+ assert.equal(h.root.getObjectByName('continuous-laser')!.visible,true);assert.equal(h.root.getObjectByName('laser-glow')!.visible,true);assert.equal(h.root.getObjectByName('laser-impact')!.visible,true);assert.equal(h.root.getObjectByName('laser-impact-ring')!.visible,true);assert.ok(damage>=8&&damage<=11);
+ h.input.enabled=false;h.powers.update(.1,.1);assert.equal(h.root.getObjectByName('continuous-laser')!.visible,false);assert.equal(h.root.getObjectByName('laser-glow')!.visible,false);assert.equal(h.root.getObjectByName('laser-impact')!.visible,false);
  h.input.enabled=true;h.powers.use('laser');h.powers.update(.1,.1);assert.equal(h.powers.laserActive,false);h.powers.dispose();h.player.character.dispose();
 });
 

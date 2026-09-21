@@ -28,6 +28,21 @@ test('terrain bounds stored craters, active topology and idle rebuilds',()=>{
   terrain.update(p,p);assert.equal(terrain.stats.stored,TERRAIN_DAMAGE.maxStored);assert.ok(terrain.stats.active<=32);
   const revision=terrain.stats.revision;terrain.update(p,p);assert.equal(terrain.stats.revision,revision);terrain.dispose();
 });
+test('giant laser and shots carve larger holes without allocating a larger mesh',()=>{
+  const terrain=new TerrainDestruction(new Group()),zero=new Vector3();
+  terrain.damageAt(zero,3,220);terrain.update(zero,zero);
+  const bytes=terrain.stats.bytes,smallDepth=terrain.heightAt(0,0);
+  terrain.restoreAt(zero,10);
+  const giant=1000/2.07,laserRadius=3*Math.pow(giant,.7);
+  terrain.damageAt(zero,laserRadius,220*giant);terrain.update(zero,zero);
+  assert.ok(terrain.craters[0].radius>200);assert.ok(terrain.heightAt(100,0)<-30);
+  assert.ok(terrain.heightAt(0,0)<smallDepth-50);assert.equal(terrain.stats.bytes,bytes);
+  const hit=terrain.raycast(new Vector3(100,300,0),new Vector3(0,-1,0),1000)!;
+  assert.ok(Math.abs(300-hit-terrain.heightAt(100,0))<.01);
+  terrain.restoreAt(zero,500);terrain.damageAt(zero,7*Math.pow(giant,.7),700*giant);terrain.update(zero,zero);
+  assert.ok(terrain.craters[0].radius>500);assert.ok(terrain.stats.span>=2048);assert.ok(terrain.heightAt(300,0)<-30);
+  assert.equal(terrain.stats.bytes,bytes);terrain.dispose();
+});
 test('airport terminal, hangars, tower and tanks destroy and reconstruct independently',()=>{
   const registry=new AuthoredDestruction();createAirport(registry);
   for(const id of ['airport:terminal','airport:hangar:-500','airport:hangar:-260','airport:tower','airport:tank:0'])assert.equal(registry.destroy(id),true,id);
