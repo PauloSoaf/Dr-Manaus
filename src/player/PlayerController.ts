@@ -113,6 +113,6 @@ export class PlayerController {
     this.position.copy(position); this.velocity.set(0, 0, 0); this.model.position.copy(position);
     this.state = position.y > 1 ? 'Hover' : 'Grounded'; this.grounded = false;
   }
-  setSize(scale: number): void { this.targetSize = MathUtils.clamp(scale, 1, 22); this.powerPose('giant', 1.5); }
+  setSize(scale: number): void { this.targetSize = MathUtils.clamp(scale, 1, 1000 / 2.07); this.powerPose('giant', 1.5); }
   powerPose(name: string, duration = 0.5): void { this.pose = name; this.poseTime = duration; }
 }

@@ -1,7 +1,7 @@
 import { BoxGeometry, Color, DynamicDrawUsage, Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Vector3 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
-import { buildingAllowed, isLand, riverWidth, shoreZ } from '../geodata/geodata';
+import { buildingAllowed, isLand, isUrban, riverWidth, shoreZ } from '../geodata/geodata';
 import { BUILDING_STRIDE, TREE_STRIDE, chunkKey, type ChunkPayload } from '../chunks/Chunk';
 import { chunkSeed, generateChunk, seededRandom, urbanDensity } from '../chunks/BuildingGenerator';
 
@@ -147,7 +147,7 @@ export class HLODManager {
     for (const [key, payload] of this.proxies) {
       const distance = Math.hypot((payload.cx + .5) * WORLD.chunkSize - position.x, (payload.cz + .5) * WORLD.chunkSize - position.z);
       if (activeKeys ? activeKeys.has(key) : distance < this.detailRadius) continue;
-      if (this.realCovers((payload.cx + .5) * WORLD.chunkSize, (payload.cz + .5) * WORLD.chunkSize)) continue;
+      if (isUrban((payload.cx+.5)*WORLD.chunkSize,(payload.cz+.5)*WORLD.chunkSize) && this.realCovers((payload.cx + .5) * WORLD.chunkSize, (payload.cz + .5) * WORLD.chunkSize)) continue;
       // Soft height ramp at the outside of the medium ring blends into the aggregate silhouette.
       const fade = Math.max(0, Math.min(1, (WORLD.mediumRadius + WORLD.chunkSize - distance) / WORLD.chunkSize));
       if (fade <= 0) continue;

@@ -180,6 +180,8 @@ export class DestructionSystem {
     entry.amount += amount;
     if (entry.amount < entry.threshold || !allowCollapse) return false;
     if (!this.world.destroy(id)) {
+      // Pool slots can hold another car later; a stale hit must not make that slot invulnerable.
+      if(id.startsWith("traffic:")){this.entries.delete(id);this.recycle(entry);return false;}
       // Indestructible. Parking the threshold out of reach stops every later hit from asking
       // again; the record still ages out of the map on the normal eviction pass.
       entry.threshold = Infinity;

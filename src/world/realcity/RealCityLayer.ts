@@ -1,3 +1,5 @@
+import { WORLD } from '../../core/config';
+import { isUrban } from '../geodata/geodata';
 import {
   BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Group, InstancedMesh,
   Matrix4, Mesh, MeshStandardMaterial, Vector3,
@@ -705,6 +707,7 @@ export class RealCityLayer {
    * suppressed consistently across every tier instead of flickering as tiles stream.
    */
   replacesCollider(collider: Collider): boolean {
+    if(collider.id?.includes("/tree/")&&!isUrban(collider.x,collider.z))return false;
     if (!this.enabled) return false;
     let verdict = this.suppressed.get(collider);
     if (verdict === undefined) { verdict = this.replaces(collider.id); this.suppressed.set(collider, verdict); }
@@ -741,7 +744,7 @@ export class RealCityLayer {
       for (const object of child.children) {
         // Vegetation is suppressed too: a generated tree has no idea a surveyed building stands there.
         if (object.name === 'facades' || object.name === 'terracotta-roofs' || object.name === 'sidewalks'
-          || object.name === 'tree-trunks' || object.name === 'tropical-canopy') object.visible = !replaced;
+          || object.name === 'tree-trunks' || object.name === 'tropical-canopy') object.visible = !replaced || ((object.name === 'tree-trunks' || object.name === 'tropical-canopy') && !isUrban((Number(key.slice(0,comma))+.5)*WORLD.chunkSize,(Number(key.slice(comma+1))+.5)*WORLD.chunkSize));
       }
     }
   }

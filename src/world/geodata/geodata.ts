@@ -128,7 +128,12 @@ export function onAirfield(x: number, z: number, padding = 0): boolean {
 }
 
 export function buildingAllowed(x: number, z: number, padding = 0): boolean {
-  if (!isUrban(x, z) || !isLand(x - padding, z + padding) || !isLand(x + padding, z + padding)) return false;
+  return isUrban(x,z) && vegetationAllowed(x,z,padding);
+}
+
+/** Reservations also apply to wilderness trees, independently of the urban boundary. */
+export function vegetationAllowed(x: number, z: number, padding = 0): boolean {
+  if ( !isLand(x - padding, z + padding) || !isLand(x + padding, z + padding)) return false;
   if (onAirfield(x, z, padding)) return false;
   for (const landmark of LANDMARKS) if ((x - landmark.x) ** 2 + (z - landmark.z) ** 2 < (landmark.radius + padding) ** 2) return false;
   for (const segment of roadIndex.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`) ?? []) {

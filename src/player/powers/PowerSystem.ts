@@ -1,4 +1,4 @@
-import { Group, Mesh, MeshBasicMaterial, PerspectiveCamera, TorusGeometry, Vector3 } from 'three/webgpu';
+import { CylinderGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, TorusGeometry, Vector3 } from 'three/webgpu';
 import { DESTRUCTION } from '../../core/config';
 import type { Collider, Target } from '../../core/types';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
@@ -27,10 +27,14 @@ export interface PowerHooks {
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }
 
 export class PowerSystem {
+  laserActive=false;
+  private laserTick=0;
+  private readonly laser=new Mesh(new CylinderGeometry(1,1,1,8),new MeshBasicMaterial({color:0x77fff1,toneMapped:false}));
+  private readonly laserAxis=new Vector3(0,1,0);
   temporal = false;
   selected = 'energy';
   teleporting = false;
-  readonly cooldowns: Record<string, number> = { energy: 0, teleport: 0, shockwave: 0, reconstruct: 0, giant: 0, clone: 0, temporal: 0 };
+  readonly cooldowns: Record<string, number> = { energy: 0, laser:0, teleport: 0, shockwave: 0, reconstruct: 0, giant: 0, clone: 0, temporal: 0 };
   readonly destination = new Vector3();
   private readonly effects: EffectPool;
   private readonly indicator: Mesh;
@@ -51,6 +55,7 @@ export class PowerSystem {
 
   constructor(private readonly root: Group, private readonly player: PlayerController, private readonly camera: PerspectiveCamera, private readonly input: InputController, private readonly hooks: PowerHooks) {
     this.effects = new EffectPool(root);
+    this.laser.visible=false;this.laser.name="continuous-laser";root.add(this.laser);
     this.indicator = new Mesh(new TorusGeometry(1.5, 0.06, 6, 48), new MeshBasicMaterial({ color: 0x8cffdc, transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false }));
     this.indicator.rotation.x = -Math.PI / 2; this.indicator.visible = false; root.add(this.indicator);
     for (let i = 0; i < 3; i++) {
@@ -64,7 +69,7 @@ export class PowerSystem {
   update(realDt: number, worldDt: number): void {
     this.time += realDt;
     for (const name of Object.keys(this.cooldowns)) this.cooldowns[name] = Math.max(0, this.cooldowns[name] - realDt);
-    const keys: [string, string][] = [['Digit1', 'energy'], ['KeyE', 'teleport'], ['KeyQ', 'shockwave'], ['KeyR', 'reconstruct'], ['KeyG', 'giant'], ['KeyC', 'clone'], ['KeyT', 'temporal']];
+    const keys: [string, string][] = [['KeyL','laser'],['Digit1', 'energy'], ['KeyE', 'teleport'], ['KeyQ', 'shockwave'], ['KeyR', 'reconstruct'], ['KeyG', 'giant'], ['KeyC', 'clone'], ['KeyT', 'temporal']];
     for (const [key, name] of keys) if (this.input.consume(key)) this.use(name);
     if (this.input.held('Mouse0') && !this.teleporting) this.use('energy');
     if (this.temporal) {
@@ -78,6 +83,7 @@ export class PowerSystem {
     this.indicator.scale.setScalar((1 + Math.sin(this.time * 4) * 0.08) * Math.sqrt(this.player.size));
     this.effects.update(this.temporal ? worldDt + realDt * 0.35 : realDt);
     this.updateClones(realDt);
+    this.updateLaser(realDt);
   }
 
   use(name: string): void {
@@ -85,6 +91,7 @@ export class PowerSystem {
     this.selected = name;
     if (this.cooldowns[name] > 0 || this.teleporting) return;
     switch (name) {
+      case 'laser': this.laserActive=!this.laserActive;this.hooks.notify(this.laserActive?'Laser continuo ativo - L para desligar.':'Laser desligado.');break;
       case 'energy': this.energy(); break;
       case 'teleport': this.updateDestination(); if (this.destinationValid) void this.teleportTo(this.destination.clone()); else this.hooks.notify('Aponte para uma superfície a até 2,5 km.'); break;
       case 'shockwave': this.shockwave(); break;
@@ -147,6 +154,21 @@ export class PowerSystem {
       if (score < bestScore) { bestScore = score; best = target; }
     }
     return best;
+  }
+
+  private updateLaser(dt:number):void{
+    this.laser.visible=this.laserActive&&this.input.enabled&&!this.teleporting;
+    if(!this.laser.visible)return;
+    this.cameraRay();const reach=Math.max(1600,this.player.size*20);
+    const hit=PhysicsWorld.raycast(this.rayOrigin,this.rayDirection,this.hooks.getColliders(),reach,0,true);
+    this.aimPoint.copy(hit?hit.point:this.rayOrigin).addScaledVector(this.rayDirection,hit?0:reach);
+    this.emission.copy(this.player.position);this.emission.y+=1.45*this.player.size;
+    this.offset.subVectors(this.aimPoint,this.emission);const length=this.offset.length();
+    this.laser.position.copy(this.emission).addScaledVector(this.offset,.5);
+    this.laser.quaternion.setFromUnitVectors(this.laserAxis,this.offset.normalize());
+    const width=.07*Math.sqrt(this.player.size);this.laser.scale.set(width,length,width);
+    this.player.powerPose('energy',.15);this.laserTick-=dt;
+    if(this.laserTick<=0){this.laserTick=.1;if(hit)this.hooks.damage?.(this.aimPoint,3*Math.sqrt(this.player.size),220*Math.sqrt(this.player.size));}
   }
 
   private energy(): void {
@@ -213,12 +235,12 @@ export class PowerSystem {
 
   private giant(): void {
     this.cooldowns.giant = 1.2;
-    this.sizeIndex = (this.sizeIndex + 1) % 3;
-    const size = [1, 7, 22][this.sizeIndex];
+    this.sizeIndex = (this.sizeIndex + 1) % 6;
+    const size = [1, 7, 22, 200/2.07, 500/2.07, 1000/2.07][this.sizeIndex];
     this.player.setSize(size);
     this.effects.wave(this.player.position, size * 6, 0xf4d296, 1.3);
     this.hooks.sound('giant');
-    this.hooks.notify(['Forma original · 2 metros.', 'Forma gigante · 15 metros.', 'Forma colossal · 46 metros.'][this.sizeIndex]);
+    this.hooks.notify(['Forma original: 2 m','Gigante: 15 m','Colossal: 46 m','Titã: 200 m','Titã: 500 m','Titã: 1 km'][this.sizeIndex]);
   }
 
   private clone(): void {
@@ -265,6 +287,7 @@ export class PowerSystem {
   }
 
   dispose(): void {
+    this.laser.geometry.dispose();(this.laser.material as MeshBasicMaterial).dispose();this.laser.removeFromParent();
     this.effects.dispose(); this.indicator.removeFromParent(); this.indicator.geometry.dispose(); (this.indicator.material as MeshBasicMaterial).dispose();
     for (const clone of this.clones) clone.character.dispose();
   }

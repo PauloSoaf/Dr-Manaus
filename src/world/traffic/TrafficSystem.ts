@@ -1,4 +1,6 @@
 import { BoxGeometry, Color, Group, InstancedMesh, MeshStandardMaterial, Object3D, Vector3 } from 'three/webgpu';
+import { PhysicsWorld } from '../../physics/PhysicsWorld';
+import type { Collider } from '../../core/types';
 import type { RoadGraph, RoadSegment } from './RoadGraph';
 import { hash32, VehicleNavigator } from './VehicleNavigator';
 
@@ -32,6 +34,7 @@ const CLASS_COLOUR: Record<string, number> = {
 };
 
 interface Vehicle {
+  vy:number; wreck:boolean; wreckLife:number; pitch:number;
   nav: VehicleNavigator;
   x: number; z: number; y: number; yaw: number;
   /** Set on spawn so the drawn pose snaps to the lane instead of sliding in from the last car. */
@@ -46,6 +49,7 @@ interface Vehicle {
  * player, spawning ahead and recycling behind, and the whole city's traffic is two draw calls.
  */
 export class TrafficSystem {
+  readonly colliders:Collider[]=[];
   readonly stats = { active: 0, segments: 0, nodes: 0 };
   private readonly bodies: InstancedMesh;
   private readonly glass: InstancedMesh;
@@ -81,7 +85,7 @@ export class TrafficSystem {
     this.dummy.scale.setScalar(0);
     this.dummy.updateMatrix();
     for (let i = 0; i < CAPACITY; i++) {
-      this.pool.push({ nav: new VehicleNavigator(), x: 0, z: 0, y: 0, yaw: 0, fresh: true, shown: false });
+      this.pool.push({ vy:0,wreck:false,wreckLife:0,pitch:0,nav: new VehicleNavigator(), x: 0, z: 0, y: 0, yaw: 0, fresh: true, shown: false });
       this.bodies.setMatrixAt(i, this.dummy.matrix);
       this.glass.setMatrixAt(i, this.dummy.matrix);
     }
@@ -112,6 +116,7 @@ export class TrafficSystem {
   }
 
   update(dt: number, playerPosition: Vector3): void {
+    this.colliders.length=0;
     this.stats.segments = this.graph.size;
     this.stats.nodes = this.graph.nodeCount;
     const ceiling = playerPosition.y > ALTITUDE_LIMIT;
@@ -141,6 +146,14 @@ export class TrafficSystem {
         if (spawns < SPAWN_BUDGET && this.spawn(i, vehicle, px, pz)) spawns++;
         else { this.retire(i, vehicle); continue; }
       }
+      if(vehicle.wreck){
+        vehicle.wreckLife-=step;
+        if(vehicle.wreckLife<=0||(vehicle.x-px)**2+(vehicle.z-pz)**2>CULL_RADIUS*CULL_RADIUS){this.retire(i,vehicle);continue;}
+        vehicle.vy-=24*step;vehicle.y+=vehicle.vy*step;
+        const floor=PhysicsWorld.terrainHeight(vehicle.x,vehicle.z)+BODY_H*.35;
+        if(vehicle.y<floor){vehicle.y=floor;vehicle.vy=0;}
+        vehicle.pitch=Math.min(.65,vehicle.pitch+step*.8);this.drawVehicle(i,vehicle,true);active++;continue;
+      }
       if (!nav.advance(this.graph, step)) { this.retire(i, vehicle); continue; }
       nav.pose(this.graph, this.position, this.tangent);
       if ((this.position.x - px) ** 2 + (this.position.z - pz) ** 2 > CULL_RADIUS * CULL_RADIUS) {
@@ -165,20 +178,36 @@ export class TrafficSystem {
         delta -= Math.round(delta / (Math.PI * 2)) * Math.PI * 2;
         vehicle.yaw += delta * blend;
       }
-      this.dummy.position.set(vehicle.x, vehicle.y, vehicle.z);
-      this.dummy.rotation.set(0, vehicle.yaw, 0);
-      this.dummy.scale.setScalar(1);
-      this.dummy.updateMatrix();
-      this.bodies.setMatrixAt(i, this.dummy.matrix);
-      this.dummy.position.y += GLASS_Y;
-      this.dummy.updateMatrix();
-      this.glass.setMatrixAt(i, this.dummy.matrix);
+      if(!segment?.bridge&&PhysicsWorld.terrainHeight(vehicle.x,vehicle.z)<-.8){vehicle.wreck=true;vehicle.wreckLife=25;vehicle.vy=0;}
+      else this.colliders.push({id:`traffic:${i}`,x:vehicle.x,y:vehicle.y,z:vehicle.z,width:4.5,height:2,depth:4.5});
+      this.drawVehicle(i,vehicle,false);
       vehicle.shown = true;
       active++;
     }
     this.stats.active = active;
     this.bodies.instanceMatrix.needsUpdate = true;
     this.glass.instanceMatrix.needsUpdate = true;
+  }
+
+  destroy(id:string):boolean{
+    if(!/^traffic:\d+$/.test(id))return false;
+    const slot=Number(id.slice(8)),vehicle=this.pool[slot];
+    if(!vehicle?.shown||vehicle.wreck)return false;
+    vehicle.wreck=true;vehicle.wreckLife=25;vehicle.vy=3;
+    this.bodies.setColorAt(slot,this.colour.setHex(0x39322e));if(this.bodies.instanceColor)this.bodies.instanceColor.needsUpdate=true;
+    const index=this.colliders.findIndex(c=>c.id===id);if(index>=0)this.colliders.splice(index,1);
+    return true;
+  }
+  private drawVehicle(i:number,vehicle:Vehicle,wreck:boolean):void{
+      this.dummy.position.set(vehicle.x, vehicle.y, vehicle.z);
+      this.dummy.rotation.set(vehicle.pitch, vehicle.yaw, wreck?.18:0);
+      this.dummy.scale.set(1,wreck?.65:1,1);
+      this.dummy.updateMatrix();
+      this.bodies.setMatrixAt(i, this.dummy.matrix);
+      this.dummy.position.y += GLASS_Y;
+      this.dummy.updateMatrix();
+      this.glass.setMatrixAt(i, this.dummy.matrix);
+      vehicle.shown = true;
   }
 
   /** The segments a car may be spawned on right now; rebuilt only when the player has moved. */
@@ -203,7 +232,8 @@ export class TrafficSystem {
       vehicle.nav.pose(this.graph, this.position, this.tangent);
       const distance = (this.position.x - px) ** 2 + (this.position.z - pz) ** 2;
       if (distance < SPAWN_MIN * SPAWN_MIN || distance > CULL_RADIUS * CULL_RADIUS) continue;
-      vehicle.fresh = true;
+      if(!segment.bridge&&PhysicsWorld.terrainHeight(this.position.x,this.position.z)<-.5)continue;
+      vehicle.fresh = true;vehicle.wreck=false;vehicle.wreckLife=0;vehicle.vy=0;vehicle.pitch=0;
       this.tint(slot, segment, seed);
       return true;
     }
@@ -212,7 +242,7 @@ export class TrafficSystem {
   }
 
   private retire(slot: number, vehicle: Vehicle): void {
-    vehicle.nav.clear();
+    vehicle.nav.clear();vehicle.wreck=false;vehicle.vy=0;vehicle.pitch=0;
     vehicle.fresh = true;
     if (!vehicle.shown) return;
     vehicle.shown = false;

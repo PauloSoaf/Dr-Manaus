@@ -104,12 +104,14 @@ export class CosmicMaterial {
     // Deepen the blacks and lift only what was already bright, so the frame keeps its contrast
     // instead of turning into a wash of pale violet.
     const luma = cosmos.r.mul(.3).add(cosmos.g.mul(.59)).add(cosmos.b.mul(.11));
-    const deep = cosmos.mul(smoothstep(float(.015), float(.32), luma));
+    // Suppress bright cores embedded in the clip; only the tiny procedural stars emit white.
+    const coreSuppression = float(1).sub(smoothstep(float(.22), float(.55), luma)).mul(.32);
+    const deep = cosmos.mul(smoothstep(float(.015), float(.32), luma)).mul(coreSuppression);
     const lifted = deep.mul(float(1.9).add(this.intensity.mul(1.5)));
     // Soft-clipped rather than added to. The old bloom term stacked on top of an already bright
     // region, so the clip's cores saturated to flat white discs; this rolls them off instead.
     const nebula = lifted.div(lifted.mul(.75).add(1))
-      .add(color('#6fb6ff').mul(smoothstep(float(.55), float(1), luma)).mul(this.intensity.mul(.35)));
+      .add(color('#25185c').mul(.08));
 
     // Three star layers in the same screen plane, drifting at different rates so the field has
     // depth. Density matters more than it looks: the character covers a small part of the frame,

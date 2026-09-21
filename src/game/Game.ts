@@ -1,3 +1,4 @@
+import { ForestBackdrop } from '../world/ForestBackdrop';
 import { CameraHelper, Group, Mesh, Vector3 } from 'three/webgpu';
 import { WORLD, QUALITY } from '../core/config';
 import type { Collider } from '../core/types';
@@ -39,10 +40,11 @@ export class Game {
   readonly worldRoot=new Group();readonly origin=new Vector3();readonly player:PlayerController;readonly input:InputController;readonly camera:CameraController;
   readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
-  readonly terrain:TerrainDestruction;readonly airport=new AuthoredDestruction();
+  readonly forest:ForestBackdrop;readonly terrain:TerrainDestruction;readonly airport=new AuthoredDestruction();
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
   stressReport:FrameSample[]=[];private stressRoute:Vector3[]=[];private stressIndex=0;private stressSampleTime=0;
   private lastTime=0;private discoveryTime=0;private telemetryTime=0;private cpu=0;private colliders:Collider[]=[];private playerLocal=new Vector3();private direction=new Vector3();
+  private stompTimer=0;private readonly foot=new Vector3();
   private bounds=false;private lod=false;private culling?:CameraHelper;private spaceFactor=0;
   /** Exponentially smoothed per-system frame cost, in milliseconds. Drives the F3 panel. */
   readonly profile:Record<string,number>={realCity:0,colliders:0,player:0,streamer:0,hlod:0,landmarks:0,population:0,destruction:0,traffic:0,render:0};
@@ -53,7 +55,7 @@ export class Game {
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
     createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
     this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);this.hlod.setDestructionSource(this.streamer);
-    this.watchGround(this.worldRoot);
+    this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
     this.input=new InputController(this.rendering.renderer.domElement);this.player=new PlayerController(this.worldRoot,this.input);this.camera=new CameraController(this.rendering.camera,this.input);
     this.population=new PopulationManager(this.worldRoot);
     this.missions=new MissionManager(this.worldRoot,this.save,message=>this.hud?.notify(message));
@@ -141,6 +143,7 @@ export class Game {
     this.mark=performance.now();
     this.realCity.update(this.player.position,this.player.velocity,dt);this.lap('realCity');
     this.gatherColliders();this.lap('colliders');
+    this.updateStomps(dt);
     if(this.stressRoute.length)this.updateStress(dt);else this.player.update(dt,this.colliders,this.camera.yaw,this.camera.pitch);this.lap('player');
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
     if(Math.hypot(this.player.position.x-this.origin.x,this.player.position.z-this.origin.z)>WORLD.originThreshold){this.origin.set(Math.round(this.player.position.x/1024)*1024,0,Math.round(this.player.position.z/1024)*1024);this.worldRoot.position.copy(this.origin).negate();}
@@ -169,7 +172,7 @@ export class Game {
     this.playerLocal.copy(this.player.position).sub(this.origin);this.atmosphere.setAltitude(this.player.position.y);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(this.player.position.y,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=this.weather.update(worldDt,this.player.position,this.atmosphere.weather);if(flash)this.atmosphere.sun.intensity+=flash;
     this.audio.update(this.player.velocity.length(),this.player.position.y,['rain','storm'].includes(this.atmosphere.weather),!isLand(this.player.position.x,this.player.position.z));
     this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
-    this.terrain.update(this.player.position,this.origin);
+    this.terrain.update(this.player.position,this.origin);this.forest.update(this.player.position);
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
@@ -186,11 +189,23 @@ export class Game {
     for(const collider of this.landmarks.colliders)list.push(collider);
     for(const collider of this.largo.colliders)list.push(collider);
     this.airport.appendColliders(list,this.player.position,1600);
+    if(this.traffic)for(const collider of this.traffic.colliders)list.push(collider);
     for(const collider of this.population.colliders)list.push(collider);
+  }
+  private updateStomps(dt:number):void{
+    this.stompTimer-=dt;if(this.player.size<5||this.stompTimer>0)return;
+    this.stompTimer=.12;
+    const size=this.player.size,angle=this.player.model.rotation.y;
+    for(const side of [-1,1]){
+      this.foot.copy(this.player.position);this.foot.x+=Math.cos(angle)*side*.112*size;this.foot.z-=Math.sin(angle)*side*.112*size;
+      const floor=PhysicsWorld.terrainHeight(this.foot.x,this.foot.z);
+      const supported=this.foot.y<=floor+Math.max(2,size*.08)||this.colliders.some(c=>Math.abs(c.x-this.foot.x)<c.width/2+size*.1&&Math.abs(c.z-this.foot.z)<c.depth/2+size*.1&&Math.abs(c.y+c.height/2-this.foot.y)<Math.max(2,size*.08));
+      if(supported)this.destruction.damageAt(this.foot,Math.max(2,size*.18),100000);
+    }
   }
   readonly destructible={
     colliders:():readonly Collider[]=>this.colliders,
-    destroy:(id:string):boolean=>{id=id.replace(/^hlod:/,'');return this.realCity.destroy(id)||this.streamer.destroy(id)||this.landmarks.destroy(id)||this.largo.destroy(id)||this.airport.destroy(id);},
+    destroy:(id:string):boolean=>{id=id.replace(/^hlod:/,'');return !!this.traffic?.destroy(id)||this.realCity.destroy(id)||this.streamer.destroy(id)||this.landmarks.destroy(id)||this.largo.destroy(id)||this.airport.destroy(id);},
     deform:(point:Vector3,radius:number,damage:number)=>this.terrain.damageAt(point,radius,damage),
   };
   /** Register newly built surfaces once, including streamed roads and plaza LOD changes. */

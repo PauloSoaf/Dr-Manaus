@@ -16,4 +16,4 @@ const paths: Record<string,string> = {
   pin:'<path d="M19 9c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 14 0Z"/><circle cx="12" cy="9" r="2"/>',
 };
 export const icon=(name:string,size=22)=>`<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]??paths.energy}</svg>`;
-export const POWERS=[['energy','Emissão','1'],['teleport','Translocar','E'],['shockwave','Onda','Q'],['reconstruct','Reconstruir','R'],['giant','Magnitude','G'],['clone','Ecos','C'],['temporal','Temporal','T']] as const;
+export const POWERS=[['energy','Emissão','1'],['teleport','Translocar','E'],['shockwave','Onda','Q'],['reconstruct','Reconstruir','R'],['giant','Magnitude','G'],['clone','Ecos','C'],['temporal','Temporal','T'],['laser','Laser','L']] as const;
