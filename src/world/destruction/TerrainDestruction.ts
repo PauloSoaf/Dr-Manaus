@@ -7,11 +7,11 @@ import { bool, positionWorld, texture, uniform } from 'three/tsl';
 import type { TerrainProvider } from '../../physics/PhysicsWorld';
 
 export const TERRAIN_DAMAGE = {
-  maxStored: 256, maxActive: 32, radiusMin: 3, radiusMax: 35, depthMax: 20,
-  span: 512, cells: 256, recenterStep: 64, surfaceMinY: -1.25, surfaceMaxY: 1.25,
+  maxStored: 256, maxActive: 32, radiusMin: 3, radiusMax: 640, depthMax: 180,
+  span: 512, maxSpan: 4096, cells: 256, recenterStep: 64, surfaceMinY: -1.25, surfaceMaxY: 1.25,
 } as const;
-const GRID = TERRAIN_DAMAGE.cells + 1, STEP = TERRAIN_DAMAGE.span / TERRAIN_DAMAGE.cells;
-const DEPTH_QUANTUM = TERRAIN_DAMAGE.depthMax / 255;
+const GRID = TERRAIN_DAMAGE.cells + 1;
+const DEPTH_QUANTUM = 20 / 255;
 export interface CraterRecord { id: number; x: number; z: number; radius: number; depth: number; order: number }
 type GroundMaterial = MeshStandardNodeMaterial | MeshBasicNodeMaterial;
 
@@ -43,6 +43,9 @@ export class TerrainDestruction implements TerrainProvider {
   private readonly bindings = new Map<Mesh, Material | Material[]>();
   private readonly geometryDisposals = new Map<Mesh, () => void>();
   private readonly focus = new Vector3();
+  private span:number=TERRAIN_DAMAGE.span;
+  private step=TERRAIN_DAMAGE.span/TERRAIN_DAMAGE.cells;
+  private readonly uStep=uniform(this.step);
   private centerX = 0;
   private centerZ = 0;
   private nextId = 1;
@@ -66,8 +69,8 @@ export class TerrainDestruction implements TerrainProvider {
     this.group.add(this.bowl);
   }
 
-  get stats(): { stored: number; active: number; surfaces: number; triangles: number; revision: number; buildMs: number; bytes: number } {
-    return { stored: this.records.length, active: this.active.length, surfaces: this.bindings.size, triangles: this.triangles,
+  get stats(): { stored: number; active: number; surfaces: number; triangles: number; revision: number; buildMs: number; bytes: number; span:number } {
+    return { span:this.span, stored: this.records.length, active: this.active.length, surfaces: this.bindings.size, triangles: this.triangles,
       revision: this.geometryRevision, buildMs: this.lastBuildMs,
       bytes: this.heights.byteLength + this.pixels.byteLength + this.positions.byteLength + this.normals.byteLength + this.colors.byteLength + this.indices.byteLength };
   }
@@ -115,6 +118,13 @@ export class TerrainDestruction implements TerrainProvider {
     const x = Math.round(finite(player.x) / TERRAIN_DAMAGE.recenterStep) * TERRAIN_DAMAGE.recenterStep;
     const z = Math.round(finite(player.z) / TERRAIN_DAMAGE.recenterStep) * TERRAIN_DAMAGE.recenterStep;
     if (x !== this.centerX || z !== this.centerZ) { this.centerX = x; this.centerZ = z; this.dirty = true; }
+    let extent=TERRAIN_DAMAGE.span/2;
+    for(const crater of this.records){
+      if(crater.radius<=35||Math.hypot(crater.x-x,crater.z-z)>1800+crater.radius)continue;
+      extent=Math.max(extent,Math.abs(crater.x-x)+crater.radius+64,Math.abs(crater.z-z)+crater.radius+64);
+    }
+    const span=Math.min(TERRAIN_DAMAGE.maxSpan,2**Math.ceil(Math.log2(extent*2)));
+    if(span!==this.span){this.span=span;this.step=span/TERRAIN_DAMAGE.cells;this.uStep.value=this.step;this.dirty=true;}
     if (this.dirty) this.rebuild();
   }
 
@@ -148,7 +158,7 @@ export class TerrainDestruction implements TerrainProvider {
     material = original instanceof MeshBasicMaterial || original instanceof MeshBasicNodeMaterial ? new MeshBasicNodeMaterial() : new MeshStandardNodeMaterial();
     material.copy(original); material.name = `${original.name || original.type}:crater-surface`;
     const global = positionWorld.add(this.uOrigin);
-    const cell = global.xz.sub(this.uMinimum).div(STEP);
+    const cell = global.xz.sub(this.uMinimum).div(this.uStep);
     const uv = cell.add(.5).div(GRID);
     const maskDepth = texture(this.mask, uv).r;
     const inside = cell.x.greaterThanEqual(0).and(cell.x.lessThanEqual(TERRAIN_DAMAGE.cells))
@@ -163,10 +173,10 @@ export class TerrainDestruction implements TerrainProvider {
   private rebuild(): void {
     if (!this.dirty || this.disposed) return;
     const started = performance.now(); this.dirty = false;
-    const minimumX = this.centerX - TERRAIN_DAMAGE.span * .5, minimumZ = this.centerZ - TERRAIN_DAMAGE.span * .5;
+    const minimumX = this.centerX - this.span * .5, minimumZ = this.centerZ - this.span * .5;
     this.uMinimum.value.set(minimumX, minimumZ);
     this.bowl.position.set(minimumX, 0, minimumZ);
-    const candidates = this.records.filter(crater => Math.abs(crater.x - this.centerX) + crater.radius < TERRAIN_DAMAGE.span * .5 - STEP && Math.abs(crater.z - this.centerZ) + crater.radius < TERRAIN_DAMAGE.span * .5 - STEP);
+    const candidates = this.records.filter(crater => Math.abs(crater.x - this.centerX) + crater.radius < this.span * .5 - this.step && Math.abs(crater.z - this.centerZ) + crater.radius < this.span * .5 - this.step);
     candidates.sort((a, b) => (a.x - this.focus.x) ** 2 + (a.z - this.focus.z) ** 2 - (b.x - this.focus.x) ** 2 - (b.z - this.focus.z) ** 2);
     const previouslyActive = this.active.length;
     this.active.length = 0; this.active.push(...candidates.slice(0, TERRAIN_DAMAGE.maxActive));
@@ -178,34 +188,34 @@ export class TerrainDestruction implements TerrainProvider {
     this.heights.fill(0); this.pixels.fill(0);
     let lowX=GRID-1,lowZ=GRID-1,highX=0,highZ=0;
     for (const crater of this.active) {
-      const x0 = Math.max(0, Math.floor((crater.x - crater.radius - minimumX) / STEP));
-      const x1 = Math.min(TERRAIN_DAMAGE.cells, Math.ceil((crater.x + crater.radius - minimumX) / STEP));
-      const z0 = Math.max(0, Math.floor((crater.z - crater.radius - minimumZ) / STEP));
-      const z1 = Math.min(TERRAIN_DAMAGE.cells, Math.ceil((crater.z + crater.radius - minimumZ) / STEP));
+      const x0 = Math.max(0, Math.floor((crater.x - crater.radius - minimumX) / this.step));
+      const x1 = Math.min(TERRAIN_DAMAGE.cells, Math.ceil((crater.x + crater.radius - minimumX) / this.step));
+      const z0 = Math.max(0, Math.floor((crater.z - crater.radius - minimumZ) / this.step));
+      const z1 = Math.min(TERRAIN_DAMAGE.cells, Math.ceil((crater.z + crater.radius - minimumZ) / this.step));
       lowX=Math.min(lowX,x0);lowZ=Math.min(lowZ,z0);highX=Math.max(highX,x1);highZ=Math.max(highZ,z1);
       for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
-        const distance2 = (minimumX + x * STEP - crater.x) ** 2 + (minimumZ + z * STEP - crater.z) ** 2;
+        const distance2 = (minimumX + x * this.step - crater.x) ** 2 + (minimumZ + z * this.step - crater.z) ** 2;
         const radial = Math.max(0, 1 - distance2 / (crater.radius * crater.radius));
         // Quantization is shared by the mask, vertices and collision height: no hidden floor.
         // A broad cavity with a steep exposed edge reads as excavation even from ground level.
         const profile = 1 - (1 - radial) ** 4;
         const depth = Math.round(crater.depth * profile / DEPTH_QUANTUM);
         const index = z * GRID + x;
-        if (depth <= this.pixels[index * 4]) continue;
-        this.pixels[index * 4] = depth; this.heights[index] = -depth * DEPTH_QUANTUM;
+        if (depth * DEPTH_QUANTUM <= -this.heights[index]) continue;
+        this.pixels[index * 4] = 255; this.heights[index] = -depth * DEPTH_QUANTUM;
       }
     }
     lowX=Math.max(0,lowX-1);lowZ=Math.max(0,lowZ-1);highX=Math.min(GRID-1,highX+1);highZ=Math.min(GRID-1,highZ+1);
     for (let z = lowZ; z <= highZ; z++) for (let x = lowX; x <= highX; x++) {
       const index = z * GRID + x, p = index * 3, h = this.heights[index];
-      this.positions[p] = x * STEP; this.positions[p + 1] = h; this.positions[p + 2] = z * STEP;
-      const dx = (this.heights[z * GRID + Math.min(GRID - 1, x + 1)] - this.heights[z * GRID + Math.max(0, x - 1)]) / (2 * STEP);
-      const dz = (this.heights[Math.min(GRID - 1, z + 1) * GRID + x] - this.heights[Math.max(0, z - 1) * GRID + x]) / (2 * STEP);
+      this.positions[p] = x * this.step; this.positions[p + 1] = h; this.positions[p + 2] = z * this.step;
+      const dx = (this.heights[z * GRID + Math.min(GRID - 1, x + 1)] - this.heights[z * GRID + Math.max(0, x - 1)]) / (2 * this.step);
+      const dz = (this.heights[Math.min(GRID - 1, z + 1) * GRID + x] - this.heights[Math.max(0, z - 1) * GRID + x]) / (2 * this.step);
       const length = Math.hypot(dx, 1, dz);
       this.normals[p] = -dx / length; this.normals[p + 1] = 1 / length; this.normals[p + 2] = -dz / length;
-      const grain = ((Math.imul(Math.round(minimumX + x * STEP), 73856093) ^ Math.imul(Math.round(minimumZ + z * STEP), 19349663)) >>> 0) % 97 / 97;
+      const grain = ((Math.imul(Math.round(minimumX + x * this.step), 73856093) ^ Math.imul(Math.round(minimumZ + z * this.step), 19349663)) >>> 0) % 97 / 97;
       // Lighter exposed strata on the walls and dark soil at depth make the opening legible.
-      const depthFade = Math.max(.24, 1 + h / TERRAIN_DAMAGE.depthMax * .72);
+      const depthFade = Math.max(.24, Math.exp(h * .04));
       const strata = .84 + .16 * Math.cos(h * 2.4);
       const shade = (.85 + grain * .15) * depthFade * strata;
       this.colors[p] = .46 * shade; this.colors[p + 1] = .255 * shade; this.colors[p + 2] = .115 * shade;
@@ -226,7 +236,7 @@ export class TerrainDestruction implements TerrainProvider {
 
   heightAt(x: number, z: number): number {
     if (!Number.isFinite(x + z) || !this.active.length) return 0;
-    const gx = (x - this.uMinimum.value.x) / STEP, gz = (z - this.uMinimum.value.y) / STEP;
+    const gx = (x - this.uMinimum.value.x) / this.step, gz = (z - this.uMinimum.value.y) / this.step;
     if (gx < 0 || gz < 0 || gx >= TERRAIN_DAMAGE.cells || gz >= TERRAIN_DAMAGE.cells) return 0;
     const ix = Math.floor(gx), iz = Math.floor(gz), u = gx - ix, v = gz - iz;
     const a = iz * GRID + ix, b = a + 1, d = a + GRID, c = d + 1;
@@ -246,21 +256,21 @@ export class TerrainDestruction implements TerrainProvider {
     const minX = this.uMinimum.value.x, minZ = this.uMinimum.value.y;
     let enter = .025, exit = Math.min(maxDistance, nearest);
     for (const [p, d, lo] of [[origin.x, direction.x, minX], [origin.z, direction.z, minZ]] as const) {
-      if (Math.abs(d) < 1e-9) { if (p < lo || p >= lo + TERRAIN_DAMAGE.span) return Number.isFinite(nearest) ? nearest : null; }
-      else { let a = (lo - p) / d, b = (lo + TERRAIN_DAMAGE.span - p) / d; if (a > b) [a, b] = [b, a]; enter = Math.max(enter, a); exit = Math.min(exit, b); }
+      if (Math.abs(d) < 1e-9) { if (p < lo || p >= lo + this.span) return Number.isFinite(nearest) ? nearest : null; }
+      else { let a = (lo - p) / d, b = (lo + this.span - p) / d; if (a > b) [a, b] = [b, a]; enter = Math.max(enter, a); exit = Math.min(exit, b); }
     }
     if (enter > exit) return Number.isFinite(nearest) ? nearest : null;
-    let ix = Math.max(0, Math.min(TERRAIN_DAMAGE.cells - 1, Math.floor((origin.x + direction.x * (enter + 1e-7) - minX) / STEP)));
-    let iz = Math.max(0, Math.min(TERRAIN_DAMAGE.cells - 1, Math.floor((origin.z + direction.z * (enter + 1e-7) - minZ) / STEP)));
+    let ix = Math.max(0, Math.min(TERRAIN_DAMAGE.cells - 1, Math.floor((origin.x + direction.x * (enter + 1e-7) - minX) / this.step)));
+    let iz = Math.max(0, Math.min(TERRAIN_DAMAGE.cells - 1, Math.floor((origin.z + direction.z * (enter + 1e-7) - minZ) / this.step)));
     const sx = Math.sign(direction.x), sz = Math.sign(direction.z);
-    const deltaX = sx ? STEP / Math.abs(direction.x) : Infinity, deltaZ = sz ? STEP / Math.abs(direction.z) : Infinity;
-    let nextX = sx ? (minX + (ix + (sx > 0 ? 1 : 0)) * STEP - origin.x) / direction.x : Infinity;
-    let nextZ = sz ? (minZ + (iz + (sz > 0 ? 1 : 0)) * STEP - origin.z) / direction.z : Infinity;
+    const deltaX = sx ? this.step / Math.abs(direction.x) : Infinity, deltaZ = sz ? this.step / Math.abs(direction.z) : Infinity;
+    let nextX = sx ? (minX + (ix + (sx > 0 ? 1 : 0)) * this.step - origin.x) / direction.x : Infinity;
+    let nextZ = sz ? (minZ + (iz + (sz > 0 ? 1 : 0)) * this.step - origin.z) / direction.z : Infinity;
     for (let cells = 0; cells <= TERRAIN_DAMAGE.cells * 2 + 2 && enter <= exit; cells++) {
       const a = iz * GRID + ix, b = a + 1, d = a + GRID, c = d + 1;
-      const x = minX + ix * STEP, z = minZ + iz * STEP;
-      const one = rayTriangle(origin, direction, x, this.heights[a], z, x, this.heights[d], z + STEP, x + STEP, this.heights[b], z);
-      const two = rayTriangle(origin, direction, x + STEP, this.heights[b], z, x, this.heights[d], z + STEP, x + STEP, this.heights[c], z + STEP);
+      const x = minX + ix * this.step, z = minZ + iz * this.step;
+      const one = rayTriangle(origin, direction, x, this.heights[a], z, x, this.heights[d], z + this.step, x + this.step, this.heights[b], z);
+      const two = rayTriangle(origin, direction, x + this.step, this.heights[b], z, x, this.heights[d], z + this.step, x + this.step, this.heights[c], z + this.step);
       const hit = Math.min(one, two);
       if (hit >= enter - 1e-6 && hit <= Math.min(exit, nextX, nextZ) + 1e-6) { nearest = Math.min(nearest, hit); break; }
       if (nextX < nextZ) { enter = nextX; nextX += deltaX; ix += sx; } else { enter = nextZ; nextZ += deltaZ; iz += sz; }

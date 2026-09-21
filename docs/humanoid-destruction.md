@@ -3,7 +3,7 @@
 - Personagem: altura de aproximadamente 2,07 m, rosto e mãos contornados, cotovelos e joelhos articulados. A pele cósmica continua compartilhada em um material; corpo e detalhes usam dois draws.
 - Destruição: cidade real, chunks procedurais, árvores, landmarks, construções do Largo e aeroporto. IDs persistem entre níveis de detalhe; geometria agrupada é alterada sem criar um objeto por fragmento.
 - Terreno: crateras com fundo visível e colisão correspondente, incluindo mira e teleporte. Reconstrução restaura terreno e estruturas próximas.
-- Orçamento: até 256 crateras registradas / 32 próximas, raio máximo de 35 m, profundidade máxima de 20 m e uma malha de solo compartilhada. Os registros de crateras mais antigos são substituídos quando o limite é atingido. O impacto de voo deforma o solo no máximo uma vez a cada 120 ms. Escombros continuam em pools limitados.
+- Orçamento: até 256 crateras registradas / 32 próximas, raio máximo de 640 m, profundidade máxima de 180 m e uma malha de solo compartilhada. Os registros de crateras mais antigos são substituídos quando o limite é atingido. O impacto de voo deforma o solo no máximo uma vez a cada 120 ms. Escombros continuam em pools limitados.
 - Validação: `npm test`, `npm run build`, `npm run test:browser`. Para testar com a GPU disponível, defina `DR_BROWSER_GPU=1`; o padrão do smoke test usa SwiftShader. Não há garantia de 60 FPS em toda configuração de hardware.
 
 ## Floresta, trânsito e novos poderes
@@ -20,3 +20,9 @@
 - Laser e pulso escalam em largura, alcance e dano. A onda Q cresce com a altura e consulta os prédios carregados além do limite de colisores de movimento.
 - Demolições excedentes entram numa fila limitada e terminam ao longo dos quadros, em vez de perder os alvos após os primeiros 16 colapsos.
 - O horizonte usa até nove prédios pequenos por bloco, separados e com cinzas variados; as formas são calculadas uma vez e continuam no mesmo draw instanciado.
+
+## Laser visível e crateras gigantes
+
+- Laser contínuo com núcleo claro, halo pulsante, foco luminoso e anel animado no impacto. Os efeitos são reutilizados e somem ao desligar ou pausar.
+- A malha de crateras amplia sua cobertura de 512 m até 4.096 m conforme os impactos gigantes, mantendo a mesma quantidade de vértices e a colisão correspondente.
+- Exemplo: personagem de 200 m produz cratera de aproximadamente 147 m de diâmetro com o laser. Com 1 km, os pulsos podem abrir crateras com mais de 1 km de diâmetro.
