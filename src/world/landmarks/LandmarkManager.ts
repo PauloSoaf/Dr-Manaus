@@ -133,6 +133,8 @@ export class LandmarkManager {
     this.destruction.appendColliders(this.colliders, this.lastPlayer, 450);
   }
 
+  appendBlastColliders(out:Collider[],position:Vector3,radius:number):void{this.destruction.appendColliders(out,position,radius);}
+
   destroy(id: string): boolean {
     if (!this.destruction.destroy(id)) return false;
     for (let i = this.colliders.length - 1; i >= 0; i--) if (this.colliders[i].id === id) this.colliders.splice(i, 1);

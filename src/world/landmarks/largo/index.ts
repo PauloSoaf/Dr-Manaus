@@ -131,6 +131,8 @@ export class LargoDistrict {
     this.destruction.appendColliders(this.colliderList, this.lastPlayer, 450);
   }
 
+  appendBlastColliders(out:Collider[],position:Vector3,radius:number):void{this.destruction.appendColliders(out,position,radius);}
+
   destroy(id: string): boolean {
     if (!this.destruction.destroy(id)) return false;
     for (let i = this.colliderList.length - 1; i >= 0; i--) if (this.colliderList[i].id === id) this.colliderList.splice(i, 1);

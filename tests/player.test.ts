@@ -278,3 +278,19 @@ test('continuous laser stays visible between damage ticks and stops when paused 
  h.input.enabled=false;h.powers.update(.1,.1);assert.equal(h.root.getObjectByName('continuous-laser')!.visible,false);
  h.input.enabled=true;h.powers.use('laser');h.powers.update(.1,.1);assert.equal(h.powers.laserActive,false);h.powers.dispose();h.player.character.dispose();
 });
+
+test('giant laser starts beyond the forward hand, scales up, and the arm aims forward',()=>{
+ const h=harness();h.player.size=200/2.07;h.player.setSize(h.player.size);
+ h.camera.position.set(0,200,500);h.camera.lookAt(0,160,-3000);h.camera.updateMatrixWorld();
+ h.powers.use('laser');h.powers.update(.016,.016);
+ const beam=h.root.getObjectByName('continuous-laser')!;
+ const axis=new Vector3(0,1,0).applyQuaternion(beam.quaternion);
+ const muzzle=beam.position.clone().addScaledVector(axis,-beam.scale.y/2);
+ const wrist=new Vector3();h.player.character.rightHand.getWorldPosition(wrist);
+ assert.ok(axis.z<0);assert.ok(muzzle.z<h.player.position.z-.5*h.player.size);assert.ok(wrist.z<h.player.position.z-.4*h.player.size);assert.ok(beam.scale.x>6);
+ h.powers.dispose();h.player.character.dispose();
+});
+test('giant Q expands both the blast radius and damage rather than stopping at normal strength',()=>{
+ const calls:number[][]=[];const h=harness({damage:(_point,radius,amount)=>{calls.push([radius,amount]);return 0;}});
+ h.player.size=1000/2.07;h.powers.use('shockwave');assert.ok(calls[0][0]>1400);assert.ok(calls[0][1]>1000000);h.powers.dispose();h.player.character.dispose();
+});
