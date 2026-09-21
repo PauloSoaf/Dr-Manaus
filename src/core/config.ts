@@ -32,7 +32,7 @@ export const REAL_CITY = {
   /** The physical region is far smaller than the visible one at every flight speed. */
   maxColliders: 900,
   /** Levelled buildings remembered before the oldest is allowed to rebuild. */
-  maxDestroyed: 4000,
+  maxDestroyed: 65536,
 } as const;
 
 /** Structural damage, rubble and scorch. Metres, seconds and metres per second throughout. */

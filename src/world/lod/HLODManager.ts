@@ -13,10 +13,8 @@ const PONTA_COLORS = [0xcda77c, 0xd4c49e, 0x75969b, 0xb88770, 0x8ca3a0] as const
 const IRANDUBA_COLORS = [0x92a477, 0xb79d76, 0x718d7d, 0xc4ad83, 0x6f8671] as const;
 
 function distantColor(x: number, z: number, random: () => number): number {
-  const opposite = z >= shoreZ(x) + riverWidth(x) - 20;
-  const ponta = x < -6500 && z < -2200;
-  const palette = opposite ? IRANDUBA_COLORS : ponta ? PONTA_COLORS : CITY_COLORS;
-  return palette[Math.floor(random() * palette.length)];
+  const palette=[0x55595e,0x66696c,0x777b80,0x85898a,0x979994,0x6a7177];
+  return palette[Math.floor(random()*palette.length)];
 }
 
 /** Four instanced draws cover the city beyond the streamed neighbourhood.
@@ -195,7 +193,7 @@ export class HLODManager {
       const random = seededRandom(chunkSeed(x / 256, z / 256));
       for (let n = 0; n < 3; n++) {
         const px = x + 30 + random() * 190, pz = z + 30 + random() * 190;
-        const w = 25 + random() * 48, d = 20 + random() * 43;
+        const w = 12 + random() * 26, d = 10 + random() * 24;
         if (!buildingAllowed(px, pz, Math.max(w, d) * .55)) continue;
         this.aggregates.push({ x: px, z: pz, w, d, h: 7 + random() ** 4 * 40, color: distantColor(px, pz, random) });
       }
@@ -206,8 +204,8 @@ export class HLODManager {
       for (let n = 0; n < 3; n++) {
         const px = x + random() * 670, pz = z + random() * 670;
         if (!buildingAllowed(px, pz, 95)) continue;
-        this.horizons.push({ x: px, z: pz, w: 75 + random() * 150, d: 65 + random() * 150,
-          h: 8 + random() ** 3 * 50, color: distantColor(px, pz, random) });
+        this.horizons.push({ x: px, z: pz, w: 14 + random() * 24, d: 12 + random() * 22,
+          h: 5 + random() ** 3 * 28, color: distantColor(px, pz, random) });
       }
     }
   }

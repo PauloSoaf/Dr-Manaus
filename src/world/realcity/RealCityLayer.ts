@@ -1,3 +1,4 @@
+import { skylineBuildings } from './skyline';
 import { WORLD } from '../../core/config';
 import { isUrban } from '../geodata/geodata';
 import {
@@ -40,6 +41,7 @@ interface Tile {
   tx: number; tz: number;
   originX: number; originZ: number;
   cells: RealBuilding[][];
+  bounds:Map<string,Collider>;
   /** Per-cell near flag; changing it schedules a rebuild of both meshes. */
   near: boolean[];
   nearCount: number;
@@ -138,6 +140,7 @@ export class RealCityLayer {
   private skyline?: InstancedMesh;
   private skylineData = new Map<string, number[]>();
   private skylineDirty = true;
+  private readonly skylineShapes=new Map<string,ReturnType<typeof skylineBuildings>[]>();
   private enabled = false;
   private night = false;
   private detailEnabled = true;
@@ -235,7 +238,12 @@ export class RealCityLayer {
 
   private createSkyline(): void {
     let total = 0;
-    for (const blocks of this.skylineData.values()) total += blocks.length / 8;
+    for (const [key,blocks] of this.skylineData){
+      total+=blocks.length/8;const [tx,tz]=key.split(',').map(Number),size=this.manifest!.tileSize;
+      const shapes:ReturnType<typeof skylineBuildings>[]=[];
+      for(let p=0;p+7<blocks.length;p+=8)shapes.push(skylineBuildings(tx*size+blocks[p],tz*size+blocks[p+1],blocks[p+2],blocks[p+3],blocks[p+4]));
+      this.skylineShapes.set(key,shapes);
+    }
     if (!total) return;
     const geometry = new BufferGeometry();
     // A unit box with its base at y=0 so an instance scale is exactly the block's mass.
@@ -258,7 +266,7 @@ export class RealCityLayer {
     geometry.setAttribute('normal', new Float32BufferAttribute(normals, 3));
     const material = new MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 });
     material.name = 'real-city-skyline';
-    const mesh = new InstancedMesh(geometry, material, total);
+    const mesh = new InstancedMesh(geometry, material, total*9);
     mesh.name = 'real-city-skyline';
     mesh.frustumCulled = false;
     mesh.count = 0;
@@ -282,10 +290,10 @@ export class RealCityLayer {
       for (let p = 0; p + 7 < blocks.length; p += 8) {
         if (this.ruinedSkyline.get(key)?.has(p)) continue;
         if (index >= mesh.instanceMatrix.count) break;
-        matrix.makeScale(blocks[p + 2], blocks[p + 4], blocks[p + 3]);
-        matrix.setPosition(originX + blocks[p], 0, originZ + blocks[p + 1]);
-        mesh.setMatrixAt(index, matrix);
-        mesh.setColorAt(index++, color.setRGB(blocks[p + 5], blocks[p + 6], blocks[p + 7]));
+        for(const building of this.skylineShapes.get(key)![p/8]){
+          matrix.makeScale(building.width,building.height,building.depth);matrix.setPosition(building.x,0,building.z);
+          mesh.setMatrixAt(index,matrix);mesh.setColorAt(index++,color.setRGB(building.gray*.96,building.gray,building.gray*1.04));
+        }
       }
     }
     mesh.count = index;
@@ -300,6 +308,15 @@ export class RealCityLayer {
    * span is collapsed to a point in place and uploaded as a partial range, so razing a block at
    * mega speed costs a few hundred bytes of transfer instead of a seven-megabyte re-upload.
    */
+  /** Full loaded footprints for blasts; independent of the capped movement broadphase. */
+  appendBlastColliders(out:Collider[],point:Vector3,radius:number):void{
+    for(const tile of this.tiles.values())for(const [id,box] of tile.bounds){
+      if(this.destroyed.has(id)||Math.hypot(box.x-point.x,box.z-point.z)>radius+box.width)continue;
+      out.push(box);
+    }
+    if(this.roads)for(const box of this.roads.colliders)if(Math.hypot(box.x-point.x,box.z-point.z)<radius+10)out.push(box);
+  }
+
   destroy(colliderId: string): boolean {
     if (colliderId.startsWith('road:')) { const result = this.roads?.destroy(colliderId) ?? false; if (result) this.refreshColliders(); return result; }
     if (!this.enabled || !colliderId.startsWith('real:')) return false;
@@ -314,6 +331,8 @@ export class RealCityLayer {
       }
     }
     for (const tile of this.tiles.values()) {
+      const bounds=tile.bounds.get(id);if(!bounds)continue;
+      if(!this.destroyedRecords.has(id))this.recordRuin(id,tile.key,bounds);
       this.collapse(tile.detail, tile.detailRanges.get(id));
       this.collapse(tile.shell, tile.shellRanges.get(id));
       for (let i = tile.colliders.length - 1; i >= 0; i--) {
@@ -520,9 +539,11 @@ export class RealCityLayer {
       if (!packed?.buildings?.length || this.tiles.has(key)) return;
       const size = this.manifest.tileSize, cellSize = size / CELLS_PER_SIDE;
       const cells: RealBuilding[][] = Array.from({ length: CELLS_PER_SIDE * CELLS_PER_SIDE }, () => []);
+      const bounds=new Map<string,Collider>();
       for (const building of packed.buildings) {
         const extent = buildingExtent(building);
         if (!extent) continue;
+        bounds.set(building.id,{id:`real:${building.id}`,x:packed.tx*size+extent.x,y:extent.top/2,z:packed.tz*size+extent.z,width:extent.radius*1.414,height:extent.top,depth:extent.radius*1.414});
         const ix = Math.min(CELLS_PER_SIDE - 1, Math.max(0, Math.floor(extent.x / cellSize)));
         const iz = Math.min(CELLS_PER_SIDE - 1, Math.max(0, Math.floor(extent.z / cellSize)));
         cells[iz * CELLS_PER_SIDE + ix].push(building);
@@ -532,7 +553,7 @@ export class RealCityLayer {
       group.position.set(packed.tx * size, 0, packed.tz * size);
       const tile: Tile = {
         key, tx: packed.tx, tz: packed.tz, originX: group.position.x, originZ: group.position.z,
-        cells, near: new Array(cells.length).fill(false), nearCount: 0,
+        cells, bounds, near: new Array(cells.length).fill(false), nearCount: 0,
         group, colliders: [], detailRanges: new Map(), shellRanges: new Map(), touched: performance.now(),
       };
       this.group.add(group);
@@ -768,7 +789,7 @@ export class RealCityLayer {
       this.skyline.dispose();
       this.skyline = undefined;
     }
-    this.skylineData.clear();
+    this.skylineData.clear();this.skylineShapes.clear();
     setDistrictSampler(null);
     this.materials?.dispose();
     this.colliderList.length = 0;

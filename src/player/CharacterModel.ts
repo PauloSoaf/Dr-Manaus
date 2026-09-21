@@ -53,16 +53,23 @@ export class CharacterModel {
   get cosmicDiagnostics(){return {...this.cosmicSource?.diagnostics,...this.cosmicMaterial?.metrics,bodyDraws:2};}
   setCosmicLevel(level:CosmicLevel,speed:number,forward?:Vector3){this.level=level;this.levelSpeed=Number.isFinite(speed)?Math.max(0,speed):0;if(forward&&forward.lengthSq()>1e-6)this.facing.copy(forward);}
 
+  aimEnergy(direction:Vector3):void{
+    this.body.rotation.x=0;
+    this.rightArm.rotation.set(Math.PI/2+Math.asin(Math.max(-1,Math.min(1,direction.y))),0,0);
+    this.rightForearm.rotation.set(0,0,0);this.rightHand.rotation.set(0,0,0);
+    this.group.updateWorldMatrix(true,true);
+  }
+
   animate(dt:number,speed:number,flying:boolean,boost:boolean,pose:string){
     dt=Number.isFinite(dt)?Math.max(0,Math.min(.1,dt)):0;this.phase+=dt;
     const stride=flying?0:Math.min(1,speed/5),swing=Math.sin(this.phase*(speed>8?12:8))*stride*.62,smooth=1-Math.exp(-dt*10);
-    this.body.rotation.x+=((flying?(boost?-1.13:-.18):0)-this.body.rotation.x)*smooth;
+    this.body.rotation.x+=((flying&&pose!=='energy'?(boost?-1.13:-.18):0)-this.body.rotation.x)*smooth;
     this.body.position.y=flying?Math.sin(this.phase*2)*.055:Math.abs(Math.sin(this.phase*8))*stride*.025;
     this.leftLeg.rotation.x+=((flying?.13:swing)-this.leftLeg.rotation.x)*smooth;
     this.rightLeg.rotation.x+=((flying?-.09:-swing)-this.rightLeg.rotation.x)*smooth;
     let left=flying?-.12:-swing,right=flying?-.12:swing;
-    if(pose==='energy')right=-1.6;
-    if(['shockwave','reconstruct','teleport'].includes(pose)){left=-1.25;right=-1.25;}
+    if(pose==='energy')right=Math.PI/2;
+    if(['shockwave','reconstruct','teleport'].includes(pose)){left=1.25;right=1.25;}
     this.leftArm.rotation.x+=(left-this.leftArm.rotation.x)*smooth;this.rightArm.rotation.x+=(right-this.rightArm.rotation.x)*smooth;
     this.leftArm.rotation.z=flying||pose==='giant'?.23:.07;this.rightArm.rotation.z=flying||pose==='giant'?-.23:-.07;
     const bend=(bone:Bone,target:number)=>{bone.rotation.x+=(target-bone.rotation.x)*smooth;};

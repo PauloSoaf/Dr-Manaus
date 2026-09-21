@@ -13,3 +13,10 @@
 - **L** liga/desliga o laser contínuo. A malha é reutilizada e o dano é limitado a dez atualizações por segundo; abrir o menu suspende o disparo.
 - **G** alterna aproximadamente 2 m, 15 m, 46 m, 200 m, 500 m e 1 km. O contato dos pés destrói estruturas e árvores, atinge carros e deforma o solo, respeitando o orçamento de colapsos.
 - Os núcleos claros do vídeo cósmico são suprimidos; somente as estrelas procedurais pequenas produzem pontos brancos.
+
+## Correções de mira gigante e horizonte
+
+- Os disparos saem da mão, à frente do corpo; o braço aponta para a mira. O traçado da câmera começa além do personagem e um segundo traçado da mão impede atravessar paredes.
+- Laser e pulso escalam em largura, alcance e dano. A onda Q cresce com a altura e consulta os prédios carregados além do limite de colisores de movimento.
+- Demolições excedentes entram numa fila limitada e terminam ao longo dos quadros, em vez de perder os alvos após os primeiros 16 colapsos.
+- O horizonte usa até nove prédios pequenos por bloco, separados e com cinzas variados; as formas são calculadas uma vez e continuam no mesmo draw instanciado.

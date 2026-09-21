@@ -17,6 +17,7 @@ export interface PowerHooks {
   sound: (name: string) => void;
   getOrigin: () => Vector3;
   getColliders: () => readonly Collider[];
+  getAttackColliders?: (point:Vector3,radius:number)=>readonly Collider[];
   /**
    * Optional. Structural damage in a blast radius around a world point; returns how many
    * buildings collapsed. Absent, every power behaves exactly as it did before destruction.
@@ -156,42 +157,58 @@ export class PowerSystem {
     return best;
   }
 
+  /** Clear the hero before aiming; then trace from the hand so nearby walls still block fire. */
+  private aimBeam(reach:number){
+    this.cameraRay();const size=this.player.size;
+    const colliders=this.hooks.getAttackColliders?.(this.player.position,reach)??this.hooks.getColliders();
+    this.player.model.rotation.y=Math.atan2(-this.rayDirection.x,-this.rayDirection.z);
+    this.player.model.position.copy(this.player.position);this.player.model.scale.setScalar(size);
+    this.player.character.aimEnergy(this.rayDirection);
+    this.player.character.rightHand.getWorldPosition(this.emission);this.emission.add(this.hooks.getOrigin());
+    this.emission.addScaledVector(this.rayDirection,.25*size);
+    this.offset.copy(this.player.position);this.offset.y+=1.5*size;this.offset.sub(this.rayOrigin);
+    this.rayOrigin.addScaledVector(this.rayDirection,Math.max(0,this.offset.dot(this.rayDirection)+.8*size));
+    const aim=PhysicsWorld.raycast(this.rayOrigin,this.rayDirection,colliders,reach,0,true);
+    this.aimPoint.copy(aim?aim.point:this.rayOrigin).addScaledVector(this.rayDirection,aim?0:reach);
+    this.offset.subVectors(this.aimPoint,this.emission);
+    if(this.offset.dot(this.rayDirection)<=0)this.aimPoint.copy(this.emission).addScaledVector(this.rayDirection,reach);
+    this.offset.subVectors(this.aimPoint,this.emission).normalize();
+    const hit=PhysicsWorld.raycast(this.emission,this.offset,colliders,reach,0,true);
+    this.aimPoint.copy(hit?hit.point:this.emission).addScaledVector(this.offset,hit?0:reach);
+    return hit;
+  }
+
   private updateLaser(dt:number):void{
     this.laser.visible=this.laserActive&&this.input.enabled&&!this.teleporting;
     if(!this.laser.visible)return;
-    this.cameraRay();const reach=Math.max(1600,this.player.size*20);
-    const hit=PhysicsWorld.raycast(this.rayOrigin,this.rayDirection,this.hooks.getColliders(),reach,0,true);
-    this.aimPoint.copy(hit?hit.point:this.rayOrigin).addScaledVector(this.rayDirection,hit?0:reach);
-    this.emission.copy(this.player.position);this.emission.y+=1.45*this.player.size;
+    const hit=this.aimBeam(Math.max(1600,this.player.size*24));
     this.offset.subVectors(this.aimPoint,this.emission);const length=this.offset.length();
     this.laser.position.copy(this.emission).addScaledVector(this.offset,.5);
     this.laser.quaternion.setFromUnitVectors(this.laserAxis,this.offset.normalize());
-    const width=.07*Math.sqrt(this.player.size);this.laser.scale.set(width,length,width);
+    const width=.07*this.player.size;this.laser.scale.set(width,length,width);
     this.player.powerPose('energy',.15);this.laserTick-=dt;
-    if(this.laserTick<=0){this.laserTick=.1;if(hit)this.hooks.damage?.(this.aimPoint,3*Math.sqrt(this.player.size),220*Math.sqrt(this.player.size));}
+    if(this.laserTick<=0){this.laserTick=.1;if(hit)this.hooks.damage?.(this.aimPoint,3*Math.pow(this.player.size,.7),220*this.player.size);}
   }
 
   private energy(): void {
     this.cooldowns.energy = 0.25;
     this.player.powerPose('energy', 0.3);
-    this.emission.copy(this.player.position); this.emission.y += 1.4 * this.player.size;
-    const power = Math.sqrt(this.player.size);
+    const power = this.player.size;
     const target = this.acquireTarget();
-    this.player.model.rotation.y = Math.atan2(-this.rayDirection.x, -this.rayDirection.z);
-    const surface = PhysicsWorld.raycast(this.rayOrigin, this.rayDirection, this.hooks.getColliders(), 1600, 0, true);
+    const surface = this.aimBeam(Math.max(1600,this.player.size*24));
     let collapsed = 0;
     // A generous aim cone helps target small airborne anomalies in third person.
-    if (target && (!surface || target.position.distanceTo(this.rayOrigin) < surface.distance + target.radius + 3)) {
+    if (target && this.offset.subVectors(target.position,this.emission).dot(this.rayDirection)>this.player.size*.05 && (!surface || target.position.distanceTo(this.emission) < surface.distance + target.radius + 3)) {
       this.aimPoint.copy(target.position); this.hooks.hit(target.id, 38 * power); this.targetId = target.id;
     } else {
-      this.aimPoint.copy(surface ? surface.point : this.rayOrigin).addScaledVector(this.rayDirection, surface ? 0 : 1200);
+      // aimBeam already resolved the hit from the hand.
       // Only a beam that actually lands on a surface can cut into it; a shot at the sky does not.
-      if (surface) collapsed = this.hooks.damage?.(this.aimPoint, DESTRUCTION.beamRadius * power, DESTRUCTION.beamDamage * power) ?? 0;
+      if (surface) collapsed = this.hooks.damage?.(this.aimPoint, DESTRUCTION.beamRadius * Math.pow(power,.7), DESTRUCTION.beamDamage * power) ?? 0;
     }
-    this.effects.beam(this.emission, this.aimPoint, power * DESTRUCTION.beamThickness, 0x89ffe1, 1 + collapsed);
-    this.effects.burst(this.aimPoint, 0xb6ffe7, power * (1 + collapsed * 0.3), 18 + collapsed * 8);
+    this.effects.beam(this.emission, this.aimPoint, Math.pow(power,.6) * DESTRUCTION.beamThickness, 0x89ffe1, surface?1:0);
+    this.effects.burst(this.aimPoint, 0xb6ffe7, Math.sqrt(power) * (1 + Math.min(3,collapsed) * 0.3), 18 + collapsed * 8);
     this.hooks.sound('energy');
-    if (collapsed > 0) this.reportCollapse(collapsed, 0.55 * power);
+    if (collapsed > 0) this.reportCollapse(collapsed, Math.min(2,0.55 * power));
   }
 
   /** Held fire can level a block a second; the shake and the notice are rate limited, not the beam. */
@@ -204,7 +221,7 @@ export class PowerSystem {
 
   private shockwave(): void {
     this.cooldowns.shockwave = 2.4;
-    const radius = 48 * Math.sqrt(this.player.size);
+    const radius = 48 + (this.player.size-1)*3;
     this.player.powerPose('shockwave', 0.8);
     this.effects.wave(this.player.position, radius, 0x79ffcd, 1.15);
     this.effects.wave(this.player.position, radius * 0.75, 0xf4d296, 0.8);
@@ -216,7 +233,7 @@ export class PowerSystem {
       // The outer wave throws props; only its inner core disintegrates them.
       if (distance < radius && (target.kind === 'anomaly' || distance < radius * 0.23)) this.hooks.hit(target.id, 95 * Math.sqrt(this.player.size));
     }
-    const levelled = this.hooks.damage?.(this.player.position, radius, DESTRUCTION.shockwaveDamage * Math.sqrt(this.player.size)) ?? 0;
+    const levelled = this.hooks.damage?.(this.player.position, radius, DESTRUCTION.shockwaveDamage * this.player.size) ?? 0;
     this.hooks.sound('shockwave');
     window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: (0.7 + Math.min(1.1, levelled * 0.12)) * Math.sqrt(this.player.size) }));
     this.hooks.notify(levelled > 0 ? `Onda de choque · ${levelled} ${levelled === 1 ? 'estrutura arrasada' : 'estruturas arrasadas'}.` : 'Onda de choque · matéria repelida.');

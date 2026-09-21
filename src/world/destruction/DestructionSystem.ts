@@ -8,6 +8,7 @@ import { ScarField } from './ScarField';
 export interface DestructibleWorld {
   /** Every collider currently in the physics broadphase. */
   colliders(): readonly Collider[];
+  blastColliders?(point:Vector3,radius:number):readonly Collider[];
   /**
    * Permanently removes that building's geometry and collider from the world.
    * Returns false when the id is not destructible (landmarks, terrain, distant LOD).
@@ -30,6 +31,8 @@ export class DestructionSystem {
   private readonly group = new Group();
   private readonly debris: DebrisPool;
   private readonly scars: ScarField;
+  private readonly pending=new Map<string,{box:Collider;amount:number}>();
+  get pendingCount(){return this.pending.size;}
   private readonly entries = new Map<string, Damage>();
   /** Retired damage records, reused so a streaming city never churns the heap. */
   private readonly free: Damage[] = [];
@@ -59,6 +62,8 @@ export class DestructionSystem {
     this.frame++;
     this.time += dt;
     this.plough(playerPosition, playerVelocity, dt);
+    let budget=DESTRUCTION.maxCollapsesPerFrame;
+    for(const [id,queued] of this.pending){if(budget--<=0)break;this.pending.delete(id);this.apply(queued.box,queued.amount,true);}
     this.debris.update(dt, playerPosition);
     this.scars.update(dt);
     this.evictTimer -= dt;
@@ -72,7 +77,7 @@ export class DestructionSystem {
   damageAt(point: Vector3, radius: number, damage: number): number {
     if(!Number.isFinite(point.x+point.y+point.z+radius+damage)||radius<=0||damage<=0)return 0;
     this.world.deform?.(point,radius,damage);
-    const colliders = this.world.colliders();
+    const colliders = this.world.blastColliders?.(point,radius)??this.world.colliders();
     const radiusSq = radius * radius;
     let collapsed = 0;
     // Backwards: `destroy` is free to splice the live broadphase, and only entries above the
@@ -178,7 +183,12 @@ export class DestructionSystem {
     }
     entry.touched = this.time;
     entry.amount += amount;
-    if (entry.amount < entry.threshold || !allowCollapse) return false;
+    if(entry.amount<entry.threshold)return false;
+    if(!allowCollapse){
+      if(this.pending.size<65536||this.pending.has(id))this.pending.set(id,{box:{...box},amount:entry.amount});
+      return false;
+    }
+    this.pending.delete(id);
     if (!this.world.destroy(id)) {
       // Pool slots can hold another car later; a stale hit must not make that slot invulnerable.
       if(id.startsWith("traffic:")){this.entries.delete(id);this.recycle(entry);return false;}
@@ -244,7 +254,7 @@ export class DestructionSystem {
   dispose(): void {
     this.debris.dispose();
     this.scars.dispose();
-    this.entries.clear();
+    this.entries.clear();this.pending.clear();
     this.free.length = 0;
     this.group.removeFromParent();
   }
