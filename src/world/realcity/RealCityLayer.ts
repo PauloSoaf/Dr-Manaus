@@ -154,6 +154,11 @@ export class RealCityLayer {
     detailTriangles: 0, shellTriangles: 0, skyline: 0, roadTriangles: 0, enabled: false,
   };
 
+  private minTx = Infinity;
+  private maxTx = -Infinity;
+  private minTz = Infinity;
+  private maxTz = -Infinity;
+
   constructor(private readonly root: Group) {
     this.group.name = 'real-city-overture';
     root.add(this.group);
@@ -177,7 +182,19 @@ export class RealCityLayer {
       this.manifest = manifest;
       this.enabled = true;
       this.metrics.enabled = true;
-      for (const key of Object.keys(manifest.tiles)) this.realTiles.add(key);
+      let minTx = Infinity, maxTx = -Infinity, minTz = Infinity, maxTz = -Infinity;
+      for (const key of Object.keys(manifest.tiles)) {
+        this.realTiles.add(key);
+        const comma = key.indexOf(',');
+        if (comma > 0) {
+          const tx = Number(key.slice(0, comma)), tz = Number(key.slice(comma + 1));
+          if (tx < minTx) minTx = tx;
+          if (tx > maxTx) maxTx = tx;
+          if (tz < minTz) minTz = tz;
+          if (tz > maxTz) maxTz = tz;
+        }
+      }
+      this.minTx = minTx; this.maxTx = maxTx; this.minTz = minTz; this.maxTz = maxTz;
       this.materials = new RealCityMaterials();
       this.materials.setNight(this.night);
       this.hideLegacyRoads();
@@ -750,7 +767,14 @@ export class RealCityLayer {
   coversChunk(cx: number, cz: number): boolean {
     if (!this.enabled || !this.manifest) return false;
     const ratio = this.manifest.tileSize / this.manifest.proceduralChunkSize;
-    return this.realTiles.has(`${Math.floor(cx / ratio)},${Math.floor(cz / ratio)}`);
+    const tx = Math.floor(cx / ratio), tz = Math.floor(cz / ratio);
+    if (this.realTiles.has(`${tx},${tz}`)) return true;
+    if (tx >= this.minTx && tx <= this.maxTx && tz >= this.minTz && tz <= this.maxTz) {
+      const wx = (cx + .5) * this.manifest.proceduralChunkSize;
+      const wz = (cz + .5) * this.manifest.proceduralChunkSize;
+      if (isUrban(wx, wz)) return true;
+    }
+    return false;
   }
 
   /** Called on the streamer's chunk groups so generated blocks never stack on real footprints. */
@@ -796,6 +820,7 @@ export class RealCityLayer {
     this.destroyed.clear(); this.destroyedOrder.length = 0; this.touchedGeometry.clear();
     this.destroyedRecords.clear(); this.ruinedSkyline.clear(); this.colliderCandidates.length = 0;
     this.realTiles.clear();
+    this.minTx = Infinity; this.maxTx = -Infinity; this.minTz = Infinity; this.maxTz = -Infinity;
     this.group.removeFromParent();
   }
 }

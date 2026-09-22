@@ -33,6 +33,7 @@ export class WorldStreamer {
   private drawBounds = false;
   private debugDirty = false;
   private generationError: Error | null = null;
+  private replacesChunk?: (cx: number, cz: number) => boolean;
   /** Levelled procedural buildings, so a chunk rebuild never resurrects one. */
   private readonly destroyed = new Set<string>();
   private readonly destroyedOrder: string[] = [];
@@ -45,6 +46,27 @@ export class WorldStreamer {
     this.boundsGeometry = new EdgesGeometry(box); box.dispose();
   }
   async initialize(): Promise<void> { await this.prepare(new Vector3(WORLD.spawn.x, WORLD.spawn.y, WORLD.spawn.z)); }
+
+  setReplacesChunk(fn: (cx: number, cz: number) => boolean): void {
+    this.replacesChunk = fn;
+    for (const key of this.active) {
+      const chunk = this.records.get(key);
+      if (chunk?.group && fn(chunk.cx, chunk.cz)) {
+        this.suppressProceduralGroup(chunk.group);
+        chunk.colliders = [];
+      }
+    }
+    this.refreshColliders();
+  }
+
+  private suppressProceduralGroup(group: Group): void {
+    for (const object of group.children) {
+      if (object.name === 'facades' || object.name === 'terracotta-roofs' || object.name === 'sidewalks'
+        || object.name === 'tree-trunks' || object.name === 'tropical-canopy') {
+        object.visible = false;
+      }
+    }
+  }
 
   get colliders(): Collider[] { return this.colliderList; }
   get activeKeys(): ReadonlySet<string> { return this.active; }
@@ -180,6 +202,10 @@ export class WorldStreamer {
         chunk.group = built.group; chunk.colliders = built.colliders; chunk.bytes = built.bytes;
         if (this.destroyed.size) for (const collider of built.colliders) if (this.destroyed.has(collider.id ?? '')) this.collapse(chunk, collider.id!);
         chunk.colliders = chunk.colliders.filter(collider => !this.destroyed.has(collider.id ?? ''));
+      }
+      if (chunk.group && this.replacesChunk?.(chunk.cx, chunk.cz)) {
+        this.suppressProceduralGroup(chunk.group);
+        chunk.colliders = [];
       }
       if (chunk.group) this.root.add(chunk.group);
       chunk.state = ChunkState.ACTIVE; chunk.touched = this.clock; this.active.add(chunk.key); changed = true; activated++;
