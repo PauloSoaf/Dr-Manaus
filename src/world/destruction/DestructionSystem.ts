@@ -58,10 +58,10 @@ export class DestructionSystem {
   }
 
   /** Call once per frame. Drives the high-speed ram, the rubble and the scorch in that order. */
-  update(dt: number, playerPosition: Vector3, playerVelocity: Vector3): void {
+  update(dt: number, playerPosition: Vector3, playerVelocity: Vector3, running = false): void {
     this.frame++;
     this.time += dt;
-    this.plough(playerPosition, playerVelocity, dt);
+    if (!running) this.plough(playerPosition, playerVelocity, dt);
     let budget=DESTRUCTION.maxCollapsesPerFrame;
     for(const [id,queued] of this.pending){if(budget--<=0)break;this.pending.delete(id);this.apply(queued.box,queued.amount,true);}
     this.debris.update(dt, playerPosition);
@@ -107,8 +107,8 @@ export class DestructionSystem {
    * Idempotent per frame: `update` already ran it, so a second call returns the same count
    * instead of scanning the collider list twice.
    */
-  plough(position: Vector3, velocity: Vector3, dt: number): number {
-    if (this.ploughFrame === this.frame) return this.ploughCount;
+  plough(position: Vector3, velocity: Vector3, dt: number, running = false): number {
+    if (!running && this.ploughFrame === this.frame) return this.ploughCount;
     this.ploughFrame = this.frame;
     this.ploughCount = 0;
     if (dt <= 0) return 0;
@@ -117,7 +117,7 @@ export class DestructionSystem {
     // The sweep is capped in metres so a stall or a teleport cannot turn one frame into a
     // kilometre-long scan; damage stays proportional to the real dt either way.
     const travel = Math.min(speed * dt, DESTRUCTION.ploughMaxSweep);
-    if(this.time-this.lastDeformation>=.12){this.world.deform?.(position,Math.min(22,4+speed*.003),speed*dt);this.lastDeformation=this.time;}
+    if(!running && this.time-this.lastDeformation>=.12){this.world.deform?.(position,Math.min(22,4+speed*.003),speed*dt);this.lastDeformation=this.time;}
     const inverse = 1 / speed;
     const dirX = velocity.x * inverse, dirY = velocity.y * inverse, dirZ = velocity.z * inverse;
     const radius = Math.min(DESTRUCTION.ploughMaxRadius, DESTRUCTION.ploughRadius + speed * DESTRUCTION.ploughRadiusPerSpeed);
@@ -156,7 +156,7 @@ export class DestructionSystem {
       if (enter > leave) continue;
       // Damage per metre actually driven through the mass, not per frame: halving the frame
       // time halves each segment and the total over a traversal is unchanged.
-      const amount = DESTRUCTION.ploughDamage * speed * (leave - enter);
+      const amount = running ? DESTRUCTION.maxHealth * 2 : DESTRUCTION.ploughDamage * speed * (leave - enter);
       if (this.apply(box, amount, collapsed < DESTRUCTION.maxCollapsesPerFrame)) collapsed++;
       hits++;
     }
