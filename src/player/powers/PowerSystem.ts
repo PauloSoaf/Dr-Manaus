@@ -6,6 +6,9 @@ import { CharacterModel } from '../CharacterModel';
 import type { InputController } from '../InputController';
 import type { PlayerController } from '../PlayerController';
 import { EffectPool } from './EffectPool';
+import { COMBAT_MOVES } from '../combat/CombatMoves';
+import { SoftTargeting, type SoftTargetCandidate } from '../combat/SoftTargeting';
+import { HitStopSystem } from '../combat/HitStopSystem';
 
 export interface PowerHooks {
   targets: () => readonly Target[];
@@ -107,22 +110,71 @@ export class PowerSystem {
     this.updateLaser(realDt);
   }
 
+  readonly hitStop = new HitStopSystem();
+  private previousHandPosition = new Vector3();
+  private activeCombatMoveId: string | null = null;
+  private softTargetAssistAngle = 0;
+  private softTargetId: string | null = null;
+
+  get softTargetInfo(): { id: string | null; angleDeg: number } {
+    return { id: this.softTargetId, angleDeg: this.softTargetAssistAngle };
+  }
+
   use(name: string): void {
     if (!(name in this.cooldowns)) return;
     this.selected = name;
     if (this.cooldowns[name] > 0 || this.teleporting) return;
     switch (name) {
-      case 'punch': case 'kick':
+      case 'punch': case 'kick': {
         if (this.meleePending || this.cooldowns.punch > 0 || this.cooldowns.kick > 0) break;
         this.laserActive = false;
-        this.cooldowns[name] = name === 'kick' ? .65 : .52;
-        this.player.powerPose(name === 'kick'
-          ? ['kick', 'kickSide', 'kickRound'][this.kickIndex++ % 3]
-          : ['punch', 'punchCross', 'punchUpper'][this.punchIndex++ % 3], name === 'kick' ? .55 : .42);
+        this.cooldowns[name] = name === 'kick' ? 0.65 : 0.52;
+
+        const flying = this.player.state !== 'Grounded';
+        const speed = this.player.velocity.length();
         this.camera.getWorldDirection(this.rayDirection);
+
+        let moveId = 'punch';
+        if (flying && speed >= 800) {
+          moveId = 'kineticStrike';
+        } else if (flying && speed > 10 && this.rayDirection.y < -0.45 && name === 'punch') {
+          moveId = 'meteorPunch';
+        } else if (flying && speed > 20 && name === 'punch') {
+          moveId = 'flyingPunch';
+        } else if (flying && speed > 20 && name === 'kick') {
+          moveId = 'flyingKick';
+        } else if (name === 'kick') {
+          moveId = ['kick', 'kickSide', 'kickRound'][this.kickIndex++ % 3];
+        } else {
+          moveId = ['punch', 'punchCross', 'punchUpper'][this.punchIndex++ % 3];
+        }
+
+        this.activeCombatMoveId = moveId;
+        const move = COMBAT_MOVES[moveId] ?? COMBAT_MOVES.punch;
+        this.player.powerPose(moveId, move.startup + move.active + move.recovery);
+        this.player.character.startCombatMove(move);
+
+        // Soft targeting assistance: nudges rayDirection gently within assist cone
+        const candidates: SoftTargetCandidate[] = this.hooks.targets()
+          .filter(t => t.active)
+          .map(t => ({ id: t.id, position: t.position, radius: t.radius, priority: t.kind === 'anomaly' ? 80 : 50 }));
+
+        const assist = SoftTargeting.findTarget(
+          this.player.position,
+          this.rayDirection,
+          candidates,
+          Math.max(60, move.radius * 12 * this.player.size),
+          this.hooks.getColliders()
+        );
+
+        this.rayDirection.copy(assist.assistedDirection);
+        this.softTargetAssistAngle = assist.assistAngleDeg;
+        this.softTargetId = assist.target?.id ?? null;
+
         this.player.model.rotation.y = Math.atan2(-this.rayDirection.x, -this.rayDirection.z);
-        this.meleePending = { kind: name, time: name === 'kick' ? .22 : .13 };
+        this.meleePending = { kind: name, time: move.startup };
         break;
+      }
       case 'laser': this.laserActive=!this.laserActive;this.hooks.notify(this.laserActive?'Laser continuo ativo - L para desligar.':'Laser desligado.');break;
       case 'energy': this.energy(); break;
       case 'teleport': this.updateDestination(); if (this.destinationValid) void this.teleportTo(this.destination.clone()); else this.hooks.notify('Aponte para uma superfície a até 2,5 km.'); break;
@@ -162,28 +214,88 @@ export class PowerSystem {
   }
 
   private meleeHit(kind: 'punch' | 'kick'): void {
-    const size = this.player.size, reach = (kind === 'kick' ? 3 : 2.2) * size;
+    const size = this.player.size;
+    const impactSpeed = this.player.velocity.length();
+    const normalizedSpeed = Math.min(15, impactSpeed / 200);
+    const speedFactor = 1 + Math.pow(normalizedSpeed, 1.2) * 0.5;
+    const speedRadiusFactor = 1 + Math.min(3.5, Math.pow(normalizedSpeed, 0.8) * 0.35);
+
+    // Reach includes swept velocity allowance to eliminate tunneling at supersonic speeds
+    const baseReach = (kind === 'kick' ? 3 : 2.2) * size;
+    const sweptReach = baseReach + Math.min(60, impactSpeed * 0.05);
+
     this.camera.getWorldDirection(this.rayDirection);
-    this.rayDirection.y = Math.max(-.65, Math.min(.65, this.rayDirection.y)); this.rayDirection.normalize();
-    this.emission.copy(this.player.position); this.emission.y += (kind === 'kick' ? .9 : 1.5) * size;
-    const colliders = this.hooks.getAttackColliders?.(this.emission, reach) ?? this.hooks.getColliders();
-    const hit = PhysicsWorld.raycast(this.emission, this.rayDirection, colliders, reach, .2 * size, true);
-    let distance = hit?.distance ?? reach;
+    // If soft target was acquired, re-apply assisted direction
+    if (this.softTargetId) {
+      const candidates: SoftTargetCandidate[] = this.hooks.targets()
+        .filter(t => t.active)
+        .map(t => ({ id: t.id, position: t.position, radius: t.radius, priority: 60 }));
+      const assist = SoftTargeting.findTarget(this.player.position, this.rayDirection, candidates, sweptReach * 1.5);
+      this.rayDirection.copy(assist.assistedDirection);
+    }
+
+    this.rayDirection.y = Math.max(-0.95, Math.min(0.95, this.rayDirection.y));
+    this.rayDirection.normalize();
+
+    this.emission.copy(this.player.position);
+    this.emission.y += (kind === 'kick' ? 0.9 : 1.5) * size;
+
+    // Swept segment check: between previousHandPosition and current emission
+    const colliders = this.hooks.getAttackColliders?.(this.emission, sweptReach) ?? this.hooks.getColliders();
+    let hit = PhysicsWorld.raycast(this.emission, this.rayDirection, colliders, sweptReach, 0.2 * size, true);
+
+    // If previous hand position exists and high speed, also sweep from previous to current
+    if (!hit && this.previousHandPosition.lengthSq() > 1 && impactSpeed > 200) {
+      const sweepDir = new Vector3().subVectors(this.emission, this.previousHandPosition);
+      const sweepDist = sweepDir.length();
+      if (sweepDist > 0.1 && sweepDist < 120) {
+        sweepDir.normalize();
+        hit = PhysicsWorld.raycast(this.previousHandPosition, sweepDir, colliders, sweepDist, 0.3 * size, true);
+      }
+    }
+    this.previousHandPosition.copy(this.emission);
+
+    let distance = hit?.distance ?? sweptReach;
     let target: Target | undefined;
     for (const candidate of this.hooks.targets()) {
       if (!candidate.active) continue;
       this.offset.subVectors(candidate.position, this.emission);
       const along = this.offset.dot(this.rayDirection);
-      if (along < 0 || along - candidate.radius > distance || along > reach) continue;
-      if (this.offset.lengthSq() - along * along > (candidate.radius + .25 * size) ** 2) continue;
-      distance = Math.max(0, along - candidate.radius); target = candidate;
+      if (along < 0 || along - candidate.radius > distance || along > sweptReach) continue;
+      if (this.offset.lengthSq() - along * along > (candidate.radius + 0.25 * size) ** 2) continue;
+      distance = Math.max(0, along - candidate.radius);
+      target = candidate;
     }
+
     if (!hit && !target) return;
+
     this.aimPoint.copy(this.emission).addScaledVector(this.rayDirection, distance);
-    if (target) this.hooks.hit(target.id, 150 * size);
-    this.hooks.damage?.(this.aimPoint, (kind === 'kick' ? 1.2 : .7) * size, 30000 * size);
-    this.effects.burst(this.aimPoint, 0xaaffed, Math.min(30, size), 24);
-    this.hooks.impulse(this.aimPoint, 2 * size, 24 * size); this.hooks.sound('energy');
+
+    const isKinetic = this.activeCombatMoveId === 'kineticStrike' || impactSpeed >= 800;
+    const isMeteor = this.activeCombatMoveId === 'meteorPunch';
+    const baseDamage = isKinetic ? 120000 : isMeteor ? 85000 : (kind === 'kick' ? 38000 : 30000);
+    const damageAmount = baseDamage * size * speedFactor;
+    const blastRadius = (isKinetic ? 3.5 : isMeteor ? 2.5 : (kind === 'kick' ? 1.2 : 0.7)) * size * speedRadiusFactor;
+
+    if (target) this.hooks.hit(target.id, 150 * size * speedFactor);
+    this.hooks.damage?.(this.aimPoint, blastRadius, damageAmount);
+
+    if (isKinetic) {
+      this.effects.wave(this.aimPoint, 24 * size);
+      this.effects.burst(this.aimPoint, 0x8fffee, Math.min(50, 16 * size), 56);
+      this.hooks.impulse(this.aimPoint, 5 * size, 80 * size);
+      this.hitStop.trigger(65);
+    } else if (isMeteor) {
+      this.effects.wave(this.aimPoint, 18 * size);
+      this.effects.burst(this.aimPoint, 0xffd270, Math.min(40, 12 * size), 44);
+      this.hooks.impulse(this.aimPoint, 4 * size, 55 * size);
+      this.hitStop.trigger(50);
+    } else {
+      this.effects.burst(this.aimPoint, 0xaaffed, Math.min(30, size), 24);
+      this.hooks.impulse(this.aimPoint, 2 * size, 24 * size);
+      this.hitStop.trigger(kind === 'kick' ? 30 : 20);
+    }
+    this.hooks.sound('energy');
   }
 
   private updateDestination(): void {

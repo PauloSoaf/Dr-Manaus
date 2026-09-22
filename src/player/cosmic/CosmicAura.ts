@@ -5,7 +5,7 @@ const OPACITY: Record<CosmicLevel, number> = { idle: 0, flight: 0.025, power: 0.
 
 /**
  * A restrained energy accent, separate from the universe rendered inside the body material.
- * Two narrow incomplete arcs share one immutable geometry; there is no surrounding particle skin.
+ * Scales visually with character size for giant and titanic forms.
  */
 export class CosmicAura {
   readonly mesh: Mesh<BufferGeometry, MeshBasicMaterial>;
@@ -35,13 +35,30 @@ export class CosmicAura {
     parent.add(this.mesh);
   }
 
-  update(dt: number, level: CosmicLevel, _speed: number, _forward: Vector3): void {
+  update(dt: number, level: CosmicLevel, _speed: number, _forward: Vector3, size = 1): void {
     if (this.disposed) return;
     const step = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), 0.1) : 0;
     this.elapsed += step;
-    const target = OPACITY[level] ?? 0;
+
+    // Scale visual aura according to form:
+    // 15m (size ~7) -> subtle boost
+    // 46m (size ~22) -> stronger field
+    // 200m (size ~100) -> energy field
+    // 500m (size ~250) -> huge field
+    // 1000m (size ~500) -> titanic field
+    const sizeMultiplier = size > 4 ? 1 + Math.min(3.5, Math.log10(size) * 0.8) : 1;
+    const target = (OPACITY[level] ?? (size > 10 ? 0.03 : 0)) * sizeMultiplier;
+
     this.mesh.material.opacity += (target - this.mesh.material.opacity) * (1 - Math.exp(-step * 6));
     this.mesh.rotation.y = this.elapsed * 0.3;
+
+    if (size > 4) {
+      const auraScale = 1 + Math.min(2.5, Math.pow(size, 0.25) * 0.4);
+      this.mesh.scale.set(auraScale, auraScale, auraScale);
+    } else {
+      this.mesh.scale.set(1, 1, 1);
+    }
+
     this.mesh.visible = this.mesh.material.opacity > 0.003;
   }
 
