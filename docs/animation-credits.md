@@ -1,45 +1,49 @@
-# Character animations
+# Player character and animation pipeline
 
-Walk, sprint, airborne jump, jump start (vault), jab and cross keyframes: Quaternius, Universal Animation Library Standard & Universal Animation Library 2, CC0 1.0.
+The shipped player asset is `public/assets/player/dr-manaus-character.glb`. It contains the native **Superhero Male FullBody** mesh from Quaternius Universal Base Characters, one 65-joint skeleton, and the selected gameplay animations. The runtime does not recreate bones, skin weights, or bind matrices.
 
-- Author: https://quaternius.com/packs/universalanimationlibrary.html
-- Universal Animation Library 2: https://quaternius.com/packs/universalanimationlibrary2.html
-- Original downloads: https://opengameart.org/content/universal-animation-library
-- Secondary reference (CC0): [KayKit Character Animations](https://opengameart.org/content/kaykit-character-animations)
-- License: https://creativecommons.org/publicdomain/zero/1.0/
+## Asset sources
 
-## Animation Architecture & Layered AnimationController
+- **Universal Base Characters (Standard)** by Quaternius supplies the adult Superhero Male mesh, skeleton, weights, and bind pose.
+- **Universal Animation Library (Standard)** and **Universal Animation Library 2 (Standard)** by Quaternius supply locomotion, jumping, parkour, punches, hit reactions, and utility clips.
+- **Ultimate Modular Men Pack** by Quaternius supplies the authored `Kick_Left` and `Kick_Right` clips. The Standard UAL downloads do not contain kicks, so no unrelated slide, roll, or hook is relabelled as one.
+- The Quaternius download pages identify these game assets as free for personal and commercial projects. The source downloads used for this build include their license files and stay under the ignored `artifacts/animations/source` directory.
 
-`src/player/animations/AnimationController.ts` orchestrates skeletal pose composition through decoupled layers:
-1. **BaseLocomotionLayer**: Walk, run, sprint cadence scaled with character size ($cadence \propto 1 / \sqrt{size}$).
-2. **JumpLayer**: Grounded -> JumpRise -> JumpApex -> DoubleJumpFlip -> Fall -> Landing. Double Jump executes an agile 360° flip with decoupled physics (the collision capsule stays upright; the visual mesh completes a mathematically exact identity rotation with 0 cumulative quaternion drift). Flip duration scales moderately with scale ($duration \propto size^{0.16}$).
-3. **FlightLayer**: Full 3D aerodynamic orientation driven by velocity vector ($forward = \text{normalize}(velocity)$) with roll banking. Flight poses:
-   - Hover (Parade Rest: hands meet behind hips, straight legs, vertical posture).
-   - Fast / Super / Mega: aerodynamic forward alignment, stabilized limbs, expanded cosmic aura.
-   - Braking & Takeoff launch transitions.
-4. **CombatLayer & Bone Masking**: Data-oriented combat state machine (`CombatMove`) supporting concurrent flight and combat:
-   - In flight, the upper body plays punches/strikes while the lower body and hips maintain flight vector orientation.
-   - Attacks include Flying Punch, Flying Kick, Meteor Punch (downward aerial dive causing ground craters), and Kinetic Strike (at velocities $> 800$ m/s with supersonic shockwave ring, debris, and structural damage).
-   - Swept attack collision between previous hand position and current hand position prevents tunneling through buildings at supersonic speeds.
-5. **AdditiveLayer**: Breathing micro-motion and subtle head tracking.
-6. **TitanLayer & TitanGroundSupport**:
-   - Footprint area support and grace periods prevent giant/titan forms from triggering false fall animations when crushing buildings underfoot.
-   - Visual fall animation for titans is only triggered when vertical velocity is strongly negative and fall distance exceeds $15\%$ of character height.
-   - Titan footsteps trigger swept footstep volume crushing and seismic camera impulses on contact keyframes.
+## Build architecture
 
-## Soft Targeting & Hit Stop
+`scripts/build-player-character.mjs` performs all retargeting once at build time:
 
-- `src/player/combat/SoftTargeting.ts`: Subtle assist cone ($10^\circ \text{ to } 18^\circ$) scoring targets by angle, distance, and priority (enemy > destructible target > vehicle > building) without hard lock-on or snapping camera rotation.
-- `src/player/combat/HitStopSystem.ts`: Impact weight simulation using brief local combat freezes ($15\text{ms}$ light punch, $30\text{ms}$ heavy kick, $50\text{ms}$ meteor punch, $65\text{ms}$ kinetic strike) without pausing world streaming or physics maintenance.
+1. Loads Superhero Male as the canonical mesh and rig.
+2. Loads only the selected UAL1 and UAL2 clips.
+3. Converts each source rest-pose rotation into the canonical character rest pose.
+4. Redirects every animation channel to the canonical bone with the same name.
+5. Samples and world-space retargets the two CC0 FBX kick clips to the same canonical rig.
+6. Removes duplicate scenes, rigs, materials, textures, and unused properties.
+7. Writes one final GLB for `GLTFLoader` and `AnimationMixer`.
 
-## Regenerate from the Standard ZIP
+The duplicate-rig canonicalization follows the technique documented by Station Sciences in `bot-crossing/tools/build-crew.mjs`. The runtime crossfade and one-shot queue follow the public `kaykit_char` examples: both actions are enabled and played before `crossFadeTo`, while `LoopOnce` completion returns to locomotion through the mixer's `finished` event.
 
-```sh
-node scripts/import-quaternius.mjs "path/to/AnimationLibrary_Godot_Standard.glb"
+At runtime, `CharacterAsset.ts` clones the native skinned scene with `SkeletonUtils`, and `CharacterModel.ts` replaces each skinned mesh material with the one shared `CosmicMaterial`. `visualRoot` owns scale and sole alignment. `flightRoot` owns flight orientation and the external double-jump rotation. The animation mixer alone owns skeleton transforms.
+
+## Validation
+
+Run:
+
+```text
+npm run assets:player
+npm run validate:player
+npm test
+npm run build
 ```
 
-## Hover posture and fast-flight camera references
+The Animation Lab is available at `?animationLab=1` and includes a ground grid, skeleton helper, clip selector, play/pause, speed, scrubber, and front/side/back views.
 
-- Free posture reference: [Parade Rest, EJ Hersom / US Department of Defense](https://commons.wikimedia.org/wiki/File:Parade_Rest_(14712101932).jpg), marked public domain on Commons. Used as a posture reference; the photograph is not packaged in the game. Arms are solved to meet behind the lower back, with symmetric shoulders and separated, straight legs.
-- [Unity Cinemachine Third Person Follow](https://docs.unity.cn/Packages/com.unity.cinemachine@3.1/manual/CinemachineThirdPersonFollow.html): subject-relative distance and damped camera rig.
-- [Unreal Spring Arm](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/USpringArmComponent): bounded camera lag and collision handling.
+References:
+
+- https://quaternius.com/packs/universalbasecharacters.html
+- https://quaternius.com/packs/universalanimationlibrary.html
+- https://quaternius.com/packs/universalanimationlibrary2.html
+- https://quaternius.com/packs/ultimatemodularcharacters.html
+- https://github.com/sketchpunklabs/kaykit_char
+- https://github.com/Station-Sciences/bot-crossing
+- https://threejs.org/examples/webgl_animation_skinning_blending.html

@@ -1,32 +1,3 @@
-import type { Quaternion, Vector3 } from 'three/webgpu';
-
-export type BoneId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18;
-
-/**
- * 19 Humanoid bones used by DR Manaus skeleton:
- */
-export const BONES = {
-  HIPS: 0,
-  SPINE: 1,
-  CHEST: 2,
-  NECK: 3,
-  HEAD: 4,
-  LEFT_SHOULDER: 5,
-  LEFT_ARM: 6,
-  LEFT_FOREARM: 7,
-  LEFT_HAND: 8,
-  RIGHT_SHOULDER: 9,
-  RIGHT_ARM: 10,
-  RIGHT_FOREARM: 11,
-  RIGHT_HAND: 12,
-  LEFT_LEG: 13,
-  LEFT_SHIN: 14,
-  LEFT_FOOT: 15,
-  RIGHT_LEG: 16,
-  RIGHT_SHIN: 17,
-  RIGHT_FOOT: 18,
-} as const;
-
 export type BoneMaskName =
   | 'FULL_BODY'
   | 'UPPER_BODY'

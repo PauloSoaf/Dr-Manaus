@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Group, PerspectiveCamera, Vector3, Quaternion, Bone } from 'three/webgpu';
+import { Group, PerspectiveCamera, Vector3, Quaternion } from 'three/webgpu';
 import { AnimationController } from '../src/player/animations/AnimationController.ts';
 import { computeFlightOrientation } from '../src/player/animations/FlightOrientation.ts';
-import { BoneMask } from '../src/player/animations/BoneMask.ts';
 import { AnimationEvents } from '../src/player/animations/AnimationEvents.ts';
 import { COMBAT_MOVES } from '../src/player/combat/CombatMoves.ts';
 import { HitStopSystem } from '../src/player/combat/HitStopSystem.ts';
@@ -14,10 +13,6 @@ import { PlayerController } from '../src/player/PlayerController.ts';
 import { PowerSystem, type PowerHooks } from '../src/player/powers/PowerSystem.ts';
 import type { InputController } from '../src/player/InputController.ts';
 import type { Target, Collider } from '../src/core/types.ts';
-
-function mockBones(): Bone[] {
-  return Array.from({ length: 19 }, () => new Bone());
-}
 
 function mockInput() {
   const held = new Set<string>();
@@ -35,23 +30,6 @@ function mockInput() {
   } as unknown as InputController;
   return { input, held, edges };
 }
-
-test('bone masks isolate correct limbs', () => {
-  // Upper body includes spine (1), arms (6, 10), forearms (7, 11), hands (8, 12), but NOT legs (13, 16) or hips (0)
-  assert.equal(BoneMask.affects('UPPER_BODY', 0), false);
-  assert.equal(BoneMask.affects('UPPER_BODY', 1), true);
-  assert.equal(BoneMask.affects('UPPER_BODY', 2), true);
-  assert.equal(BoneMask.affects('UPPER_BODY', 6), true);
-  assert.equal(BoneMask.affects('UPPER_BODY', 10), true);
-  assert.equal(BoneMask.affects('UPPER_BODY', 13), false);
-  assert.equal(BoneMask.affects('UPPER_BODY', 16), false);
-
-  // Legs mask affects only 13, 14, 15, 16, 17, 18
-  assert.equal(BoneMask.affects('LEGS', 0), false);
-  assert.equal(BoneMask.affects('LEGS', 1), false);
-  assert.equal(BoneMask.affects('LEGS', 13), true);
-  assert.equal(BoneMask.affects('LEGS', 17), true);
-});
 
 test('AnimationEvents trigger exactly once per cycle and not again during recovery', () => {
   const events = new AnimationEvents();
@@ -87,7 +65,7 @@ test('AnimationEvents trigger exactly once per cycle and not again during recove
 
 test('DoubleJump executes 360 degree rotation and terminates with strictly identity quaternion', () => {
   const controller = new AnimationController();
-  const bones = mockBones();
+  const bones = [];
   const params = {
     speed: 0,
     verticalSpeed: 5,
@@ -106,13 +84,12 @@ test('DoubleJump executes 360 degree rotation and terminates with strictly ident
   assert.equal(controller.doubleJumpProgress, 0);
 
   // Midway through flip (~50%)
-  const halfDt = controller.debugState.doubleJumpProgress;
-  controller.update(bones, 0.22, params);
+  for (let frame = 0; frame < 5; frame++) controller.update(bones, 0.044, params);
   assert.ok(controller.doubleJumpProgress > 0.4 && controller.doubleJumpProgress < 0.6);
   assert.ok(Math.abs(controller.rootOrientation.w) < 0.9, 'should be actively rotated midway');
 
   // Complete the flip
-  controller.update(bones, 0.3, params);
+  for (let frame = 0; frame < 5; frame++) controller.update(bones, 0.05, params);
   assert.equal(controller.isDoubleJumping, false);
   assert.equal(controller.doubleJumpProgress, 1);
 
@@ -125,7 +102,7 @@ test('DoubleJump executes 360 degree rotation and terminates with strictly ident
 
 test('10 consecutive double jumps separated by landings accumulate zero rotation error', () => {
   const controller = new AnimationController();
-  const bones = mockBones();
+  const bones = [];
   const params = {
     speed: 0,
     verticalSpeed: 5,
@@ -192,9 +169,9 @@ test('Physical jump height and velocity follow square root relationship v = sqrt
   }
 });
 
-test('AnimationController combines Flight pose with Combat upper body without destroying legs', () => {
+test('AnimationController leaves the native skeleton to AnimationMixer during flying combat', () => {
   const controller = new AnimationController();
-  const bones = mockBones();
+  const bones = [];
   const params = {
     speed: 150,
     verticalSpeed: 0,
@@ -211,22 +188,12 @@ test('AnimationController combines Flight pose with Combat upper body without de
   // Fly for 30 frames to establish aerodynamic flight pose
   for (let i = 0; i < 30; i++) controller.update(bones, 0.016, params);
 
-  const flyingLegX = bones[13].rotation.x; // LEFT_LEG
-  const flyingShinX = bones[14].rotation.x; // LEFT_SHIN
-
-  // Start flying punch (upper-body bone mask)
   controller.startCombatMove(COMBAT_MOVES.flyingPunch);
   assert.equal(controller.activeCombatMove?.id, 'flyingPunch');
-
-  // Advance combat attack frames
   for (let i = 0; i < 15; i++) controller.update(bones, 0.016, params);
-
-  // Upper body (arm) must be actively rotated for punch
-  assert.ok(bones[10].rotation.x > 0.5, 'right arm extended for punch'); // RIGHT_ARM
-
-  // Legs should remain aerodynamic (not replaced by standing kick or ground stride)
-  assert.ok(Math.abs(bones[13].rotation.x - flyingLegX) < 0.25, 'legs remain in flight pose');
-  assert.ok(bones[14].rotation.x <= 0, 'shins remain bent backwards for flight');
+  assert.equal(bones.length, 0, 'state controller must never create or mutate a custom rig');
+  assert.equal(controller.debugState.boneMask, 'UPPER_BODY');
+  assert.ok(Number.isFinite(controller.rootOrientation.lengthSq()));
 });
 
 test('Flight combat does not force Grounded state and functions in flight modes', () => {
@@ -294,7 +261,7 @@ test('Flying punch damage and blast radius scale with velocity with clamps', () 
   // At low flight speed
   player.velocity.set(0, 0, -10);
   powers.use('punch');
-  powers.update(0.15, 0.15); // Trigger meleeHit
+  powers.update(0.25, 0.25); // Reach the authored clip's contact frame.
   const lowSpeedDamage = recordedDamage;
   const lowSpeedRadius = recordedRadius;
 
@@ -304,7 +271,7 @@ test('Flying punch damage and blast radius scale with velocity with clamps', () 
   // At supersonic speed
   player.velocity.set(0, 0, -1200);
   powers.use('punch');
-  powers.update(0.15, 0.15); // Trigger meleeHit
+  powers.update(0.25, 0.25);
   const highSpeedDamage = recordedDamage;
   const highSpeedRadius = recordedRadius;
 
@@ -442,33 +409,38 @@ test('CharacterModel double jump does not accumulate quaternion continuously on 
   assert.ok(angleError < 0.2, 'body bone quaternion should not accumulate massive rotation');
 
   // But the global group should be rotating
-  const groupQ = player.character.group.quaternion;
+  const groupQ = player.character.flightRoot.quaternion;
   assert.ok(Math.abs(groupQ.w) < 0.95, 'global visual orientation MUST be rotated');
 });
 
 
 test('flightPose changes according to speedMode', () => {
-  const controller = new AnimationController(Array(65).fill(null).map(() => new Bone()) as unknown as readonly Bone[]);
+  const controller = new AnimationController();
   const params = {
+    speed: 10,
+    verticalSpeed: 10,
     velocity: new Vector3(0, 10, 0),
     flying: true,
+    grounded: false,
+    boosting: false,
+    size: 1,
     turn: 0,
     speedMode: 'cruise'
   };
 
   // Skip takeoff
-  controller.update(mockBones(), 1.0, params);
+  for (let frame = 0; frame < 3; frame++) controller.update([], 0.1, params);
   assert.equal(controller.debugState.flightLayer, 'cruise');
 
   params.speedMode = 'fast';
-  controller.update(mockBones(), 0.1, params);
+  controller.update([], 0.1, params);
   assert.equal(controller.debugState.flightLayer, 'fast');
 
   params.speedMode = 'super';
-  controller.update(mockBones(), 0.1, params);
+  controller.update([], 0.1, params);
   assert.equal(controller.debugState.flightLayer, 'super');
 
   params.speedMode = 'mega';
-  controller.update(mockBones(), 0.1, params);
+  controller.update([], 0.1, params);
   assert.equal(controller.debugState.flightLayer, 'mega');
 });

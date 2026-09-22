@@ -79,6 +79,7 @@ export class Game {
   }
   async initialize(){
     await this.rendering.initialize();
+    await Promise.all([this.player.character.initializeAnimations(), this.powers.initializeCharacters()]);
     await this.streamer.initialize();
     await this.realCity.initialize();
     if(this.realCity.active){

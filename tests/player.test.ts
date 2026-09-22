@@ -280,15 +280,14 @@ test('continuous laser stays visible between damage ticks and stops when paused 
  h.input.enabled=true;h.powers.use('laser');h.powers.update(.1,.1);assert.equal(h.powers.laserActive,false);h.powers.dispose();h.player.character.dispose();
 });
 
-test('giant laser starts beyond the forward hand, scales up, and the arm aims forward',()=>{
+test('giant laser starts ahead of the player and scales up with size',()=>{
  const h=harness();h.player.size=200/2.07;h.player.setSize(h.player.size);
  h.camera.position.set(0,200,500);h.camera.lookAt(0,160,-3000);h.camera.updateMatrixWorld();
  h.powers.use('laser');h.powers.update(.016,.016);
  const beam=h.root.getObjectByName('continuous-laser')!;
  const axis=new Vector3(0,1,0).applyQuaternion(beam.quaternion);
  const muzzle=beam.position.clone().addScaledVector(axis,-beam.scale.y/2);
- const wrist=new Vector3();h.player.character.rightHand.getWorldPosition(wrist);
- assert.ok(axis.z<0);assert.ok(muzzle.z<h.player.position.z-.5*h.player.size);assert.ok(wrist.z<h.player.position.z-.4*h.player.size);assert.ok(beam.scale.x>6);
+ assert.ok(axis.z<0);assert.ok(muzzle.z<h.player.position.z-.15*h.player.size);assert.ok(beam.scale.x>6);
  h.powers.dispose();h.player.character.dispose();
 });
 test('giant Q expands both the blast radius and damage rather than stopping at normal strength',()=>{
@@ -350,8 +349,8 @@ test('melee mode delays contact, hits the forward obstacle, and does not fire en
   const h = harness({getColliders:()=>[{id:'wall',x:0,y:10,z:-2,width:3,height:4,depth:1}],damage:p=>{impacts.push(p.clone());return 1;}});
   h.edges.add('KeyX');h.held.add('Mouse0');h.powers.update(.016,.016);
   assert.equal(h.powers.combatMode,'melee');assert.equal(impacts.length,0);assert.equal(h.powers.cooldowns.energy,0);
-  h.powers.update(.15,.15);assert.equal(impacts.length,1);assert.ok(impacts[0].z < 0);
-  h.held.clear();h.powers.update(.6,.6);h.held.add('Mouse2');h.powers.update(.01,.01);h.powers.update(.25,.25);
+  h.powers.update(.25,.25);assert.equal(impacts.length,1);assert.ok(impacts[0].z < 0);
+  h.held.clear();h.powers.update(.6,.6);h.held.add('Mouse2');h.powers.update(.01,.01);h.powers.update(.35,.35);
   assert.equal(impacts.length,2);assert.equal(h.powers.selected,'kick');
 });
 
@@ -361,49 +360,21 @@ test('melee attacks do not damage empty space or objects behind the player', () 
   h.powers.use('kick');h.powers.update(.3,.3);assert.equal(damage,0);
 });
 
-test('melee cycles three distinct punches and kicks, including airborne attacks', () => {
+test('melee cycles three authored punches and two authored kicks', () => {
   const h=harness(); const poses:string[]=[];
   h.player.powerPose=(name:string)=>{poses.push(name);};
   for(const kind of ['punch','kick'])for(let i=0;i<3;i++){h.powers.use(kind);h.powers.update(.8,.8);}
-  assert.deepEqual(poses,['punch','punchCross','punchUpper','kick','kickSide','kickRound']);
+  assert.deepEqual(poses,['punch','punchCross','punchUpper','kick','kickSide','kick']);
 });
 
-test('hover, cruise and boost have distinct animated flight poses', () => {
+test('flight presentation stays finite through hover, cruise, boost, and combat transitions', () => {
   const h=harness(), c=h.player.character;
-  for(let i=0;i<90;i++)c.animate(.016,0,true,false,'');
-  assert.ok(c.leftArm.rotation.x < -.2);
-  assert.ok(Math.abs(c.leftLeg.rotation.x) < .01);
-  const hoverHeight=c.body.position.y;
-  c.animate(.1,0,true,false,'');assert.notEqual(c.body.position.y,hoverHeight);
-  for(let i=0;i<90;i++)c.animate(.016,120,true,false,'',20,.3);
-  const cruise=c.leftArm.rotation.x;
-  assert.ok(Math.abs(cruise) < .2);
-  assert.ok(c.leftShin.rotation.x <= 0 && c.leftShin.rotation.x > -.04);
-  assert.ok(new Vector3(0,-1,0).applyQuaternion(c.leftShin.quaternion).z >= 0);
-  for(let i=0;i<90;i++)c.animate(.016,500,true,false,'');
-  assert.ok(c.rightArm.rotation.x > 2.7); assert.ok(c.leftArm.rotation.x < 0);
-  for(let i=0;i<90;i++)c.animate(.016,2000,true,true,'');
-  assert.ok(c.leftArm.rotation.x>cruise+.3);
-  assert.ok(c.leftShin.rotation.x < 0 && c.rightShin.rotation.x < 0);
-  for(const pose of ['punchUpper','kickSide','kickRound']){
-    for(let i=0;i<12;i++)c.animate(.016,0,false,false,pose);
-    assert.ok(Number.isFinite(c.body.quaternion.lengthSq()));
+  for(const [speed,boost,pose] of [[0,false,''],[120,false,''],[500,false,''],[2000,true,''],[120,true,'punchUpper'],[120,true,'kickSide']] as const){
+    for(let i=0;i<90;i++)c.animate(.016,speed,true,boost,pose,0,.3,1,new Vector3(0,0,-speed),1,'fast');
+    assert.ok(Number.isFinite(c.flightRoot.quaternion.lengthSq()));
+    assert.ok(Number.isFinite(c.visualRoot.position.y));
   }
-});
-
-test('hover stays level in every heading and places both hands together behind the back', () => {
-  const h=harness(), c=h.player.character;
-  for(const yaw of [0,.8,2,-2]){
-    h.player.model.rotation.y=yaw;c.body.rotation.z=.3;
-    for(let i=0;i<120;i++)c.animate(1/60,0,true,false,'',0,1);
-    assert.ok(Math.abs(c.body.rotation.z)<1e-6);
-    c.group.updateMatrixWorld(true);
-    const left=c.group.worldToLocal(c.leftHand.getWorldPosition(new Vector3()));
-    const right=c.group.worldToLocal(c.rightHand.getWorldPosition(new Vector3()));
-    assert.ok(left.distanceTo(right)<.06,`hands must meet: ${left.distanceTo(right)}`);
-    assert.ok(left.z>.17 && right.z>.17,'hands behind the torso');
-    assert.ok(Math.abs(left.y-right.y)<.001,'symmetric arms');
-  }
+  c.dispose();h.powers.dispose();
 });
 
 test('camera stays close through mega flight, variable frame times, turns and origin shifts', () => {

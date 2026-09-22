@@ -56,7 +56,7 @@ export class CameraController {
       // damping accumulated speed/rate metres of lag, then repeatedly snapped at 400 m.
       if (this.following) this.globalPosition.add(player.position).sub(this.previousPlayer);
       if (player.state !== 'Grounded') {
-        this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.body.rotation).applyAxisAngle(this.up, player.model.rotation.y);
+        this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.hips.rotation).applyAxisAngle(this.up, player.model.rotation.y);
         this.target.copy(player.position).add(this.pivotOffset);
       }
       if (this.input.enabled) {
