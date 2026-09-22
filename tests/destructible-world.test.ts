@@ -24,9 +24,28 @@ test('crater has matching visible depth, raycast and landing; reconstruction res
 });
 test('terrain bounds stored craters, active topology and idle rebuilds',()=>{
   const terrain=new TerrainDestruction(new Group()),p=new Vector3();
-  for(let i=0;i<300;i++)terrain.damageAt(new Vector3(i*50,0,0),8,100);
+  for(let i=0;i<TERRAIN_DAMAGE.maxStored+20;i++)terrain.damageAt(new Vector3(i*50,0,0),8,100);
   terrain.update(p,p);assert.equal(terrain.stats.stored,TERRAIN_DAMAGE.maxStored);assert.ok(terrain.stats.active<=32);
   const revision=terrain.stats.revision;terrain.update(p,p);assert.equal(terrain.stats.revision,revision);terrain.dispose();
+});
+test('continuous destruction does not auto-regenerate; only reconstructs with player power',()=>{
+  const terrain=new TerrainDestruction(new Group()),p=new Vector3();
+  // Simulate dragging a continuous laser across 80 meters (40 overlapping damage hits)
+  for(let x=0;x<=80;x+=2) terrain.damageAt(new Vector3(x,0,0),4,200);
+  terrain.update(new Vector3(80,0,0),new Vector3(80,0,0));
+  // All points along the entire trench must remain deeply excavated; none should have regenerated
+  for(let x=0;x<=80;x+=5) assert.ok(terrain.heightAt(x,0)<-1, `point at x=${x} must stay excavated`);
+  // Destroying even more ground elsewhere must NOT regenerate the earlier trench
+  for(let z=10;z<=60;z+=2) terrain.damageAt(new Vector3(80,0,z),4,200);
+  terrain.update(new Vector3(80,0,0),new Vector3(80,0,0));
+  for(let x=0;x<=80;x+=5) assert.ok(terrain.heightAt(x,0)<-1, `earlier trench at x=${x} must not regenerate after more destruction`);
+  // Only player restore power heals the ground
+  terrain.restoreAt(new Vector3(20,0,0),25);
+  terrain.update(new Vector3(80,0,0),new Vector3(80,0,0));
+  assert.equal(terrain.heightAt(20,0),0, 'explicit restore power must restore ground');
+  // Sections outside the restore radius still remain excavated
+  assert.ok(terrain.heightAt(70,0)<-1, 'section outside restore radius must stay excavated');
+  terrain.dispose();
 });
 test('giant laser and shots carve larger holes without allocating a larger mesh',()=>{
   const terrain=new TerrainDestruction(new Group()),zero=new Vector3();
