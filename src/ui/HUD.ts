@@ -17,8 +17,8 @@ const choice=(id:string,label:string,options:readonly (readonly [string,string])
   `<label>${label}<select id="${id}">${options.map(([value,text])=>`<option value="${value}">${text}</option>`).join('')}</select></label>`;
 const PAUSE_TABS=[['audio','Áudio'],['video','Vídeo'],['world','Mundo'],['controls','Controles'],['progress','Progresso']] as const;
 const CONTROLS: readonly (readonly [string,string])[]=[
-  ['F5','Câmera: atrás / ombro / primeira pessoa'],['X','Alternar energia / combate'],
-  ['Clique (combate)','Soco'],['Botão direito (combate)','Chute'],
+  ['F5','Câmera: atrás / ombro / primeira pessoa / frente / olhar para trás'],['X','Alternar energia / combate'],
+  ['Clique (combate)','Sequência: jab / direto / uppercut'],['Botão direito (combate)','Sequência: chute frontal / lateral / circular'],
   ['Espaço (solo)','Pulo duplo / parkour'],['Shift (solo)','Correr'],['B / V + B (solo)','Super / mega corrida'],
   ['W A S D','Mover'],['Mouse','Olhar ao redor'],['F','Alternar voo'],['Espaço','Subir'],
   ['Ctrl','Descer'],['Shift','Voo rápido'],['B (segurar)','Super velocidade'],['V','Armar mega velocidade'],

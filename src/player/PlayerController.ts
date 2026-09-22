@@ -126,7 +126,8 @@ export class PlayerController {
     }
     this.poseTime -= dt;
     if (this.poseTime <= 0) this.pose = '';
-    this.character.animate(dt, Math.hypot(this.velocity.x, this.velocity.z) / sizeSpeed, flying, boosting, this.pose || (!flying && !this.grounded ? 'jump' : ''));
+    const bank = Math.sin(Math.atan2(-this.velocity.x, -this.velocity.z) - this.model.rotation.y);
+    this.character.animate(dt, Math.hypot(this.velocity.x, this.velocity.z) / sizeSpeed, flying, boosting, this.pose || (!flying && !this.grounded ? 'jump' : ''), this.velocity.y / sizeSpeed, bank);
     this.model.position.copy(this.position); this.model.scale.setScalar(this.size);
   }
 

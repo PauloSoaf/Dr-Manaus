@@ -305,6 +305,13 @@ test('camera cycles shoulder and first person, hiding only the local hero', () =
   assert.equal(control.mode, 'first'); assert.equal(h.player.model.visible, false);
   assert.ok(Math.abs(h.camera.position.y - h.player.position.y - 1.94) < 1e-6);
   h.edges.add('F5'); control.update(h.player, new Vector3(), .016, []);
+  assert.equal(control.mode, 'front'); assert.equal(h.player.model.visible, true);
+  assert.ok(h.camera.position.z < h.player.position.z);
+  h.edges.add('F5'); control.update(h.player, new Vector3(), .016, []);
+  assert.equal(control.mode, 'lookBack'); assert.equal(h.player.model.visible, false);
+  assert.ok(h.camera.getWorldDirection(new Vector3()).z > .9);
+  assert.equal(control.yaw, 0);
+  h.edges.add('F5'); control.update(h.player, new Vector3(), .016, []);
   assert.equal(control.mode, 'rear'); assert.equal(h.player.model.visible, true);
 });
 
@@ -352,4 +359,27 @@ test('melee attacks do not damage empty space or objects behind the player', () 
   let damage = 0;
   const h = harness({getColliders:()=>[{id:'rear',x:0,y:10,z:2,width:1,height:4,depth:1}],damage:()=>++damage});
   h.powers.use('kick');h.powers.update(.3,.3);assert.equal(damage,0);
+});
+
+test('melee cycles three distinct punches and kicks, including airborne attacks', () => {
+  const h=harness(); const poses:string[]=[];
+  h.player.powerPose=(name:string)=>{poses.push(name);};
+  for(const kind of ['punch','kick'])for(let i=0;i<3;i++){h.powers.use(kind);h.powers.update(.8,.8);}
+  assert.deepEqual(poses,['punch','punchCross','punchUpper','kick','kickSide','kickRound']);
+});
+
+test('hover, cruise and boost have distinct animated flight poses', () => {
+  const h=harness(), c=h.player.character;
+  for(let i=0;i<90;i++)c.animate(.016,0,true,false,'');
+  const hover=c.leftArm.rotation.x, knee=c.leftShin.rotation.x;
+  c.animate(.1,0,true,false,'');assert.notEqual(c.leftArm.rotation.x,hover);
+  for(let i=0;i<90;i++)c.animate(.016,120,true,false,'',20,.3);
+  const cruise=c.leftArm.rotation.x;
+  assert.ok(cruise>hover+1); assert.ok(c.leftShin.rotation.x<knee); assert.ok(c.body.rotation.z<0);
+  for(let i=0;i<90;i++)c.animate(.016,2000,true,true,'');
+  assert.ok(c.leftArm.rotation.x>cruise+.3);assert.ok(c.body.rotation.x< -1.3);
+  for(const pose of ['punchUpper','kickSide','kickRound']){
+    for(let i=0;i<12;i++)c.animate(.016,0,false,false,pose);
+    assert.ok(Number.isFinite(c.body.quaternion.lengthSq()));
+  }
 });

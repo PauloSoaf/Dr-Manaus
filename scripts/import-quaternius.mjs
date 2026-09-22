@@ -8,7 +8,7 @@ const root=nodes[54],turn=new Quaternion().setFromAxisAngle(new Vector3(0,1,0),M
 const restHip=nodes[51].getWorldQuaternion(new Quaternion()).invert();
 // Source bone directions -> this game's downward limbs. Preserve proportions, discard root motion.
 const map=[[19,18,0,[-.03,-.31,-.007]],[38,37,0,[.03,-.31,-.007]],[46,45,0,[0,-.49,-.016]],[50,49,0,[0,-.49,-.016]],[18,17,1,[-.01,-.295,-.009]],[37,36,2,[.01,-.295,-.009]],[45,44,3,[0,-1,0]],[49,48,4,[0,-1,0]]];
-const names={walk:'Walk_Loop',run:'Sprint_Loop',jump:'Jump_Loop',punch:'Punch_Jab',vault:'Jump_Start'};
+const names={walk:'Walk_Loop',run:'Sprint_Loop',jump:'Jump_Loop',punch:'Punch_Jab',punchCross:'Punch_Cross',vault:'Jump_Start'};
 const output={source:'Quaternius Universal Animation Library Standard (CC0)',fps:30,clips:{}};
 for(const [name,source] of Object.entries(names)){
  const a=j.animations.find(a=>a.name===source),tracks=a.channels.map(c=>({node:c.target.node,path:c.target.path,t:data(a.samplers[c.sampler].input),v:data(a.samplers[c.sampler].output)}));
