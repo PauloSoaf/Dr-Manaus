@@ -6,7 +6,7 @@ Walk, sprint, airborne jump, jump start (vault), jab and cross keyframes: Quater
 - Original download: https://opengameart.org/content/universal-animation-library
 - License: https://creativecommons.org/publicdomain/zero/1.0/
 
-`src/player/animations/quaternius.json` contains retargeted rotations for the existing 11-bone character (76 KB). Source meshes, textures and unused clips are excluded. Root motion is discarded so collision physics owns movement. Hands retain the simplified rig. Uppercut, front/side/roundhouse kicks and hover/cruise/boost flight are procedural animations on the same skeleton, with no additional draws. Flight includes takeoff tuck, vertical inclination and turn banking.
+`src/player/animations/quaternius.json` contains retargeted rotations for the existing 11-bone character (76 KB). Source meshes, textures and unused clips are excluded. Root motion is discarded so collision physics owns movement. Hands retain the simplified rig. Uppercut, front/side/roundhouse kicks and hover/cruise/boost flight are procedural animations on the same skeleton, with no additional draws. Hover uses an upright at-ease stance with hands behind the hips and almost straight legs. Normal flight trails the arms; acceleration extends one arm and boost both. Knee flexion uses negative local X (backward), with smooth takeoff, vertical inclination and turn banking.
 
 Regenerate from the Standard ZIP:
 
