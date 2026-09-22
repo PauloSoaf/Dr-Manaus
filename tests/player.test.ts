@@ -390,3 +390,41 @@ test('hover, cruise and boost have distinct animated flight poses', () => {
     assert.ok(Number.isFinite(c.body.quaternion.lengthSq()));
   }
 });
+
+test('hover stays level in every heading and places both hands together behind the back', () => {
+  const h=harness(), c=h.player.character;
+  for(const yaw of [0,.8,2,-2]){
+    h.player.model.rotation.y=yaw;c.body.rotation.z=.3;
+    for(let i=0;i<120;i++)c.animate(1/60,0,true,false,'',0,1);
+    assert.ok(Math.abs(c.body.rotation.z)<1e-6);
+    c.group.updateMatrixWorld(true);
+    const left=c.group.worldToLocal(c.leftHand.getWorldPosition(new Vector3()));
+    const right=c.group.worldToLocal(c.rightHand.getWorldPosition(new Vector3()));
+    assert.ok(left.distanceTo(right)<.06,`hands must meet: ${left.distanceTo(right)}`);
+    assert.ok(left.z>.17 && right.z>.17,'hands behind the torso');
+    assert.ok(Math.abs(left.y-right.y)<.001,'symmetric arms');
+  }
+});
+
+test('camera stays close through mega flight, variable frame times, turns and origin shifts', () => {
+  const h=harness(), c=new CameraController(h.camera,h.input), origin=new Vector3();
+  c.skipIntro();h.player.position.set(0,300,0);c.speedFov=34;
+  const relative=new Vector3(), previous=new Vector3();
+  for(const speed of [0,120,2000,8000,10000]){
+    h.player.velocity.set(0,0,-speed);
+    for(let frame=0;frame<100;frame++){
+      const dt=[1/120,1/60,1/30,.06][frame%4];
+      h.player.position.addScaledVector(h.player.velocity,dt);
+      c.yaw+=dt*.2;
+      origin.z=Math.round(h.player.position.z/1024)*1024;
+      c.update(h.player,origin,dt,[]);
+      relative.copy(h.camera.position).add(origin).sub(h.player.position);
+      assert.ok(relative.length()<8.5,`camera distance ${relative.length()} at ${speed}`);
+      if(frame>0)assert.ok(relative.distanceTo(previous)<.3,'no catch-up jumps');
+      previous.copy(relative);
+    }
+  }
+  assert.ok(h.camera.fov<=c.baseFov+6.001,'bounded FOV preserves character visibility');
+  h.player.position.x+=5000;c.update(h.player,origin,.016,[]);
+  assert.ok(h.camera.position.clone().add(origin).distanceTo(h.player.position)<8.5);
+});

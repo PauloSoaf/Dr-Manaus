@@ -19,3 +19,11 @@ Controls: F5 cycles rear, shoulder and first person. Space jumps, then double ju
 F5 now cycles rear, shoulder, first person, front (facing the character), and backward first-person view. Looking backward does not change the movement heading.
 
 X toggles energy/melee. In melee, left click cycles jab/cross/uppercut; right click cycles front/side/roundhouse kicks. These also animate in the air. Contact is delayed to match the animation and uses a forward collision query. Reach and damage scale with character size.
+
+## Hover posture and fast-flight camera references
+
+- Free posture reference: [Parade Rest, EJ Hersom / US Department of Defense](https://commons.wikimedia.org/wiki/File:Parade_Rest_(14712101932).jpg), marked public domain on Commons. Used as a posture reference; the photograph is not packaged in the game. Arms are solved to meet behind the lower back, with symmetric shoulders and separated, straight legs.
+- [Unity Cinemachine Third Person Follow](https://docs.unity.cn/Packages/com.unity.cinemachine@3.1/manual/CinemachineThirdPersonFollow.html): subject-relative distance and damped camera rig.
+- [Unreal Spring Arm](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/USpringArmComponent): bounded camera lag and collision handling.
+
+The custom camera transports its position by the player's displacement before damping the orbit. It no longer builds hundreds of metres of world-space lag and snaps at a 400 m threshold. Distance is 6.2–6.8 character-scale metres, orbit lag is bounded to 0.65, and speed adds at most 6 degrees of FOV. Floating-origin changes leave the relative rig unchanged. Hover banking fades to zero with horizontal speed; heading is never inferred from zero velocity.
