@@ -29,6 +29,8 @@ interface Clone { character: CharacterModel; life: number; attackTimer: number; 
 
 export class PowerSystem {
   combatMode: 'ranged' | 'melee' = 'ranged';
+  private punchIndex = 0;
+  private kickIndex = 0;
   private meleePending: { kind: 'punch' | 'kick'; time: number } | null = null;
   laserActive=false;
   private laserTick=0;
@@ -113,8 +115,10 @@ export class PowerSystem {
       case 'punch': case 'kick':
         if (this.meleePending || this.cooldowns.punch > 0 || this.cooldowns.kick > 0) break;
         this.laserActive = false;
-        this.cooldowns[name] = name === 'kick' ? .65 : .45;
-        this.player.powerPose(name, name === 'kick' ? .55 : .38);
+        this.cooldowns[name] = name === 'kick' ? .65 : .52;
+        this.player.powerPose(name === 'kick'
+          ? ['kick', 'kickSide', 'kickRound'][this.kickIndex++ % 3]
+          : ['punch', 'punchCross', 'punchUpper'][this.punchIndex++ % 3], name === 'kick' ? .55 : .42);
         this.camera.getWorldDirection(this.rayDirection);
         this.player.model.rotation.y = Math.atan2(-this.rayDirection.x, -this.rayDirection.z);
         this.meleePending = { kind: name, time: name === 'kick' ? .22 : .13 };

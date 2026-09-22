@@ -6,7 +6,7 @@ import type { PlayerController } from './PlayerController';
 import { WORLD } from '../core/config';
 
 export class CameraController {
-  mode: 'rear' | 'shoulder' | 'first' = 'rear';
+  mode: 'rear' | 'shoulder' | 'first' | 'front' | 'lookBack' = 'rear';
   yaw = 0;
   pitch = 0.19;
   /** Set from the pause menu; the speed widening is applied on top of `baseFov`. */
@@ -28,11 +28,13 @@ export class CameraController {
   skipIntro(): void { this.intro = false; }
 
   update(player: PlayerController, origin: Vector3, dt: number, colliders: readonly Collider[]): void {
-    if (this.input.consume('F5')) {
-      this.mode = this.mode === 'rear' ? 'shoulder' : this.mode === 'shoulder' ? 'first' : 'rear';
+    const switched = this.input.consume('F5');
+    if (switched) {
+      const modes = ['rear', 'shoulder', 'first', 'front', 'lookBack'] as const;
+      this.mode = modes[(modes.indexOf(this.mode) + 1) % modes.length];
       this.intro = false;
     }
-    player.model.visible = this.mode !== 'first';
+    player.model.visible = this.mode !== 'first' && this.mode !== 'lookBack';
     this.elapsed += dt;
     if (this.input.held('KeyW') || this.input.held('KeyA') || this.input.held('KeyS') || this.input.held('KeyD') || this.input.held('KeyF') || Math.abs(this.input.mouseDelta.x) > 1) this.intro = false;
     this.target.copy(player.position); this.target.y += 1.5 * player.size;
@@ -53,6 +55,10 @@ export class CameraController {
       }
       const distance = (8.3 + Math.min(7, player.velocity.length() * 0.014)) * Math.pow(player.size, 0.83);
       this.direction.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
+      if (this.mode === 'front') {
+        // Face the actual character, independently of the movement/camera heading.
+        this.direction.set(-Math.sin(player.model.rotation.y) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(player.model.rotation.y) * Math.cos(this.pitch));
+      }
       if (this.mode === 'shoulder') {
         const side = 1.5 * Math.pow(player.size, .83);
         this.target.x += Math.cos(this.yaw) * side; this.target.z -= Math.sin(this.yaw) * side;
@@ -61,11 +67,11 @@ export class CameraController {
       const safeDistance = obstruction ? Math.max(0.1, obstruction.distance - 0.6) : distance;
       this.desired.copy(this.target).addScaledVector(this.direction, safeDistance);
       this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .3, this.desired.y);
-      if (this.globalPosition.distanceToSquared(this.desired) > 400 * 400) this.globalPosition.copy(this.desired);
+      if (switched || this.globalPosition.distanceToSquared(this.desired) > 400 * 400) this.globalPosition.copy(this.desired);
       else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstruction ? 25 : 9)));
-      if (this.mode === 'first') {
+      if (this.mode === 'first' || this.mode === 'lookBack') {
         this.globalPosition.copy(player.position); this.globalPosition.y += 1.94 * player.size;
-        this.target.copy(this.globalPosition).addScaledVector(this.direction, -100);
+        this.target.copy(this.globalPosition).addScaledVector(this.direction, this.mode === 'lookBack' ? 100 : -100);
       }
     }
     const targetFov = Math.min(112, this.baseFov + Math.min(17, player.velocity.length() * 0.028) + this.speedFov);
