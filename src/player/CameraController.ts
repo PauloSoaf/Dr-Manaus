@@ -22,6 +22,11 @@ export class CameraController {
   private readonly desired = new Vector3();
   private readonly globalPosition = new Vector3(0, 65, 110);
   private readonly direction = new Vector3();
+  private readonly previousPlayer = new Vector3();
+  private readonly pivotOffset = new Vector3();
+  private readonly collisionDirection = new Vector3();
+  private readonly up = new Vector3(0, 1, 0);
+  private following = false;
 
   constructor(readonly camera: PerspectiveCamera, readonly input: InputController) {}
   shake(amount: number): void { this.shakeAmount = Math.max(this.shakeAmount, amount); }
@@ -47,13 +52,20 @@ export class CameraController {
       this.globalPosition.lerp(this.desired, Math.min(1, dt * 5));
     } else {
       this.intro = false;
+      // Transport the rig with its subject before damping the orbit. World-space
+      // damping accumulated speed/rate metres of lag, then repeatedly snapped at 400 m.
+      if (this.following) this.globalPosition.add(player.position).sub(this.previousPlayer);
+      if (player.state !== 'Grounded') {
+        this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.body.rotation).applyAxisAngle(this.up, player.model.rotation.y);
+        this.target.copy(player.position).add(this.pivotOffset);
+      }
       if (this.input.enabled) {
         this.yaw -= this.input.mouseDelta.x * 0.00215 * this.sensitivity;
         if (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
         else if (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
         this.pitch = MathUtils.clamp(this.pitch + this.input.mouseDelta.y * 0.00195 * this.sensitivity * (this.invertY ? -1 : 1), -1.15, 1.27);
       }
-      const distance = (8.3 + Math.min(7, player.velocity.length() * 0.014)) * Math.pow(player.size, 0.83);
+      const distance = (6.2 + Math.min(.6, player.velocity.length() * .001)) * player.size;
       this.direction.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
       if (this.mode === 'front') {
         // Face the actual character, independently of the movement/camera heading.
@@ -67,14 +79,24 @@ export class CameraController {
       const safeDistance = obstruction ? Math.max(0.1, obstruction.distance - 0.6) : distance;
       this.desired.copy(this.target).addScaledVector(this.direction, safeDistance);
       this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .3, this.desired.y);
-      if (switched || this.globalPosition.distanceToSquared(this.desired) > 400 * 400) this.globalPosition.copy(this.desired);
+      if (switched || !this.following) this.globalPosition.copy(this.desired);
       else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstruction ? 25 : 9)));
+      // Bound orbit lag, including abrupt reversals and frame-time spikes.
+      this.pivotOffset.subVectors(this.globalPosition, this.desired).clampLength(0, .65 * player.size);
+      this.globalPosition.copy(this.desired).add(this.pivotOffset);
+      if (obstruction) {
+        this.pivotOffset.subVectors(this.globalPosition, this.target);
+        const hit = PhysicsWorld.raycast(this.target, this.collisionDirection.copy(this.pivotOffset).normalize(), colliders, this.pivotOffset.length(), .35);
+        if (hit) this.globalPosition.copy(this.target).addScaledVector(this.pivotOffset.normalize(), Math.max(.1, hit.distance - .6));
+      }
       if (this.mode === 'first' || this.mode === 'lookBack') {
         this.globalPosition.copy(player.position); this.globalPosition.y += 1.94 * player.size;
         this.target.copy(this.globalPosition).addScaledVector(this.direction, this.mode === 'lookBack' ? 100 : -100);
       }
+      this.following = true;
     }
-    const targetFov = Math.min(112, this.baseFov + Math.min(17, player.velocity.length() * 0.028) + this.speedFov);
+    this.previousPlayer.copy(player.position);
+    const targetFov = Math.min(112, this.baseFov + Math.min(6, player.velocity.length() * .006 + this.speedFov * .12));
     this.camera.fov = MathUtils.lerp(this.camera.fov, targetFov, 1 - Math.exp(-dt * 3));
     this.camera.updateProjectionMatrix();
     this.camera.position.copy(this.globalPosition).sub(origin);
