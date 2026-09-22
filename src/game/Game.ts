@@ -60,6 +60,7 @@ export class Game {
     this.population=new PopulationManager(this.worldRoot);
     this.missions=new MissionManager(this.worldRoot,this.save,message=>this.hud?.notify(message));
     this.destruction=new DestructionSystem(this.worldRoot,this.destructible);
+    this.player.beforeMove=(position,velocity,dt)=>{this.destruction.plough(position,velocity,dt,true);this.gatherColliders();return this.colliders;};
     this.powers=new PowerSystem(this.worldRoot,this.player,this.rendering.camera,this.input,{
       targets:()=>[...this.population.targets,...this.missions.targets],
       hit:(id,force)=>{this.missions.hit(id,force)||this.population.hit(id,force);},
@@ -149,7 +150,7 @@ export class Game {
     if(Math.hypot(this.player.position.x-this.origin.x,this.player.position.z-this.origin.z)>WORLD.originThreshold){this.origin.set(Math.round(this.player.position.x/1024)*1024,0,Math.round(this.player.position.z/1024)*1024);this.worldRoot.position.copy(this.origin).negate();}
     this.streamer.update(this.player.position,this.player.velocity,dt);this.lap('streamer');this.hlod.update(this.player.position,this.streamer.activeKeys);this.lap('hlod');
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
-    this.destruction.update(dt,this.player.position,this.player.velocity);this.lap('destruction');
+    this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
     this.traffic?.update(worldDt,this.player.position);this.lap('traffic');
     // Actors are suppressed as the world starts to blur past: simulating NPCs kilometres behind
     // the player costs the same as simulating them in front, and none of it can be seen.

@@ -17,6 +17,9 @@ const choice=(id:string,label:string,options:readonly (readonly [string,string])
   `<label>${label}<select id="${id}">${options.map(([value,text])=>`<option value="${value}">${text}</option>`).join('')}</select></label>`;
 const PAUSE_TABS=[['audio','Áudio'],['video','Vídeo'],['world','Mundo'],['controls','Controles'],['progress','Progresso']] as const;
 const CONTROLS: readonly (readonly [string,string])[]=[
+  ['F5','Câmera: atrás / ombro / primeira pessoa'],['X','Alternar energia / combate'],
+  ['Clique (combate)','Soco'],['Botão direito (combate)','Chute'],
+  ['Espaço (solo)','Pulo duplo / parkour'],['Shift (solo)','Correr'],['B / V + B (solo)','Super / mega corrida'],
   ['W A S D','Mover'],['Mouse','Olhar ao redor'],['F','Alternar voo'],['Espaço','Subir'],
   ['Ctrl','Descer'],['Shift','Voo rápido'],['B (segurar)','Super velocidade'],['V','Armar mega velocidade'],
   ['L','Ligar / desligar laser continuo'],['Clique / 1','Emitir energia'],['E','Teleportar à mira'],['Q','Onda de choque'],['R','Reconstruir matéria'],
@@ -200,7 +203,7 @@ export class HUD {
     $('#world-time').textContent=state.time;$('#world-weather').textContent=({clear:'CÉU LIMPO',cloudy:'NUBLADO',rain:'CHUVA',storm:'TEMPORAL'} as Record<string,string>)[state.weather]??state.weather;
     const directions=['N','NE','L','SE','S','SO','O','NO'];const heading=((state.yaw*180/Math.PI)%360+360)%360;$('#heading').textContent=directions[Math.round(heading/45)%8];
     document.querySelectorAll<HTMLButtonElement>('[data-power]').forEach(button=>button.classList.toggle('active',button.dataset.power===state.selected));
-    $('#power-current').textContent=POWERS.find(p=>p[0]===state.selected)?.[1].toUpperCase()??'EMISSÃO';
+    $('#power-current').textContent=state.selected==='punch'?'COMBATE · SOCO':state.selected==='kick'?'COMBATE · CHUTE':POWERS.find(p=>p[0]===state.selected)?.[1].toUpperCase()??'EMISSÃO';
     document.body.classList.toggle('temporal',state.temporal);document.body.classList.toggle('supersonic',state.velocity.length()>300);
     const marker=$('#objective-marker');this.temp.copy(state.destination).sub(state.origin).project(camera);marker.hidden=state.stage===0||state.stage===4&&state.remaining===0||this.temp.z>1||Math.abs(this.temp.x)>.85||Math.abs(this.temp.y)>.7;
     if(!marker.hidden){marker.style.left=`${(this.temp.x*.5+.5)*100}%`;marker.style.top=`${(-this.temp.y*.5+.5)*100}%`;marker.querySelector('small')!.textContent=distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m';}

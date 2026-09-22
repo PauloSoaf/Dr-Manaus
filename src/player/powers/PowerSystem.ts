@@ -28,6 +28,8 @@ export interface PowerHooks {
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }
 
 export class PowerSystem {
+  combatMode: 'ranged' | 'melee' = 'ranged';
+  private meleePending: { kind: 'punch' | 'kick'; time: number } | null = null;
   laserActive=false;
   private laserTick=0;
   private readonly laser=new Mesh(new CylinderGeometry(1,1,1,8),new MeshBasicMaterial({color:0xdffff8,toneMapped:false}));
@@ -38,7 +40,7 @@ export class PowerSystem {
   temporal = false;
   selected = 'energy';
   teleporting = false;
-  readonly cooldowns: Record<string, number> = { energy: 0, laser:0, teleport: 0, shockwave: 0, reconstruct: 0, giant: 0, clone: 0, temporal: 0 };
+  readonly cooldowns: Record<string, number> = { punch: 0, kick: 0, energy: 0, laser:0, teleport: 0, shockwave: 0, reconstruct: 0, giant: 0, clone: 0, temporal: 0 };
   readonly destination = new Vector3();
   private readonly effects: EffectPool;
   private readonly indicator: Mesh;
@@ -77,7 +79,18 @@ export class PowerSystem {
     for (const name of Object.keys(this.cooldowns)) this.cooldowns[name] = Math.max(0, this.cooldowns[name] - realDt);
     const keys: [string, string][] = [['KeyL','laser'],['Digit1', 'energy'], ['KeyE', 'teleport'], ['KeyQ', 'shockwave'], ['KeyR', 'reconstruct'], ['KeyG', 'giant'], ['KeyC', 'clone'], ['KeyT', 'temporal']];
     for (const [key, name] of keys) if (this.input.consume(key)) this.use(name);
-    if (this.input.held('Mouse0') && !this.teleporting) this.use('energy');
+    if (this.input.consume('KeyX')) {
+      this.combatMode = this.combatMode === 'ranged' ? 'melee' : 'ranged';
+      this.laserActive = false; this.meleePending = null;
+      this.selected = this.combatMode === 'melee' ? 'punch' : 'energy';
+      this.hooks.notify(this.combatMode === 'melee' ? 'Combate: clique = soco; botão direito = chute. X para energia.' : 'Energia: clique = tiro; L = laser. X para combate.');
+    }
+    if (this.meleePending) {
+      this.meleePending.time -= realDt;
+      if (this.meleePending.time <= 0) { this.meleeHit(this.meleePending.kind); this.meleePending = null; }
+    }
+    if (this.input.held('Mouse0') && !this.teleporting) this.use(this.combatMode === 'melee' ? 'punch' : 'energy');
+    if (this.combatMode === 'melee' && this.input.held('Mouse2')) this.use('kick');
     if (this.temporal) {
       this.temporalTime -= realDt;
       if (this.temporalTime <= 0) { this.temporal = false; this.hooks.notify('O fluxo do tempo foi restaurado.'); }
@@ -97,6 +110,15 @@ export class PowerSystem {
     this.selected = name;
     if (this.cooldowns[name] > 0 || this.teleporting) return;
     switch (name) {
+      case 'punch': case 'kick':
+        if (this.meleePending || this.cooldowns.punch > 0 || this.cooldowns.kick > 0) break;
+        this.laserActive = false;
+        this.cooldowns[name] = name === 'kick' ? .65 : .45;
+        this.player.powerPose(name, name === 'kick' ? .55 : .38);
+        this.camera.getWorldDirection(this.rayDirection);
+        this.player.model.rotation.y = Math.atan2(-this.rayDirection.x, -this.rayDirection.z);
+        this.meleePending = { kind: name, time: name === 'kick' ? .22 : .13 };
+        break;
       case 'laser': this.laserActive=!this.laserActive;this.hooks.notify(this.laserActive?'Laser continuo ativo - L para desligar.':'Laser desligado.');break;
       case 'energy': this.energy(); break;
       case 'teleport': this.updateDestination(); if (this.destinationValid) void this.teleportTo(this.destination.clone()); else this.hooks.notify('Aponte para uma superfície a até 2,5 km.'); break;
@@ -133,6 +155,31 @@ export class PowerSystem {
   private cameraRay(): void {
     this.rayOrigin.copy(this.camera.position).add(this.hooks.getOrigin());
     this.camera.getWorldDirection(this.rayDirection);
+  }
+
+  private meleeHit(kind: 'punch' | 'kick'): void {
+    const size = this.player.size, reach = (kind === 'kick' ? 3 : 2.2) * size;
+    this.camera.getWorldDirection(this.rayDirection);
+    this.rayDirection.y = Math.max(-.65, Math.min(.65, this.rayDirection.y)); this.rayDirection.normalize();
+    this.emission.copy(this.player.position); this.emission.y += (kind === 'kick' ? .9 : 1.5) * size;
+    const colliders = this.hooks.getAttackColliders?.(this.emission, reach) ?? this.hooks.getColliders();
+    const hit = PhysicsWorld.raycast(this.emission, this.rayDirection, colliders, reach, .2 * size, true);
+    let distance = hit?.distance ?? reach;
+    let target: Target | undefined;
+    for (const candidate of this.hooks.targets()) {
+      if (!candidate.active) continue;
+      this.offset.subVectors(candidate.position, this.emission);
+      const along = this.offset.dot(this.rayDirection);
+      if (along < 0 || along - candidate.radius > distance || along > reach) continue;
+      if (this.offset.lengthSq() - along * along > (candidate.radius + .25 * size) ** 2) continue;
+      distance = Math.max(0, along - candidate.radius); target = candidate;
+    }
+    if (!hit && !target) return;
+    this.aimPoint.copy(this.emission).addScaledVector(this.rayDirection, distance);
+    if (target) this.hooks.hit(target.id, 150 * size);
+    this.hooks.damage?.(this.aimPoint, (kind === 'kick' ? 1.2 : .7) * size, 30000 * size);
+    this.effects.burst(this.aimPoint, 0xaaffed, Math.min(30, size), 24);
+    this.hooks.impulse(this.aimPoint, 2 * size, 24 * size); this.hooks.sound('energy');
   }
 
   private updateDestination(): void {

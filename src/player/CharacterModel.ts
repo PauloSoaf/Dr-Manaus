@@ -4,6 +4,7 @@ import { CosmicAura } from './cosmic/CosmicAura';
 import { CosmicTrail } from './cosmic/CosmicTrail';
 import { CosmicMaterial, type CosmicLevel } from './cosmic/CosmicMaterial';
 import { CosmicVideoSource } from './cosmic/CosmicVideoSource';
+import { Locomotion } from './animations/Locomotion';
 export type { CosmicLevel };
 
 export class CharacterModel {
@@ -24,6 +25,8 @@ export class CharacterModel {
   private readonly aura?:CosmicAura;private readonly trail?:CosmicTrail;
   private phase=0;private facing=new Vector3(0,0,-1);private level:CosmicLevel|null=null;private levelSpeed=0;
   private enabled=true;private disposed=false;
+  private readonly locomotion = new Locomotion();
+  private lastPose = ''; private posePhase = 0;
 
   constructor(echo=false){
     this.group.name=echo?'cosmic-echo':'DR Manaus · portal silhouette';
@@ -63,6 +66,9 @@ export class CharacterModel {
   animate(dt:number,speed:number,flying:boolean,boost:boolean,pose:string){
     dt=Number.isFinite(dt)?Math.max(0,Math.min(.1,dt)):0;this.phase+=dt;
     const stride=flying?0:Math.min(1,speed/5),swing=Math.sin(this.phase*(speed>8?12:8))*stride*.62,smooth=1-Math.exp(-dt*10);
+    if (pose !== this.lastPose) { this.lastPose = pose; this.posePhase = 0; }
+    this.posePhase += dt;
+    for (const bone of this.skeleton.bones) { bone.rotation.y *= 1 - smooth; bone.rotation.z *= 1 - smooth; }
     this.body.rotation.x+=((flying&&pose!=='energy'?(boost?-1.13:-.18):0)-this.body.rotation.x)*smooth;
     this.body.position.y=flying?Math.sin(this.phase*2)*.055:Math.abs(Math.sin(this.phase*8))*stride*.025;
     this.leftLeg.rotation.x+=((flying?.13:swing)-this.leftLeg.rotation.x)*smooth;
@@ -78,6 +84,14 @@ export class CharacterModel {
     bend(this.leftShin,flying?.22:Math.max(0,-swing)*1.05);
     bend(this.rightShin,flying?.32:Math.max(0,swing)*1.05);
     this.leftHand.rotation.x=-.035;this.rightHand.rotation.x=pose==='energy'?-.12:-.035;
+    this.locomotion.apply(this.skeleton.bones, dt, speed, flying, pose);
+    if (pose === 'kick') {
+      const extension = Math.sin(Math.min(1, this.posePhase / .55) * Math.PI);
+      this.rightLeg.rotation.x = extension * 1.65;
+      this.rightShin.rotation.x = .2 * (1 - extension);
+      this.body.rotation.x = -extension * .2;
+      this.leftArm.rotation.x = .65; this.rightArm.rotation.x = .65;
+    }
     const level:CosmicLevel=pose?'power':this.level??(boost?'boost':flying?'flight':'idle'),pace=this.level?this.levelSpeed:speed;
     this.cosmicSource?.update(dt);this.cosmicSource?.setPlaybackRate(flying?1.1:1);
     this.cosmicMaterial?.update(dt,level,pace);

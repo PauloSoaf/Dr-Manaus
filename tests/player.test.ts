@@ -4,6 +4,7 @@ import { Group, PerspectiveCamera, Scene, Vector3 } from 'three/webgpu';
 import { SpeedVFX } from '../src/rendering/SpeedVFX.ts';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld.ts';
 import { PlayerController } from '../src/player/PlayerController.ts';
+import { CameraController } from '../src/player/CameraController.ts';
 import { FLIGHT } from '../src/player/flightConfig.ts';
 import { SPACE } from '../src/core/config.ts';
 import { PowerSystem, type PowerHooks } from '../src/player/powers/PowerSystem.ts';
@@ -293,4 +294,62 @@ test('giant laser starts beyond the forward hand, scales up, and the arm aims fo
 test('giant Q expands both the blast radius and damage rather than stopping at normal strength',()=>{
  const calls:number[][]=[];const h=harness({damage:(_point,radius,amount)=>{calls.push([radius,amount]);return 0;}});
  h.player.size=1000/2.07;h.powers.use('shockwave');assert.ok(calls[0][0]>1400);assert.ok(calls[0][1]>1000000);h.powers.dispose();h.player.character.dispose();
+});
+
+test('camera cycles shoulder and first person, hiding only the local hero', () => {
+  const h = harness(), control = new CameraController(h.camera, h.input);
+  control.skipIntro();
+  h.edges.add('F5'); control.update(h.player, new Vector3(), .016, []);
+  assert.equal(control.mode, 'shoulder'); assert.equal(h.player.model.visible, true);
+  h.edges.add('F5'); control.update(h.player, new Vector3(), .016, []);
+  assert.equal(control.mode, 'first'); assert.equal(h.player.model.visible, false);
+  assert.ok(Math.abs(h.camera.position.y - h.player.position.y - 1.94) < 1e-6);
+  h.edges.add('F5'); control.update(h.player, new Vector3(), .016, []);
+  assert.equal(control.mode, 'rear'); assert.equal(h.player.model.visible, true);
+});
+
+test('double jump permits two impulses and landing restores them', () => {
+  const h = harness(); h.player.teleport(new Vector3());
+  h.player.update(.016, [], 0);
+  h.edges.add('Space'); h.player.update(.016, [], 0); assert.ok(h.player.velocity.y > 9);
+  for(let i=0;i<15;i++)h.player.update(.016, [], 0);
+  h.edges.add('Space'); h.player.update(.016, [], 0); assert.ok(h.player.velocity.y > 9);
+  const previous = h.player.velocity.y;
+  h.edges.add('Space'); h.player.update(.016, [], 0); assert.ok(h.player.velocity.y < previous);
+  for(let i=0;i<150;i++)h.player.update(.016, [], 0);
+  h.edges.add('Space'); h.player.update(.016, [], 0); assert.ok(h.player.velocity.y > 9);
+});
+
+test('parkour boosts a reachable ledge jump but never passes through a ceiling', () => {
+  const h = harness(); h.player.teleport(new Vector3()); h.player.update(.016, [], 0);
+  h.held.add('KeyW'); h.edges.add('Space');
+  const ledge = {x:0,y:1,z:-1.6,width:4,height:2,depth:1};
+  h.player.update(.016, [ledge], 0); assert.ok(h.player.velocity.y > 10);
+  const lowRoof = {x:0,y:2.5,z:0,width:10,height:.2,depth:10};
+  for(let i=0;i<20;i++)h.player.update(.016,[ledge,lowRoof],0);
+  assert.ok(h.player.position.y + 2.1 <= 2.4 + .001);
+});
+
+test('mega running invokes destruction before collision and keeps ground movement', () => {
+  const h = harness(); h.player.teleport(new Vector3()); h.player.megaMode = true;
+  h.held.add('KeyW'); h.held.add('KeyB'); let calls = 0;
+  h.player.beforeMove = () => {calls++; return [];};
+  for(let i=0;i<80;i++)h.player.update(.016,[],0);
+  assert.ok(calls > 0); assert.ok(-h.player.velocity.z > 640); assert.equal(h.player.state,'Grounded');
+});
+
+test('melee mode delays contact, hits the forward obstacle, and does not fire energy', () => {
+  const impacts: Vector3[] = [];
+  const h = harness({getColliders:()=>[{id:'wall',x:0,y:10,z:-2,width:3,height:4,depth:1}],damage:p=>{impacts.push(p.clone());return 1;}});
+  h.edges.add('KeyX');h.held.add('Mouse0');h.powers.update(.016,.016);
+  assert.equal(h.powers.combatMode,'melee');assert.equal(impacts.length,0);assert.equal(h.powers.cooldowns.energy,0);
+  h.powers.update(.15,.15);assert.equal(impacts.length,1);assert.ok(impacts[0].z < 0);
+  h.held.clear();h.powers.update(.6,.6);h.held.add('Mouse2');h.powers.update(.01,.01);h.powers.update(.25,.25);
+  assert.equal(impacts.length,2);assert.equal(h.powers.selected,'kick');
+});
+
+test('melee attacks do not damage empty space or objects behind the player', () => {
+  let damage = 0;
+  const h = harness({getColliders:()=>[{id:'rear',x:0,y:10,z:2,width:1,height:4,depth:1}],damage:()=>++damage});
+  h.powers.use('kick');h.powers.update(.3,.3);assert.equal(damage,0);
 });

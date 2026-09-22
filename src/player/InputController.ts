@@ -10,7 +10,7 @@ export class InputController {
     const options = { signal: this.controller.signal };
     window.addEventListener('keydown', (event) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) return;
-      if (['Space', 'Tab', 'F3', 'ArrowUp', 'ArrowDown'].includes(event.code)) event.preventDefault();
+      if (['Space', 'Tab', 'F3', 'F5', 'ArrowUp', 'ArrowDown'].includes(event.code)) event.preventDefault();
       if (!this.keys.has(event.code)) this.edges.add(event.code);
       this.keys.add(event.code);
     }, options);
