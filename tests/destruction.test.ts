@@ -111,7 +111,7 @@ test('a levelled building stays levelled when its tile rebuilds around the playe
   }
 });
 
-test('the levelled set is bounded so a long rampage cannot grow memory without limit', async () => {
+test('the levelled set is limitless so a long rampage persists destruction until restored', async () => {
   if (!existsSync(path.join(DATA, 'manifest.json'))) return;
   const restore = serveGeodata();
   const root = new Group(), layer = new RealCityLayer(root);
@@ -122,9 +122,9 @@ test('the levelled set is bounded so a long rampage cannot grow memory without l
     assert.equal(layer.destroy('real:not-resident-anywhere'), true);
     assert.equal(layer.destroy('real:not-resident-anywhere'), false, 'but only once');
     for (let i = 0; i < REAL_CITY.maxDestroyed + 500; i++) layer.destroy(`real:synthetic-${i}`);
-    assert.equal(layer.destroyedCount, REAL_CITY.maxDestroyed);
-    // The oldest entries are the ones released, so recent demolition is what survives.
-    assert.equal(layer.isDestroyed('synthetic-0'), false);
+    assert.equal(layer.destroyedCount, REAL_CITY.maxDestroyed + 501);
+    // The oldest entries are never released, so all demolition survives.
+    assert.equal(layer.isDestroyed('synthetic-0'), true);
     assert.equal(layer.isDestroyed(`synthetic-${REAL_CITY.maxDestroyed + 499}`), true);
   } finally {
     layer.dispose(); restore();

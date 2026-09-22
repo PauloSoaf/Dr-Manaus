@@ -394,11 +394,6 @@ export class RoadNetwork {
     (attribute.array as Float32Array).fill(0, span.first, span.first + span.count);
     attribute.addUpdateRange(span.first, span.count); attribute.needsUpdate = true;
     this.destroyed.set(id, this.colliders[index]); this.colliders.splice(index, 1); this.collidersChanged = true;
-    if (this.destroyed.size > REAL_CITY.maxDestroyed) {
-      const oldest = this.destroyed.keys().next().value;
-      if (oldest !== undefined) this.destroyed.delete(oldest);
-      if (!this.pending.includes('lamps') && this.lastDetailed) this.pending.push('lamps');
-    }
     return true;
   }
 
