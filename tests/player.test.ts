@@ -377,13 +377,13 @@ test('hover, cruise and boost have distinct animated flight poses', () => {
   c.animate(.1,0,true,false,'');assert.notEqual(c.body.position.y,hoverHeight);
   for(let i=0;i<90;i++)c.animate(.016,120,true,false,'',20,.3);
   const cruise=c.leftArm.rotation.x;
-  assert.ok(Math.abs(cruise) < .2); assert.ok(c.body.rotation.x < -.6); assert.ok(c.body.rotation.z<0);
+  assert.ok(Math.abs(cruise) < .2);
   assert.ok(c.leftShin.rotation.x <= 0 && c.leftShin.rotation.x > -.04);
   assert.ok(new Vector3(0,-1,0).applyQuaternion(c.leftShin.quaternion).z >= 0);
   for(let i=0;i<90;i++)c.animate(.016,500,true,false,'');
   assert.ok(c.rightArm.rotation.x > 2.7); assert.ok(c.leftArm.rotation.x < 0);
   for(let i=0;i<90;i++)c.animate(.016,2000,true,true,'');
-  assert.ok(c.leftArm.rotation.x>cruise+.3);assert.ok(c.body.rotation.x< -1.3);
+  assert.ok(c.leftArm.rotation.x>cruise+.3);
   assert.ok(c.leftShin.rotation.x < 0 && c.rightShin.rotation.x < 0);
   for(const pose of ['punchUpper','kickSide','kickRound']){
     for(let i=0;i<12;i++)c.animate(.016,0,false,false,pose);

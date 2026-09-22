@@ -5,7 +5,7 @@ import { CharacterModel } from './CharacterModel';
 import type { InputController } from './InputController';
 import { SPACE, WORLD } from '../core/config';
 import { FLIGHT, type FlightSpeedMode } from './flightConfig';
-import { getDoubleJumpDuration, getJumpHeight, getJumpVelocity } from './physics/JumpPhysics';
+import { getDoubleJumpDuration, getJumpHeight, getJumpVelocity, getGravity } from './physics/JumpPhysics';
 import { TitanGroundSupport } from './physics/TitanGroundSupport';
 import type { FlipDirection } from './animations/types';
 
@@ -17,6 +17,7 @@ export class PlayerController {
   readonly model = this.character.group;
   readonly titanSupport = new TitanGroundSupport();
   state: 'Grounded' | 'Hover' | 'Flight' = 'Grounded';
+  facingYaw = 0;
   size = 1;
   speedMultiplier = 1;
   speedMode: FlightSpeedMode = 'ground';
@@ -132,7 +133,7 @@ export class PlayerController {
               start.y = this.position.y + 2.2 * this.size;
               const ceiling = PhysicsWorld.raycast(start, new Vector3(0, 1, 0), colliders, Math.max(0, rise), 0.32 * this.size);
               if (rise > 0.55 * this.size && rise < 2.5 * this.size && !ceiling) {
-                this.velocity.y = Math.sqrt(2 * 25 * sizeSpeed * (rise + 0.5 * this.size));
+                this.velocity.y = Math.sqrt(2 * getGravity(this.size) * (rise + 0.5 * this.size));
                 this.powerPose('vault', 0.55);
               }
             }
@@ -149,10 +150,9 @@ export class PlayerController {
           else if (this.input.held('KeyD')) flipDir = 'sideRight';
 
           this.character.animationController.triggerDoubleJump(flipDir, this.size);
-          this.powerPose('doubleJump', getDoubleJumpDuration(this.size));
         }
       }
-      this.velocity.y -= 25 * dt * sizeSpeed;
+      this.velocity.y -= getGravity(this.size) * dt;
     }
 
     this.size = MathUtils.lerp(this.size, this.targetSize, 1 - Math.exp(-dt * 4));
@@ -187,18 +187,18 @@ export class PlayerController {
     if (flying && this.velocity.lengthSq() > 2) {
       this.forward.copy(this.velocity).normalize();
       const angle = Math.atan2(-this.forward.x, -this.forward.z);
-      this.model.rotation.y += Math.atan2(Math.sin(angle - this.model.rotation.y), Math.cos(angle - this.model.rotation.y)) * Math.min(1, dt * 8);
+      this.facingYaw += Math.atan2(Math.sin(angle - this.facingYaw), Math.cos(angle - this.facingYaw)) * Math.min(1, dt * 8);
     } else if (this.velocity.x * this.velocity.x + this.velocity.z * this.velocity.z > 0.2) {
       this.forward.set(this.velocity.x, 0, this.velocity.z).normalize();
       const angle = Math.atan2(-this.forward.x, -this.forward.z);
-      this.model.rotation.y += Math.atan2(Math.sin(angle - this.model.rotation.y), Math.cos(angle - this.model.rotation.y)) * Math.min(1, dt * 8);
+      this.facingYaw += Math.atan2(Math.sin(angle - this.facingYaw), Math.cos(angle - this.facingYaw)) * Math.min(1, dt * 8);
     }
 
     this.poseTime -= dt;
     if (this.poseTime <= 0) this.pose = '';
 
     const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    const bank = horizontalSpeed > 2 ? Math.sin(Math.atan2(-this.velocity.x, -this.velocity.z) - this.model.rotation.y) : 0;
+    const bank = horizontalSpeed > 2 ? Math.sin(Math.atan2(-this.velocity.x, -this.velocity.z) - this.facingYaw) : 0;
 
     // Titan Fall visual check: giants only show jump/fall pose if supportInfo.isFallingVisually
     const showFallAnimation = this.size >= 4
@@ -214,7 +214,11 @@ export class PlayerController {
       this.velocity.y / sizeSpeed,
       bank,
       this.size,
-      this.velocity
+      this.velocity,
+      1, // combatFactor
+      this.speedMode,
+      this.forward,
+      this.facingYaw
     );
 
     this.model.position.copy(this.position);

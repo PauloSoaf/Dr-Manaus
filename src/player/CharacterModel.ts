@@ -139,7 +139,10 @@ export class CharacterModel {
     turn = 0,
     size = 1,
     velocity?: Vector3,
-    combatFactor = 1
+    combatFactor = 1,
+    speedMode = 'ground',
+    forward?: Vector3,
+    facingYaw = 0
   ): void {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
     this.currentCharacterSize = size;
@@ -158,12 +161,13 @@ export class CharacterModel {
       turn,
       powerPoseName: pose,
       combatTimeFactor: combatFactor,
+      speedMode,
+      forward,
+      facingYaw,
     });
 
-    // Apply decoupled visual orientation (e.g. 360 double jump flip)
-    if (this.animationController.isDoubleJumping) {
-      this.body.quaternion.multiply(this.animationController.visualOrientation);
-    }
+    // Apply decoupled visual orientation (flight alignment, 360 double jump flip)
+    this.group.quaternion.copy(this.animationController.rootOrientation);
 
     // Apply procedural vertical displacement
     this.body.position.copy(this.animationController.bodyOffset);

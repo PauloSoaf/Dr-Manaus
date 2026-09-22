@@ -1,4 +1,5 @@
 import { Euler, MathUtils, Quaternion, Vector3, type Bone } from 'three/webgpu';
+import { computeFlightOrientation } from './FlightOrientation';
 import library from './quaternius.json';
 import { PARADE_REST } from './ParadeRest';
 import { BoneMask } from './BoneMask';
@@ -28,6 +29,9 @@ export interface AnimationUpdateParams {
   turn: number;
   powerPoseName?: string;
   combatTimeFactor?: number;
+  speedMode?: string;
+  forward?: Vector3;
+  facingYaw?: number;
 }
 
 export interface AnimationDebugState {
@@ -44,13 +48,19 @@ export interface AnimationDebugState {
   jumpCount: number;
   doubleJumpProgress: number;
   flipDirection: FlipDirection;
+  flightAlignment: number;
+  rootPitch: number;
+  rootBank: number;
+  velocityDir: Vector3;
 }
 
 export class AnimationController {
   readonly events = new AnimationEvents();
 
-  // Decoupled visual orientation (e.g. 360 flip, flight vector alignment)
-  readonly visualOrientation = new Quaternion();
+  // Base smoothed orientation (yaw + flight alignment)
+  readonly baseOrientation = new Quaternion();
+  // Final combined orientation (base + procedural flip) applied to the character group
+  readonly rootOrientation = new Quaternion();
   readonly bodyOffset = new Vector3();
 
   // Internal layer states
@@ -94,7 +104,8 @@ export class AnimationController {
   private readonly tmpQ = new Quaternion();
 
   constructor() {
-    this.visualOrientation.identity();
+    this.baseOrientation.identity();
+    this.rootOrientation.identity();
     this.qFlip.identity();
   }
 
@@ -131,8 +142,18 @@ export class AnimationController {
       jumpCount: this.doubleJump.active ? 2 : 0,
       doubleJumpProgress: this.doubleJump.progress,
       flipDirection: this.doubleJump.direction,
+      flightAlignment: this.debugAlignment,
+      rootPitch: this.debugPitch,
+      rootBank: this.debugBank,
+      velocityDir: this.debugVelocityDir,
     };
   }
+
+  // Telemetry fields for debug
+  private debugAlignment = 1.0;
+  private debugPitch = 0;
+  private debugBank = 0;
+  private readonly debugVelocityDir = new Vector3();
 
   triggerDoubleJump(direction: FlipDirection, size = 1): void {
     this.doubleJump.active = true;
@@ -211,10 +232,42 @@ export class AnimationController {
     }
     this.flightTime += dt;
 
-    // 1. Evaluate Jump & Double Jump
+    // 1. Compute Base & Flight Orientation
+    const facingYaw = params.facingYaw ?? 0;
+    if (params.flying && params.velocity.lengthSq() > 1 && params.speedMode) {
+      computeFlightOrientation(
+        params.velocity, 
+        this.baseOrientation, 
+        dt, 
+        params.turn, 
+        params.speedMode, 
+        this.baseOrientation, 
+        facingYaw
+      );
+      // Telemetry
+      const head = new Vector3(0, 1, 0).applyQuaternion(this.baseOrientation);
+      const vel = params.velocity.clone().normalize();
+      this.debugAlignment = head.dot(vel);
+      this.debugVelocityDir.copy(vel);
+      this.debugBank = params.turn;
+      const euler = new Euler().setFromQuaternion(this.baseOrientation, 'YXZ');
+      this.debugPitch = euler.x;
+    } else {
+      // Grounded or hovering upright
+      const target = this.tmpQ.setFromAxisAngle(new Vector3(0, 1, 0), facingYaw);
+      this.baseOrientation.slerp(target, 1 - Math.exp(-dt * 12));
+      this.debugAlignment = 1.0;
+      this.debugBank = 0;
+      this.debugPitch = 0;
+    }
+
+    // 2. Evaluate Jump & Double Jump (computes qFlip)
     this.updateJumpLayer(dt);
 
-    // 2. Evaluate Layers onto bones
+    // Combine orientations
+    this.rootOrientation.copy(this.baseOrientation).multiply(this.qFlip);
+
+    // 3. Evaluate Layers onto bones
     this.evaluateLayers(bones, dt, combatDt, params);
   }
 
@@ -233,7 +286,6 @@ export class AnimationController {
     } else {
       this.qFlip.identity();
     }
-    this.visualOrientation.copy(this.qFlip);
   }
 
   private evaluateLayers(
@@ -312,11 +364,8 @@ export class AnimationController {
       const moving = Math.min(1, speed / 120);
       const takeoff = Math.max(0, 1 - this.flightTime / 0.5);
       const accelerating = Math.max(0, Math.min(1, (speed - 160) / 280));
-      const climb = Math.max(-1, Math.min(1, verticalSpeed / 100));
       const sway = Math.sin(this.phase * 1.6);
 
-      body.rotation.x += ((boosting ? -1.4 : moving * (-0.72 - accelerating * 0.48 + climb * 0.12)) - body.rotation.x) * smooth;
-      body.rotation.z += (Math.max(-0.3, Math.min(0.3, -turn)) * moving - body.rotation.z) * smooth;
       this.bodyOffset.set(0, sway * 0.025 + takeoff * 0.025, 0);
 
       // Only update arms if NOT doing an upper-body combat attack

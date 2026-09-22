@@ -22,6 +22,11 @@ export function getJumpHeight(size: number, baseHeight = JUMP_CONFIG.baseHeight)
   return Math.min(JUMP_CONFIG.maxJumpHeight, baseHeight * scaling);
 }
 
+export function getGravity(size: number, baseGravity = JUMP_CONFIG.baseGravity): number {
+  // Gravity can also be slightly higher for giant mass feeling
+  return baseGravity * Math.pow(Math.max(1, size), 0.1);
+}
+
 /**
  * Calculates vertical velocity from desired height and gravity:
  * v = sqrt(2 * g * h)
@@ -32,8 +37,7 @@ export function getJumpVelocity(
   baseHeight = JUMP_CONFIG.baseHeight
 ): number {
   const height = getJumpHeight(size, baseHeight);
-  // Gravity can also be slightly higher for giant mass feeling
-  const effectiveGravity = gravity * Math.pow(Math.max(1, size), 0.1);
+  const effectiveGravity = getGravity(size, gravity);
   return Math.sqrt(2 * effectiveGravity * height);
 }
 

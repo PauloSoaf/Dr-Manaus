@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Group, PerspectiveCamera, Vector3, Quaternion, Bone } from 'three/webgpu';
 import { AnimationController } from '../src/player/animations/AnimationController.ts';
+import { computeFlightOrientation } from '../src/player/animations/FlightOrientation.ts';
 import { BoneMask } from '../src/player/animations/BoneMask.ts';
 import { AnimationEvents } from '../src/player/animations/AnimationEvents.ts';
 import { COMBAT_MOVES } from '../src/player/combat/CombatMoves.ts';
@@ -100,6 +101,8 @@ test('DoubleJump executes 360 degree rotation and terminates with strictly ident
     boosting: false,
     size: 1,
     turn: 0,
+    speedMode: 'normal',
+    facingYaw: 0,
   };
 
   controller.triggerDoubleJump('front', 1);
@@ -110,18 +113,18 @@ test('DoubleJump executes 360 degree rotation and terminates with strictly ident
   const halfDt = controller.debugState.doubleJumpProgress;
   controller.update(bones, 0.22, params);
   assert.ok(controller.doubleJumpProgress > 0.4 && controller.doubleJumpProgress < 0.6);
-  assert.ok(Math.abs(controller.visualOrientation.w) < 0.9, 'should be actively rotated midway');
+  assert.ok(Math.abs(controller.rootOrientation.w) < 0.9, 'should be actively rotated midway');
 
   // Complete the flip
   controller.update(bones, 0.3, params);
   assert.equal(controller.isDoubleJumping, false);
   assert.equal(controller.doubleJumpProgress, 1);
 
-  // Visual orientation must mathematically equal identity (0, 0, 0, 1)
-  assert.equal(controller.visualOrientation.x, 0);
-  assert.equal(controller.visualOrientation.y, 0);
-  assert.equal(controller.visualOrientation.z, 0);
-  assert.equal(controller.visualOrientation.w, 1);
+  // Visual orientation must mathematically equal identity (0, 0, 0, 1) within epsilon
+  assert.ok(Math.abs(controller.rootOrientation.x) < 1e-4);
+  assert.ok(Math.abs(controller.rootOrientation.y) < 1e-4);
+  assert.ok(Math.abs(controller.rootOrientation.z) < 1e-4);
+  assert.ok(Math.abs(1 - Math.abs(controller.rootOrientation.w)) < 1e-4);
 });
 
 test('10 consecutive double jumps separated by landings accumulate zero rotation error', () => {
@@ -136,6 +139,8 @@ test('10 consecutive double jumps separated by landings accumulate zero rotation
     boosting: false,
     size: 1,
     turn: 0,
+    speedMode: 'normal',
+    facingYaw: 0,
   };
 
   for (let i = 0; i < 10; i++) {
@@ -145,11 +150,14 @@ test('10 consecutive double jumps separated by landings accumulate zero rotation
     for (let frame = 0; frame < 20; frame++) {
       controller.update(bones, 0.03, params);
     }
-    controller.triggerLanding('soft');
-    assert.equal(controller.visualOrientation.x, 0);
-    assert.equal(controller.visualOrientation.y, 0);
-    assert.equal(controller.visualOrientation.z, 0);
-    assert.equal(controller.visualOrientation.w, 1);
+    // Slerp needs time to settle
+    for (let frame = 0; frame < 15; frame++) {
+      controller.update(bones, 0.03, params);
+    }
+    assert.ok(Math.abs(controller.rootOrientation.x) < 1e-4);
+    assert.ok(Math.abs(controller.rootOrientation.y) < 1e-4);
+    assert.ok(Math.abs(controller.rootOrientation.z) < 1e-4);
+    assert.ok(Math.abs(1 - Math.abs(controller.rootOrientation.w)) < 1e-4);
   }
 });
 
@@ -200,6 +208,8 @@ test('AnimationController combines Flight pose with Combat upper body without de
     boosting: false,
     size: 1,
     turn: 0,
+    speedMode: 'fast',
+    facingYaw: 0,
   };
 
   // Fly for 30 frames to establish aerodynamic flight pose
@@ -383,3 +393,60 @@ test('TitanGroundSupport suppresses false fall animations when stepping on and d
   assert.equal(eval3.hasSupport, false);
   assert.equal(eval3.isFallingVisually, true, 'genuine deep drop triggers fall');
 });
+
+test('computeFlightOrientation aligns local +Y to velocity vector', () => {
+  const current = new Quaternion();
+  const target = new Quaternion();
+
+  const cases = [
+    new Vector3(0, 0, -100),
+    new Vector3(0, 0, 100),
+    new Vector3(100, 0, 0),
+    new Vector3(-100, 0, 0),
+    new Vector3(0, 100, 0),
+    new Vector3(0, -100, 0),
+    new Vector3(100, 100, -100).normalize().multiplyScalar(100),
+  ];
+
+  for (const vel of cases) {
+    // Large dt to simulate stabilized target instantly
+    computeFlightOrientation(vel, current, 10.0, 0, 'normal', target, 0);
+    
+    // Check if +Y matches velocity
+    const headAxis = new Vector3(0, 1, 0).applyQuaternion(target);
+    const expectedDir = vel.clone().normalize();
+    const alignment = headAxis.dot(expectedDir);
+    
+    assert.ok(alignment > 0.999, `failed alignment for velocity ${vel.toArray()}: got ${alignment}`);
+  }
+});
+
+test('CharacterModel double jump does not accumulate quaternion continuously on body bone', () => {
+  const { input } = mockInput();
+  const root = new Group();
+  const player = new PlayerController(root, input);
+  
+  // Base posture before jump
+  player.character.animate(0.016, 0, false, false, '', 0, 0, 1, undefined, 1, 'ground', new Vector3(0,0,-1), 0);
+  const initialBodyQ = player.character.body.quaternion.clone();
+
+  // Trigger double jump
+  player.character.animationController.triggerDoubleJump('front', 1);
+
+  // Simulate multiple frames inside double jump
+  for(let i = 0; i < 15; i++) {
+    player.character.animate(0.016, 0, false, false, '', 0, 0, 1, undefined, 1, 'ground', new Vector3(0,0,-1), 0);
+  }
+
+  const currentBodyQ = player.character.body.quaternion.clone();
+  
+  // The local body bone should only have local pose offset, it should NOT accumulate a huge flip rotation
+  const angleError = currentBodyQ.angleTo(initialBodyQ);
+  // It might have small differences due to idle breathing or phase updates, but NOT 180 degrees.
+  assert.ok(angleError < 0.2, 'body bone quaternion should not accumulate massive rotation');
+
+  // But the global group should be rotating
+  const groupQ = player.character.group.quaternion;
+  assert.ok(Math.abs(groupQ.w) < 0.95, 'global visual orientation MUST be rotated');
+});
+
