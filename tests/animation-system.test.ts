@@ -16,7 +16,7 @@ import type { InputController } from '../src/player/InputController.ts';
 import type { Target, Collider } from '../src/core/types.ts';
 
 function mockBones(): Bone[] {
-  return Array.from({ length: 11 }, () => new Bone());
+  return Array.from({ length: 19 }, () => new Bone());
 }
 
 function mockInput() {

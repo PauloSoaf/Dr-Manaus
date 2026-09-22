@@ -1,8 +1,15 @@
 import { BufferGeometry, Color, Float32BufferAttribute, IcosahedronGeometry, TorusGeometry, Uint16BufferAttribute } from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { BONES } from './animations/types';
 
 // Metres, feet at zero. The same two draws are shared by the hero and his echoes.
-export const HUMAN_RIG = { height: 2.07, shoulderX: .275, shoulderY: 1.64, elbowY: 1.33, wristY: 1.035, hipX: .112, hipY: 1.035, kneeY: .545 } as const;
+export const HUMAN_RIG = { 
+  height: 2.07, 
+  hipX: .112, hipY: 1.035, 
+  spineY: 1.15, chestY: 1.40, neckY: 1.70, headY: 1.82,
+  shoulderX: .275, shoulderY: 1.64, elbowY: 1.33, wristY: 1.035, 
+  kneeY: .545, footY: 0.10
+} as const;
 type Ring = [y: number, width: number, depth: number, x?: number, z?: number];
 type Weight = (y: number) => [number, number, number];
 const rigid = (bone: number): Weight => () => [bone, bone, 0];
@@ -58,21 +65,35 @@ export function createCharacterGeometry(): { skin: BufferGeometry; accents: Buff
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute(positions, 3)); geometry.setIndex(indices); geometry.computeVertexNormals(); weighted(geometry, weights);
   };
+  const spineWeights: Weight = y => {
+    if (y > 1.80) return joint(BONES.HEAD, BONES.NECK, 1.82, 0.05)(y);
+    if (y > 1.65) return joint(BONES.NECK, BONES.CHEST, 1.70, 0.05)(y);
+    if (y > 1.30) return joint(BONES.CHEST, BONES.SPINE, 1.40, 0.10)(y);
+    if (y > 1.05) return joint(BONES.SPINE, BONES.HIPS, 1.15, 0.08)(y);
+    return rigid(BONES.HIPS)(y);
+  };
   loft([
     [.93, .075, .067], [.97, .15, .103], [1.045, .184, .127, 0, .008], [1.12, .177, .12],
     [1.23, .153, .103], [1.32, .17, .119], [1.43, .222, .14, 0, -.007], [1.52, .245, .142, 0, -.006],
     [1.61, .25, .12], [1.665, .226, .092], [1.70, .148, .081], [1.74, .073, .064],
     [1.80, .064, .061], [1.835, .054, .055], [1.844, .002, .002],
-  ], rigid(0), 28);
+  ], spineWeights, 28);
+  const headWeights: Weight = y => joint(BONES.HEAD, BONES.NECK, 1.84, 0.05)(y);
   loft([
     [1.789, .012, .018, 0, -.035], [1.817, .047, .063, 0, -.022], [1.845, .069, .075, 0, -.008],
     [1.88, .083, .084], [1.925, .092, .09], [1.965, .091, .094, 0, .002],
     [2.015, .089, .091, 0, .005], [2.051, .062, .067, 0, .005], [2.069, .002, .002, 0, .003],
-  ], rigid(0), 32, true);
-  for (const [side, arm, forearm, hand, thigh, shin] of [[-1, 1, 5, 9, 3, 7], [1, 2, 6, 10, 4, 8]]) {
+  ], headWeights, 32, true);
+  for (const [side, shoulder, arm, forearm, hand, thigh, shin, foot] of [
+    [-1, BONES.LEFT_SHOULDER, BONES.LEFT_ARM, BONES.LEFT_FOREARM, BONES.LEFT_HAND, BONES.LEFT_LEG, BONES.LEFT_SHIN, BONES.LEFT_FOOT],
+    [1, BONES.RIGHT_SHOULDER, BONES.RIGHT_ARM, BONES.RIGHT_FOREARM, BONES.RIGHT_HAND, BONES.RIGHT_LEG, BONES.RIGHT_SHIN, BONES.RIGHT_FOOT],
+  ]) {
     const x = (n: number) => side * n;
-    weighted(new IcosahedronGeometry(1, 2).scale(.013, .028, .019).translate(x(.094), 1.914, .001), rigid(0));
-    const armWeights: Weight = y => y < 1.09 ? joint(forearm, hand, HUMAN_RIG.wristY, .035)(y) : joint(arm, forearm, HUMAN_RIG.elbowY, .055)(y);
+    weighted(new IcosahedronGeometry(1, 2).scale(.013, .028, .019).translate(x(.094), 1.914, .001), headWeights);
+    const armWeights: Weight = y => 
+      y > 1.55 ? joint(shoulder, arm, HUMAN_RIG.shoulderY, .08)(y) :
+      y < 1.09 ? joint(forearm, hand, HUMAN_RIG.wristY, .035)(y) : 
+      joint(arm, forearm, HUMAN_RIG.elbowY, .055)(y);
     loft([
       [1.005, .032, .03, x(.315), -.02], [1.055, .033, .034, x(.315), -.016],
       [1.15, .048, .047, x(.313), -.009], [1.23, .062, .057, x(.308), -.008],
@@ -87,13 +108,16 @@ export function createCharacterGeometry(): { skin: BufferGeometry; accents: Buff
       loft([[tip, .002, .003, fx, -.028], [tip + .012, .008, .008, fx, -.031], [.912, .009, .009, fx, -.027], [.95, .01, .01, fx, -.022]], rigid(hand), 8);
     }
     loft([[.924, .002, .003, x(.264), -.048], [.934, .01, .01, x(.262), -.047], [.97, .013, .013, x(.272), -.036], [1.009, .016, .014, x(.295), -.024]], rigid(hand), 10);
+    const legWeights: Weight = y => 
+      y < 0.15 ? joint(shin, foot, 0.10, .05)(y) : 
+      joint(thigh, shin, HUMAN_RIG.kneeY, .065)(y);
     loft([
       [.105, .037, .044, x(.112), .018], [.18, .043, .048, x(.112), .015], [.28, .06, .067, x(.114), .024],
       [.365, .072, .074, x(.115), .024], [.46, .058, .057, x(.112), -.002], [.535, .061, .065, x(.112), -.016],
       [.60, .073, .076, x(.115), -.009], [.72, .093, .094, x(.116)], [.85, .101, .108, x(.111), .006],
       [.96, .1, .105, x(.102), .011], [1.04, .077, .079, x(.099), .007], [1.082, .008, .008, x(.097)],
-    ], joint(thigh, shin, HUMAN_RIG.kneeY, .065), 22);
-    loft([[.015, .032, .076, x(.112), -.071], [.028, .051, .136, x(.112), -.059], [.061, .052, .134, x(.112), -.06], [.093, .047, .102, x(.112), -.027], [.132, .039, .06, x(.112), .008], [.166, .025, .034, x(.112), .016]], rigid(shin), 20);
+    ], legWeights, 22);
+    loft([[.015, .032, .076, x(.112), -.071], [.028, .051, .136, x(.112), -.059], [.061, .052, .134, x(.112), -.06], [.093, .047, .102, x(.112), -.027], [.132, .039, .06, x(.112), .008], [.166, .025, .034, x(.112), .016]], rigid(foot), 20);
   }
   const skin = mergeGeometries(pieces)!; pieces.forEach(g => g.dispose()); skin.computeBoundingBox(); skin.computeBoundingSphere();
   const ornaments: BufferGeometry[] = [];

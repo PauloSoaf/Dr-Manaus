@@ -1,33 +1,30 @@
 import type { Quaternion, Vector3 } from 'three/webgpu';
 
-export type BoneId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+export type BoneId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18;
 
 /**
- * 11 Humanoid bones used by DR Manaus skeleton:
- * 0: Body (Pelvis / Torso / Head)
- * 1: Left Upper Arm
- * 2: Right Upper Arm
- * 3: Left Thigh (Upper Leg)
- * 4: Right Thigh (Upper Leg)
- * 5: Left Forearm
- * 6: Right Forearm
- * 7: Left Shin (Lower Leg)
- * 8: Right Shin (Lower Leg)
- * 9: Left Hand
- * 10: Right Hand
+ * 19 Humanoid bones used by DR Manaus skeleton:
  */
 export const BONES = {
-  BODY: 0,
-  LEFT_ARM: 1,
-  RIGHT_ARM: 2,
-  LEFT_LEG: 3,
-  RIGHT_LEG: 4,
-  LEFT_FOREARM: 5,
-  RIGHT_FOREARM: 6,
-  LEFT_SHIN: 7,
-  RIGHT_SHIN: 8,
-  LEFT_HAND: 9,
-  RIGHT_HAND: 10,
+  HIPS: 0,
+  SPINE: 1,
+  CHEST: 2,
+  NECK: 3,
+  HEAD: 4,
+  LEFT_SHOULDER: 5,
+  LEFT_ARM: 6,
+  LEFT_FOREARM: 7,
+  LEFT_HAND: 8,
+  RIGHT_SHOULDER: 9,
+  RIGHT_ARM: 10,
+  RIGHT_FOREARM: 11,
+  RIGHT_HAND: 12,
+  LEFT_LEG: 13,
+  LEFT_SHIN: 14,
+  LEFT_FOOT: 15,
+  RIGHT_LEG: 16,
+  RIGHT_SHIN: 17,
+  RIGHT_FOOT: 18,
 } as const;
 
 export type BoneMaskName =

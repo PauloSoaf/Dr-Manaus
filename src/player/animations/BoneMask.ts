@@ -2,75 +2,48 @@ import { BONES, type BoneId, type BoneMaskName } from './types';
 
 export class BoneMask {
   private static readonly MASKS: Record<BoneMaskName, readonly boolean[]> = {
-    FULL_BODY: [true, true, true, true, true, true, true, true, true, true, true],
+    FULL_BODY: Array(19).fill(true),
     UPPER_BODY: [
-      true,  // 0 Body / Spine
-      true,  // 1 Left Arm
-      true,  // 2 Right Arm
-      false, // 3 Left Leg
-      false, // 4 Right Leg
-      true,  // 5 Left Forearm
-      true,  // 6 Right Forearm
-      false, // 7 Left Shin
-      false, // 8 Right Shin
-      true,  // 9 Left Hand
-      true,  // 10 Right Hand
+      false, true, true, true, true, // 0-4: Hips, Spine, Chest, Neck, Head
+      true, true, true, true,        // 5-8: Left Arm
+      true, true, true, true,        // 9-12: Right Arm
+      false, false, false,           // 13-15: Left Leg
+      false, false, false            // 16-18: Right Leg
     ],
     LOWER_BODY: [
-      true,  // 0 Body / Hips
-      false, // 1 Left Arm
-      false, // 2 Right Arm
-      true,  // 3 Left Leg
-      true,  // 4 Right Leg
-      false, // 5 Left Forearm
-      false, // 6 Right Forearm
-      true,  // 7 Left Shin
-      true,  // 8 Right Shin
-      false, // 9 Left Hand
-      false, // 10 Right Hand
+      true, false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      true, true, true,
+      true, true, true
     ],
     LEFT_ARM: [
-      false, // 0 Body
-      true,  // 1 Left Arm
-      false, // 2 Right Arm
-      false, // 3 Left Leg
-      false, // 4 Right Leg
-      true,  // 5 Left Forearm
-      false, // 6 Right Forearm
-      false, // 7 Left Shin
-      false, // 8 Right Shin
-      true,  // 9 Left Hand
-      false, // 10 Right Hand
+      false, false, false, false, false,
+      true, true, true, true,
+      false, false, false, false,
+      false, false, false,
+      false, false, false
     ],
     RIGHT_ARM: [
-      false, // 0 Body
-      false, // 1 Left Arm
-      true,  // 2 Right Arm
-      false, // 3 Left Leg
-      false, // 4 Right Leg
-      false, // 5 Left Forearm
-      true,  // 6 Right Forearm
-      false, // 7 Left Shin
-      false, // 8 Right Shin
-      false, // 9 Left Hand
-      true,  // 10 Right Hand
+      false, false, false, false, false,
+      false, false, false, false,
+      true, true, true, true,
+      false, false, false,
+      false, false, false
     ],
     LEGS: [
-      false, // 0 Body
-      false, // 1 Left Arm
-      false, // 2 Right Arm
-      true,  // 3 Left Leg
-      true,  // 4 Right Leg
-      false, // 5 Left Forearm
-      false, // 6 Right Forearm
-      true,  // 7 Left Shin
-      true,  // 8 Right Shin
-      false, // 9 Left Hand
-      false, // 10 Right Hand
+      false, false, false, false, false,
+      false, false, false, false,
+      false, false, false, false,
+      true, true, true,
+      true, true, true
     ],
     SPINE: [
-      true,  // 0 Body
-      false, false, false, false, false, false, false, false, false, false,
+      true, true, true, true, true,
+      false, false, false, false,
+      false, false, false, false,
+      false, false, false,
+      false, false, false
     ],
   };
 

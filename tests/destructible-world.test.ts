@@ -73,5 +73,5 @@ test('human skin keeps hero scale, bounded triangles and normalized articulation
   assert.ok(box.max.y>2&&box.max.y<2.1);assert.ok(box.max.x-box.min.x<.8);assert.ok(skin.getAttribute('position').count/3<15000);
   const weights=skin.getAttribute('skinWeight'),bones=skin.getAttribute('skinIndex');const used=new Set<number>();
   for(let i=0;i<weights.count;i++){assert.ok(Math.abs(weights.getX(i)+weights.getY(i)-1)<1e-6);used.add(bones.getX(i));used.add(bones.getY(i));}
-  assert.equal(used.size,11);skin.dispose();accents.dispose();
+  assert.equal(used.size,19);skin.dispose();accents.dispose();
 });

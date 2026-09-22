@@ -11,12 +11,18 @@ export type { CosmicLevel };
 
 export class CharacterModel {
   readonly group = new Group();
-  readonly body = new Bone();
+  readonly hips = new Bone();
+  readonly spine = new Bone();
+  readonly chest = new Bone();
+  readonly neck = new Bone();
+  readonly head = new Bone();
+  readonly leftShoulder = new Bone(); readonly rightShoulder = new Bone();
   readonly leftArm = new Bone(); readonly rightArm = new Bone();
-  readonly leftLeg = new Bone(); readonly rightLeg = new Bone();
   readonly leftForearm = new Bone(); readonly rightForearm = new Bone();
-  readonly leftShin = new Bone(); readonly rightShin = new Bone();
   readonly leftHand = new Bone(); readonly rightHand = new Bone();
+  readonly leftLeg = new Bone(); readonly rightLeg = new Bone();
+  readonly leftShin = new Bone(); readonly rightShin = new Bone();
+  readonly leftFoot = new Bone(); readonly rightFoot = new Bone();
   readonly cosmicSource?: CosmicVideoSource;
   readonly cosmicMaterial?: CosmicMaterial;
   readonly surface: SkinnedMesh;
@@ -48,47 +54,97 @@ export class CharacterModel {
     this.surface.name = 'cosmic-silhouette';
     this.surface.castShadow = !echo;
     this.surface.frustumCulled = false;
-    this.group.add(this.surface, this.body);
+    this.group.add(this.surface, this.hips);
 
-    this.leftArm.position.set(-HUMAN_RIG.shoulderX, HUMAN_RIG.shoulderY, 0);
-    this.rightArm.position.set(HUMAN_RIG.shoulderX, HUMAN_RIG.shoulderY, 0);
-    this.leftLeg.position.set(-HUMAN_RIG.hipX, HUMAN_RIG.hipY, 0);
-    this.rightLeg.position.set(HUMAN_RIG.hipX, HUMAN_RIG.hipY, 0);
-    this.body.add(this.leftArm, this.rightArm, this.leftLeg, this.rightLeg);
+    // Build upper body
+    this.hips.add(this.spine);
+    this.spine.add(this.chest);
+    this.chest.add(this.neck);
+    this.neck.add(this.head);
+    this.chest.add(this.leftShoulder, this.rightShoulder);
+
+    // Build arms
+    this.leftShoulder.add(this.leftArm);
+    this.rightShoulder.add(this.rightArm);
+    for (const [arm, forearm, hand, side] of [
+      [this.leftArm, this.leftForearm, this.leftHand, -1],
+      [this.rightArm, this.rightForearm, this.rightHand, 1],
+    ] as const) {
+      arm.add(forearm);
+      forearm.add(hand);
+    }
+
+    // Build legs
+    this.hips.add(this.leftLeg, this.rightLeg);
+    for (const [leg, shin, foot] of [
+      [this.leftLeg, this.leftShin, this.leftFoot],
+      [this.rightLeg, this.rightShin, this.rightFoot],
+    ] as const) {
+      leg.add(shin);
+      shin.add(foot);
+    }
+
+    this.hips.position.set(0, HUMAN_RIG.hipY, 0);
+    this.spine.position.set(0, HUMAN_RIG.spineY - HUMAN_RIG.hipY, 0);
+    this.chest.position.set(0, HUMAN_RIG.chestY - HUMAN_RIG.spineY, 0);
+    this.neck.position.set(0, HUMAN_RIG.neckY - HUMAN_RIG.chestY, 0);
+    this.head.position.set(0, HUMAN_RIG.headY - HUMAN_RIG.neckY, 0);
+
+    const shoulderOffsetX = 0.08;
+    const shoulderOffsetY = HUMAN_RIG.shoulderY - HUMAN_RIG.chestY - 0.05;
+    this.leftShoulder.position.set(-shoulderOffsetX, shoulderOffsetY, 0);
+    this.rightShoulder.position.set(shoulderOffsetX, shoulderOffsetY, 0);
+
+    const armOffsetX = HUMAN_RIG.shoulderX - shoulderOffsetX;
+    this.leftArm.position.set(-armOffsetX, 0.05, 0);
+    this.rightArm.position.set(armOffsetX, 0.05, 0);
 
     for (const [arm, forearm, hand, side] of [
       [this.leftArm, this.leftForearm, this.leftHand, -1],
       [this.rightArm, this.rightForearm, this.rightHand, 1],
     ] as const) {
       forearm.position.set(side * 0.03, HUMAN_RIG.elbowY - HUMAN_RIG.shoulderY, -0.007);
-      arm.add(forearm);
       hand.position.set(side * 0.01, HUMAN_RIG.wristY - HUMAN_RIG.elbowY, -0.009);
-      forearm.add(hand);
     }
-    for (const [leg, shin] of [[this.leftLeg, this.leftShin], [this.rightLeg, this.rightShin]]) {
+
+    this.leftLeg.position.set(-HUMAN_RIG.hipX, 0, 0);
+    this.rightLeg.position.set(HUMAN_RIG.hipX, 0, 0);
+
+    for (const [leg, shin, foot] of [
+      [this.leftLeg, this.leftShin, this.leftFoot],
+      [this.rightLeg, this.rightShin, this.rightFoot],
+    ] as const) {
       shin.position.set(0, HUMAN_RIG.kneeY - HUMAN_RIG.hipY, -0.016);
-      leg.add(shin);
+      foot.position.set(0, HUMAN_RIG.footY - HUMAN_RIG.kneeY, 0.016);
     }
 
     this.group.updateMatrixWorld(true);
     this.skeleton = new Skeleton([
-      this.body,
+      this.hips,
+      this.spine,
+      this.chest,
+      this.neck,
+      this.head,
+      this.leftShoulder,
       this.leftArm,
-      this.rightArm,
-      this.leftLeg,
-      this.rightLeg,
       this.leftForearm,
-      this.rightForearm,
-      this.leftShin,
-      this.rightShin,
       this.leftHand,
+      this.rightShoulder,
+      this.rightArm,
+      this.rightForearm,
       this.rightHand,
+      this.leftLeg,
+      this.leftShin,
+      this.leftFoot,
+      this.rightLeg,
+      this.rightShin,
+      this.rightFoot,
     ]);
     this.surface.bind(this.skeleton);
 
     this.accents = new Mesh(geometry.accents, this.accentMaterial);
     this.accents.name = 'cosmic-eyes-and-sigil';
-    this.body.add(this.accents);
+    this.head.add(this.accents);
 
     if (!echo) {
       this.aura = new CosmicAura(this.group);
@@ -118,7 +174,8 @@ export class CharacterModel {
   }
 
   aimEnergy(direction: Vector3): void {
-    this.body.rotation.x = 0;
+    this.spine.rotation.x = 0;
+    this.chest.rotation.x = 0;
     this.rightArm.rotation.set(Math.PI / 2 + Math.asin(Math.max(-1, Math.min(1, direction.y))), 0, 0);
     this.rightForearm.rotation.set(0, 0, 0);
     this.rightHand.rotation.set(0, 0, 0);
