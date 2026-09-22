@@ -44,6 +44,10 @@ export class HLODManager {
   private coverage = -1;
   private realTiles?: ReadonlySet<string>;
   private realTileSize = 1024;
+  private minTx = Infinity;
+  private maxTx = -Infinity;
+  private minTz = Infinity;
+  private maxTz = -Infinity;
   private lastBuild = 0;
   private detailRadius: number = WORLD.detailRadius;
   private dirty = true;
@@ -69,6 +73,20 @@ export class HLODManager {
   setRealCoverage(tiles: ReadonlySet<string>, tileSize: number): void {
     this.realTiles = tiles.size ? tiles : undefined;
     this.realTileSize = tileSize;
+    let minTx = Infinity, maxTx = -Infinity, minTz = Infinity, maxTz = -Infinity;
+    if (tiles.size) {
+      for (const key of tiles) {
+        const comma = key.indexOf(',');
+        if (comma > 0) {
+          const tx = Number(key.slice(0, comma)), tz = Number(key.slice(comma + 1));
+          if (tx < minTx) minTx = tx;
+          if (tx > maxTx) maxTx = tx;
+          if (tz < minTz) minTz = tz;
+          if (tz > maxTz) maxTz = tz;
+        }
+      }
+    }
+    this.minTx = minTx; this.maxTx = maxTx; this.minTz = minTz; this.maxTz = maxTz;
     this.dirty = true;
     // Forces the next update to rebuild the aggregate and horizon rings against the new coverage.
     this.distantPosition.set(Infinity, Infinity, Infinity);
@@ -77,7 +95,10 @@ export class HLODManager {
 
   private realCovers(x: number, z: number): boolean {
     if (!this.realTiles) return false;
-    return this.realTiles.has(`${Math.floor(x / this.realTileSize)},${Math.floor(z / this.realTileSize)}`);
+    const tx = Math.floor(x / this.realTileSize), tz = Math.floor(z / this.realTileSize);
+    if (this.realTiles.has(`${tx},${tz}`)) return true;
+    if (tx >= this.minTx && tx <= this.maxTx && tz >= this.minTz && tz <= this.maxTz && isUrban(x, z)) return true;
+    return false;
   }
 
   get nodeCount(): number { return this.medium.count + this.aggregate.count + this.horizon.count + this.canopy.count; }

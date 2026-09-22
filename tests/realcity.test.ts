@@ -20,6 +20,7 @@ import { RealCityLayer } from '../src/world/realcity/RealCityLayer.ts';
 import { DistrictIndex } from '../src/world/realcity/districts.ts';
 import { LandMask } from '../src/world/geodata/landmask.ts';
 import { GEO_REFERENCES, geoDistance, probeLatLon, probeWorld } from '../src/world/geodata/GeoDebug.ts';
+import { WorldStreamer } from '../src/world/streaming/WorldStreamer.ts';
 
 const DATA = path.resolve('public/geodata/real-city');
 const manifestPath = path.join(DATA, 'manifest.json');
@@ -267,6 +268,12 @@ test('the procedural city is suppressed by tile arithmetic, not by what happens 
     assert.equal(layer.replaces('9000,9000/building/1'), false);
     assert.equal(layer.replaces('real:abc'), false);
     assert.equal(layer.replaces(undefined), false);
+
+    // Inside urban Manaus, even in tiles without Overture 3D footprints, procedural chunks are covered:
+    const urbanChunkX = Math.floor(-4096 / manifest.proceduralChunkSize);
+    const urbanChunkZ = Math.floor(-1024 / manifest.proceduralChunkSize);
+    assert.equal(layer.coversChunk(urbanChunkX, urbanChunkZ), true);
+    assert.equal(layer.replaces(`${urbanChunkX},${urbanChunkZ}/building/0`), true);
 
     // Streaming at mega speed must stay inside the tile and collider budgets.
     const position = new Vector3(0, 300, 0);
@@ -679,3 +686,47 @@ test('the projection is anchored on the monument and every reference lands where
   }
   assert.ok(geoDistance(at('monumento'), at('teatro')) > 75);
 });
+
+test('streamer with real city replacement suppresses procedural buildings immediately on activation with 0 frames visible', async () => {
+  if (!manifest) return;
+  const previous = globalThis.fetch;
+  const previousDocument = globalThis.document;
+  const context = { fillStyle: '', fillRect() {} };
+  globalThis.document = { createElement: () => ({ width: 0, height: 0, getContext: () => context }) } as unknown as Document;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(typeof input === 'object' && 'url' in input ? input.url : input);
+    const marker = url.indexOf('geodata/real-city/');
+    if (marker < 0) return new Response(null, { status: 404 });
+    const file = path.join(DATA, url.slice(marker + 'geodata/real-city/'.length));
+    if (!existsSync(file)) return new Response(null, { status: 404 });
+    return new Response(await readFile(file), { status: 200 });
+  }) as typeof fetch;
+  const root = new Group(), layer = new RealCityLayer(root), streamer = new WorldStreamer(root);
+  try {
+    await layer.initialize();
+    streamer.setReplacesChunk((cx, cz) => layer.coversChunk(cx, cz));
+    await streamer.prepare(new Vector3(0, 50, 0));
+    // Check all active chunks in root: any replaced chunk must have zero visible procedural facades/roofs
+    let checkedChunks = 0;
+    for (const child of root.children) {
+      if (!child.name.startsWith('chunk:')) continue;
+      checkedChunks++;
+      for (const object of child.children) {
+        if (['facades', 'terracotta-roofs', 'sidewalks'].includes(object.name)) {
+          assert.equal(object.visible, false, `procedural ${object.name} in chunk ${child.name} must not be visible in the real city`);
+        }
+      }
+    }
+    assert.ok(checkedChunks >= 9, 'at least a 3x3 neighbourhood was prepared');
+    // None of the streamer's replaced colliders should be present
+    for (const c of streamer.colliders) {
+      assert.equal(layer.replacesCollider(c), false, 'streamer colliders in covered area must be suppressed');
+    }
+  } finally {
+    streamer.dispose();
+    layer.dispose();
+    globalThis.fetch = previous;
+    globalThis.document = previousDocument;
+  }
+});
+

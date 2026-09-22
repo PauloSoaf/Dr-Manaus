@@ -55,6 +55,7 @@ export class Game {
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
     createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
     this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);this.hlod.setDestructionSource(this.streamer);
+    this.streamer.setReplacesChunk((cx, cz) => this.realCity.coversChunk(cx, cz));
     this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
     this.input=new InputController(this.rendering.renderer.domElement);this.player=new PlayerController(this.worldRoot,this.input);this.camera=new CameraController(this.rendering.camera,this.input);
     this.population=new PopulationManager(this.worldRoot);
@@ -80,6 +81,10 @@ export class Game {
     await this.rendering.initialize();
     await this.streamer.initialize();
     await this.realCity.initialize();
+    if(this.realCity.active){
+      this.streamer.setReplacesChunk((cx, cz) => this.realCity.coversChunk(cx, cz));
+      this.realCity.syncProceduralVisibility();
+    }
     // Awaited during the loading screen: triangulating the real river costs about a second, and
     // that hitch belongs before the first frame rather than in the middle of play.
     await this.water.initialize();
