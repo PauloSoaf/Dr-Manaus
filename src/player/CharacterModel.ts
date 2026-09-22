@@ -74,37 +74,49 @@ export class CharacterModel {
     for (const bone of this.skeleton.bones) { bone.rotation.y *= 1 - smooth; bone.rotation.z *= 1 - smooth; }
     if (!flying || pose) this.body.rotation.x+=((flying&&pose!=='energy'?(boost?-1.13:-.18):0)-this.body.rotation.x)*smooth;
     this.body.position.y=flying?Math.sin(this.phase*2)*.055:Math.abs(Math.sin(this.phase*8))*stride*.025;
-    this.leftLeg.rotation.x+=((flying?.13:swing)-this.leftLeg.rotation.x)*smooth;
-    this.rightLeg.rotation.x+=((flying?-.09:-swing)-this.rightLeg.rotation.x)*smooth;
+    if (!flying || pose) {
+      this.leftLeg.rotation.x+=((flying?0:swing)-this.leftLeg.rotation.x)*smooth;
+      this.rightLeg.rotation.x+=((flying?0:-swing)-this.rightLeg.rotation.x)*smooth;
+    }
     let left=flying?-.12:-swing,right=flying?-.12:swing;
     if(pose==='energy')right=Math.PI/2;
     if(['shockwave','reconstruct','teleport'].includes(pose)){left=1.25;right=1.25;}
     if (!flying || pose) { this.leftArm.rotation.x+=(left-this.leftArm.rotation.x)*smooth;this.rightArm.rotation.x+=(right-this.rightArm.rotation.x)*smooth; }
     this.leftArm.rotation.z=flying||pose==='giant'?.23:.07;this.rightArm.rotation.z=flying||pose==='giant'?-.23:-.07;
     const bend=(bone:Bone,target:number)=>{bone.rotation.x+=(target-bone.rotation.x)*smooth;};
-    bend(this.leftForearm,flying?-.25:-.12-Math.max(0,swing)*.5);
-    bend(this.rightForearm,pose==='energy'?-.07:flying?-.25:-.12-Math.max(0,-swing)*.5);
-    bend(this.leftShin,flying?.22:Math.max(0,-swing)*1.05);
-    bend(this.rightShin,flying?.32:Math.max(0,swing)*1.05);
+    if (!flying || pose) {
+      bend(this.leftForearm,flying?-.25:-.12-Math.max(0,swing)*.5);
+      bend(this.rightForearm,pose==='energy'?-.07:flying?-.25:-.12-Math.max(0,-swing)*.5);
+      bend(this.leftShin,flying?-.025:Math.max(0,-swing)*1.05);
+      bend(this.rightShin,flying?-.025:Math.max(0,swing)*1.05);
+    }
     this.leftHand.rotation.x=-.035;this.rightHand.rotation.x=pose==='energy'?-.12:-.035;
     if (flying && !pose) {
-      const moving = Math.min(1, speed / 100), takeoff = Math.max(0, 1 - this.flightTime / .5);
+      const moving = Math.min(1, speed / 120), takeoff = Math.max(0, 1 - this.flightTime / .5);
+      const accelerating = Math.max(0, Math.min(1, (speed - 160) / 280));
       const climb = Math.max(-1, Math.min(1, verticalSpeed / 100));
-      const sway = Math.sin(this.phase * 2.4), flutter = Math.sin(this.phase * 5);
-      this.body.rotation.x += ((boost ? -1.4 : -.72 * moving + climb * .25) - this.body.rotation.x) * smooth;
+      const sway = Math.sin(this.phase * 1.6);
+      this.body.rotation.x += ((boost ? -1.4 : moving * (-.72 - accelerating * .48 + climb * .12)) - this.body.rotation.x) * smooth;
       this.body.rotation.z += (Math.max(-.4, Math.min(.4, -turn)) - this.body.rotation.z) * smooth;
-      this.body.position.y = sway * .06 + takeoff * .08;
-      const arm = boost ? 2.9 : .15 + moving * 2.25;
-      this.leftArm.rotation.x += (arm + sway * .06 - this.leftArm.rotation.x) * smooth;
-      this.rightArm.rotation.x += (arm - sway * .06 - this.rightArm.rotation.x) * smooth;
-      this.leftArm.rotation.z = .28 * (1 - moving) + .06;
+      this.body.position.y = sway * .025 + takeoff * .025;
+      // At ease: straight legs, relaxed shoulders, hands behind the hips.
+      // Cruise keeps the arms trailing; acceleration extends one arm, boost both.
+      const restingArm = -.22 + moving * .1;
+      bend(this.leftArm, boost ? 2.9 : restingArm);
+      bend(this.rightArm, boost ? 2.9 : restingArm + accelerating * 2.92);
+      this.leftArm.rotation.z = boost ? .06 : -.035;
       this.rightArm.rotation.z = -this.leftArm.rotation.z;
-      this.leftForearm.rotation.x = boost ? -.08 : -.35 + flutter * .04;
-      this.rightForearm.rotation.x = boost ? -.08 : -.35 - flutter * .04;
-      this.leftLeg.rotation.x = .12 + .25 * takeoff + sway * .05 * (1 - moving);
-      this.rightLeg.rotation.x = -.1 + .12 * takeoff - sway * .05 * (1 - moving);
-      this.leftShin.rotation.x = .15 + .35 * (1 - moving) + takeoff * .4;
-      this.rightShin.rotation.x = .12 + .2 * (1 - moving) + takeoff * .25;
+      bend(this.leftForearm, boost ? -.08 : -.24 * (1 - moving) - .04);
+      bend(this.rightForearm, boost ? -.08 : (-.24 * (1 - moving) - .04) * (1 - accelerating));
+      this.leftForearm.rotation.z = boost ? 0 : .22 * (1 - moving);
+      this.rightForearm.rotation.z = -this.leftForearm.rotation.z;
+      bend(this.leftLeg, boost ? .12 : 0);
+      bend(this.rightLeg, boost ? -.1 : 0);
+      this.leftLeg.rotation.z = -.025 * (1 - moving);
+      this.rightLeg.rotation.z = -this.leftLeg.rotation.z;
+      // Negative X bends a downward bone BACK, away from the character's -Z front.
+      bend(this.leftShin, boost ? -.15 : -.025);
+      bend(this.rightShin, boost ? -.12 : -.025);
     }
     this.locomotion.apply(this.skeleton.bones, dt, speed, flying, pose);
     if (pose.startsWith('kick')) {
