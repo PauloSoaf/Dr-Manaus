@@ -4,7 +4,7 @@ import library from './quaternius.json';
 import { PARADE_REST } from './ParadeRest';
 import { BoneMask } from './BoneMask';
 import { AnimationEvents } from './AnimationEvents.ts';
-import { evaluateFlightLayer } from './FlightLayer.ts';
+
 
 const tmpHead = new Vector3();
 const tmpVel = new Vector3();
