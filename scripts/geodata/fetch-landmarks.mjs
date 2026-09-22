@@ -1,0 +1,10 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+const query = '[out:json][timeout:35];(way["aeroway"](-3.05,-60.09,-2.985,-60.015);way(832745951););out geom;';
+const endpoint = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter';
+const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: `data=${encodeURIComponent(query)}`, signal: AbortSignal.timeout(55000) });
+if (!response.ok) throw new Error(`Overpass ${response.status}; existing source retained`);
+const data = await response.json();
+if (!data.elements?.some(element => element.tags?.aeroway === 'runway')) throw new Error('No runway in extract');
+await mkdir('data/raw-geodata', { recursive: true });
+await writeFile('data/raw-geodata/landmarks-osm.json', JSON.stringify({ ...data, query, retrievedAt: new Date().toISOString(), endpoint }));
+console.log(`Cached ${data.elements.length} airport/Arena features`);

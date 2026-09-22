@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { WORLD } from '../src/core/config';
 import { BUILDING_STRIDE, TREE_STRIDE } from '../src/world/chunks/Chunk';
-import { generateChunk } from '../src/world/chunks/BuildingGenerator';
-import { buildingAllowed, LANDMARKS } from '../src/world/geodata/geodata';
+import { generateChunk, urbanDensity } from '../src/world/chunks/BuildingGenerator';
+import { buildingAllowed, isLand, isUrban, LANDMARKS, riverWidth, shoreZ } from '../src/world/geodata/geodata';
 import { planChunks } from '../src/world/streaming/ChunkPriority';
 import { Group, Vector3 } from 'three/webgpu';
 import { WorldStreamer } from '../src/world/streaming/WorldStreamer';
@@ -36,6 +36,19 @@ test('every generated footprint respects shoreline, roads and landmark reservati
     }
   }
   assert.ok(count > 1000, 'the urban fixture must contain a meaningful sample');
+});
+
+test('the bridge reaches an urbanized Iranduba bank instead of an empty horizon', () => {
+  const iranduba = LANDMARKS.find(landmark => landmark.id === 'iranduba');
+  assert.ok(iranduba, 'Iranduba landmark must exist');
+  assert.ok(isLand(iranduba.x, iranduba.z));
+  assert.ok(iranduba.z > shoreZ(iranduba.x) + riverWidth(iranduba.x));
+  const x = iranduba.x + 760, z = iranduba.z + 260;
+  assert.ok(isUrban(x, z));
+  assert.ok(urbanDensity(x, z) > .4);
+  const cx = Math.floor(x / WORLD.chunkSize), cz = Math.floor(z / WORLD.chunkSize);
+  const chunk = generateChunk(cx, cz);
+  assert.ok(chunk.buildings.length > 0, 'opposite-bank urban chunks must generate buildings');
 });
 
 test('nearby requests precede directional prefetch and all request plans obey the memory budget', () => {

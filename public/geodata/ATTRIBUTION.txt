@@ -1,0 +1,8 @@
+DR Manaus geographic data attribution
+
+Buildings, transportation, water and divisions: © OpenStreetMap contributors, Overture Maps Foundation.
+Overture Maps data accessed during development. Overture building, transportation, base (water) and divisions themes are distributed under ODbL 1.0.
+OpenStreetMap: https://www.openstreetmap.org/copyright
+Overture Maps: https://overturemaps.org/
+
+Copernicus DEM is not bundled by this phase. If added later, retain the required Copernicus attribution in this file.

@@ -1,0 +1,19 @@
+{
+  "width": 960,
+  "height": 540,
+  "fps": 24,
+  "seconds": 8,
+  "sourceStart": 2,
+  "blendSeconds": 1,
+  "audio": false,
+  "codecs": {
+    "mp4": "H.264 High / yuv420p",
+    "webm": "VP9 / yuv420p"
+  },
+  "files": {
+    "galaxy.mp4": 1136609,
+    "galaxy.webm": 335423,
+    "fallback.webp": 29280
+  },
+  "totalBytes": 1501312
+}

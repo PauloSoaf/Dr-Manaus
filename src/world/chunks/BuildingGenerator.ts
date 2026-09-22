@@ -1,5 +1,5 @@
 import { WORLD } from '../../core/config';
-import { buildingAllowed, isLand } from '../geodata/geodata';
+import { buildingAllowed, IRANDUBA_CENTER, isLand, isUrban, vegetationAllowed } from '../geodata/geodata';
 import { chunkKey, type ChunkPayload } from './Chunk';
 
 export function seededRandom(seed: number): () => number {
@@ -20,7 +20,8 @@ export function chunkSeed(cx: number, cz: number): number {
 export function urbanDensity(x: number, z: number): number {
   const main = 1 - Math.hypot((x - 1200) / 14200, (z + 7400) / 16500);
   const west = 1 - Math.hypot((x + 10200) / 5200, (z + 5800) / 9000);
-  return Math.min(1, Math.max(0, Math.max(main, west) * 2.2));
+  const iranduba = 1 - Math.hypot((x - IRANDUBA_CENTER.x) / 3200, (z - IRANDUBA_CENTER.z) / 2700);
+  return Math.min(1, Math.max(0, Math.max(main, west, iranduba * .74) * 2.2));
 }
 
 const PALETTE = [
@@ -37,6 +38,16 @@ export function generateChunk(cx: number, cz: number): ChunkPayload {
   const unit = WORLD.chunkSize / 128;
   const density = urbanDensity(originX + WORLD.chunkSize * .5, originZ + WORLD.chunkSize * .5);
   let land = false;
+  // City reservations exclude wilderness by design; forest must not use the building filter.
+  if (!isUrban(originX + WORLD.chunkSize*.5, originZ + WORLD.chunkSize*.5)) {
+    const spacing=16;
+    for(let z=8;z<WORLD.chunkSize;z+=spacing)for(let x=8;x<WORLD.chunkSize;x+=spacing){
+      const px=originX+x+(random()-.5)*8,pz=originZ+z+(random()-.5)*8;
+      if(!isLand(px,pz)||isUrban(px,pz)||!vegetationAllowed(px,pz,4))continue;
+      land=true;trees.push(px,pz,16+random()*12,8+random()*4,0);
+    }
+    return {key:chunkKey(cx,cz),cx,cz,land,buildings:new Float32Array(),trees:new Float32Array(trees)};
+  }
   for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) {
     const x = originX + (25 + col * 26 + (random() - .5) * 5) * unit;
     const z = originZ + (25 + row * 26 + (random() - .5) * 5) * unit;

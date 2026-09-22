@@ -1,5 +1,7 @@
 import { BoxGeometry, BufferGeometry, CylinderGeometry, Group, Material, Matrix4, Mesh, MeshStandardMaterial, Quaternion, SphereGeometry, Vector3 } from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import type { Collider } from '../../core/types';
+import type { AuthoredEntity, AuthoredSpan } from '../destruction/AuthoredDestruction';
 
 export const landmarkMaterials = {
   salmon: new MeshStandardMaterial({ color: '#c98370', roughness: .9 }),
@@ -24,6 +26,13 @@ export type PaletteKey = keyof typeof landmarkMaterials;
 /** Temporary construction geometries disappear after merging by shared palette material. */
 export class GeometryBatch {
   private readonly items = new Map<Material, BufferGeometry[]>();
+  private readonly entities = new Map<string, Collider>();
+  private entityId = '';
+  entity(id: string, collider: Collider | undefined, build: () => void): void {
+    const previous = this.entityId; this.entityId = id;
+    if (collider) this.entities.set(id, collider);
+    try { build(); } finally { this.entityId = previous; }
+  }
   add(geometry: BufferGeometry, material: PaletteKey | Material, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0): void {
     geometry.rotateX(rx); geometry.rotateY(ry); geometry.rotateZ(rz); geometry.translate(x, y, z);
     const unindexed = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -31,6 +40,7 @@ export class GeometryBatch {
     // Uniform attributes allow merging custom polygon models and Three primitives.
     unindexed.deleteAttribute('uv');
     if (!unindexed.hasAttribute('normal')) unindexed.computeVertexNormals();
+    unindexed.userData.authoredId = this.entityId;
     const mat = typeof material === 'string' ? landmarkMaterials[material] : material;
     const list = this.items.get(mat);
     if (list) list.push(unindexed); else this.items.set(mat, [unindexed]);
@@ -52,21 +62,33 @@ export class GeometryBatch {
   }
   build(name: string): Group {
     const group = new Group(); group.name = name;
+    group.userData.authoredEntities = [...this.entities].map(([id, collider]) => ({ id, collider } satisfies AuthoredEntity));
     for (const [material, geometries] of this.items) {
+      const spans: AuthoredSpan[] = [];
+      let start = 0;
+      for (const geometry of geometries) {
+        const id = geometry.userData.authoredId as string, count = geometry.getAttribute('position').count;
+        const last = spans[spans.length - 1];
+        if (last?.id === id) last.count += count; else spans.push({ id, start, count });
+        start += count;
+      }
       const merged = mergeGeometries(geometries, false);
       geometries.forEach(geometry => geometry.dispose());
       if (!merged) continue;
+      merged.userData.authoredSpans = spans;
       merged.computeBoundingSphere();
       const mesh = new Mesh(merged, material);
       mesh.castShadow = true; mesh.receiveShadow = true;
       group.add(mesh);
     }
     this.items.clear();
+    this.entities.clear();
     return group;
   }
 }
 
 export function palm(batch: GeometryBatch, x: number, z: number, height: number, phase = 0): void {
+  batch.entity(`tree/${x.toFixed(2)},${z.toFixed(2)}`, { x, y: height * .5, z, width: 1.15, height: height + 1, depth: 1.15 }, () => {
   batch.cylinder('bark', x, height / 2, z, .22, .48, height, 7);
   for (let i = 0; i < 8; i++) {
     const angle = i / 8 * Math.PI * 2 + phase;
@@ -76,10 +98,20 @@ export function palm(batch: GeometryBatch, x: number, z: number, height: number,
     batch.beam(i % 2 ? 'leaf' : 'leafLight', new Vector3(x, height, z), mid, .65, 4);
     batch.beam('leaf', mid, end, .48, 4);
   }
+  });
 }
 
 export function tree(batch: GeometryBatch, x: number, z: number, height: number, phase = 0): void {
+  batch.entity(`tree/${x.toFixed(2)},${z.toFixed(2)}`, { x, y: height * .5, z, width: 1.4, height, depth: 1.4 }, () => {
   batch.cylinder('bark', x, height * .35, z, .35, .65, height * .7, 6);
   batch.sphere('leaf', x, height * .8, z, height * .34, 1.25, .7, 1.1);
   batch.sphere('leafLight', x + Math.sin(phase) * height * .15, height * .89, z + Math.cos(phase) * height * .13, height * .24, 1.1, .8, 1);
+  });
+}
+
+/** Uses the exact same entity key as the detailed tree, so a distant crown cannot resurrect it. */
+export function treeProxy(batch: GeometryBatch, x: number, z: number, height: number): void {
+  batch.entity(`tree/${x.toFixed(2)},${z.toFixed(2)}`, { x, y: height * .5, z, width: 1.4, height, depth: 1.4 }, () => {
+    batch.add(new SphereGeometry(height * .36, 6, 4).scale(1.2, .75, 1.1), 'leaf', x, height * .8, z);
+  });
 }

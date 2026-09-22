@@ -1,10 +1,15 @@
-import { BoxGeometry, EdgesGeometry, Group, LineBasicMaterial, LineSegments, Vector3 } from 'three/webgpu';
+import { BoxGeometry, EdgesGeometry, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4, Vector3 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
 import { ChunkState, chunkKey, type Chunk } from '../chunks/Chunk';
 import { ChunkMeshes } from '../chunks/ChunkMeshes';
 import { planChunks, type ChunkDemand } from './ChunkPriority';
 import { GenerationPool } from './GenerationPool';
+import { generateChunk } from '../chunks/BuildingGenerator';
+
+const PREPARE_TIMEOUT_MS = 20_000;
+/** Shared scratch matrix: collapsing a building must not allocate mid-rampage. */
+const COLLAPSE = new Matrix4();
 
 export class WorldStreamer {
   private readonly records = new Map<string, Chunk>();
@@ -27,6 +32,13 @@ export class WorldStreamer {
   private disposed = false;
   private drawBounds = false;
   private debugDirty = false;
+  private generationError: Error | null = null;
+  private replacesChunk?: (cx: number, cz: number) => boolean;
+  /** Levelled procedural buildings, so a chunk rebuild never resurrects one. */
+  private readonly destroyed = new Set<string>();
+  private readonly destroyedOrder: string[] = [];
+  private readonly destroyedLocations = new Map<string, Collider>();
+  private revision = 0;
 
   constructor(private readonly root: Group) {
     this.debugRoot.name = 'chunk-boundaries'; this.debugRoot.visible = false; root.add(this.debugRoot);
@@ -35,8 +47,33 @@ export class WorldStreamer {
   }
   async initialize(): Promise<void> { await this.prepare(new Vector3(WORLD.spawn.x, WORLD.spawn.y, WORLD.spawn.z)); }
 
+  setReplacesChunk(fn: (cx: number, cz: number) => boolean): void {
+    this.replacesChunk = fn;
+    for (const key of this.active) {
+      const chunk = this.records.get(key);
+      if (chunk?.group && fn(chunk.cx, chunk.cz)) {
+        this.suppressProceduralGroup(chunk.group);
+        chunk.colliders = [];
+      }
+    }
+    this.refreshColliders();
+  }
+
+  private suppressProceduralGroup(group: Group): void {
+    for (const object of group.children) {
+      if (object.name === 'facades' || object.name === 'terracotta-roofs' || object.name === 'sidewalks'
+        || object.name === 'tree-trunks' || object.name === 'tropical-canopy') {
+        object.visible = false;
+      }
+    }
+  }
+
   get colliders(): Collider[] { return this.colliderList; }
   get activeKeys(): ReadonlySet<string> { return this.active; }
+  get destroyedIds(): ReadonlySet<string> { return this.destroyed; }
+  get destroyedBounds(): ReadonlyMap<string, Collider> { return this.destroyedLocations; }
+  get destructionRevision(): number { return this.revision; }
+  isDestroyed(id: string): boolean { return this.destroyed.has(id.startsWith('hlod:') ? id.slice(5) : id); }
   get stats(): { active: number; cached: number; queued: number; streamMs: number; loadedMB: number } {
     let cached = 0, queued = 0, bytes = 0;
     for (const chunk of this.records.values()) {
@@ -61,6 +98,8 @@ export class WorldStreamer {
 
   /** Teleport waits for a 3x3 collision-safe neighbourhood, even before the render loop starts. */
   async prepare(position: Vector3): Promise<void> {
+    this.generationError = null;
+    const deadline = performance.now() + PREPARE_TIMEOUT_MS;
     const cx = Math.floor(position.x / WORLD.chunkSize), cz = Math.floor(position.z / WORLD.chunkSize);
     const minimum: string[] = [];
     for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++) {
@@ -71,9 +110,20 @@ export class WorldStreamer {
     this.reconcile();
     try {
       while (!this.disposed && minimum.some(key => this.records.get(key)?.state !== ChunkState.ACTIVE)) {
-        this.pump(); await new Promise<void>(resolve => setTimeout(resolve, 8));
+        const generationError = this.generationError as Error | null;
+        if (generationError) {
+          throw new Error(`Falha ao gerar chunks próximos de ${Math.round(position.x)}, ${Math.round(position.z)}: ${generationError.message}`);
+        }
+        if (performance.now() > deadline) {
+          throw new Error(`Timeout ao preparar o mundo em ${Math.round(position.x)}, ${Math.round(position.z)}.`);
+        }
+        this.pump();
+        await new Promise<void>(resolve => setTimeout(resolve, 8));
       }
-    } finally { for (const key of minimum) this.pinned.delete(key); }
+      if (this.disposed) throw new Error('World streamer was disposed while preparing the destination.');
+    } finally {
+      for (const key of minimum) this.pinned.delete(key);
+    }
   }
 
   private ensure(demand: ChunkDemand): Chunk {
@@ -120,16 +170,26 @@ export class WorldStreamer {
     while (this.inFlight < WORLD.maxRequests && requests.length) {
       const chunk = requests.shift()!; chunk.state = ChunkState.LOADING; this.inFlight++;
       void this.generators.generate(chunk.cx, chunk.cz).then(payload => {
-        this.inFlight--; if (this.disposed || !this.records.has(chunk.key)) return;
+        this.inFlight--;
+        if (this.disposed || !this.records.has(chunk.key)) return;
         chunk.payload = payload; chunk.bytes = payload.buildings.byteLength + payload.trees.byteLength;
         chunk.state = this.wanted.has(chunk.key) || this.pinned.has(chunk.key) ? ChunkState.READY : ChunkState.CACHED;
         this.evict();
+      }).catch(error => {
+        this.inFlight--;
+        if (this.disposed) return;
+        this.generationError = error instanceof Error ? error : new Error(String(error));
+        if (this.records.get(chunk.key) === chunk) {
+          chunk.state = ChunkState.UNLOADED;
+          this.records.delete(chunk.key);
+        }
       });
     }
     const ready = [...this.records.values()].filter(chunk => chunk.state === ChunkState.READY).sort((a, b) => a.priority - b.priority);
-    let changed = false;
+    let changed = false, activated = 0;
     for (const chunk of ready) {
-      if (performance.now() - start >= WORLD.streamingBudgetMs) break;
+      // A time budget alone still allowed a burst of geometry uploads in one frame.
+      if (activated >= WORLD.maxActivationsPerFrame || performance.now() - start >= WORLD.streamingBudgetMs) break;
       if (!this.wanted.has(chunk.key) && !this.pinned.has(chunk.key)) { chunk.state = ChunkState.CACHED; continue; }
       if (this.active.size >= WORLD.maxActiveChunks) {
         const victim = [...this.active].map(key => this.records.get(key)!).filter(item => !this.pinned.has(item.key) && !this.wanted.has(item.key))
@@ -140,14 +200,108 @@ export class WorldStreamer {
       if (!chunk.group && chunk.payload) {
         const built = this.meshes.create(chunk.payload);
         chunk.group = built.group; chunk.colliders = built.colliders; chunk.bytes = built.bytes;
+        if (this.destroyed.size) for (const collider of built.colliders) if (this.destroyed.has(collider.id ?? '')) this.collapse(chunk, collider.id!);
+        chunk.colliders = chunk.colliders.filter(collider => !this.destroyed.has(collider.id ?? ''));
+      }
+      if (chunk.group && this.replacesChunk?.(chunk.cx, chunk.cz)) {
+        this.suppressProceduralGroup(chunk.group);
+        chunk.colliders = [];
       }
       if (chunk.group) this.root.add(chunk.group);
-      chunk.state = ChunkState.ACTIVE; chunk.touched = this.clock; this.active.add(chunk.key); changed = true;
+      chunk.state = ChunkState.ACTIVE; chunk.touched = this.clock; this.active.add(chunk.key); changed = true; activated++;
     }
     if (changed) this.refreshColliders();
     this.evict();
     if (this.drawBounds && this.debugDirty) this.refreshDebug();
     this.measuredMs = this.measuredMs * .85 + (performance.now() - start) * .15;
+  }
+
+  /**
+   * Levels a procedural building. Chunks are instanced, so a collapse is a zero-scale matrix on
+   * three instances rather than any geometry rebuild.
+   */
+  destroy(colliderId: string): boolean {
+    const marker = colliderId.indexOf('/building/') >= 0 ? colliderId.indexOf('/building/') : colliderId.indexOf('/tree/');
+    if (marker <= 0 || colliderId.startsWith('hlod:') || this.destroyed.has(colliderId)) return false;
+    const key = colliderId.slice(0, marker), parts = key.split(',').map(Number);
+    if (parts.length !== 2 || !parts.every(Number.isInteger)) return false;
+    const chunk = this.records.get(key);
+    // A medium proxy may be hit before detailed streaming arrives; its deterministic record owns
+    // the same id, so the destruction can be recorded without loading a detailed neighborhood.
+    const payload = chunk?.payload ?? generateChunk(parts[0], parts[1]);
+    const bounds = ChunkMeshes.collider(payload, colliderId);
+    if (!bounds) return false;
+    this.destroyed.add(colliderId);
+    this.destroyedLocations.set(colliderId, bounds); this.revision++;
+    this.destroyedOrder.push(colliderId);
+    if (this.destroyedOrder.length > WORLD.maxActiveChunks * 200) {
+      const evicted = this.destroyedOrder.shift();
+      if (evicted !== undefined) {
+        this.destroyed.delete(evicted); this.destroyedLocations.delete(evicted);
+        const oldKey = evicted.slice(0, evicted.indexOf('/')), old = this.records.get(oldKey);
+        if (old?.group && old.payload) { const restored = this.meshes.restore(old.group, old.payload, evicted); if (restored) old.colliders.push(restored); }
+      }
+    }
+    if (chunk) {
+      this.collapse(chunk, colliderId);
+      const index = chunk.colliders.findIndex(collider => collider.id === colliderId);
+      if (index >= 0) chunk.colliders.splice(index, 1);
+    }
+    this.refreshColliders();
+    return true;
+  }
+
+  /** Restores nearby records even when their detailed chunk has already been evicted. */
+  restore(position: Vector3, radius: number): number {
+    if (!Number.isFinite(radius) || radius < 0) return 0;
+    let count = 0;
+    for (const [id, box] of this.destroyedLocations) {
+      const dx = Math.max(0, Math.abs(position.x - box.x) - box.width / 2);
+      const dy = Math.max(0, Math.abs(position.y - box.y) - box.height / 2);
+      const dz = Math.max(0, Math.abs(position.z - box.z) - box.depth / 2);
+      if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
+      this.destroyed.delete(id); this.destroyedLocations.delete(id);
+      const order = this.destroyedOrder.indexOf(id); if (order >= 0) this.destroyedOrder.splice(order, 1);
+      const chunk = this.records.get(id.slice(0, id.indexOf('/')));
+      if (chunk?.group && chunk.payload) {
+        const collider = this.meshes.restore(chunk.group, chunk.payload, id);
+        if (collider && !chunk.colliders.some(item => item.id === id)) chunk.colliders.push(collider);
+      }
+      count++;
+    }
+    if (count) { this.revision++; this.refreshColliders(); }
+    return count;
+  }
+
+  private collapse(chunk: Chunk, colliderId: string): boolean {
+    if (!chunk.group) return false;
+    const tree = colliderId.indexOf('/tree/');
+    const index = Number(colliderId.slice((tree >= 0 ? tree + 6 : colliderId.indexOf('/building/') + 10)));
+    if (!Number.isFinite(index)) return false;
+    COLLAPSE.makeScale(0, 0, 0);
+    let collapsed = false;
+    for (const object of chunk.group.children) {
+      if (!(object instanceof InstancedMesh)) continue;
+      if (tree >= 0) {
+        // A felled tree has to take its own canopy instances with it, not just the trunk.
+        if (object.name === 'tree-trunks' && index < object.count) {
+          object.setMatrixAt(index, COLLAPSE); object.instanceMatrix.needsUpdate = true; collapsed = true;
+        } else if (object.name === 'tropical-canopy') {
+          const start = (chunk.group.userData.canopyStart as Int32Array | undefined)?.[index];
+          const span = (chunk.group.userData.canopySpan as Int32Array | undefined)?.[index] ?? 0;
+          if (start === undefined) continue;
+          for (let n = 0; n < span && start + n < object.count; n++) object.setMatrixAt(start + n, COLLAPSE);
+          if (span) { object.instanceMatrix.needsUpdate = true; collapsed = true; }
+        }
+        continue;
+      }
+      if (index >= object.count) continue;
+      if (object.name !== 'facades' && object.name !== 'terracotta-roofs' && object.name !== 'sidewalks') continue;
+      object.setMatrixAt(index, COLLAPSE);
+      object.instanceMatrix.needsUpdate = true;
+      collapsed = true;
+    }
+    return collapsed;
   }
 
   private evict(): void {
@@ -162,7 +316,7 @@ export class WorldStreamer {
   }
   private refreshColliders(): void {
     this.colliderList = [];
-    for (const key of this.active) this.colliderList.push(...this.records.get(key)!.colliders);
+    for (const key of this.active) for (const collider of this.records.get(key)!.colliders) if (!this.destroyed.has(collider.id ?? '')) this.colliderList.push(collider);
     this.debugDirty = true;
   }
   private refreshDebug(): void {
@@ -180,6 +334,7 @@ export class WorldStreamer {
     this.disposed = true; this.generators.dispose();
     for (const chunk of this.records.values()) if (chunk.group) this.meshes.disposeChunk(chunk.group);
     this.records.clear(); this.active.clear(); this.colliderList.length = 0;
+    this.destroyed.clear(); this.destroyedOrder.length = 0; this.destroyedLocations.clear();
     this.debugRoot.removeFromParent(); this.boundsGeometry.dispose(); this.boundsMaterial.dispose(); this.meshes.dispose();
   }
 }

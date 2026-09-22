@@ -12,15 +12,15 @@ function facadeAtlas(): { color: CanvasTexture; light: CanvasTexture } {
   const emission = document.createElement('canvas'); emission.width = 256; emission.height = 256;
   const ctx = canvas.getContext('2d')!;
   const glow = emission.getContext('2d')!; glow.fillStyle = '#000'; glow.fillRect(0, 0, 256, 256);
-  ctx.fillStyle = '#f0e4ca'; ctx.fillRect(0, 0, 256, 256);
+  ctx.fillStyle = '#aaa9a1'; ctx.fillRect(0, 0, 256, 256);
   // One shared, hand-drawn atlas: cornices, shutters and stone ground-floor surrounds.
   for (let floor = 0; floor < 3; floor++) {
     const y = 24 + floor * 76;
-    ctx.fillStyle = '#c5bda9'; ctx.fillRect(0, y + 56, 256, 5);
-    ctx.fillStyle = '#fff3d8'; ctx.fillRect(0, y + 54, 256, 3);
+    ctx.fillStyle = '#858781'; ctx.fillRect(0, y + 56, 256, 5);
+    ctx.fillStyle = '#cac9c0'; ctx.fillRect(0, y + 54, 256, 3);
     for (let col = 0; col < 4; col++) {
       const x = 16 + col * 63;
-      ctx.fillStyle = '#fff2d6'; ctx.fillRect(x - 4, y - 4, 36, 45);
+      ctx.fillStyle = '#c9c8bd'; ctx.fillRect(x - 4, y - 4, 36, 45);
       ctx.fillStyle = '#405c62'; ctx.fillRect(x, y, 28, 35);
       ctx.fillStyle = '#789093'; ctx.fillRect(x + 2, y + 2, 11, 15);
       ctx.fillStyle = '#c3b993'; ctx.fillRect(x + 13, y, 2, 35); ctx.fillRect(x, y + 17, 28, 2);
@@ -28,7 +28,7 @@ function facadeAtlas(): { color: CanvasTexture; light: CanvasTexture } {
       if ((col + floor) % 3 !== 0) { glow.fillStyle = '#f1c879'; glow.fillRect(x + 2, y + 2, 24, 31); }
     }
   }
-  ctx.fillStyle = '#c1b79f'; ctx.fillRect(0, 0, 256, 8); ctx.fillRect(0, 248, 256, 8);
+  ctx.fillStyle = '#85857d'; ctx.fillRect(0, 0, 256, 8); ctx.fillRect(0, 248, 256, 8);
   const texture = new CanvasTexture(canvas); texture.colorSpace = SRGBColorSpace;
   const light = new CanvasTexture(emission); light.colorSpace = SRGBColorSpace;
   texture.anisotropy = 4; return { color: texture, light };
@@ -89,15 +89,20 @@ export class ChunkMeshes {
         this.set(sidewalk, i, x, .10, z, w + 4.5, .2, d + 4.5);
         colliders.push({ x: buildings[p], y: (h + roof) * .5, z: buildings[p + 1], width: w, height: h + roof, depth: d, id: `${payload.key}/building/${i}` });
       }
+      if (walls.instanceColor) walls.instanceColor.needsUpdate = true;
+      if (roofs.instanceColor) roofs.instanceColor.needsUpdate = true;
     }
     if (treeCount) {
       const trunks = make(this.trunk, this.bark, treeCount, 'tree-trunks');
       const crowns = make(this.crown, this.leaves, treeCount * 6, 'tropical-canopy');
+      // Which canopy instances belong to which trunk, so felling a tree takes its leaves with it.
+      const canopyStart = new Int32Array(treeCount), canopySpan = new Int32Array(treeCount);
       let leafCount = 0;
       for (let i = 0; i < treeCount; i++) {
         const p = i * TREE_STRIDE;
         const x = trees[p] - group.position.x, z = trees[p + 1] - group.position.z;
         const h = trees[p + 2], radius = trees[p + 3], palm = trees[p + 4] > .5;
+        canopyStart[i] = leafCount;
         this.set(trunks, i, x, h * .5, z, palm ? .3 : .5, h, palm ? .3 : .5);
         if (palm) {
           for (let leaf = 0; leaf < 5; leaf++) {
@@ -110,8 +115,17 @@ export class ChunkMeshes {
           this.set(crowns, leafCount, x, h - .5, z, radius, radius * .78, radius);
           crowns.setColorAt(leafCount++, this.color.setHex(i % 3 ? 0x537449 : 0x68864b));
         }
+        canopySpan[i] = leafCount - canopyStart[i];
+        // Trees are solid and fellable. The canopy width is what a beam or a fast pass will hit.
+        colliders.push({
+          x: trees[p], y: h * .5, z: trees[p + 1],
+          width: radius * 1.3, height: h, depth: radius * 1.3, id: `${payload.key}/tree/${i}`,
+        });
       }
       crowns.count = leafCount; crowns.castShadow = true;
+      if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
+      group.userData.canopyStart = canopyStart;
+      group.userData.canopySpan = canopySpan;
     }
     group.traverse(object => { if (object instanceof InstancedMesh) { object.computeBoundingSphere(); object.computeBoundingBox(); } });
     return { group, colliders, bytes };
@@ -121,6 +135,49 @@ export class ChunkMeshes {
     this.position.set(x, y, z); this.scale.set(w, h, d);
     this.rotation.set(0, Math.sin(yaw * .5), 0, Math.cos(yaw * .5));
     this.matrix.compose(this.position, this.rotation, this.scale); mesh.setMatrixAt(index, this.matrix);
+  }
+
+  /** Reconstructs one instance family from its immutable worker payload, including every palm leaf. */
+  restore(group: Group, payload: ChunkPayload, id: string): Collider | null {
+    const collider = ChunkMeshes.collider(payload, id);
+    if (!collider) return null;
+    const tree = id.includes('/tree/'), index = Number(id.slice(id.lastIndexOf('/') + 1));
+    const data = tree ? payload.trees : payload.buildings, p = index * (tree ? TREE_STRIDE : BUILDING_STRIDE);
+    const x = data[p] - group.position.x, z = data[p + 1] - group.position.z;
+    for (const mesh of group.children) {
+      if (!(mesh instanceof InstancedMesh)) continue;
+      if (!tree) {
+        const w = data[p + 2], h = data[p + 3], d = data[p + 4], roof = data[p + 8];
+        if (mesh.name === 'facades') this.set(mesh, index, x, h * .5 + .25, z, w, h, d);
+        else if (mesh.name === 'terracotta-roofs') this.set(mesh, index, x, h + .25, z, w + 1.4, roof, d + 1.4);
+        else if (mesh.name === 'sidewalks') this.set(mesh, index, x, .1, z, w + 4.5, .2, d + 4.5);
+        else continue;
+      } else {
+        const h = data[p + 2], radius = data[p + 3], palm = data[p + 4] > .5;
+        if (mesh.name === 'tree-trunks') this.set(mesh, index, x, h * .5, z, palm ? .3 : .5, h, palm ? .3 : .5);
+        else if (mesh.name === 'tropical-canopy') {
+          const start = (group.userData.canopyStart as Int32Array)[index];
+          if (palm) for (let leaf = 0; leaf < 5; leaf++) {
+            const angle = leaf / 5 * Math.PI * 2 + index;
+            this.set(mesh, start + leaf, x + Math.cos(angle) * 1.6, h - .25, z + Math.sin(angle) * 1.6, radius * 1.15, .4, .85, -angle);
+          }
+          else this.set(mesh, start, x, h - .5, z, radius, radius * .78, radius);
+        } else continue;
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }
+    return collider;
+  }
+
+  static collider(payload: ChunkPayload, id: string): Collider | null {
+    const tree = id.includes('/tree/'), prefix = `${payload.key}/${tree ? 'tree' : 'building'}/`;
+    if (!id.startsWith(prefix)) return null;
+    const index = Number(id.slice(prefix.length));
+    const data = tree ? payload.trees : payload.buildings, stride = tree ? TREE_STRIDE : BUILDING_STRIDE, p = index * stride;
+    if (!Number.isInteger(index) || index < 0 || p + stride > data.length) return null;
+    const height = tree ? data[p + 2] : data[p + 3] + data[p + 8];
+    return { id, x: data[p], y: height * .5, z: data[p + 1], height,
+      width: tree ? data[p + 3] * 1.3 : data[p + 2], depth: tree ? data[p + 3] * 1.3 : data[p + 4] };
   }
 
   disposeChunk(group: Group): void {
