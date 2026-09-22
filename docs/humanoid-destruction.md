@@ -1,10 +1,19 @@
-﻿# Humanoide e destruição
+# Humanoide e destruição
 
 - Personagem: altura de aproximadamente 2,07 m, rosto e mãos contornados, cotovelos e joelhos articulados. A pele cósmica continua compartilhada em um material; corpo e detalhes usam dois draws.
 - Destruição: cidade real, chunks procedurais, árvores, landmarks, construções do Largo e aeroporto. IDs persistem entre níveis de detalhe; geometria agrupada é alterada sem criar um objeto por fragmento.
-- Terreno: crateras com fundo visível e colisão correspondente, incluindo mira e teleporte. Reconstrução restaura terreno e estruturas próximas.
-- Orçamento: até 256 crateras registradas / 32 próximas, raio máximo de 640 m, profundidade máxima de 180 m e uma malha de solo compartilhada. Os registros de crateras mais antigos são substituídos quando o limite é atingido. O impacto de voo deforma o solo no máximo uma vez a cada 120 ms. Escombros continuam em pools limitados.
+- Terreno: crateras com fundo visível e colisão correspondente, incluindo mira e teleporte. Reconstrução restaura terreno e estruturas próximas. O terreno deformado não se auto-regenera ao continuar destruindo; a restauração só ocorre pelo poder do jogador.
+- Orçamento e preservação: até 2.048 crateras registradas e 1.024 ativas simultâneas na vizinhança local (span de 512 m a 4.096 m), com raio máximo de 640 m e profundidade máxima de 180 m em malha única compartilhada. Se o orçamento global de 2.048 for atingido, a limpeza prioriza exclusivamente crateras remotas fora do campo de atuação do jogador.
 - Validação: `npm test`, `npm run build`, `npm run test:browser`. Para testar com a GPU disponível, defina `DR_BROWSER_GPU=1`; o padrão do smoke test usa SwiftShader. Não há garantia de 60 FPS em toda configuração de hardware.
+
+## Postura heroica e câmera de voo
+
+- No pairar (hover), as mãos se encontram atrás da lombar com ombros alinhados (referência *Parade Rest*), mantendo o tronco ereto em qualquer ângulo de guinada sem inclinação parasita parado.
+- Em alta velocidade (supersônico e mega mode), a câmera acompanha o deslocamento do jogador com rig estável baseado nos princípios de Spring Arm e Cinemachine, sem acúmulo de atraso espacial e mantendo o herói perfeitamente enquadrado.
+
+## Supressão urbana e cidade real (zero prédios fantasmas)
+
+- Em toda a malha urbana de Manaus abrangida pela cidade real, chunks procedurais recebem supressão imediata de malhas e colisores na criação (`visible = false`), eliminando o pop-in de construções fantasmas vazadas sobre avenidas e crateras.
 
 ## Floresta, trânsito e novos poderes
 

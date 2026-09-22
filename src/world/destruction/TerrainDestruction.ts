@@ -7,7 +7,7 @@ import { bool, positionWorld, texture, uniform } from 'three/tsl';
 import type { TerrainProvider } from '../../physics/PhysicsWorld';
 
 export const TERRAIN_DAMAGE = {
-  maxStored: 256, maxActive: 32, radiusMin: 3, radiusMax: 640, depthMax: 180,
+  maxStored: 2048, maxActive: 1024, radiusMin: 3, radiusMax: 640, depthMax: 180,
   span: 512, maxSpan: 4096, cells: 256, recenterStep: 64, surfaceMinY: -1.25, surfaceMaxY: 1.25,
 } as const;
 const GRID = TERRAIN_DAMAGE.cells + 1;
@@ -82,7 +82,7 @@ export class TerrainDestruction implements TerrainProvider {
     // A blast above roofs must not punch the ground many metres underneath it.
     if (point.y > r * .55 + 2 || point.y < -TERRAIN_DAMAGE.depthMax - 3) return false;
     const depth = Math.min(TERRAIN_DAMAGE.depthMax, Math.max(3, r * .36 + Math.sqrt(damage) * .32));
-    const nearby = this.records.find(record => (record.x - point.x) ** 2 + (record.z - point.z) ** 2 < Math.max(2, r * .18) ** 2);
+    const nearby = this.records.find(record => (record.x - point.x) ** 2 + (record.z - point.z) ** 2 < Math.max(2.2, r * .35) ** 2);
     if (nearby) {
       nearby.radius = Math.min(TERRAIN_DAMAGE.radiusMax, Math.max(nearby.radius, r));
       nearby.depth = Math.min(TERRAIN_DAMAGE.depthMax, Math.max(nearby.depth, depth) + Math.min(2, damage * .006));
@@ -91,9 +91,16 @@ export class TerrainDestruction implements TerrainProvider {
       this.records.push({ id: this.nextId++, x: point.x, z: point.z, radius: r, depth, order: ++this.revision });
     }
     if (this.records.length > TERRAIN_DAMAGE.maxStored) {
-      let oldest = 0;
-      for (let i = 1; i < this.records.length; i++) if (this.records[i].order < this.records[oldest].order) oldest = i;
-      this.records.splice(oldest, 1);
+      let victim = 0, maxDistSq = -1;
+      const spanHalfSq = (this.span * .5) ** 2;
+      for (let i = 0; i < this.records.length; i++) {
+        const distSq = (this.records[i].x - point.x) ** 2 + (this.records[i].z - point.z) ** 2;
+        if (distSq > spanHalfSq && distSq > maxDistSq) { maxDistSq = distSq; victim = i; }
+      }
+      if (maxDistSq < 0) {
+        for (let i = 1; i < this.records.length; i++) if (this.records[i].order < this.records[victim].order) victim = i;
+      }
+      this.records.splice(victim, 1);
     }
     // Coalesce an energy wave/plough's many impacts into one mesh upload in update().
     this.dirty = true; return true;
