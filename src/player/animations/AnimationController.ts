@@ -1,6 +1,6 @@
 import { Euler, MathUtils, Quaternion, Vector3, type Bone } from 'three/webgpu';
 import { computeFlightOrientation } from './FlightOrientation.ts';
-import library from './quaternius.json';
+import library from './character-clips.json' with { type: 'json' };
 import { PARADE_REST } from './ParadeRest';
 import { BoneMask } from './BoneMask';
 import { AnimationEvents } from './AnimationEvents.ts';
@@ -103,6 +103,8 @@ export class AnimationController {
   private movePhase: MovePhase = 'startup';
   private posePhase = 0;
   private lastPose = '';
+  private combatClip = '';
+  private combatTime = 0;
 
   // Scratch temporaries
   private readonly previousArms = PARADE_REST.map(() => new Quaternion());
@@ -325,7 +327,7 @@ export class AnimationController {
     const stride = flying ? 0 : Math.min(1, speed / 5);
     const swing = Math.sin(this.phase * (speed > 8 ? 12 : 8)) * stride * 0.62;
 
-    const body = bones[BONES.BODY];
+    const body = bones[BONES.HIPS];
     const leftArm = bones[BONES.LEFT_ARM];
     const rightArm = bones[BONES.RIGHT_ARM];
     const leftLeg = bones[BONES.LEFT_LEG];
@@ -386,77 +388,64 @@ export class AnimationController {
     }
 
     if (flying && (!pose || isUpperBodyCombat)) {
-      const moving = Math.min(1, speed / 120);
       const takeoff = Math.max(0, 1 - this.flightTime / 0.5);
-      const accelerating = Math.max(0, Math.min(1, (speed - 160) / 280));
       const sway = Math.sin(this.phase * 1.6);
-
       this.bodyOffset.set(0, sway * 0.025 + takeoff * 0.025, 0);
-
-      // Only update arms if NOT doing an upper-body combat attack
-      if (!isUpperBodyCombat) {
-        const restingArm = -0.22 + moving * 0.1;
-        leftArm.rotation.x = boosting ? 2.9 : restingArm;
-        rightArm.rotation.x = boosting ? 2.9 : restingArm + accelerating * 2.92;
-        leftArm.rotation.z = boosting ? 0.06 : -0.035;
-        rightArm.rotation.z = -leftArm.rotation.z;
-
-        leftForearm.rotation.x = boosting ? -0.08 : -0.24 * (1 - moving) - 0.04;
-        rightForearm.rotation.x = boosting ? -0.08 : (-0.24 * (1 - moving) - 0.04) * (1 - accelerating);
-        leftForearm.rotation.z = boosting ? 0 : 0.22 * (1 - moving);
-        rightForearm.rotation.z = -leftForearm.rotation.z;
-
-        for (let i = 0; i < 4; i++) {
-          this.armTarget.copy(flightArms[i].quaternion).slerp(PARADE_REST[i], boosting ? 0 : (1 - moving) ** 2);
-          flightArms[i].quaternion.copy(this.previousArms[i]).slerp(this.armTarget, smooth);
-        }
-      }
-
-      // Legs remain aerodynamic during flight even when punching!
-      bend(leftLeg, boosting ? 0.12 : 0);
-      bend(rightLeg, boosting ? -0.1 : 0);
-      leftLeg.rotation.z = -0.10 * (1 - moving);
-      rightLeg.rotation.z = -leftLeg.rotation.z;
-      bend(leftShin, boosting ? -0.15 : -0.025);
-      bend(rightShin, boosting ? -0.12 : -0.025);
     }
 
     // ----------------------------------------------------
-    // QUATERNIUS CC0 LOCOMOTION CLIPS BLEND
+    // BASE LOCOMOTION LAYER
     // ----------------------------------------------------
-    const clipName = pose === 'punch' || pose === 'punchCross'
-      ? pose
-      : flying
-        ? ''
-        : pose === 'jump' || pose === 'vault'
-          ? pose
-          : !pose && speed > 0.4
-            ? speed > 8 ? 'run' : 'walk'
-            : '';
+    const baseClipName = flying
+      ? (speed > 5 ? 'swimFwd' : 'swimIdle')
+      : pose === 'jump' || pose === 'vault' || pose === 'roll'
+        ? pose
+        : !pose && speed > 0.4 ? (speed > 8 ? 'run' : 'walk') : '';
 
-    if (clipName !== this.locomotionClip) {
-      this.locomotionClip = clipName;
+    if (baseClipName !== this.locomotionClip) {
+      this.locomotionClip = baseClipName;
       this.locomotionTime = 0;
     }
-    this.locomotionTime += dt * (clipName === 'walk' ? Math.min(1.5, speed / 4) : clipName === 'run' ? Math.min(2, speed / 12) : 1);
+    this.locomotionTime += dt * (baseClipName === 'walk' ? Math.min(1.5, speed / 4) : baseClipName === 'run' ? Math.min(2, speed / 12) : 1);
 
-    if (clipName && clipName in library.clips) {
-      const clip = library.clips[clipName as keyof typeof library.clips];
-      const time = clipName.startsWith('punch')
-        ? Math.min(this.locomotionTime / 0.42, 1) * clip.duration
-        : clipName === 'vault'
-          ? Math.min(this.locomotionTime, clip.duration)
-          : this.locomotionTime % clip.duration;
+    if (baseClipName && baseClipName in library.clips) {
+      const clip = library.clips[baseClipName as keyof typeof library.clips];
+      const time = baseClipName === 'vault' || baseClipName === 'roll'
+        ? Math.min(this.locomotionTime, clip.duration)
+        : this.locomotionTime % clip.duration;
       const frame = (time / clip.duration) * (clip.frames.length - 1);
       const index = Math.floor(frame);
       const first = clip.frames[index];
       const next = clip.frames[Math.min(index + 1, clip.frames.length - 1)];
 
       for (let i = 0; i < bones.length; i++) {
-        // If in flight and upper-body combat, only blend upper body bones
-        if (flying && clipName.startsWith('punch') && !BoneMask.affects('UPPER_BODY', i as BoneId)) {
-          continue;
-        }
+        this.locomotionQ1.fromArray(first, i * 4);
+        this.locomotionQ2.fromArray(next, i * 4);
+        bones[i].quaternion.slerp(this.locomotionQ1.slerp(this.locomotionQ2, frame - index), 1 - Math.exp(-dt * 22));
+      }
+    }
+
+    // ----------------------------------------------------
+    // COMBAT LAYER OVERRIDE
+    // ----------------------------------------------------
+    const combatClipName = pose === 'punch' || pose === 'punchCross' ? pose : '';
+    if (combatClipName !== this.combatClip) {
+      this.combatClip = combatClipName;
+      this.combatTime = 0;
+    }
+    this.combatTime += dt;
+
+    if (combatClipName && combatClipName in library.clips) {
+      const clip = library.clips[combatClipName as keyof typeof library.clips];
+      const time = Math.min(this.combatTime / 0.42, 1) * clip.duration;
+      const frame = (time / clip.duration) * (clip.frames.length - 1);
+      const index = Math.floor(frame);
+      const first = clip.frames[index];
+      const next = clip.frames[Math.min(index + 1, clip.frames.length - 1)];
+
+      for (let i = 0; i < bones.length; i++) {
+        if (!BoneMask.affects('UPPER_BODY', i as BoneId)) continue;
+        
         this.locomotionQ1.fromArray(first, i * 4);
         this.locomotionQ2.fromArray(next, i * 4);
         bones[i].quaternion.slerp(this.locomotionQ1.slerp(this.locomotionQ2, frame - index), 1 - Math.exp(-dt * 22));

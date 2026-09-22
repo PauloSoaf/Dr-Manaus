@@ -150,6 +150,7 @@ export class PlayerController {
           else if (this.input.held('KeyD')) flipDir = 'sideRight';
 
           this.character.animationController.triggerDoubleJump(flipDir, this.size);
+          this.powerPose('roll', getDoubleJumpDuration(this.size));
         }
       }
       this.velocity.y -= getGravity(this.size) * dt;

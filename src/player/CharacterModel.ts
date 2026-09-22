@@ -227,7 +227,7 @@ export class CharacterModel {
     this.group.quaternion.copy(this.animationController.rootOrientation);
 
     // Apply procedural vertical displacement
-    this.body.position.copy(this.animationController.bodyOffset);
+    this.hips.position.copy(this.animationController.bodyOffset);
 
     // Energy power aim override
     if (pose === 'energy') {

@@ -37,24 +37,20 @@ function mockInput() {
 }
 
 test('bone masks isolate correct limbs', () => {
-  // Upper body includes spine (0), arms (1, 2), forearms (5, 6), hands (9, 10), but NOT legs (3, 4) or shins (7, 8)
-  assert.equal(BoneMask.affects('UPPER_BODY', 0), true);
+  // Upper body includes spine (1), arms (6, 10), forearms (7, 11), hands (8, 12), but NOT legs (13, 16) or hips (0)
+  assert.equal(BoneMask.affects('UPPER_BODY', 0), false);
   assert.equal(BoneMask.affects('UPPER_BODY', 1), true);
   assert.equal(BoneMask.affects('UPPER_BODY', 2), true);
-  assert.equal(BoneMask.affects('UPPER_BODY', 3), false);
-  assert.equal(BoneMask.affects('UPPER_BODY', 4), false);
-  assert.equal(BoneMask.affects('UPPER_BODY', 5), true);
   assert.equal(BoneMask.affects('UPPER_BODY', 6), true);
-  assert.equal(BoneMask.affects('UPPER_BODY', 7), false);
-  assert.equal(BoneMask.affects('UPPER_BODY', 8), false);
-  assert.equal(BoneMask.affects('UPPER_BODY', 9), true);
   assert.equal(BoneMask.affects('UPPER_BODY', 10), true);
+  assert.equal(BoneMask.affects('UPPER_BODY', 13), false);
+  assert.equal(BoneMask.affects('UPPER_BODY', 16), false);
 
-  // Legs mask affects only 3, 4, 7, 8
+  // Legs mask affects only 13, 14, 15, 16, 17, 18
   assert.equal(BoneMask.affects('LEGS', 0), false);
   assert.equal(BoneMask.affects('LEGS', 1), false);
-  assert.equal(BoneMask.affects('LEGS', 3), true);
-  assert.equal(BoneMask.affects('LEGS', 7), true);
+  assert.equal(BoneMask.affects('LEGS', 13), true);
+  assert.equal(BoneMask.affects('LEGS', 17), true);
 });
 
 test('AnimationEvents trigger exactly once per cycle and not again during recovery', () => {
@@ -215,8 +211,8 @@ test('AnimationController combines Flight pose with Combat upper body without de
   // Fly for 30 frames to establish aerodynamic flight pose
   for (let i = 0; i < 30; i++) controller.update(bones, 0.016, params);
 
-  const flyingLegX = bones[3].rotation.x;
-  const flyingShinX = bones[7].rotation.x;
+  const flyingLegX = bones[13].rotation.x; // LEFT_LEG
+  const flyingShinX = bones[14].rotation.x; // LEFT_SHIN
 
   // Start flying punch (upper-body bone mask)
   controller.startCombatMove(COMBAT_MOVES.flyingPunch);
@@ -226,11 +222,11 @@ test('AnimationController combines Flight pose with Combat upper body without de
   for (let i = 0; i < 15; i++) controller.update(bones, 0.016, params);
 
   // Upper body (arm) must be actively rotated for punch
-  assert.ok(bones[2].rotation.x > 0.5, 'right arm extended for punch');
+  assert.ok(bones[10].rotation.x > 0.5, 'right arm extended for punch'); // RIGHT_ARM
 
   // Legs should remain aerodynamic (not replaced by standing kick or ground stride)
-  assert.ok(Math.abs(bones[3].rotation.x - flyingLegX) < 0.25, 'legs remain in flight pose');
-  assert.ok(bones[7].rotation.x <= 0, 'shins remain bent backwards for flight');
+  assert.ok(Math.abs(bones[13].rotation.x - flyingLegX) < 0.25, 'legs remain in flight pose');
+  assert.ok(bones[14].rotation.x <= 0, 'shins remain bent backwards for flight');
 });
 
 test('Flight combat does not force Grounded state and functions in flight modes', () => {
@@ -428,7 +424,7 @@ test('CharacterModel double jump does not accumulate quaternion continuously on 
   
   // Base posture before jump
   player.character.animate(0.016, 0, false, false, '', 0, 0, 1, undefined, 1, 'ground', new Vector3(0,0,-1), 0);
-  const initialBodyQ = player.character.body.quaternion.clone();
+  const initialBodyQ = player.character.hips.quaternion.clone();
 
   // Trigger double jump
   player.character.animationController.triggerDoubleJump('front', 1);
@@ -438,7 +434,7 @@ test('CharacterModel double jump does not accumulate quaternion continuously on 
     player.character.animate(0.016, 0, false, false, '', 0, 0, 1, undefined, 1, 'ground', new Vector3(0,0,-1), 0);
   }
 
-  const currentBodyQ = player.character.body.quaternion.clone();
+  const currentBodyQ = player.character.hips.quaternion.clone();
   
   // The local body bone should only have local pose offset, it should NOT accumulate a huge flip rotation
   const angleError = currentBodyQ.angleTo(initialBodyQ);
