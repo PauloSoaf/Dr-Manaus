@@ -396,7 +396,6 @@ export class RealCityLayer {
       const dx = Math.max(0, Math.abs(position.x - box.x) - box.width / 2), dy = Math.max(0, Math.abs(position.y - box.y) - box.height / 2), dz = Math.max(0, Math.abs(position.z - box.z) - box.depth / 2);
       if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
       this.destroyed.delete(id); affected.add(record.tile); this.releaseRuin(id, false);
-      const order = this.destroyedOrder.indexOf(id); if (order >= 0) this.destroyedOrder.splice(order, 1);
       count++;
     }
     for (const key of affected) { const tile = this.tiles.get(key); if (tile) this.schedule(tile); }

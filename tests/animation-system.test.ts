@@ -450,3 +450,29 @@ test('CharacterModel double jump does not accumulate quaternion continuously on 
   assert.ok(Math.abs(groupQ.w) < 0.95, 'global visual orientation MUST be rotated');
 });
 
+
+test('flightPose changes according to speedMode', () => {
+  const controller = new AnimationController(Array(65).fill(null).map(() => new Bone()) as unknown as readonly Bone[]);
+  const params = {
+    velocity: new Vector3(0, 10, 0),
+    flying: true,
+    turn: 0,
+    speedMode: 'cruise'
+  };
+
+  // Skip takeoff
+  controller.update(mockBones(), 1.0, params);
+  assert.equal(controller.debugState.flightLayer, 'cruise');
+
+  params.speedMode = 'fast';
+  controller.update(mockBones(), 0.1, params);
+  assert.equal(controller.debugState.flightLayer, 'fast');
+
+  params.speedMode = 'super';
+  controller.update(mockBones(), 0.1, params);
+  assert.equal(controller.debugState.flightLayer, 'super');
+
+  params.speedMode = 'mega';
+  controller.update(mockBones(), 0.1, params);
+  assert.equal(controller.debugState.flightLayer, 'mega');
+});

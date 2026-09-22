@@ -1,9 +1,16 @@
 import { Euler, MathUtils, Quaternion, Vector3, type Bone } from 'three/webgpu';
-import { computeFlightOrientation } from './FlightOrientation';
+import { computeFlightOrientation } from './FlightOrientation.ts';
 import library from './quaternius.json';
 import { PARADE_REST } from './ParadeRest';
 import { BoneMask } from './BoneMask';
-import { AnimationEvents } from './AnimationEvents';
+import { AnimationEvents } from './AnimationEvents.ts';
+import { evaluateFlightLayer } from './FlightLayer.ts';
+
+const tmpHead = new Vector3();
+const tmpVel = new Vector3();
+const tmpEuler = new Euler();
+const tmpUp = new Vector3(0, 1, 0);
+
 import {
   BONES,
   type BoneId,
@@ -232,6 +239,24 @@ export class AnimationController {
     }
     this.flightTime += dt;
 
+    if (this.takeoffTimer > 0) {
+      this.takeoffTimer -= dt;
+    }
+
+    if (!params.flying) {
+      this.flightPose = 'hover';
+    } else if (this.takeoffTimer > 0) {
+      this.flightPose = 'takeoff';
+    } else if (params.speedMode === 'mega') {
+      this.flightPose = 'mega';
+    } else if (params.speedMode === 'super') {
+      this.flightPose = 'super';
+    } else if (params.speedMode === 'fast') {
+      this.flightPose = 'fast';
+    } else {
+      this.flightPose = 'cruise';
+    }
+
     // 1. Compute Base & Flight Orientation
     const facingYaw = params.facingYaw ?? 0;
     if (params.flying && params.velocity.lengthSq() > 1 && params.speedMode) {
@@ -245,16 +270,16 @@ export class AnimationController {
         facingYaw
       );
       // Telemetry
-      const head = new Vector3(0, 1, 0).applyQuaternion(this.baseOrientation);
-      const vel = params.velocity.clone().normalize();
-      this.debugAlignment = head.dot(vel);
-      this.debugVelocityDir.copy(vel);
+      tmpHead.set(0, 1, 0).applyQuaternion(this.baseOrientation);
+      tmpVel.copy(params.velocity).normalize();
+      this.debugAlignment = tmpHead.dot(tmpVel);
+      this.debugVelocityDir.copy(tmpVel);
       this.debugBank = params.turn;
-      const euler = new Euler().setFromQuaternion(this.baseOrientation, 'YXZ');
-      this.debugPitch = euler.x;
+      tmpEuler.setFromQuaternion(this.baseOrientation, 'YXZ');
+      this.debugPitch = tmpEuler.x;
     } else {
       // Grounded or hovering upright
-      const target = this.tmpQ.setFromAxisAngle(new Vector3(0, 1, 0), facingYaw);
+      const target = this.tmpQ.setFromAxisAngle(tmpUp, facingYaw);
       this.baseOrientation.slerp(target, 1 - Math.exp(-dt * 12));
       this.debugAlignment = 1.0;
       this.debugBank = 0;

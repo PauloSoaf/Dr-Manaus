@@ -9,6 +9,8 @@ const worldDown = new Vector3(0, -1, 0);
 const worldUp = new Vector3(0, 1, 0);
 const tmpBankAxis = new Vector3();
 const bankQ = new Quaternion();
+const prevChest = new Vector3();
+const targetZ = new Vector3();
 
 /**
  * Computes the 3D visual orientation for flight based on velocity.
@@ -45,7 +47,7 @@ export function computeFlightOrientation(
     if (tmpChest.lengthSq() < 1e-6) {
       // We are flying exactly straight up or straight down.
       // Use the previous chest orientation projected onto the new plane.
-      const prevChest = new Vector3(0, 0, -1).applyQuaternion(currentOrientation);
+      prevChest.set(0, 0, -1).applyQuaternion(currentOrientation);
       const dotPrev = prevChest.dot(tmpDir);
       tmpChest.copy(prevChest).addScaledVector(tmpDir, -dotPrev);
       
@@ -65,7 +67,7 @@ export function computeFlightOrientation(
     // targetX = targetY x targetZ (right)
     tmpRight.crossVectors(tmpDir, tmpChest).negate().normalize(); // tmpDir is +Y, -tmpChest is +Z. cross(Y, Z) = X.
     
-    const targetZ = tmpChest.clone().negate();
+    targetZ.copy(tmpChest).negate();
 
     tmpMatrix.makeBasis(tmpRight, tmpDir, targetZ);
     tmpQTarget.setFromRotationMatrix(tmpMatrix);
