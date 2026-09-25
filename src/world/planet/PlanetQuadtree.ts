@@ -66,8 +66,16 @@ export class PlanetQuadtree {
       ? [cameraFixed.xM / cameraDistance, cameraFixed.yM / cameraDistance, cameraFixed.zM / cameraDistance]
       : [0, 0, 1];
 
-    for (const face of CUBE_FACES) {
-      this.descend(planetTile(this.body.id, face, 0, 0, 0), {
+    // Nearest face first. The tile cap is a hard stop, and descending in face order would let
+    // the first face spend the whole budget while the one under the player got nothing.
+    const roots = CUBE_FACES.map(face => {
+      const address = planetTile(this.body.id, face, 0, 0, 0);
+      const direction = tileCentreDirection(address, [0, 0, 0]);
+      return { address, facing: direction[0] * toCamera[0] + direction[1] * toCamera[1] + direction[2] * toCamera[2] };
+    }).sort((a, b) => b.facing - a.facing);
+
+    for (const root of roots) {
+      this.descend(root.address, {
         camera: cameraFixed, cameraDistance, toCamera, horizonDot, radius, sse, target, selected,
       });
     }
@@ -112,7 +120,18 @@ export class PlanetQuadtree {
     const errorPx = screenSpaceError(geometricErrorM, distanceM, walk.sse);
 
     if (address.level < this.options.maxLevel && errorPx > walk.target) {
-      for (const child of tileChildren(address)) this.descend(child, walk);
+      // Nearest child first, for the same reason as the faces: under a tile cap, whichever
+      // branch is visited first spends the budget, and it must be the one under the camera.
+      const children = tileChildren(address).map(child => {
+        const childCentre = surfacePosition(this.body, tileCentreDirection(child, [0, 0, 0]), 0);
+        return {
+          child,
+          distance: Math.hypot(
+            walk.camera.xM - childCentre.xM, walk.camera.yM - childCentre.yM, walk.camera.zM - childCentre.zM,
+          ),
+        };
+      }).sort((a, b) => a.distance - b.distance);
+      for (const entry of children) this.descend(entry.child, walk);
       return;
     }
 

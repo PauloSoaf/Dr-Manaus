@@ -39,8 +39,13 @@ export function spaceFactorFor(altitude: number): number {
 export class SpaceLayer {
   private rig = new Group();
   private stars: Mesh;
-  private shell: Mesh;
-  private disc: Mesh;
+  /**
+   * The old stand-in for the planet seen from space: a back-faced shell and a glow disc. Once the
+   * real globe is drawn they are a blue haze painted straight over it, so whoever owns the
+   * planetary view may stand them down. The stars are independent and stay.
+   */
+  readonly shell: Mesh;
+  readonly disc: Mesh;
   private starMaterial = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, fog: false });
   private shellMaterial = new MeshBasicNodeMaterial({ side: BackSide, transparent: true, depthWrite: false, blending: NormalBlending, fog: false });
   private discMaterial = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, fog: false });

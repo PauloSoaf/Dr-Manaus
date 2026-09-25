@@ -35,6 +35,8 @@ import { MissionManager } from '../missions/MissionManager';
 import { AudioManager } from '../audio/AudioManager';
 import { HUD } from '../ui/HUD';
 import { UniverseRuntime } from '../world/runtime/UniverseRuntime';
+import { EarthProvider } from '../world/providers/EarthProvider';
+import { PLANET_LAYER } from '../rendering/domains/RenderDomainComposer';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   readonly save=new SaveManager();readonly assets=new AssetManager();readonly rendering:RendererManager;
@@ -48,6 +50,10 @@ export class Game {
    * With `FEATURES.planetStreaming` off it observes and reports without touching the scene.
    */
   readonly universe:UniverseRuntime;
+  /** Present only while `FEATURES.earthGlobe` is on. The runtime itself never touches the scene. */
+  readonly earth?:EarthProvider;
+  /** The generalized flat backdrop. It stands down once the globe becomes the ground. */
+  private readonly flatTerrain:import('three/webgpu').Group;
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
   stressReport:FrameSample[]=[];private stressRoute:Vector3[]=[];private stressIndex=0;private stressSampleTime=0;
   private lastTime=0;private discoveryTime=0;private telemetryTime=0;private cpu=0;private colliders:Collider[]=[];private playerLocal=new Vector3();private direction=new Vector3();
@@ -58,10 +64,15 @@ export class Game {
   private mark=0;private lastSpeed=0;private district='AMAZONAS';
   constructor(container:HTMLElement){
     this.rendering=new RendererManager(container);this.worldRoot.name='Manaus · global meters';this.rendering.scene.add(this.worldRoot);
-    this.atmosphere=new Atmosphere(this.rendering.scene);this.space=new SpaceLayer(this.rendering.scene,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
-    this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming});
+    this.atmosphere=new Atmosphere(this.rendering.scene);
+    // Lights belong to every domain: a light left on layer 0 alone would leave the planet black.
+    this.space=new SpaceLayer(this.rendering.scene,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
+    this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe});
+    if(FEATURES.earthGlobe){this.earth=new EarthProvider(this.worldRoot,this.universe.frames);this.universe.providers.register(this.earth);}
+    // Two passes cost two passes, so the composer only runs when something needs the far domain.
+    this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
-    createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
+    this.flatTerrain=createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
     this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);this.hlod.setDestructionSource(this.streamer);
     this.streamer.setReplacesChunk((cx, cz) => this.realCity.coversChunk(cx, cz));
     this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
@@ -112,6 +123,8 @@ export class Game {
     this.hlod.update(this.player.position,this.streamer.activeKeys);
     // The compact offline geographic payload is optional metadata; gameplay makes no map-service calls.
     void this.assets.json('/geodata/manaus.json').catch(()=>undefined);
+    // Lights belong to every domain: one left on the local layer alone leaves the planet black.
+    this.rendering.scene.traverse(object=>{if((object as {isLight?:boolean}).isLight)object.layers.enable(PLANET_LAYER);});
     this.ready=true;this.hud.ready();this.lastTime=performance.now();
     this.rendering.renderer.setAnimationLoop(this.tick);
   }
@@ -161,6 +174,27 @@ export class Game {
     this.updateStomps(dt);
     if(this.stressRoute.length)this.updateStress(dt);else this.player.update(dt,this.colliders,this.camera.yaw,this.camera.pitch);this.lap('player');
     if(FEATURES.spatialCore)this.universe.update([this.player.position.x,this.player.position.y,this.player.position.z],[this.player.velocity.x,this.player.velocity.y,this.player.velocity.z],dt);this.lap('universe');
+    // One ground at a time. The flat backdrop and the curved planet cannot both be the surface,
+    // and above the handover altitude the curvature is what the player is looking at.
+    if(this.earth){
+      // One ground and one sky at a time. The atmosphere's 44 km sky sphere is a dome drawn
+      // around the player in the local pass, so from orbit it paints straight over the planet the
+      // far pass just drew. A planet-aware shell replaces it; until then it stands down with the
+      // flat ground it belongs to.
+      const localGround=!this.earth.globe.visible;
+      this.flatTerrain.visible=localGround;
+      this.atmosphere.sky.visible=localGround;
+      this.atmosphere.clouds.visible=localGround;
+      // The old fake Earth-from-space shell, replaced by the real one.
+      this.space.shell.visible=localGround;
+      this.space.disc.visible=localGround;
+      // The far domain has to reach whatever the planet's distance is, or leaving orbit clips the
+      // very thing the domain exists to show.
+      this.rendering.domains.setRange(this.universe.telemetry.altitudeM+6_378_137);
+      // The globe is lit from where the Sun actually is, not from the local sky's dusk.
+      const sun=this.universe.solarSystem.positionOf('sun'),earthAt=this.universe.solarSystem.positionOf('earth');
+      if(sun&&earthAt)this.earth.setSunDirection([sun[0]-earthAt[0],sun[1]-earthAt[1],sun[2]-earthAt[2]],'solar-system/barycentric');
+    }
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
     if(Math.hypot(this.player.position.x-this.origin.x,this.player.position.z-this.origin.z)>WORLD.originThreshold){this.origin.set(Math.round(this.player.position.x/1024)*1024,0,Math.round(this.player.position.z/1024)*1024);this.worldRoot.position.copy(this.origin).negate();}
     this.streamer.update(this.player.position,this.player.velocity,dt);this.lap('streamer');this.hlod.update(this.player.position,this.streamer.activeKeys);this.lap('hlod');
@@ -189,7 +223,10 @@ export class Game {
     this.audio.update(this.player.velocity.length(),this.player.position.y,['rain','storm'].includes(this.atmosphere.weather),!isLand(this.player.position.x,this.player.position.z));
     this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     this.terrain.update(this.player.position,this.origin);this.forest.update(this.player.position);
-    this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
+    // Furthest domain first, then the local one over it. Falls back to one ordinary pass when the
+    // composer is off, so the game renders the same as it always did with the feature disabled.
+    if(!this.rendering.domains.render(this.rendering.scene,this.rendering.camera))
+      this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
     const frame = this.frame;
@@ -286,6 +323,7 @@ export class Game {
       'Frame · Ativo':`${t.frame} · corpo ${t.dominantBody}`,
       'Frame · Local / Rebases':`${t.renderLocalM.toFixed(0)} m · ${t.rebases}`,
       'Planeta · Tiles / Stream':`${t.planetTiles} · ${t.streaming.active} ativos, ${t.streaming.fetching} em voo`,
+      ...(this.earth?{'Planeta · Globo':`${this.earth.stats.tiles} tiles · ${this.earth.stats.triangles.toLocaleString()} tri · ${this.earth.stats.visible?'visível':'oculto'}`}:{}),
     };
   }
 

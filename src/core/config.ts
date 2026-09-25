@@ -72,7 +72,14 @@ export const FEATURES = {
   spatialCore: true,
   /** Global tile streaming through the new scheduler. */
   planetStreaming: false,
-  /** The WGS84 globe as visible geometry. */
+  /**
+   * The WGS84 globe as visible geometry.
+   *
+   * Off. The geometry, the streaming, the real coastlines and the solar lighting are all built and
+   * under test, and the far pass issues its draw calls — but the tiles produce no pixels, and
+   * turning this on also stands down the sky dome and the old space shell above 15 km. Shipping it
+   * on would trade a working sky for an empty one. See docs/world/15-status.md.
+   */
   earthGlobe: false,
   /** Global terrain from a DEM. */
   planetTerrain: false,
@@ -85,9 +92,20 @@ export const FEATURES = {
   galaxyTravel: false,
 } as const;
 
-/** Altitude bands for the flight-to-orbit transition. */
+/**
+ * Altitude bands for the flight-to-orbit transition.
+ *
+ * `maxAltitude` was a 140 km ceiling because there was nothing above it to look at — a flat world
+ * has no outside. With the planetary domain drawing a real globe there is somewhere to go, so the
+ * ceiling moves out past the Moon's orbit. It is still a ceiling rather than nothing: an unbounded
+ * coordinate is how a position stops being representable, and the phase that removes it entirely
+ * is the one that hands the player to another body's frame.
+ */
 export const SPACE = {
-  atmosphereTop: 9000, karman: 26000, orbit: 60000, maxAltitude: 140000,
+  atmosphereTop: 9000, karman: 26000, orbit: 60000,
+  maxAltitude: FEATURES.earthGlobe ? 500_000_000 : 140_000,
+  /** Where the globe stops being a place and starts being a body in the sky. */
+  planetaryHandoff: 2_000_000,
 } as const;
 export const QUALITY = {
   Low: { pixelRatio: .7, shadows: false, detailRadius: 280, npcs: 10, vehicles: 7, particles: 160 },

@@ -25,8 +25,12 @@ export class Atmosphere {
   private warmth = uniform(TIMES['Golden Hour'].warm);
   private sunAxis = uniform(new Vector3(0, 1, 0));
   private space = uniform(0);
-  private sky: Mesh;
-  private clouds: InstancedMesh;
+  /**
+   * The 44 km sky dome, drawn around the player. It is a local-domain object: from orbit it would
+   * paint over the planet, so whoever owns the planetary view is allowed to stand it down.
+   */
+  readonly sky: Mesh;
+  readonly clouds: InstancedMesh;
   private cloudMaterial = new MeshStandardMaterial({ color: '#ead5be', roughness: 1, flatShading: false });
   private dummy = new Object3D();
   private elapsed = 0;

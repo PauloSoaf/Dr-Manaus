@@ -56,7 +56,7 @@ function groundCover(): Mesh {
 }
 
 /** A handful of terrain/road batches covering the horizon, never detailed city objects. */
-export function createTerrain(root: Group): void {
+export function createTerrain(root: Group): Group {
   const terrain = new Group(); terrain.name = 'Generalized Manaus land and OSM arteries';
   const green = new MeshStandardMaterial({ color: '#465c3b', roughness: 1, side: DoubleSide });
   const urban = new MeshStandardMaterial({ color: '#565753', roughness: 1, side: DoubleSide });
@@ -117,4 +117,5 @@ export function createTerrain(root: Group): void {
     mesh.name = name; mesh.receiveShadow = true; terrain.add(mesh);
   }
   root.add(terrain);
+  return terrain;
 }
