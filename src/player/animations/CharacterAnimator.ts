@@ -107,6 +107,23 @@ export class CharacterAnimator {
     this.playLoop(CHARACTER_CLIPS.idle, 0);
   }
 
+  /** Clip names this animator can play right now, including any borrowed from the library. */
+  get available(): readonly string[] {
+    return [...this.clips.keys()].filter(name => !name.endsWith('::upper')).sort();
+  }
+
+  /** Adds clips from the optional library. Existing names are kept: the character wins. */
+  registerClips(clips: readonly AnimationClip[]): number {
+    let added = 0;
+    for (const source of clips) {
+      if (!source.name || this.clips.has(source.name)) continue;
+      this.clips.set(source.name, cleanCharacterClip(source));
+      this.clips.set(`${source.name}::upper`, cleanCharacterClip(source, true));
+      added++;
+    }
+    return added;
+  }
+
   private action(name: string): AnimationAction {
     const clip = this.clips.get(name);
     if (!clip) throw new Error(`Character animation clip not found: ${name}`);

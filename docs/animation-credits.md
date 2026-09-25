@@ -47,3 +47,35 @@ References:
 - https://github.com/sketchpunklabs/kaykit_char
 - https://github.com/Station-Sciences/bot-crossing
 - https://threejs.org/examples/webgl_animation_skinning_blending.html
+
+## Optional animation library
+
+`public/assets/player/animation-library.glb` is a derived file, not a download. It is built by
+`scripts/assets/build-animation-library.mjs` from:
+
+| Field | Value |
+| --- | --- |
+| Source | Quaternius · Universal Animation Library 2 [Standard] |
+| File | `Unreal-Godot/UAL2_Standard.glb` (the non-root-motion build) |
+| Licence | CC0 1.0 Universal — Public Domain Dedication |
+| Author | [@Quaternius](https://quaternius.com/) |
+
+Its rig is the same 65-bone skeleton the player character uses — identical bone names, one for one
+— so the clips play on the hero without retargeting. The build script verifies that before writing
+anything and fails if the two ever diverge.
+
+The shipped file drops the mannequin mesh, the skin, the materials, the T-pose and every clip the
+character already owns, then rebuilds the binary buffer around what survives: 7.72 MB becomes
+5.43 MB carrying 30 clips. It is fetched lazily — never on the boot path — through
+`src/player/animations/AnimationLibrary.ts`, and browsable in the animation lab.
+
+The original zip is not versioned, matching how the project treats every other large source asset.
+Re-run the build script against it, or pass a path to `UAL2_Standard.glb` directly.
+
+### Not used: KayKit Character Animations
+
+`KayKit_Character_Animations.zip` ships 139 clips including a real unarmed kick, which the player
+character still lacks. It cannot be used as-is: its rig has 23 bones against the character's 65,
+and exactly one bone name is shared between them. Playing it would require retargeting the whole
+skeleton, which is not something to improvise — the clips would have to be re-exported onto the
+Quaternius rig first.

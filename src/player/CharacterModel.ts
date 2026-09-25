@@ -8,6 +8,7 @@ import { AnimationController } from './animations/AnimationController';
 import type { CombatMove } from './animations/types';
 import { findCharacterBone, loadCharacterAsset, type CharacterAsset } from './animations/CharacterAsset';
 import { CharacterAnimator } from './animations/CharacterAnimator';
+import { ANIMATION_LIBRARY, loadAnimationLibrary } from './animations/AnimationLibrary';
 import { measureSkinnedGround, type GroundAlignmentResult } from './animations/GroundAlignment';
 
 export type { CosmicLevel };
@@ -98,6 +99,21 @@ export class CharacterModel {
   get groundDiagnostics(): GroundAlignmentResult { return this.groundAlignment; }
   get speedArcs(): SpeedArcs | undefined { return this.arcs; }
   get clipNames(): readonly string[] { return this.asset?.animations.map(clip => clip.name) ?? []; }
+  /** Everything playable right now: the character's own clips plus any library clips loaded. */
+  get playableClipNames(): readonly string[] { return this.animator?.available ?? this.clipNames; }
+  /** Names in the optional catalogue, known without fetching it. */
+  get libraryClipNames(): readonly string[] { return ANIMATION_LIBRARY.clips; }
+
+  /**
+   * Pulls in the optional catalogue. Off the boot path on purpose — nothing in normal play needs
+   * it, so it is only fetched when something asks for a clip the character does not carry.
+   */
+  async loadAnimationLibrary(): Promise<number> {
+    if (!this.animator || this.disposed) return 0;
+    const clips = await loadAnimationLibrary();
+    if (this.disposed || !this.animator) return 0;
+    return this.animator.registerClips(clips);
+  }
 
   async initializeAnimations(): Promise<void> {
     if (this.asset || this.disposed) return;

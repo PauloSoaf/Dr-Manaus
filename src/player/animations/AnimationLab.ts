@@ -1,6 +1,7 @@
 import { Clock, Color, DirectionalLight, GridHelper, HemisphereLight, PerspectiveCamera, Scene, SkeletonHelper, WebGPURenderer } from 'three/webgpu';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CharacterModel } from '../CharacterModel';
+import { ANIMATION_LIBRARY } from './AnimationLibrary';
 import './AnimationLab.css';
 
 const PREFERRED = [
@@ -22,10 +23,15 @@ export async function startAnimationLab(container: HTMLElement): Promise<void> {
 
   const character = new CharacterModel(); scene.add(character.group); await character.initializeAnimations();
   const helper = new SkeletonHelper(character.skinnedMeshes[0].skeleton.bones[0]); helper.visible = false; scene.add(helper);
+  // The catalogue is loaded here so every clip in the project can be inspected in one place.
+  const borrowed = await character.loadAnimationLibrary();
   const names = character.clipNames;
   const ordered = [...PREFERRED.filter(name => names.includes(name)), ...names.filter(name => !PREFERRED.includes(name)).sort()];
+  const extra = character.playableClipNames.filter(name => !names.includes(name));
+  const options = `<optgroup label="Personagem (${ordered.length})">${ordered.map(name => `<option>${name}</option>`).join('')}</optgroup>`
+    + (extra.length ? `<optgroup label="Biblioteca · ${ANIMATION_LIBRARY.source} (${extra.length})">${extra.map(name => `<option>${name}</option>`).join('')}</optgroup>` : '');
   const panel = document.createElement('section'); panel.className = 'animation-lab';
-  panel.innerHTML = `<h1>DR Manaus · UAL Superhero</h1><label>Clip <select>${ordered.map(name => `<option>${name}</option>`).join('')}</select></label><div><button data-action="play">Play</button><button data-action="pause">Pause</button><button data-action="restart">Restart</button></div><div><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="back">Back</button></div><label>Speed <input data-speed type="range" min="0.1" max="2" step="0.05" value="1"><output>1.00×</output></label><label>Time <input data-time type="range" min="0" max="1" step="0.001" value="0"></label><label><input data-skeleton type="checkbox"> skeleton helper</label><label><input data-ground type="checkbox" checked> ground grid</label><pre></pre>`;
+  panel.innerHTML = `<h1>DR Manaus · UAL Superhero</h1><label>Clip <select>${options}</select></label><div><button data-action="play">Play</button><button data-action="pause">Pause</button><button data-action="restart">Restart</button></div><div><button data-view="front">Front</button><button data-view="side">Side</button><button data-view="back">Back</button></div><label>Speed <input data-speed type="range" min="0.1" max="2" step="0.05" value="1"><output>1.00×</output></label><label>Time <input data-time type="range" min="0" max="1" step="0.001" value="0"></label><label><input data-skeleton type="checkbox"> skeleton helper</label><label><input data-ground type="checkbox" checked> ground grid</label><pre></pre>`;
   document.body.append(panel);
   const select = panel.querySelector('select')!;
   const speed = panel.querySelector<HTMLInputElement>('[data-speed]')!;

@@ -50,9 +50,9 @@ export const DESTRUCTION = {
   /** Debris pool. `maxDebris` is the hard instance cap; `debrisPerParticle` scales it by preset. */
   maxDebris: 420, debrisPerParticle: .7, debrisGravity: 26, debrisBounce: .26, debrisFriction: 3.2,
   debrisLifetime: 4.5, debrisSpeed: 1, debrisSize: 1, debrisCullRadius: 1400,
-  /** Scars. `scarHeight` clears the .22..34 road ribbons and their .012 lane paint. */
+  /** Scars. `scarHeight` clears the road ribbons and their lane paint, which top out at 38 mm. */
   maxScars: 256, scarsPerParticle: .42, scarLifetime: 95, scarHotTime: 3.2, scarFadeTime: 14,
-  scarHeight: .38, scarMaxHeight: 6, scarRadiusScale: 1.35,
+  scarHeight: .06, scarMaxHeight: 6, scarRadiusScale: 1.35,
   /** The high-speed ram: damage is per metre driven through a mass, so it is frame-rate free. */
   ploughSpeed: 420, ploughDamage: .02, ploughMaxSweep: 220,
   ploughRadius: 8, ploughRadiusPerSpeed: .006, ploughMaxRadius: 70,

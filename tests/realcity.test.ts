@@ -4,7 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Group, Mesh, MeshStandardMaterial, Vector3 } from 'three/webgpu';
-import { REAL_CITY } from '../src/core/config.ts';
+import { DESTRUCTION, REAL_CITY } from '../src/core/config.ts';
+import { ROAD_HEIGHT, ROAD_MARKING_LIFT, ROAD_MAX_HEIGHT, roadHeightOf } from '../src/world/realcity/roads.ts';
+import { ANIMATION_LIBRARY } from '../src/player/animations/AnimationLibrary.ts';
 import { GEO_ORIGIN, LANDMARKS, latLonToWorld, onAirfield, worldToLatLon } from '../src/world/geodata/geodata.ts';
 import { WORLD } from '../src/core/config.ts';
 import { BUILDING_STRIDE } from '../src/world/chunks/Chunk.ts';
@@ -730,3 +732,64 @@ test('streamer with real city replacement suppresses procedural buildings immedi
   }
 });
 
+
+test('the road is asphalt lying on the ground, not a kerb the player wades through', () => {
+  // The player walks at terrain height, which is zero under the city. A ribbon drawn 22-34 cm up
+  // — where these started — is a step he stands inside up to the shin.
+  const classes = Object.keys(ROAD_HEIGHT);
+  assert.ok(classes.length >= 8, 'every road class needs a deck height');
+  for (const klass of classes) {
+    const y = roadHeightOf(klass);
+    assert.ok(y > 0, `${klass} has to clear the ground or it fights it for depth`);
+    assert.ok(y <= 0.05, `${klass} sits ${(y * 100).toFixed(1)} cm up, which reads as a kerb`);
+  }
+  // The classes still stagger, or overlapping ribbons flicker against each other at junctions.
+  assert.equal(new Set(Object.values(ROAD_HEIGHT)).size >= 6, true, 'ribbons need distinct heights');
+  assert.ok(roadHeightOf('motorway') > roadHeightOf('residential'), 'the bigger road stays on top');
+  assert.equal(roadHeightOf('not-a-real-class'), roadHeightOf('residential'), 'unknown classes fall back');
+
+  // Lane paint sits on its own ribbon, and the scorch marks have to clear the highest of them or
+  // they disappear into the asphalt.
+  assert.ok(ROAD_MARKING_LIFT > 0 && ROAD_MARKING_LIFT < 0.01);
+  assert.ok(ROAD_MAX_HEIGHT >= Math.max(...Object.values(ROAD_HEIGHT)));
+  assert.ok(DESTRUCTION.scarHeight > ROAD_MAX_HEIGHT, 'scars must sit above the lane paint');
+  assert.ok(DESTRUCTION.scarHeight < 0.2, 'and not hover over the street');
+});
+
+test('the animation library is a real GLB that matches its manifest and the character rig', () => {
+  const read = (file: string) => {
+    const buffer = readFileSync(file);
+    assert.equal(buffer.readUInt32LE(0), 0x46546c67, `${file} is not a GLB`);
+    const jsonLength = buffer.readUInt32LE(12);
+    return { json: JSON.parse(buffer.slice(20, 20 + jsonLength).toString('utf8')), bytes: buffer.length };
+  };
+  const library = read('public/assets/player/animation-library.glb');
+  const character = read('public/assets/player/dr-manaus-character.glb');
+
+  const names = (library.json.animations as { name: string }[]).map(a => a.name).sort();
+  assert.deepEqual(names, [...ANIMATION_LIBRARY.clips].sort(), 'the manifest and the file disagree');
+  assert.ok(names.length >= 25, `the catalogue carries only ${names.length} clips`);
+
+  // The character wins every name clash, so the library must not carry duplicates at all.
+  const owned = new Set((character.json.animations as { name: string }[]).map(a => a.name));
+  for (const name of names) assert.ok(!owned.has(name), `${name} is already in the character`);
+
+  // The clips have to land on the hero's own skeleton, which is the whole reason this pack works.
+  const bonesOf = (glb: { json: any }) =>
+    new Set((glb.json.skins?.[0]?.joints ?? glb.json.nodes.map((_: unknown, i: number) => i))
+      .map((i: number) => glb.json.nodes[i].name));
+  const rig = bonesOf(character);
+  const targets = new Set((library.json.animations as { channels: { target: { node: number } }[] }[])
+    .flatMap(a => a.channels.map(c => library.json.nodes[c.target.node].name)));
+  for (const bone of targets) assert.ok(rig.has(bone as string), `library clips drive ${bone}, which the hero lacks`);
+
+  // It is an animations-only file: shipping the mannequin as well would be dead weight.
+  assert.ok(!library.json.meshes?.length, 'the library must not carry a mesh');
+  assert.ok(!library.json.images?.length && !library.json.materials?.length);
+  assert.ok(library.bytes < 7 * 1024 * 1024, `the catalogue weighs ${(library.bytes / 1048576).toFixed(1)} MB`);
+
+  // And the licence is recorded, because it ships in the repository.
+  assert.match(ANIMATION_LIBRARY.licence, /CC0/);
+  assert.ok(ANIMATION_LIBRARY.source.length > 0 && ANIMATION_LIBRARY.credit.length > 0);
+  assert.match(String(library.json.asset?.copyright ?? ''), /CC0/);
+});

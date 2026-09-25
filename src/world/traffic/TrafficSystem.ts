@@ -3,6 +3,7 @@ import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import type { Collider } from '../../core/types';
 import type { RoadGraph, RoadSegment } from './RoadGraph';
 import { hash32, VehicleNavigator } from './VehicleNavigator';
+import { roadHeightOf } from '../realcity/roads';
 
 /** The pool is sized once; `setCount` only changes how much of it drives. */
 const CAPACITY = 256;
@@ -19,13 +20,9 @@ const BODY_W = 1.85, BODY_H = 1.3, BODY_D = 4.1;
 const GLASS_W = 1.58, GLASS_H = .65, GLASS_D = 2.05, GLASS_Y = .82;
 
 /**
- * Deck heights mirroring ROAD_HEIGHT in src/world/realcity/roads.ts, which staggers the ribbons by
- * class so junctions do not fight for depth. A car has to ride on the ribbon its street was drawn at.
+ * A car rides on the ribbon its street was drawn at, so the deck heights come from the road
+ * builder itself rather than from a copy that can drift out of step with it.
  */
-const ROAD_HEIGHT: Record<string, number> = {
-  motorway: .34, trunk: .32, primary: .30, secondary: .28,
-  tertiary: .26, residential: .24, living_street: .23, service: .22, unclassified: .22,
-};
 /** Debug tint per class: the same ordering as the ribbon colours, pushed apart to be legible. */
 const CLASS_COLOUR: Record<string, number> = {
   motorway: 0xff3b30, trunk: 0xff9500, primary: 0xffcc00, secondary: 0x34c759,
@@ -163,7 +160,7 @@ export class TrafficSystem {
       const segment = nav.segment;
       const surface = segment && this.deck && segment.bridge
         ? this.deck(this.position.x, this.position.z)
-        : ROAD_HEIGHT[segment ? segment.class : 'residential'] ?? .24;
+        : roadHeightOf(segment ? segment.class : 'residential');
       const yaw = Math.atan2(this.tangent.x, this.tangent.z);
       if (vehicle.fresh) {
         vehicle.x = this.position.x; vehicle.z = this.position.z; vehicle.yaw = yaw;
