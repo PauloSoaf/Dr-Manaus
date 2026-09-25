@@ -1,5 +1,8 @@
 # World architecture
 
+Implements `02-TARGET-ARCHITECTURE.md`. This is the overview; each subject has its own document,
+listed in [README.md](README.md).
+
 How DR Manaus addresses space, from a facade on the Largo de São Sebastião to a sector of the
 observable universe, without ever loading the world.
 
@@ -191,15 +194,21 @@ at every speed. Everything that changes what is drawn is off until its phase is 
 
 ## What is not built yet
 
-Honestly stated, because a specification half-implemented is worse than one not started:
+Honestly stated, because a specification half-implemented and described as finished is worse than
+one not started. The current, detailed version of this list — with what was measured — is in
+[15-status.md](15-status.md).
 
-- The Earth globe is tiled and addressed but **not drawn**. `EarthProvider` does not exist.
-- Global terrain (a DEM), global vector coastlines and the ocean are not implemented.
+- The Earth globe is built, streamed, coloured from real coastlines and lit by the real Sun, but
+  **the planetary pass produces no pixels**, so `FEATURES.earthGlobe` is off.
+- Global terrain (a DEM) and the global ocean are not implemented; every planet tile sits at
+  height zero.
 - Manaus is anchored to the ellipsoid but still flat; it is not curved onto it.
-- Render domains are not built; `SpaceLayer` and `Atmosphere` are unchanged.
-- `SPACE.maxAltitude` still caps flight at 140 km.
-- No provider is registered, so the scheduler runs with an empty registry.
+- The atmosphere is not planet-aware. The sky is still a 44 km dome around the player.
+- No celestial body is drawn, and no frame handoff is driven by the player.
+- Nothing from the galaxy layer is rendered.
 - Persistence still uses the existing ids; world-scoped ids and a mutation store are not built.
+- Only the Earth provider is registered; `ManausProvider` does not exist, so the city still streams
+  through its own path.
 
-The order these must be done in is in `15-IMPLEMENTATION-ROADMAP.md`, and the acceptance criteria
-for each are in `17-ACCEPTANCE-CRITERIA.md`.
+The order these must be done in is in `15-IMPLEMENTATION-ROADMAP.md`; the acceptance criteria for
+each are in `17-ACCEPTANCE-CRITERIA.md`, checked against the build in [17-acceptance.md](17-acceptance.md).

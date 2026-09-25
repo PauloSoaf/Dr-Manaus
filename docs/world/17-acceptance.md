@@ -1,0 +1,125 @@
+# Acceptance criteria, checked
+
+`17-ACCEPTANCE-CRITERIA.md`, item by item, against the working tree on `feat/universe-map`.
+
+Legend: **pass** — verified, and how is stated. **blocked** — implemented but not observable
+because `FEATURES.earthGlobe` is off. **no** — not implemented.
+
+## A. No regression of Manaus
+
+The task is not complete if any of these regress. All verified by `npm test`, `npm run build` and
+`npm run test:browser`.
+
+| Criterion | State |
+| --- | --- |
+| spawn still correct at the Largo | pass — browser test |
+| Teatro still separate from the monument and to its west | pass — at `-83, -6` |
+| Arena still at its geographic position | pass |
+| Ponta Negra still on the correct bank | pass |
+| Bridge still connects the two banks | pass |
+| Airport still free of procedural buildings | pass |
+| 645 compiled tiles still usable | pass |
+| real roads still rendered | pass |
+| traffic still uses the road graph | pass |
+| neighbourhoods still available | pass |
+| near buildings still have roofs and facades | pass |
+| no procedural building duplicated onto a real one | pass |
+| destruction still coherent across near/shell/skyline | pass |
+| reconstruction still works | pass |
+
+Nothing in this phase touched the city's rendering path. `latLonToWorld` delegates to the adapter,
+which reproduces the old projection bit for bit, and the test freezes the old coordinates.
+
+## B. A real Earth
+
+| Criterion | State |
+| --- | --- |
+| WGS84 uses `a = 6378137 m` | pass — defining constant, asserted |
+| flattening uses `1/f = 298.257223563` | pass — defining constant, asserted |
+| Manaus anchored at correct latitude/longitude | pass — `-3.130333, -60.022528` |
+| the world no longer depends on an infinite plane as its global representation | pass — logically; the flat plane is still what is drawn |
+| the globe covers the poles | pass — cube sphere; a pole is an ordinary tile |
+| continents and oceans in coherent global positions | **blocked** — built from Natural Earth, verified as a raster, not yet on screen |
+| major global rivers at an appropriate LOD | **no** |
+| global relief streamed, not loaded whole | **no** — no DEM |
+| no mandatory loading screen from ground to orbit | **blocked** |
+
+## C. Precision
+
+| Criterion | State |
+| --- | --- |
+| player stays near the render-local origin | pass — `renderLocalM` in telemetry |
+| no relevant local object gets astronomical coordinates on the GPU | pass — tile vertices are offsets from the tile centre |
+| a 3D rebase does not change a logical position | pass — asserted |
+| a rebase does not change the camera | pass — asserted |
+| a rebase does not change velocity | pass — asserted |
+| a body/frame change causes no visual jump | **no** — handoff is computed, not driven |
+| no transform produces NaN or Infinity | pass — `finite()` guards at every entry, asserted |
+
+## D. Streaming
+
+| Criterion | State |
+| --- | --- |
+| the parent stays visible while the child loads | pass |
+| an obsolete request is cancelled or ignored | pass — generation counter plus `AbortController` |
+| a global budget limits work per frame | pass — `StreamingLedger` |
+| high speed reduces fine detail | pass — `budgetForSpeed` |
+| high speed increases macro prefetch | pass — `PrefetchPredictor` |
+| the cache evicts | pass — LRU, asserted |
+| the current tile and a critical destination can be pinned | pass — asserted |
+| a failed tile does not leave a permanent hole | pass — the parent remains |
+
+## E. Space
+
+| Criterion | State |
+| --- | --- |
+| altitude not stuck at 140 km | pass — 500 000 km with the globe flag on |
+| the Earth can be seen whole | **blocked** |
+| the Sun is no longer only a quad at a fixed local distance | **no** — the model exists; nothing is drawn |
+| the Moon is a logically real body | pass — real radius, μ, tidal lock |
+| at least the Moon is approachable and landable | **no** |
+| the solar system uses coherent logical sizes and distances | pass — asserted against J2000 |
+| distant representation preserves angular size | pass — the model returns angles; no renderer consumes them yet |
+
+## F. Universe
+
+| Criterion | State |
+| --- | --- |
+| sectors generate deterministically | pass — xorshift64, asserted |
+| the same seed recreates the same system | pass — asserted |
+| the universe does not grow in file size with the number of possible systems | pass — generated, never stored |
+| real catalogues are subsets, not a raw Gaia download | pass — none ingested |
+| the Milky Way has LOD | **no** |
+| distant galaxies have LOD | **no** |
+| cosmic coordinates do not depend on a single absolute float | pass — `bigint` sector index plus offset |
+
+## G. Persistence
+
+Nothing in this category is implemented. Phase 12 has not been started.
+
+| Criterion | State |
+| --- | --- |
+| a destroyed building persists across unload/reload | **no** |
+| destruction persists after leaving and returning to the planet | **no** |
+| craters serialisable as deltas | **no** |
+| current ids have a migration | **no** |
+| clearing the cache does not clear the save | **no** |
+| generator version is recorded | **no** |
+
+## H. Performance
+
+| Criterion | State |
+| --- | --- |
+| the game still streams incrementally | pass |
+| no stage fetches from a cartographic service per frame | pass — nothing fetches at all |
+| no ingestion script runs during gameplay | pass — hand-run only |
+| the main thread does not wait on heavy synchronous generation | pass |
+| F3 metrics include planetary state | pass — `universeDebug()` |
+| `npm run profile` still works | pass |
+| new planetary profiles exist | **no** |
+| the WebGL2 fallback is still tested | pass for the game; **no** for the planetary domain |
+
+## Final demonstration flow
+
+Not achievable. It requires the globe to draw, the Moon to exist as a destination and frame handoff
+to be driven — phases 4 (finish), 7, 8 and 9. The blocker is in [15-status.md](15-status.md).
