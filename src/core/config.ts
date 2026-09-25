@@ -60,6 +60,31 @@ export const DESTRUCTION = {
   maxEntries: 512, entryTtl: 25, evictInterval: 2,
 } as const;
 
+/**
+ * Phase switches for the planetary and cosmic architecture.
+ *
+ * Each one is temporary and exists so a phase can ship without a second complete architecture
+ * living alongside the first. `spatialCore` is on because it only observes; everything that
+ * changes what is drawn stays off until its phase is finished and verified in play.
+ */
+export const FEATURES = {
+  /** The reference frames, floating origin and solar system model. Observes; draws nothing. */
+  spatialCore: true,
+  /** Global tile streaming through the new scheduler. */
+  planetStreaming: false,
+  /** The WGS84 globe as visible geometry. */
+  earthGlobe: false,
+  /** Global terrain from a DEM. */
+  planetTerrain: false,
+  /** Manaus curved onto the ellipsoid. */
+  curvedManaus: false,
+  /** Planet-aware atmosphere and the render-domain composer. */
+  newAtmosphere: false,
+  /** Leaving the atmosphere, and the bodies beyond it. */
+  solarSystem: false,
+  galaxyTravel: false,
+} as const;
+
 /** Altitude bands for the flight-to-orbit transition. */
 export const SPACE = {
   atmosphereTop: 9000, karman: 26000, orbit: 60000, maxAltitude: 140000,

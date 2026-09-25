@@ -173,3 +173,31 @@ export function quatAngleBetween(a: Quat, b: Quat): number {
   const dot = Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]);
   return 2 * Math.acos(Math.min(1, dot));
 }
+
+/**
+ * A quaternion from three orthonormal basis vectors, taken as the columns of a rotation matrix:
+ * the rotation that maps local +X, +Y and +Z onto `x`, `y` and `z`.
+ *
+ * Shepperd's method — pick the largest diagonal term to divide by, so the branch that would lose
+ * precision is never the one taken.
+ */
+export function quatFromBasis(x: Vec3, y: Vec3, z: Vec3, out: Quat = [0, 0, 0, 1]): Quat {
+  const m00 = x[0], m10 = x[1], m20 = x[2];
+  const m01 = y[0], m11 = y[1], m21 = y[2];
+  const m02 = z[0], m12 = z[1], m22 = z[2];
+  const trace = m00 + m11 + m22;
+  if (trace > 0) {
+    const s = 0.5 / Math.sqrt(trace + 1);
+    out[3] = 0.25 / s; out[0] = (m21 - m12) * s; out[1] = (m02 - m20) * s; out[2] = (m10 - m01) * s;
+  } else if (m00 > m11 && m00 > m22) {
+    const s = 2 * Math.sqrt(1 + m00 - m11 - m22);
+    out[3] = (m21 - m12) / s; out[0] = 0.25 * s; out[1] = (m01 + m10) / s; out[2] = (m02 + m20) / s;
+  } else if (m11 > m22) {
+    const s = 2 * Math.sqrt(1 + m11 - m00 - m22);
+    out[3] = (m02 - m20) / s; out[0] = (m01 + m10) / s; out[1] = 0.25 * s; out[2] = (m12 + m21) / s;
+  } else {
+    const s = 2 * Math.sqrt(1 + m22 - m00 - m11);
+    out[3] = (m10 - m01) / s; out[0] = (m02 + m20) / s; out[1] = (m12 + m21) / s; out[2] = 0.25 * s;
+  }
+  return normalizeQuat(out, out);
+}
