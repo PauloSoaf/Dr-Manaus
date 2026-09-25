@@ -1,6 +1,8 @@
 import { AnimationAction, AnimationClip, AnimationMixer, LoopOnce, LoopRepeat, NumberKeyframeTrack, Object3D, QuaternionKeyframeTrack, VectorKeyframeTrack } from 'three/webgpu';
-import type { AnimationUpdateParams } from './AnimationController';
+import type { AnimationUpdateParams, DodgePose } from './AnimationController';
 import type { CombatMove } from './types';
+import type { FlipPhase } from './FlipMotion';
+import { DODGE } from '../movement/DodgeSystem';
 
 export const CHARACTER_CLIPS = {
   idle: 'Idle_Loop', walk: 'Walk_Loop', run: 'Jog_Fwd_Loop', sprint: 'Sprint_Loop', jumpStart: 'Jump_Start',
@@ -8,18 +10,51 @@ export const CHARACTER_CLIPS = {
   punch: 'Punch_Jab', punchCross: 'Punch_Cross', hook: 'Melee_Hook', hookRecovery: 'Melee_Hook_Rec',
   kickLeft: 'Kick_Left', kickRight: 'Kick_Right',
   meteor: 'OverhandThrow', aim: 'Idle_FoldArms_Loop', hitA: 'Hit_Chest', hitB: 'Hit_Head',
+  /**
+   * Hovering at rest: arms folded, weight settled — a hero looking at the city rather than
+   * swimming through it. This is the character's own authored rest pose. The rig ships no
+   * hands-behind-the-back parade rest, and solving one procedurally mangled the shoulders.
+   */
+  hoverRest: 'Idle_FoldArms_Loop', hoverCruise: 'Idle_Loop',
+  /** The somersault in two halves: the launch and tuck, then the opening out. */
+  flipLaunch: 'NinjaJump_Start', flipRecover: 'NinjaJump_Land',
+  /** Evades. The ground roll is authored; the air dash borrows the committed slide pose. */
+  airDash: 'Slide_Loop',
 } as const;
 
+/**
+ * Hover rest engages below `enter` and only lets go above `exit`. Without the gap the pose
+ * flickers every time a gust of input crosses a single threshold.
+ */
+export const HOVER_REST = { enter: 8, exit: 13 } as const;
+
 const UPPER = new Set(['pelvis', 'spine01', 'spine02', 'spine03', 'neck01', 'head', 'claviclel', 'upperarml', 'lowerarml', 'handl', 'clavicler', 'upperarmr', 'lowerarmr', 'handr']);
+/**
+ * The two kick clips fold the knee about the wrong axis: sampling the GLB's own keyframes and
+ * running forward kinematics puts the bend axis 0.001 and 0.006 off the sideways hinge, with the
+ * shin swinging in FRONT of the thigh through 51 and 97 degrees of flex. Every other clip in the
+ * character scores between 0.29 and 1.0. That is a knee bending outwards, and it is authored into
+ * the asset rather than introduced by the game.
+ *
+ * Dropping the shin rotation leaves the hip driving the kick and the leg extended straight, which
+ * is a real kick silhouette and cannot deform. The proper fix is a replacement clip.
+ */
+const BROKEN_KNEE_CLIP = /^Kick_/;
+const SHIN_NODES = new Set(['calfl', 'calfr']);
 const plain = (name: string) => name.replace(/[.\s_-]/g, '').toLowerCase();
 const trackNode = (trackName: string) => plain(trackName.slice(0, trackName.lastIndexOf('.')));
 
-/** Keeps rotations, removes redundant per-bone translations, and neutralizes root X/Z motion. */
-export function cleanCharacterClip(source: AnimationClip, upperOnly = false): AnimationClip {
+/**
+ * Keeps rotations, removes redundant per-bone translations, and neutralizes root X/Z motion.
+ * `dropRotation` suppresses named bones' rotation entirely, which is how a clip with one bad
+ * channel is salvaged without hand-animating a replacement.
+ */
+export function cleanCharacterClip(source: AnimationClip, upperOnly = false, dropRotation?: ReadonlySet<string>): AnimationClip {
   const tracks = source.tracks.flatMap(track => {
     const property = track.name.slice(track.name.lastIndexOf('.') + 1);
     const node = trackNode(track.name);
     if (upperOnly && !UPPER.has(node)) return [];
+    if (dropRotation?.has(node) && property === 'quaternion') return [];
     if (property === 'position' && node !== 'root' && node !== 'pelvis') return [];
     const copy = track.clone();
     if (property === 'position' && node === 'root' && copy instanceof VectorKeyframeTrack) {
@@ -50,6 +85,9 @@ export class CharacterAnimator {
   private oneShot?: AnimationAction;
   private wasGrounded?: boolean;
   private wasDoubleJumping = false;
+  private hoverRest = false;
+  private lastDodge: DodgePose = null;
+  private lastFlipPhase: FlipPhase = 'recovery';
   private readonly onFinished = (event: { action: AnimationAction }): void => {
     if (event.action !== this.oneShot) return;
     this.oneShot = undefined;
@@ -59,7 +97,8 @@ export class CharacterAnimator {
   constructor(root: Object3D, sourceClips: readonly AnimationClip[]) {
     this.mixer = new AnimationMixer(root);
     for (const source of sourceClips) {
-      this.clips.set(source.name, cleanCharacterClip(source));
+      const repair = BROKEN_KNEE_CLIP.test(source.name) ? SHIN_NODES : undefined;
+      this.clips.set(source.name, cleanCharacterClip(source, false, repair));
       this.clips.set(`${source.name}::upper`, cleanCharacterClip(source, true));
     }
     this.mixer.addEventListener('finished', this.onFinished);
@@ -113,9 +152,18 @@ export class CharacterAnimator {
     this.oneShot = action;
   }
 
-  update(dt: number, params: AnimationUpdateParams, move: CombatMove | null, doubleJumping: boolean): void {
+  update(dt: number, params: AnimationUpdateParams, move: CombatMove | null, doubleJumping: boolean, flipPhase: FlipPhase = 'recovery'): void {
+    // Hovering settles into the rest pose with hysteresis, measured on the full 3D speed so that
+    // rising straight up still counts as hovering.
+    if (params.flying) {
+      const airSpeed = Math.hypot(params.speed, params.verticalSpeed);
+      if (this.hoverRest ? airSpeed > HOVER_REST.exit : airSpeed < HOVER_REST.enter) this.hoverRest = !this.hoverRest;
+    } else {
+      this.hoverRest = false;
+    }
+
     this.desiredBase = params.powerPoseName === 'energy' ? CHARACTER_CLIPS.aim
-      : params.flying ? (params.speed < 4 ? CHARACTER_CLIPS.aim : CHARACTER_CLIPS.idle)
+      : params.flying ? (this.hoverRest ? CHARACTER_CLIPS.hoverRest : CHARACTER_CLIPS.hoverCruise)
       : !params.grounded ? CHARACTER_CLIPS.airborne
       : params.speed > 16 ? CHARACTER_CLIPS.sprint
       : params.speed > 8 ? CHARACTER_CLIPS.run
@@ -125,17 +173,31 @@ export class CharacterAnimator {
     const startedJump = this.wasGrounded === true && !params.grounded && !params.flying;
     const landed = this.wasGrounded === false && params.grounded && !params.flying;
     const startedDoubleJump = doubleJumping && !this.wasDoubleJumping;
+    const dodge = params.dodge ?? null;
+    const startedDodge = dodge !== null && this.lastDodge !== dodge;
+    // The flip opens out halfway through, which is a different clip from the launch.
+    const openedOut = doubleJumping && flipPhase === 'untuck' && this.lastFlipPhase !== 'untuck';
     this.wasGrounded = params.grounded;
     this.wasDoubleJumping = doubleJumping;
+    this.lastDodge = dodge;
+    this.lastFlipPhase = doubleJumping ? flipPhase : 'recovery';
 
-    if (move && move.id !== this.moveId) {
+    if (startedDodge) {
+      this.moveId = '';
+      this.playOnce(
+        dodge === 'roll' ? CHARACTER_CLIPS.dodge : CHARACTER_CLIPS.airDash,
+        dodge === 'roll' ? DODGE.roll.duration : DODGE.dash.duration,
+      );
+    } else if (move && move.id !== this.moveId) {
       this.moveId = move.id;
       this.playOnce(MOVE_CLIP[move.id] ?? CHARACTER_CLIPS.punch, move.startup + move.active + move.recovery, params.flying && move.boneMask === 'UPPER_BODY');
     } else if (!move && this.moveId) {
       this.moveId = '';
       if (!this.oneShot) this.playLoop(this.desiredBase, 0.14);
     } else if (!move && startedDoubleJump) {
-      this.playOnce(CHARACTER_CLIPS.doubleJump, 0.44);
+      this.playOnce(CHARACTER_CLIPS.flipLaunch, 0.42);
+    } else if (!move && openedOut) {
+      this.playOnce(CHARACTER_CLIPS.flipRecover, 0.34);
     } else if (!move && landed) {
       this.playOnce(CHARACTER_CLIPS.land);
     } else if (!move && startedJump) {

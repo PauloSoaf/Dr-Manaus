@@ -4,7 +4,7 @@ import type { Collider, Target } from '../../core/types';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import { CharacterModel } from '../CharacterModel';
 import type { InputController } from '../InputController';
-import type { PlayerController } from '../PlayerController';
+import type { LandingImpact, PlayerController } from '../PlayerController';
 import { EffectPool } from './EffectPool';
 import { COMBAT_MOVES } from '../combat/CombatMoves';
 import { SoftTargeting, type SoftTargetCandidate } from '../combat/SoftTargeting';
@@ -110,6 +110,8 @@ export class PowerSystem {
     this.indicator.visible = this.selected === 'teleport' && this.destinationValid && !this.teleporting;
     this.indicator.position.copy(this.destination); this.indicator.position.y += 0.14;
     this.indicator.scale.setScalar((1 + Math.sin(this.time * 4) * 0.08) * Math.sqrt(this.player.size));
+    const landing = this.player.consumeImpact();
+    if (landing) this.applyImpact(landing);
     this.effects.update(this.temporal ? worldDt + realDt * 0.35 : realDt);
     this.updateClones(realDt);
     this.updateLaser(realDt);
@@ -139,13 +141,15 @@ export class PowerSystem {
         this.cooldowns[name] = name === 'kick' ? 0.65 : 0.52;
 
         const flying = this.player.state !== 'Grounded';
+        const airborne = flying || !this.player.isGrounded;
         const speed = this.player.velocity.length();
         this.camera.getWorldDirection(this.rayDirection);
 
         let moveId = 'punch';
         if (flying && speed >= 800) {
           moveId = 'kineticStrike';
-        } else if (flying && speed > 10 && this.rayDirection.y < -0.45 && name === 'punch') {
+        } else if (airborne && name === 'punch' && (this.rayDirection.y < -0.45 || this.player.velocity.y < -18)) {
+          // Aimed down, or already falling hard: this is a ground slam, and it commits.
           moveId = 'meteorPunch';
         } else if (flying && speed > 20 && name === 'punch') {
           moveId = 'flyingPunch';
@@ -158,6 +162,7 @@ export class PowerSystem {
         }
 
         this.activeCombatMoveId = moveId;
+        if (moveId === 'meteorPunch') this.player.beginSlam();
         const move = COMBAT_MOVES[moveId] ?? COMBAT_MOVES.punch;
         this.player.powerPose(moveId, move.startup + move.active + move.recovery);
         this.player.character.startCombatMove(move);
@@ -325,6 +330,39 @@ export class PowerSystem {
       this.hitStop.trigger(kind === 'kick' ? 30 : 20);
     }
     this.hooks.sound('energy');
+  }
+
+  /**
+   * A landing that mattered. The numbers all come from `resolveImpact`; this only spends them,
+   * through exactly the same destruction hooks a shockwave uses — so a crater dug by arriving at
+   * eight thousand metres a second is the same crater, not a second kind of hole.
+   */
+  private applyImpact(landing: LandingImpact): void {
+    const { impact, position } = landing;
+    const size = this.player.size;
+    const hot = impact.profile === 'meteor' || impact.profile === 'titan';
+    const core = hot ? 0xffe6a8 : 0xa8fff0;
+
+    const levelled = impact.damage > 0 ? this.hooks.damage?.(position, impact.radius, impact.damage) ?? 0 : 0;
+    if (impact.impulse > 0) this.hooks.impulse(position, Math.max(2, impact.radius), impact.impulse);
+
+    this.effects.wave(position, Math.max(2, impact.radius * 1.2), core, hot ? 1.3 : 0.8);
+    if (hot) {
+      this.effects.wave(position, impact.radius * 0.55, 0xfff4d0, 0.95);
+      this.effects.flash(position, Math.min(60, 2 + impact.radius * 0.35), 0xfff1c4);
+    }
+    this.effects.burst(position, core, Math.min(40, Math.sqrt(size) * (1 + impact.radius * 0.06)), impact.debris);
+    if (impact.hitStopMs > 0) this.hitStop.trigger(impact.hitStopMs);
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: impact.shake }));
+    this.hooks.sound(hot ? 'shockwave' : 'giant');
+
+    // A heavy landing is felt, not announced; anything that actually levelled a block is news.
+    if (impact.profile === 'heavy') return;
+    if (this.time - this.collapseNotice < DESTRUCTION.noticeInterval) return;
+    this.collapseNotice = this.time;
+    this.hooks.notify(levelled > 0
+      ? `${impact.tier.label} · ${levelled} ${levelled === 1 ? 'estrutura arrasada' : 'estruturas arrasadas'}.`
+      : `${impact.tier.label} · cratera de ${Math.round(impact.radius)} m.`);
   }
 
   private updateDestination(): void {

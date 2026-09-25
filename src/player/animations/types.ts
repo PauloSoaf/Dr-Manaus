@@ -21,7 +21,12 @@ export type AnimationEventName =
   | 'jump.apex'
   | 'doubleJump.impulse'
   | 'doubleJump.flipStart'
+  | 'doubleJump.tuck'
+  | 'doubleJump.untuck'
   | 'doubleJump.flipEnd'
+  | 'dodge.roll'
+  | 'dodge.airDash'
+  | 'dodge.end'
   | 'kick.hit'
   | 'meteor.impact'
   | 'footstep.left'
@@ -66,5 +71,5 @@ export interface DoubleJumpState {
   direction: FlipDirection;
 }
 
-export type FlightPoseName = 'hover' | 'takeoff' | 'cruise' | 'fast' | 'super' | 'mega' | 'braking';
+export type FlightPoseName = 'hover' | 'takeoff' | 'cruise' | 'fast' | 'super' | 'mega' | 'braking' | 'dash';
 export type LandingTier = 'soft' | 'hard' | 'super' | 'titan';

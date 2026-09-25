@@ -8,6 +8,25 @@ import { FLIGHT, type FlightSpeedMode } from './flightConfig';
 import { getDoubleJumpDuration, getJumpHeight, getJumpVelocity, getGravity } from './physics/JumpPhysics';
 import { TitanGroundSupport } from './physics/TitanGroundSupport';
 import type { FlipDirection } from './animations/types';
+import { DodgeSystem, type DodgeKind } from './movement/DodgeSystem';
+import { resolveImpact, type ImpactResult } from './combat/MeteorImpact';
+
+/** Fraction of the run speed the somersault throws forward, so the flip travels. */
+const DOUBLE_JUMP_CARRY = 0.45;
+/** How long a committed downward strike stays committed, and how hard it drives. */
+const SLAM = { window: 1.4, accel: 260, entry: 45 } as const;
+/**
+ * Metres per second of descent below which a contact is not a landing at all. Without it,
+ * clipping a kerb during a 650 m/s boosted run would read as arriving from orbit, because the
+ * horizontal speed alone would carry the energy. Skimming the ground at speed is the plough's
+ * job; this system only answers for things that came down.
+ */
+const MIN_DESCENT = 12;
+
+export interface LandingImpact {
+  readonly impact: ImpactResult;
+  readonly position: Vector3;
+}
 
 export class PlayerController {
   readonly position = new Vector3(WORLD.spawn.x, WORLD.spawn.y, WORLD.spawn.z);
@@ -16,6 +35,9 @@ export class PlayerController {
   readonly character = new CharacterModel();
   readonly model = this.character.group;
   readonly titanSupport = new TitanGroundSupport();
+  readonly dodge = new DodgeSystem();
+  /** The key that evades: a roll on the ground, a dash in the air. */
+  dodgeKey = 'KeyZ';
   state: 'Grounded' | 'Hover' | 'Flight' = 'Grounded';
   facingYaw = 0;
   size = 1;
@@ -32,6 +54,13 @@ export class PlayerController {
   private grounded = false;
   private pose = '';
   private poseTime = 0;
+  private readonly dodgeDirection = new Vector3(0, 0, -1);
+  private readonly flipCarry = new Vector3();
+  private readonly impactVelocity = new Vector3();
+  private readonly impactPoint = new Vector3();
+  private pendingImpact: ImpactResult | null = null;
+  private slamTimer = 0;
+  private desiredSpeed = 0;
 
   constructor(root: Group, input: InputController) {
     this.input = input;
@@ -41,6 +70,32 @@ export class PlayerController {
 
   get jumpCount(): number { return this.jumps; }
   get isGrounded(): boolean { return this.grounded; }
+  /** The speed the player is currently asking for; flight rights the body against it. */
+  get requestedSpeed(): number { return this.desiredSpeed; }
+  get isSlamming(): boolean { return this.slamTimer > 0; }
+  /** True inside the evade window. Nothing damages the player yet; this is the hook for when it does. */
+  get invulnerable(): boolean { return this.dodge.invulnerable; }
+
+  /**
+   * The landing that just happened, if it was hard enough to matter, handed over exactly once.
+   * Polled by the power system, which owns the effects and the destruction hooks.
+   */
+  consumeImpact(): LandingImpact | null {
+    if (!this.pendingImpact) return null;
+    const landing = { impact: this.pendingImpact, position: this.impactPoint.clone() };
+    this.pendingImpact = null;
+    return landing;
+  }
+
+  /**
+   * Commits to a downward strike. The dive is what separates a meteor punch from falling over:
+   * the impact system reads the flag on contact and scales the crater accordingly.
+   */
+  beginSlam(): void {
+    this.slamTimer = SLAM.window;
+    const dive = SLAM.entry * Math.sqrt(Math.max(1, this.size));
+    this.velocity.y = Math.min(this.velocity.y, 0) - dive;
+  }
   get megaMode(): boolean { return this.megaEnabled; }
   set megaMode(enabled: boolean) {
     if (enabled === this.megaEnabled) return;
@@ -78,6 +133,13 @@ export class PlayerController {
       ? Math.min(3000, (boosting ? this.megaEnabled && !this.megaNeedsBoostRelease ? 650 : 120 : sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * sizeSpeed * this.speedMultiplier)
       : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
 
+    this.dodge.update(dt);
+    if (this.input.consume(this.dodgeKey)) this.requestDodge(flying, movementX, movementZ, cameraYaw, cameraPitch, speed);
+    const dashing = this.dodge.kind === 'airDash';
+    const rolling = this.dodge.kind === 'roll';
+    // A roll that leaves the ground — off a kerb, or into flight — stops being a roll.
+    if (rolling && (flying || !this.grounded)) this.dodge.cancel();
+
     if (flying) {
       const cosPitch = Math.cos(cameraPitch);
       const forwardX = -Math.sin(cameraYaw) * cosPitch;
@@ -102,15 +164,29 @@ export class PlayerController {
       this.desired.multiplyScalar(speed);
     }
 
-    const response = this.speedMode === 'ground'
-      ? FLIGHT.groundResponse
+    // A committed roll owns the horizontal velocity outright: that is what makes it an evade
+    // rather than a sprint with a clip attached.
+    if (this.dodge.kind === 'roll') {
+      this.desired.copy(this.dodge.direction).multiplyScalar(this.dodge.speed(this.size) * this.speedMultiplier);
+      this.desired.y = 0;
+    }
+    this.desiredSpeed = this.desired.length();
+
+    let response = this.speedMode === 'ground'
+      ? this.grounded ? FLIGHT.groundResponse : FLIGHT.airControl
       : this.desired.lengthSq() < this.velocity.lengthSq() ? FLIGHT.response.braking : FLIGHT.response[this.speedMode];
+    if (dashing) response *= FLIGHT.dashControl;
     const acceleration = 1 - Math.exp(-dt * response);
     this.velocity.x = MathUtils.lerp(this.velocity.x, this.desired.x, acceleration);
     this.velocity.z = MathUtils.lerp(this.velocity.z, this.desired.z, acceleration);
 
+    if (this.slamTimer > 0) {
+      this.slamTimer = Math.max(0, this.slamTimer - dt);
+      this.velocity.y -= SLAM.accel * sizeSpeed * dt;
+    }
+
     if (flying) {
-      this.velocity.y = MathUtils.lerp(this.velocity.y, this.desired.y, acceleration);
+      if (this.slamTimer <= 0) this.velocity.y = MathUtils.lerp(this.velocity.y, this.desired.y, acceleration);
       this.state = this.desired.lengthSq() > 1 || this.velocity.lengthSq() > 36 ? 'Flight' : 'Hover';
     } else {
       if (this.grounded) this.jumps = 0;
@@ -143,6 +219,14 @@ export class PlayerController {
           this.jumps = 2;
           this.velocity.y = Math.max(this.velocity.y, 0) + getJumpVelocity(this.size) * 0.85;
 
+          // Carry the jump forward. A somersault that only rises reads as a pirouette; the throw
+          // is what makes it travel, and reduced air control is what lets it survive the frame.
+          if (this.desired.lengthSq() > 1) {
+            this.flipCarry.copy(this.desired).setY(0).normalize().multiplyScalar(speed * DOUBLE_JUMP_CARRY);
+            this.velocity.x += this.flipCarry.x;
+            this.velocity.z += this.flipCarry.z;
+          }
+
           // Direction based on input
           let flipDir: FlipDirection = 'back';
           if (this.input.held('KeyW')) flipDir = 'front';
@@ -150,7 +234,7 @@ export class PlayerController {
           else if (this.input.held('KeyD')) flipDir = 'sideRight';
 
           this.character.animationController.triggerDoubleJump(flipDir, this.size);
-          this.powerPose('roll', getDoubleJumpDuration(this.size));
+          this.powerPose('flip', getDoubleJumpDuration(this.size));
         }
       }
       this.velocity.y -= getGravity(this.size) * dt;
@@ -163,6 +247,8 @@ export class PlayerController {
       colliders = this.beforeMove(this.position, this.velocity, dt);
     }
 
+    const wasGrounded = this.grounded;
+    this.impactVelocity.copy(this.velocity);
     this.grounded = this.physics.move(
       this.position,
       this.velocity,
@@ -178,6 +264,10 @@ export class PlayerController {
     if (this.size >= 4 && supportInfo.hasSupport) {
       this.grounded = true;
     }
+
+    // The one reliable contact event: the frame the sweep first reports ground. `velocity` has
+    // already been zeroed by the sweep, so the arrival speed is the snapshot taken before it.
+    if (!wasGrounded && this.grounded) this.registerImpact();
 
     if (this.position.y >= SPACE.maxAltitude) {
       this.position.y = SPACE.maxAltitude;
@@ -219,11 +309,91 @@ export class PlayerController {
       1, // combatFactor
       this.speedMode,
       this.forward,
-      this.facingYaw
+      this.facingYaw,
+      { desiredSpeed: this.desiredSpeed, grounded: this.grounded, dodge: this.dodge.kind },
     );
 
     this.model.position.copy(this.position);
     this.model.scale.setScalar(this.size);
+  }
+
+  /**
+   * One button, read against the situation: a roll with both feet down, a dash otherwise. The
+   * direction comes from the movement keys relative to the camera, and from the facing when the
+   * player is holding nothing — dodging on the spot should still go somewhere.
+   */
+  private requestDodge(flying: boolean, movementX: number, movementZ: number, cameraYaw: number, cameraPitch: number, cruiseSpeed: number): void {
+    if (!this.dodge.ready) return;
+    // A strike already thrown is not interruptible. Its recovery is, which is what makes
+    // cancelling into an evade a decision rather than an accident.
+    const move = this.character.animationController.activeCombatMove;
+    const phase = this.character.animationController.activeMovePhase;
+    if (move && (phase === 'startup' || phase === 'active')) return;
+
+    const airborne = flying || !this.grounded;
+    const kind: DodgeKind = airborne ? 'airDash' : 'roll';
+    const steering = movementX !== 0 || movementZ !== 0;
+
+    if (airborne) {
+      // The flight basis, pitch included, so a dash can dive or climb with the camera.
+      const cosPitch = Math.cos(cameraPitch);
+      const forwardX = -Math.sin(cameraYaw) * cosPitch;
+      const forwardY = -Math.sin(cameraPitch);
+      const forwardZ = -Math.cos(cameraYaw) * cosPitch;
+      if (steering) {
+        this.dodgeDirection.set(
+          Math.cos(cameraYaw) * movementX + forwardX * -movementZ,
+          forwardY * -movementZ,
+          -Math.sin(cameraYaw) * movementX + forwardZ * -movementZ,
+        );
+      } else {
+        this.dodgeDirection.set(forwardX, forwardY, forwardZ);
+      }
+    } else if (steering) {
+      this.dodgeDirection.set(
+        movementX * Math.cos(cameraYaw) + movementZ * Math.sin(cameraYaw),
+        0,
+        -movementX * Math.sin(cameraYaw) + movementZ * Math.cos(cameraYaw),
+      );
+    } else {
+      this.dodgeDirection.set(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
+    }
+
+    if (this.dodgeDirection.lengthSq() < 1e-8) return;
+    if (!this.dodge.tryStart(kind, this.dodgeDirection.normalize())) return;
+
+    this.character.animationController.cancelCombatMove();
+    this.character.animationController.endDoubleJump();
+    if (kind === 'roll') {
+      // Rolling turns the body to face the roll, which is why a soulslike roll reads as a choice.
+      this.facingYaw = Math.atan2(-this.dodgeDirection.x, -this.dodgeDirection.z);
+      this.powerPose('roll', 0.5);
+    } else {
+      // The dash is an impulse, not a steering change: it has to be visible at 8000 m/s too.
+      this.velocity.addScaledVector(this.dodgeDirection, DodgeSystem.dashBurst(cruiseSpeed, this.size));
+      this.powerPose('dash', 0.28);
+    }
+  }
+
+  /**
+   * Turns a contact into an impact. Descent is what digs a crater; a grazing pass at speed still
+   * cracks the ground, but it counts for a third, because most of that energy carries on past.
+   */
+  private registerImpact(): void {
+    const descent = Math.max(0, -this.impactVelocity.y);
+    const horizontal = Math.hypot(this.impactVelocity.x, this.impactVelocity.z);
+    const arrival = descent < MIN_DESCENT ? 0 : descent + horizontal * 0.25;
+    const slam = this.slamTimer > 0;
+    this.slamTimer = 0;
+    const impact = resolveImpact(arrival, this.size, slam);
+    this.character.animationController.triggerLanding(
+      impact.profile === 'titan' ? 'titan'
+        : impact.profile === 'meteor' ? 'super'
+        : impact.profile === 'soft' ? 'soft' : 'hard',
+    );
+    if (impact.profile === 'soft') return;
+    this.impactPoint.copy(this.position);
+    this.pendingImpact = impact;
   }
 
   teleport(position: Vector3): void {
@@ -233,6 +403,9 @@ export class PlayerController {
     this.state = position.y > 1 ? 'Hover' : 'Grounded';
     this.grounded = false;
     this.jumps = 0;
+    this.slamTimer = 0;
+    this.pendingImpact = null;
+    this.dodge.reset();
     this.titanSupport.reset();
   }
 
