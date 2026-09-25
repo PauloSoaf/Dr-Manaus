@@ -67,7 +67,7 @@ export class Game {
       hit:(id,force)=>{this.missions.hit(id,force)||this.population.hit(id,force);},
       reconstruct:(position,radius)=>this.population.reconstruct(position,radius)+this.realCity.restore(position,radius)+this.streamer.restore(position,radius)+this.landmarks.restore(position,radius)+this.largo.restore(position,radius)+this.airport.restore(position,radius)+this.terrain.restoreAt(position,radius),
       impulse:(position,radius,force)=>{this.population.impulse(position,radius,force);this.camera.shake(.45);},
-      damage:(point,radius,amount)=>this.destruction.damageAt(point,radius,amount),prepare:destination=>this.streamer.prepare(destination),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.origin,getColliders:()=>this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
+      damage:(point,radius,amount,deform)=>this.destruction.damageAt(point,radius,amount,deform),prepare:destination=>this.streamer.prepare(destination),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.origin,getColliders:()=>this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
     this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress()});

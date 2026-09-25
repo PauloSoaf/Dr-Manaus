@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AnimationClip, Group, Object3D, PerspectiveCamera, QuaternionKeyframeTrack, Vector3, Quaternion } from 'three/webgpu';
-import { CHARACTER_CLIPS, cleanCharacterClip } from '../src/player/animations/CharacterAnimator.ts';
+import { CHARACTER_CLIPS, MOVE_CLIPS, REJECTED_CLIP, cleanCharacterClip } from '../src/player/animations/CharacterAnimator.ts';
 import { AnimationController } from '../src/player/animations/AnimationController.ts';
 import { computeFlightOrientation, flightModeFor, uprightBlend } from '../src/player/animations/FlightOrientation.ts';
 import { flipAngle, flipPhase, flipRate, flipTuck } from '../src/player/animations/FlipMotion.ts';
@@ -902,29 +902,33 @@ test('skimming the ground at boost speed is the plough, not a crater', () => {
   assert.ok(blasts > 0, 'arriving from the sky has to crater');
 });
 
-test('the kick clips ship a knee that folds sideways, and the game strips that channel', () => {
-  // Measured straight out of the GLB by forward kinematics: Kick_Right and Kick_Left fold the
-  // knee about an axis 0.001 and 0.006 off the sideways hinge, with the shin swinging in FRONT
-  // of the thigh through 51 and 97 degrees of flex. Every other clip in the character scores
-  // between 0.29 and 1.0. Dropping the shin rotation leaves the hip driving the kick.
+test('no move points at the kick clips, which do not kick', () => {
+  // Sampled out of the GLB and run through forward kinematics: Kick_Left and Kick_Right fold the
+  // knee about an axis 0.001 and 0.006 off the sideways hinge, against 0.29-1.0 for every other
+  // clip, and the foot never travels forward — Kick_Left reaches 0.02 forward against 0.50
+  // backward, and neither lifts the foot above the hip. Stripping the shin channel only turned a
+  // folding knee into a straight leg swinging backwards, so the clips are not referenced at all.
+  for (const [move, clip] of Object.entries(MOVE_CLIPS)) {
+    assert.ok(!REJECTED_CLIP.test(clip), `${move} plays ${clip}, which breaks the character`);
+  }
+  for (const clip of Object.values(CHARACTER_CLIPS)) {
+    assert.ok(!REJECTED_CLIP.test(clip), `${clip} is still wired into a state`);
+  }
+  // Every kick still resolves to something, or right-click does nothing at all.
+  for (const move of ['kick', 'kickSide', 'flyingKick']) {
+    assert.ok(MOVE_CLIPS[move], `${move} has no clip`);
+  }
+});
+
+test('the clip cleaner can drop a named bone rotation without touching the rest', () => {
   const track = (name: string) => new QuaternionKeyframeTrack(name, [0, 1], [0, 0, 0, 1, 0, 0.3, 0, 0.95]);
-  const source = new AnimationClip('Kick_Left', 1, [
-    track('thigh_l.quaternion'), track('calf_l.quaternion'), track('calf_r.quaternion'),
-    track('foot_l.quaternion'), track('upperarm_r.quaternion'),
+  const source = new AnimationClip('Sample', 1, [
+    track('thigh_l.quaternion'), track('calf_l.quaternion'), track('upperarm_r.quaternion'),
   ]);
-
-  const untouched = cleanCharacterClip(source);
-  assert.ok(untouched.tracks.some(t => t.name === 'calf_l.quaternion'), 'without the repair the shin still animates');
-
-  const repaired = cleanCharacterClip(source, false, new Set(['calfl', 'calfr']));
-  const names = repaired.tracks.map(t => t.name);
-  assert.ok(!names.includes('calf_l.quaternion'), 'the left shin rotation must be dropped');
-  assert.ok(!names.includes('calf_r.quaternion'), 'the right shin rotation must be dropped');
-  // And only the shins: the hip is what actually throws the kick.
-  assert.ok(names.includes('thigh_l.quaternion'), 'the hip must keep driving the kick');
-  assert.ok(names.includes('foot_l.quaternion'));
-  assert.ok(names.includes('upperarm_r.quaternion'));
-  assert.equal(repaired.duration, source.duration);
+  assert.ok(cleanCharacterClip(source).tracks.some(t => t.name === 'calf_l.quaternion'));
+  const names = cleanCharacterClip(source, false, new Set(['calfl'])).tracks.map(t => t.name);
+  assert.ok(!names.includes('calf_l.quaternion'));
+  assert.ok(names.includes('thigh_l.quaternion') && names.includes('upperarm_r.quaternion'));
 });
 
 test('a hovering hero rests in an authored pose rather than a solved one', () => {
@@ -938,7 +942,7 @@ test('a hovering hero rests in an authored pose rather than a solved one', () =>
   // Every clip the game names has to exist in the shipped character, or `action()` throws the
   // first time that state is entered — which only ever happens in play, never in a test.
   const shipped = new Set([
-    'Kick_Left', 'Kick_Right', 'Hit_Chest', 'Hit_Head', 'Idle_Loop', 'Jog_Fwd_Loop', 'Jump_Land',
+    'Hit_Chest', 'Hit_Head', 'Idle_Loop', 'Jog_Fwd_Loop', 'Jump_Land',
     'Jump_Loop', 'Jump_Start', 'Punch_Cross', 'Punch_Jab', 'Roll', 'Sprint_Loop', 'Swim_Fwd_Loop',
     'Swim_Idle_Loop', 'Walk_Loop', 'ClimbUp_1m', 'Hit_Knockback', 'Idle_FoldArms_Loop',
     'Melee_Hook', 'Melee_Hook_Rec', 'NinjaJump_Idle_Loop', 'NinjaJump_Land', 'NinjaJump_Start',
@@ -947,4 +951,39 @@ test('a hovering hero rests in an authored pose rather than a solved one', () =>
   for (const [state, clip] of Object.entries(CHARACTER_CLIPS)) {
     assert.ok(shipped.has(clip), `${state} points at ${clip}, which the character does not have`);
   }
+});
+
+test('a survivable fall leaves no hole, and every crater is a bowl rather than a shaft', () => {
+  // The terrain derives crater depth from `radius * 0.36 + sqrt(damage) * 0.32` and floors it at
+  // three metres, so ANY crater is deeper than the character is tall. At the first scaling tried
+  // here a twenty-metre fall asked for a hole 3 m across and 15 m deep and the player sank into
+  // the street. `deform` exists to keep the bowl proportionate while the buildings still fall.
+  const depthOf = (impact: ReturnType<typeof resolveImpact>) =>
+    impact.damage > 0 ? Math.max(3, impact.radius * 0.36 + Math.sqrt(impact.deform) * 0.32) : 0;
+
+  // Anything a player does routinely — a jump, a double jump, stepping off a roof — must not
+  // touch the ground at all.
+  for (const speed of [getJumpVelocity(1), 17.4, 25, 40, 60]) {
+    const impact = resolveImpact(speed, 1);
+    assert.equal(impact.damage, 0, `arriving at ${speed} m/s dug into the street`);
+    assert.equal(impact.deform, 0);
+    assert.equal(depthOf(impact), 0);
+  }
+
+  // Above that, craters appear — and stay wider than they are deep.
+  for (let speed = 70; speed <= 9000; speed *= 1.4) {
+    const impact = resolveImpact(speed, 1);
+    const depth = depthOf(impact);
+    assert.ok(depth > 0, `a ${speed.toFixed(0)} m/s arrival left no mark`);
+    assert.ok(
+      depth < impact.radius,
+      `a ${speed.toFixed(0)} m/s arrival digs ${depth.toFixed(1)} m into a ${impact.radius.toFixed(1)} m crater`,
+    );
+  }
+
+  // A titan landing is enormous but still a crater, not a mineshaft.
+  const titan = resolveImpact(8000, 1000 / 2.07);
+  assert.ok(titan.radius <= IMPACT.maxRadius);
+  assert.ok(depthOf(titan) < titan.radius, 'even a titan leaves a bowl');
+  assert.ok(Number.isFinite(titan.deform));
 });

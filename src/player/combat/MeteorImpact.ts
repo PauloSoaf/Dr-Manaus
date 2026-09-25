@@ -26,7 +26,10 @@ export interface ImpactTier {
  */
 export const IMPACT_TIERS: readonly ImpactTier[] = [
   { profile: 'soft',   energy: 0,    damageGain: 0,    hitStopMs: 0,   label: 'Aterrissagem' },
-  { profile: 'heavy',  energy: 26,   damageGain: 0.12, hitStopMs: 18,  label: 'Aterrissagem pesada' },
+  // A heavy landing is felt, never dug. The terrain's crater depth is
+  // `radius * 0.36 + sqrt(damage) * 0.32`, with a three-metre floor, so any crater at all is a
+  // pit deeper than the character is tall. Landing off a building must not open a well.
+  { profile: 'heavy',  energy: 26,   damageGain: 0,    hitStopMs: 18,  label: 'Aterrissagem pesada' },
   { profile: 'shock',  energy: 70,   damageGain: 0.55, hitStopMs: 45,  label: 'Impacto sísmico' },
   { profile: 'meteor', energy: 260,  damageGain: 1,    hitStopMs: 95,  label: 'Impacto meteórico' },
   { profile: 'titan',  energy: 1600, damageGain: 1,    hitStopMs: 150, label: 'Impacto titânico' },
@@ -35,6 +38,18 @@ export const IMPACT_TIERS: readonly ImpactTier[] = [
 export const IMPACT = {
   /** Size enters the energy, not the radius: a titan's mass is already in how hard it arrives. */
   sizeExponent: 0.75,
+  /**
+   * The crater's width. It has to grow far faster than the structural damage does, or the bowl
+   * comes out narrower than it is deep: at the first scaling tried here, a twenty-metre fall
+   * asked for a hole 3 m across and 15 m deep, and the player fell into the street.
+   */
+  radiusScale: 0.9,
+  radiusExponent: 0.55,
+  /**
+   * Strength handed to the terrain, separate from the structural damage. Set so the bowl ends up
+   * roughly 0.45 as deep as it is wide, which reads as a crater rather than as a shaft.
+   */
+  deformFromRadius: 0.28,
   /** A committed downward strike is worth far more than the same speed arrived at by falling. */
   slamGain: 2.2,
   maxRadius: 640,
@@ -50,6 +65,8 @@ export interface ImpactResult {
   /** Blast radius in metres. Zero for `soft`, which must leave the world untouched. */
   readonly radius: number;
   readonly damage: number;
+  /** What the ground is told, as opposed to what the buildings are told. */
+  readonly deform: number;
   readonly shake: number;
   readonly hitStopMs: number;
   readonly impulse: number;
@@ -82,9 +99,9 @@ export function resolveImpact(speed: number, size = 1, slam = false): ImpactResu
   const energy = impactEnergy(speed, size, slam);
   const tier = profileFor(energy);
   if (tier.profile === 'soft') {
-    return { profile: 'soft', tier, energy, radius: 0, damage: 0, shake: Math.min(0.08, energy * 0.004), hitStopMs: 0, impulse: 0, debris: 0, slam };
+    return { profile: 'soft', tier, energy, radius: 0, damage: 0, deform: 0, shake: Math.min(0.08, energy * 0.004), hitStopMs: 0, impulse: 0, debris: 0, slam };
   }
-  const radius = Math.min(IMPACT.maxRadius, 0.055 * Math.pow(energy, 0.92));
+  const radius = Math.min(IMPACT.maxRadius, IMPACT.radiusScale * Math.pow(energy, IMPACT.radiusExponent));
   const damage = 900 * Math.pow(energy, 0.85) * tier.damageGain;
   return {
     profile: tier.profile,
@@ -92,6 +109,7 @@ export function resolveImpact(speed: number, size = 1, slam = false): ImpactResu
     energy,
     radius,
     damage,
+    deform: damage > 0 ? Math.pow(IMPACT.deformFromRadius * radius, 2) : 0,
     shake: Math.min(IMPACT.maxShake, 0.06 + Math.pow(energy, 0.45) * 0.055),
     hitStopMs: tier.hitStopMs,
     impulse: Math.min(IMPACT.maxImpulse, 30 + Math.pow(energy, 0.6) * 6),

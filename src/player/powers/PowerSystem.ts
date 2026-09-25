@@ -25,7 +25,7 @@ export interface PowerHooks {
    * Optional. Structural damage in a blast radius around a world point; returns how many
    * buildings collapsed. Absent, every power behaves exactly as it did before destruction.
    */
-  damage?: (point: Vector3, radius: number, amount: number) => number;
+  damage?: (point: Vector3, radius: number, amount: number, deform?: number) => number;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }
@@ -343,7 +343,7 @@ export class PowerSystem {
     const hot = impact.profile === 'meteor' || impact.profile === 'titan';
     const core = hot ? 0xffe6a8 : 0xa8fff0;
 
-    const levelled = impact.damage > 0 ? this.hooks.damage?.(position, impact.radius, impact.damage) ?? 0 : 0;
+    const levelled = impact.damage > 0 ? this.hooks.damage?.(position, impact.radius, impact.damage, impact.deform) ?? 0 : 0;
     if (impact.impulse > 0) this.hooks.impulse(position, Math.max(2, impact.radius), impact.impulse);
 
     this.effects.wave(position, Math.max(2, impact.radius * 1.2), core, hot ? 1.3 : 0.8);

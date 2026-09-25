@@ -8,7 +8,6 @@ export const CHARACTER_CLIPS = {
   idle: 'Idle_Loop', walk: 'Walk_Loop', run: 'Jog_Fwd_Loop', sprint: 'Sprint_Loop', jumpStart: 'Jump_Start',
   airborne: 'Jump_Loop', land: 'Jump_Land', doubleJump: 'NinjaJump_Idle_Loop', dodge: 'Roll',
   punch: 'Punch_Jab', punchCross: 'Punch_Cross', hook: 'Melee_Hook', hookRecovery: 'Melee_Hook_Rec',
-  kickLeft: 'Kick_Left', kickRight: 'Kick_Right',
   meteor: 'OverhandThrow', aim: 'Idle_FoldArms_Loop', hitA: 'Hit_Chest', hitB: 'Hit_Head',
   /**
    * Hovering at rest: arms folded, weight settled — a hero looking at the city rather than
@@ -30,17 +29,18 @@ export const HOVER_REST = { enter: 8, exit: 13 } as const;
 
 const UPPER = new Set(['pelvis', 'spine01', 'spine02', 'spine03', 'neck01', 'head', 'claviclel', 'upperarml', 'lowerarml', 'handl', 'clavicler', 'upperarmr', 'lowerarmr', 'handr']);
 /**
- * The two kick clips fold the knee about the wrong axis: sampling the GLB's own keyframes and
- * running forward kinematics puts the bend axis 0.001 and 0.006 off the sideways hinge, with the
- * shin swinging in FRONT of the thigh through 51 and 97 degrees of flex. Every other clip in the
- * character scores between 0.29 and 1.0. That is a knee bending outwards, and it is authored into
- * the asset rather than introduced by the game.
+ * `Kick_Left` and `Kick_Right` are unusable and the game does not reference them.
  *
- * Dropping the shin rotation leaves the hip driving the kick and the leg extended straight, which
- * is a real kick silhouette and cannot deform. The proper fix is a replacement clip.
+ * Sampled straight out of the GLB and run through forward kinematics: they fold the knee about
+ * an axis 0.001 and 0.006 off the sideways hinge (every other clip scores 0.29 to 1.0), and the
+ * foot never travels forward at all — `Kick_Left` reaches 0.02 forward against 0.50 backward, and
+ * neither ever lifts the foot above the hip. They are not kicks, and stripping the shin channel
+ * only turned a folding knee into a straight leg swinging backwards.
+ *
+ * Until the character ships a real kick, the kick moves borrow authored strikes that do not
+ * deform. This is a placeholder, not a fix.
  */
-const BROKEN_KNEE_CLIP = /^Kick_/;
-const SHIN_NODES = new Set(['calfl', 'calfr']);
+const NO_KICK_CLIP = /^Kick_/;
 const plain = (name: string) => name.replace(/[.\s_-]/g, '').toLowerCase();
 const trackNode = (trackName: string) => plain(trackName.slice(0, trackName.lastIndexOf('.')));
 
@@ -71,9 +71,12 @@ const MOVE_CLIP: Record<string, string> = {
   punch: CHARACTER_CLIPS.punch, flyingPunch: CHARACTER_CLIPS.punch,
   punchCross: CHARACTER_CLIPS.punchCross, kineticStrike: CHARACTER_CLIPS.hook,
   punchUpper: CHARACTER_CLIPS.hook, meteorPunch: CHARACTER_CLIPS.meteor,
-  kick: CHARACTER_CLIPS.kickLeft, flyingKick: CHARACTER_CLIPS.kickRight,
-  kickSide: CHARACTER_CLIPS.kickRight,
+  kick: CHARACTER_CLIPS.hook, flyingKick: CHARACTER_CLIPS.hook,
+  kickSide: CHARACTER_CLIPS.punchCross,
 };
+/** Exported so a test can hold the line: no move may point at a clip that breaks the body. */
+export const MOVE_CLIPS: Readonly<Record<string, string>> = MOVE_CLIP;
+export const REJECTED_CLIP = NO_KICK_CLIP;
 
 export class CharacterAnimator {
   private readonly mixer: AnimationMixer;
@@ -97,8 +100,7 @@ export class CharacterAnimator {
   constructor(root: Object3D, sourceClips: readonly AnimationClip[]) {
     this.mixer = new AnimationMixer(root);
     for (const source of sourceClips) {
-      const repair = BROKEN_KNEE_CLIP.test(source.name) ? SHIN_NODES : undefined;
-      this.clips.set(source.name, cleanCharacterClip(source, false, repair));
+      this.clips.set(source.name, cleanCharacterClip(source));
       this.clips.set(`${source.name}::upper`, cleanCharacterClip(source, true));
     }
     this.mixer.addEventListener('finished', this.onFinished);
