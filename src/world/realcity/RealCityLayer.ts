@@ -123,9 +123,8 @@ export class RealCityLayer {
   private readonly realTiles = new Set<string>();
   /** Colliders are stable objects per chunk load, so the verdict is cached without string work. */
   private readonly suppressed = new WeakMap<Collider, boolean>();
-  /** Buildings the player has levelled. Bounded, because a long flight would otherwise grow it forever. */
+  /** Buildings the player has levelled. Limitless because restoring is manual. */
   private readonly destroyed = new Set<string>();
-  private readonly destroyedOrder: string[] = [];
   private readonly destroyedRecords = new Map<string, RuinedBuilding>();
   private readonly ruinedSkyline = new Map<string, Map<number, number>>();
   private readonly touchedGeometry = new Set<Mesh>();
@@ -340,13 +339,6 @@ export class RealCityLayer {
     const id = colliderId.slice(5);
     if (this.destroyed.has(id)) return false;
     this.destroyed.add(id);
-    this.destroyedOrder.push(id);
-    if (this.destroyedOrder.length > REAL_CITY.maxDestroyed) {
-      const evicted = this.destroyedOrder.shift();
-      if (evicted !== undefined) {
-        this.destroyed.delete(evicted); this.releaseRuin(evicted);
-      }
-    }
     for (const tile of this.tiles.values()) {
       const bounds=tile.bounds.get(id);if(!bounds)continue;
       if(!this.destroyedRecords.has(id))this.recordRuin(id,tile.key,bounds);
@@ -404,7 +396,6 @@ export class RealCityLayer {
       const dx = Math.max(0, Math.abs(position.x - box.x) - box.width / 2), dy = Math.max(0, Math.abs(position.y - box.y) - box.height / 2), dz = Math.max(0, Math.abs(position.z - box.z) - box.depth / 2);
       if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
       this.destroyed.delete(id); affected.add(record.tile); this.releaseRuin(id, false);
-      const order = this.destroyedOrder.indexOf(id); if (order >= 0) this.destroyedOrder.splice(order, 1);
       count++;
     }
     for (const key of affected) { const tile = this.tiles.get(key); if (tile) this.schedule(tile); }
@@ -817,7 +808,7 @@ export class RealCityLayer {
     setDistrictSampler(null);
     this.materials?.dispose();
     this.colliderList.length = 0;
-    this.destroyed.clear(); this.destroyedOrder.length = 0; this.touchedGeometry.clear();
+    this.destroyed.clear(); this.touchedGeometry.clear();
     this.destroyedRecords.clear(); this.ruinedSkyline.clear(); this.colliderCandidates.length = 0;
     this.realTiles.clear();
     this.minTx = Infinity; this.maxTx = -Infinity; this.minTz = Infinity; this.maxTz = -Infinity;

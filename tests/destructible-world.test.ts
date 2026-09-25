@@ -5,7 +5,7 @@ import { TerrainDestruction, TERRAIN_DAMAGE } from '../src/world/destruction/Ter
 import { PhysicsWorld } from '../src/physics/PhysicsWorld.ts';
 import { AuthoredDestruction } from '../src/world/destruction/AuthoredDestruction.ts';
 import { createAirport } from '../src/world/realcity/airport.ts';
-import { createCharacterGeometry } from '../src/player/CharacterGeometry.ts';
+import { NodeIO } from '@gltf-transform/core';
 
 test('crater has matching visible depth, raycast and landing; reconstruction restores ground',()=>{
   const terrain=new TerrainDestruction(new Group()), p=new Vector3();
@@ -68,10 +68,19 @@ test('airport terminal, hangars, tower and tanks destroy and reconstruct indepen
   assert.equal(registry.destroyedCount,5);assert.equal(registry.destroy('airport:terminal'),false);
   assert.equal(registry.restore(new Vector3(),100000),5);assert.equal(registry.destroy('airport:terminal'),true);registry.dispose();
 });
-test('human skin keeps hero scale, bounded triangles and normalized articulation weights',()=>{
-  const {skin,accents}=createCharacterGeometry(),box=skin.boundingBox!;
-  assert.ok(box.max.y>2&&box.max.y<2.1);assert.ok(box.max.x-box.min.x<.8);assert.ok(skin.getAttribute('position').count/3<15000);
-  const weights=skin.getAttribute('skinWeight'),bones=skin.getAttribute('skinIndex');const used=new Set<number>();
-  for(let i=0;i<weights.count;i++){assert.ok(Math.abs(weights.getX(i)+weights.getY(i)-1)<1e-6);used.add(bones.getX(i));used.add(bones.getY(i));}
-  assert.equal(used.size,11);skin.dispose();accents.dispose();
+test('shipped adult hero keeps one 65-joint skin and normalized articulation weights',async()=>{
+  const document=await new NodeIO().read('public/assets/player/dr-manaus-character.glb');
+  const root=document.getRoot(),skins=root.listSkins();
+  assert.equal(skins.length,1);assert.equal(skins[0].listJoints().length,65);
+  let vertices=0,triangles=0;
+  for(const mesh of root.listMeshes())for(const primitive of mesh.listPrimitives()){
+    const positions=primitive.getAttribute('POSITION')!,weights=primitive.getAttribute('WEIGHTS_0')!,joints=primitive.getAttribute('JOINTS_0')!;
+    vertices+=positions.getCount();triangles+=(primitive.getIndices()?.getCount()??positions.getCount())/3;
+    const w=weights.getArray()!,j=joints.getArray()!;
+    for(let i=0;i<w.length;i+=4){
+      const sum=w[i]+w[i+1]+w[i+2]+w[i+3];assert.ok(Number.isFinite(sum)&&Math.abs(sum-1)<1e-4);
+      assert.ok(j[i]<65&&j[i+1]<65&&j[i+2]<65&&j[i+3]<65);
+    }
+  }
+  assert.ok(vertices>5000&&vertices<50000);assert.ok(triangles<50000);
 });

@@ -10,9 +10,13 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:browser": "node scripts/browser-test.mjs",
-    "profile": "node scripts/profile-flight.mjs"
+    "profile": "node scripts/profile-flight.mjs",
+    "assets:player": "node scripts/build-player-character.mjs",
+    "validate:player": "node scripts/validate-player-glb.mjs"
   },
   "dependencies": {
+    "@gltf-transform/core": "^4.5.0",
+    "@gltf-transform/functions": "^4.5.0",
     "three": "^0.186.0"
   },
   "devDependencies": {

@@ -73,10 +73,16 @@ export class DestructionSystem {
     this.stats.damaged = this.entries.size;
   }
 
-  /** A beam/impact at a point with a blast radius. Returns how many buildings collapsed. */
-  damageAt(point: Vector3, radius: number, damage: number): number {
+  /**
+   * A beam/impact at a point with a blast radius. Returns how many buildings collapsed.
+   *
+   * `deform` is what the ground is told, separate from what the buildings are told, because the
+   * terrain derives crater depth from `radius * .36 + sqrt(damage) * .32`. An impact strong
+   * enough to level a block would otherwise dig a shaft rather than a bowl.
+   */
+  damageAt(point: Vector3, radius: number, damage: number, deform = damage): number {
     if(!Number.isFinite(point.x+point.y+point.z+radius+damage)||radius<=0||damage<=0)return 0;
-    this.world.deform?.(point,radius,damage);
+    if(Number.isFinite(deform)&&deform>0)this.world.deform?.(point,radius,deform);
     const colliders = this.world.blastColliders?.(point,radius)??this.world.colliders();
     const radiusSq = radius * radius;
     let collapsed = 0;

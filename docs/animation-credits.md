@@ -1,29 +1,81 @@
-# Character animations
+# Player character and animation pipeline
 
-Walk, sprint, airborne jump, jump start (vault), jab and cross keyframes: Quaternius, Universal Animation Library Standard, CC0 1.0.
+The shipped player asset is `public/assets/player/dr-manaus-character.glb`. It contains the native **Superhero Male FullBody** mesh from Quaternius Universal Base Characters, one 65-joint skeleton, and the selected gameplay animations. The runtime does not recreate bones, skin weights, or bind matrices.
 
-- Author: https://quaternius.com/packs/universalanimationlibrary.html
-- Original download: https://opengameart.org/content/universal-animation-library
-- License: https://creativecommons.org/publicdomain/zero/1.0/
+## Asset sources
 
-`src/player/animations/quaternius.json` contains retargeted rotations for the existing 11-bone character (76 KB). Source meshes, textures and unused clips are excluded. Root motion is discarded so collision physics owns movement. Hands retain the simplified rig. Uppercut, front/side/roundhouse kicks and hover/cruise/boost flight are procedural animations on the same skeleton, with no additional draws. Hover uses an upright at-ease stance with hands behind the hips and almost straight legs. Normal flight trails the arms; acceleration extends one arm and boost both. Knee flexion uses negative local X (backward), with smooth takeoff, vertical inclination and turn banking.
+- **Universal Base Characters (Standard)** by Quaternius supplies the adult Superhero Male mesh, skeleton, weights, and bind pose.
+- **Universal Animation Library (Standard)** and **Universal Animation Library 2 (Standard)** by Quaternius supply locomotion, jumping, parkour, punches, hit reactions, and utility clips.
+- **Ultimate Modular Men Pack** by Quaternius supplies the authored `Kick_Left` and `Kick_Right` clips. The Standard UAL downloads do not contain kicks, so no unrelated slide, roll, or hook is relabelled as one.
+- The Quaternius download pages identify these game assets as free for personal and commercial projects. The source downloads used for this build include their license files and stay under the ignored `artifacts/animations/source` directory.
 
-Regenerate from the Standard ZIP:
+## Build architecture
 
-```sh
-node scripts/import-quaternius.mjs "path/to/AnimationLibrary_Godot_Standard.glb"
+`scripts/build-player-character.mjs` performs all retargeting once at build time:
+
+1. Loads Superhero Male as the canonical mesh and rig.
+2. Loads only the selected UAL1 and UAL2 clips.
+3. Converts each source rest-pose rotation into the canonical character rest pose.
+4. Redirects every animation channel to the canonical bone with the same name.
+5. Samples and world-space retargets the two CC0 FBX kick clips to the same canonical rig.
+6. Removes duplicate scenes, rigs, materials, textures, and unused properties.
+7. Writes one final GLB for `GLTFLoader` and `AnimationMixer`.
+
+The duplicate-rig canonicalization follows the technique documented by Station Sciences in `bot-crossing/tools/build-crew.mjs`. The runtime crossfade and one-shot queue follow the public `kaykit_char` examples: both actions are enabled and played before `crossFadeTo`, while `LoopOnce` completion returns to locomotion through the mixer's `finished` event.
+
+At runtime, `CharacterAsset.ts` clones the native skinned scene with `SkeletonUtils`, and `CharacterModel.ts` replaces each skinned mesh material with the one shared `CosmicMaterial`. `visualRoot` owns scale and sole alignment. `flightRoot` owns flight orientation and the external double-jump rotation. The animation mixer alone owns skeleton transforms.
+
+## Validation
+
+Run:
+
+```text
+npm run assets:player
+npm run validate:player
+npm test
+npm run build
 ```
 
-Controls: F5 cycles rear, shoulder and first person. Space jumps, then double jumps; moving toward a reachable low ledge while jumping boosts the jump for parkour with normal swept collision. Shift runs; B runs at 120 m/s; V arms mega speed (650 m/s while holding B). Ground speeds scale with size, capped at 3000 m/s. Above 420 m/s the pre-movement sweep destroys contacted obstacles and refreshes colliders with bounded collapse work.
+The Animation Lab is available at `?animationLab=1` and includes a ground grid, skeleton helper, clip selector, play/pause, speed, scrubber, and front/side/back views.
 
-F5 now cycles rear, shoulder, first person, front (facing the character), and backward first-person view. Looking backward does not change the movement heading.
+References:
 
-X toggles energy/melee. In melee, left click cycles jab/cross/uppercut; right click cycles front/side/roundhouse kicks. These also animate in the air. Contact is delayed to match the animation and uses a forward collision query. Reach and damage scale with character size.
+- https://quaternius.com/packs/universalbasecharacters.html
+- https://quaternius.com/packs/universalanimationlibrary.html
+- https://quaternius.com/packs/universalanimationlibrary2.html
+- https://quaternius.com/packs/ultimatemodularcharacters.html
+- https://github.com/sketchpunklabs/kaykit_char
+- https://github.com/Station-Sciences/bot-crossing
+- https://threejs.org/examples/webgl_animation_skinning_blending.html
 
-## Hover posture and fast-flight camera references
+## Optional animation library
 
-- Free posture reference: [Parade Rest, EJ Hersom / US Department of Defense](https://commons.wikimedia.org/wiki/File:Parade_Rest_(14712101932).jpg), marked public domain on Commons. Used as a posture reference; the photograph is not packaged in the game. Arms are solved to meet behind the lower back, with symmetric shoulders and separated, straight legs.
-- [Unity Cinemachine Third Person Follow](https://docs.unity.cn/Packages/com.unity.cinemachine@3.1/manual/CinemachineThirdPersonFollow.html): subject-relative distance and damped camera rig.
-- [Unreal Spring Arm](https://dev.epicgames.com/documentation/unreal-engine/API/Runtime/Engine/USpringArmComponent): bounded camera lag and collision handling.
+`public/assets/player/animation-library.glb` is a derived file, not a download. It is built by
+`scripts/assets/build-animation-library.mjs` from:
 
-The custom camera transports its position by the player's displacement before damping the orbit. It no longer builds hundreds of metres of world-space lag and snaps at a 400 m threshold. Distance is 6.2–6.8 character-scale metres, orbit lag is bounded to 0.65, and speed adds at most 6 degrees of FOV. Floating-origin changes leave the relative rig unchanged. Hover banking fades to zero with horizontal speed; heading is never inferred from zero velocity.
+| Field | Value |
+| --- | --- |
+| Source | Quaternius · Universal Animation Library 2 [Standard] |
+| File | `Unreal-Godot/UAL2_Standard.glb` (the non-root-motion build) |
+| Licence | CC0 1.0 Universal — Public Domain Dedication |
+| Author | [@Quaternius](https://quaternius.com/) |
+
+Its rig is the same 65-bone skeleton the player character uses — identical bone names, one for one
+— so the clips play on the hero without retargeting. The build script verifies that before writing
+anything and fails if the two ever diverge.
+
+The shipped file drops the mannequin mesh, the skin, the materials, the T-pose and every clip the
+character already owns, then rebuilds the binary buffer around what survives: 7.72 MB becomes
+5.43 MB carrying 30 clips. It is fetched lazily — never on the boot path — through
+`src/player/animations/AnimationLibrary.ts`, and browsable in the animation lab.
+
+The original zip is not versioned, matching how the project treats every other large source asset.
+Re-run the build script against it, or pass a path to `UAL2_Standard.glb` directly.
+
+### Not used: KayKit Character Animations
+
+`KayKit_Character_Animations.zip` ships 139 clips including a real unarmed kick, which the player
+character still lacks. It cannot be used as-is: its rig has 23 bones against the character's 65,
+and exactly one bone name is shared between them. Playing it would require retargeting the whole
+skeleton, which is not something to improvise — the clips would have to be re-exported onto the
+Quaternius rig first.

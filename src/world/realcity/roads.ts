@@ -19,16 +19,28 @@ const ROAD_COLOR: Record<string, readonly [number, number, number]> = {
   tertiary: [.27, .28, .27], residential: [.30, .30, .29], living_street: [.31, .31, .29],
   service: [.28, .28, .27], unclassified: [.28, .28, .27],
 };
-/** A small stagger by class stops overlapping ribbons from fighting for depth at junctions. */
-const ROAD_HEIGHT: Record<string, number> = {
-  motorway: .34, trunk: .32, primary: .30, secondary: .28,
-  tertiary: .26, residential: .24, living_street: .23, service: .22, unclassified: .22,
+/**
+ * Asphalt thickness, not a kerb. The ribbons only need enough separation from the ground and from
+ * each other to keep junctions from fighting for depth; at the 22-34 cm this used to be, the road
+ * stood knee-high on the player, who walked at ground level and appeared to wade through it.
+ *
+ * Exported because the traffic system has to put its cars on the same surface, and a second copy
+ * of these numbers is a second thing to forget to change.
+ */
+export const ROAD_HEIGHT: Record<string, number> = {
+  motorway: .034, trunk: .032, primary: .030, secondary: .028,
+  tertiary: .026, residential: .024, living_street: .023, service: .022, unclassified: .022,
 };
+/** Lane paint sits this far above its own ribbon. */
+export const ROAD_MARKING_LIFT = .004;
+/** The highest anything road-related reaches, for whatever has to be drawn clear of it. */
+export const ROAD_MAX_HEIGHT = .034 + ROAD_MARKING_LIFT;
+export function roadHeightOf(klass: string): number { return ROAD_HEIGHT[klass] ?? .024; }
 const MARKING = [.78, .72, .40] as const;
 const TRUNK = [.30, .24, .18] as const;
 
 function colorOf(klass: string): readonly [number, number, number] { return ROAD_COLOR[klass] ?? ROAD_COLOR.residential; }
-function heightOf(klass: string): number { return ROAD_HEIGHT[klass] ?? .24; }
+function heightOf(klass: string): number { return roadHeightOf(klass); }
 
 interface Ribbon { position: number[]; normal: number[]; color: number[]; lit: number[] }
 
@@ -306,7 +318,7 @@ export class RoadNetwork {
     const radius = RoadNetwork.MARKING_RADIUS, radiusSq = radius * radius;
     for (const at of this.gather(this.furniture, x, z, radius)) {
       const road = this.records[at];
-      const y = heightOf(road.class) + .012;
+      const y = heightOf(road.class) + ROAD_MARKING_LIFT;
       for (let i = 2; i < road.p.length; i += 2) {
         const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];
         const mx = (ax + bx) * .5 - x, mz = (az + bz) * .5 - z;
@@ -394,11 +406,6 @@ export class RoadNetwork {
     (attribute.array as Float32Array).fill(0, span.first, span.first + span.count);
     attribute.addUpdateRange(span.first, span.count); attribute.needsUpdate = true;
     this.destroyed.set(id, this.colliders[index]); this.colliders.splice(index, 1); this.collidersChanged = true;
-    if (this.destroyed.size > REAL_CITY.maxDestroyed) {
-      const oldest = this.destroyed.keys().next().value;
-      if (oldest !== undefined) this.destroyed.delete(oldest);
-      if (!this.pending.includes('lamps') && this.lastDetailed) this.pending.push('lamps');
-    }
     return true;
   }
 

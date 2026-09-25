@@ -29,15 +29,12 @@ test('the galaxy is sampled in screen space, so the body is a window and not a c
   }
 });
 
-test('the whole character shares one material, so no seam can appear between limbs', () => {
+test('the character prepares one shared cosmic material before its GLB loads', () => {
   const character = new CharacterModel();
   try {
     assert.ok(character.cosmicMaterial, 'the character must carry a cosmic material');
-    // The body is a single skinned surface; arms and legs are bones on it, not separate meshes
-    // with separate textures, which is what keeps the universe continuous across the silhouette.
-    assert.equal(character.surface.material, character.cosmicMaterial!.material);
     assert.equal(character.cosmicDiagnostics.materials, 1);
-    assert.equal(character.cosmicDiagnostics.bodyDraws, 2, 'the body and its accents, nothing more');
+    assert.equal(character.skinnedMeshes.length, 0, 'asset loading is explicit and asynchronous');
   } finally {
     character.dispose();
   }

@@ -36,7 +36,6 @@ export class WorldStreamer {
   private replacesChunk?: (cx: number, cz: number) => boolean;
   /** Levelled procedural buildings, so a chunk rebuild never resurrects one. */
   private readonly destroyed = new Set<string>();
-  private readonly destroyedOrder: string[] = [];
   private readonly destroyedLocations = new Map<string, Collider>();
   private revision = 0;
 
@@ -233,15 +232,6 @@ export class WorldStreamer {
     if (!bounds) return false;
     this.destroyed.add(colliderId);
     this.destroyedLocations.set(colliderId, bounds); this.revision++;
-    this.destroyedOrder.push(colliderId);
-    if (this.destroyedOrder.length > WORLD.maxActiveChunks * 200) {
-      const evicted = this.destroyedOrder.shift();
-      if (evicted !== undefined) {
-        this.destroyed.delete(evicted); this.destroyedLocations.delete(evicted);
-        const oldKey = evicted.slice(0, evicted.indexOf('/')), old = this.records.get(oldKey);
-        if (old?.group && old.payload) { const restored = this.meshes.restore(old.group, old.payload, evicted); if (restored) old.colliders.push(restored); }
-      }
-    }
     if (chunk) {
       this.collapse(chunk, colliderId);
       const index = chunk.colliders.findIndex(collider => collider.id === colliderId);
@@ -261,7 +251,6 @@ export class WorldStreamer {
       const dz = Math.max(0, Math.abs(position.z - box.z) - box.depth / 2);
       if (dx * dx + dy * dy + dz * dz > radius * radius) continue;
       this.destroyed.delete(id); this.destroyedLocations.delete(id);
-      const order = this.destroyedOrder.indexOf(id); if (order >= 0) this.destroyedOrder.splice(order, 1);
       const chunk = this.records.get(id.slice(0, id.indexOf('/')));
       if (chunk?.group && chunk.payload) {
         const collider = this.meshes.restore(chunk.group, chunk.payload, id);
@@ -334,7 +323,7 @@ export class WorldStreamer {
     this.disposed = true; this.generators.dispose();
     for (const chunk of this.records.values()) if (chunk.group) this.meshes.disposeChunk(chunk.group);
     this.records.clear(); this.active.clear(); this.colliderList.length = 0;
-    this.destroyed.clear(); this.destroyedOrder.length = 0; this.destroyedLocations.clear();
+    this.destroyed.clear(); this.destroyedLocations.clear();
     this.debugRoot.removeFromParent(); this.boundsGeometry.dispose(); this.boundsMaterial.dispose(); this.meshes.dispose();
   }
 }

@@ -101,7 +101,7 @@ export class AuthoredDestruction {
 
   destroy(id: string): boolean {
     const entry = this.records.get(id);
-    if (!entry || entry.destroyed || this.destroyed.size >= this.maxDestroyed) return false;
+    if (!entry || entry.destroyed) return false;
     entry.destroyed = true; this.destroyed.add(id);
     for (const binding of entry.bindings) this.collapse(binding);
     return true;
