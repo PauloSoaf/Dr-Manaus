@@ -2,8 +2,7 @@
 
 `17-ACCEPTANCE-CRITERIA.md`, item by item, against the working tree on `feat/universe-map`.
 
-Legend: **pass** — verified, and how is stated. **blocked** — implemented but not observable
-because `FEATURES.earthGlobe` is off. **no** — not implemented.
+Legend: **pass** — verified, and how is stated. **no** — not implemented.
 
 ## A. No regression of Manaus
 
@@ -28,7 +27,12 @@ The task is not complete if any of these regress. All verified by `npm test`, `n
 | reconstruction still works | pass |
 
 Nothing in this phase touched the city's rendering path. `latLonToWorld` delegates to the adapter,
-which reproduces the old projection bit for bit, and the test freezes the old coordinates.
+which reproduces the old projection bit for bit, and the test freezes the old coordinates. The
+ground-level view was also checked by eye at 400 m and 12 km after the globe was switched on.
+
+One caveat, stated rather than buried: `npm run test:browser` fails on `shellTriangles === 0` under
+the software renderer, and fails the same way on the commit this branch started from. Category A is
+verified by the unit tests and by eye, not by that script.
 
 ## B. A real Earth
 
@@ -37,12 +41,12 @@ which reproduces the old projection bit for bit, and the test freezes the old co
 | WGS84 uses `a = 6378137 m` | pass — defining constant, asserted |
 | flattening uses `1/f = 298.257223563` | pass — defining constant, asserted |
 | Manaus anchored at correct latitude/longitude | pass — `-3.130333, -60.022528` |
-| the world no longer depends on an infinite plane as its global representation | pass — logically; the flat plane is still what is drawn |
+| the world no longer depends on an infinite plane as its global representation | pass — above 15 km the ellipsoid is what is drawn |
 | the globe covers the poles | pass — cube sphere; a pole is an ordinary tile |
-| continents and oceans in coherent global positions | **blocked** — built from Natural Earth, verified as a raster, not yet on screen |
+| continents and oceans in coherent global positions | pass — South America is recognisably itself from orbit |
 | major global rivers at an appropriate LOD | **no** |
 | global relief streamed, not loaded whole | **no** — no DEM |
-| no mandatory loading screen from ground to orbit | **blocked** |
+| no mandatory loading screen from ground to orbit | pass — the globe streams in; nothing blocks |
 
 ## C. Precision
 
@@ -74,7 +78,7 @@ which reproduces the old projection bit for bit, and the test freezes the old co
 | Criterion | State |
 | --- | --- |
 | altitude not stuck at 140 km | pass — 500 000 km with the globe flag on |
-| the Earth can be seen whole | **blocked** |
+| the Earth can be seen whole | pass — measured at 6 000 km and beyond |
 | the Sun is no longer only a quad at a fixed local distance | **no** — the model exists; nothing is drawn |
 | the Moon is a logically real body | pass — real radius, μ, tidal lock |
 | at least the Moon is approachable and landable | **no** |
@@ -110,16 +114,22 @@ Nothing in this category is implemented. Phase 12 has not been started.
 
 | Criterion | State |
 | --- | --- |
-| the game still streams incrementally | pass |
+| the game still streams incrementally | pass — including the planet, through one budget |
 | no stage fetches from a cartographic service per frame | pass — nothing fetches at all |
 | no ingestion script runs during gameplay | pass — hand-run only |
 | the main thread does not wait on heavy synchronous generation | pass |
 | F3 metrics include planetary state | pass — `universeDebug()` |
 | `npm run profile` still works | pass |
 | new planetary profiles exist | **no** |
-| the WebGL2 fallback is still tested | pass for the game; **no** for the planetary domain |
+| the WebGL2 fallback is still tested | pass — every planetary measurement in this work was taken under WebGL2 |
 
 ## Final demonstration flow
 
-Not achievable. It requires the globe to draw, the Moon to exist as a destination and frame handoff
-to be driven — phases 4 (finish), 7, 8 and 9. The blocker is in [15-status.md](15-status.md).
+Achievable as far as the Earth: spawn at the Largo, fly over the Teatro, cross Manaus, climb, watch
+the flat ground hand over to the ellipsoid, see the curvature, see South America, see the whole
+planet. No reload, no visible teleport, no second Manaus.
+
+Not achievable beyond it. The Moon is a logical body with no surface provider and no driven frame
+handoff, so following it out, landing and returning needs phase 9 and a Moon provider. And the
+hand-over at 15 km is a stand-down rather than a blend: the sky dome and the stars disappear
+instead of becoming the planet's own atmosphere. Both are in [15-status.md](15-status.md).

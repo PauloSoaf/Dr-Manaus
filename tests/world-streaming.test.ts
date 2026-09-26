@@ -180,7 +180,11 @@ test('the scheduler loads and activates within budget, and never all at once', a
 
   scheduler.update(context({ budget }), 1 / 60);
   await settle();
-  assert.ok(scheduler.stats.activationsLastFrame <= 2, 'activation budget must hold');
+  // These payloads are a kilobyte, so they are light work and get the light allowance.
+  assert.ok(
+    scheduler.stats.activationsLastFrame <= budget.maxLightActivationsPerFrame,
+    'activation budget must hold',
+  );
 
   // Given enough frames everything wanted does arrive — the budget delays work, never drops it.
   for (let frame = 0; frame < 20; frame++) {
@@ -189,6 +193,31 @@ test('the scheduler loads and activates within budget, and never all at once', a
   }
   assert.equal(scheduler.stats.active, 10, 'every demanded tile should end up active');
   assert.equal(provider.activations.length, 10);
+});
+
+test('heavy work keeps the small per-frame cap that light work is exempt from', async () => {
+  const registry = new ProviderRegistry();
+  // A city block's worth of geometry rather than an ellipsoid patch.
+  const provider = new FakeProvider({ tiles: 10, bytes: 512 * 1024 });
+  registry.register(provider);
+  const scheduler = new GlobalStreamingScheduler(registry);
+  const budget = { ...DEFAULT_STREAMING_BUDGET, maxActivationsPerFrame: 2 };
+
+  for (let frame = 0; frame < 3; frame++) {
+    scheduler.update(context({ budget }), 1 / 60);
+    await settle();
+    assert.ok(
+      scheduler.stats.activationsLastFrame <= 2,
+      `heavy activations must stay capped, saw ${scheduler.stats.activationsLastFrame}`,
+    );
+  }
+
+  // And it still gets there, a couple at a time.
+  for (let frame = 0; frame < 20; frame++) {
+    scheduler.update(context({ budget }), 1 / 60);
+    await settle();
+  }
+  assert.equal(scheduler.stats.active, 10);
 });
 
 test('a result that arrives after the world moved on is dropped, not applied', async () => {
@@ -288,12 +317,18 @@ test('the ledger refuses work once the frame or the memory budget is spent', () 
     advance(ms: number): void { this.fake += ms; }
     protected override nowMs(): number { return this.fake; }
   }
-  const ledger = new TestLedger({ ...DEFAULT_STREAMING_BUDGET, mainThreadMs: 4, maxActivationsPerFrame: 2 });
+  const budget = { ...DEFAULT_STREAMING_BUDGET, mainThreadMs: 4, maxActivationsPerFrame: 2 };
+  const heavy = budget.lightActivationBytes * 4;
+  const ledger = new TestLedger(budget);
   ledger.beginFrame();
-  assert.equal(ledger.canActivate(1000), true);
-  ledger.activated(1000, 1000);
-  ledger.activated(1000, 1000);
-  assert.equal(ledger.canActivate(1000), false, 'the activation count is a hard cap');
+  assert.equal(ledger.canActivate(heavy), true);
+  ledger.activated(heavy, heavy);
+  ledger.activated(heavy, heavy);
+  assert.equal(ledger.canActivate(heavy), false, 'the activation count is a hard cap');
+  // A patch of ellipsoid is not a city block, and has its own, larger allowance.
+  assert.equal(ledger.canActivate(1000), true, 'light work is not held to the heavy cap');
+  for (let i = 0; i < budget.maxLightActivationsPerFrame; i++) ledger.activated(1000, 1000);
+  assert.equal(ledger.canActivate(1000), false, 'but it is still capped');
 
   ledger.beginFrame();
   ledger.advance(5);

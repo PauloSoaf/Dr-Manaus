@@ -1,17 +1,17 @@
 import { ACESFilmicToneMapping, PCFShadowMap, PerspectiveCamera, Scene, WebGPURenderer } from 'three/webgpu';
 import { QUALITY, type QualityPreset } from '../core/config';
-import { LOCAL_LAYER, PLANET_DOMAIN, PLANET_LAYER, RenderDomainComposer } from './domains/RenderDomainComposer';
+import { LOCAL_FAR_M, LOCAL_LAYER, RenderDomains } from './domains/RenderDomains';
 export class RendererManager {
   readonly renderer: WebGPURenderer;
-  // A logarithmic depth buffer keeps a 0.15 m near plane usable out to orbit.
-  readonly camera = new PerspectiveCamera(58, 1, .15, 260000);
   /**
-   * The planetary domain's camera. Same position and orientation as the main one, a far plane
-   * three orders of magnitude further out, and its own layer — a single depth buffer cannot hold
-   * a 0.15 m near plane and a horizon 1 300 km away at once.
+   * One camera for every domain.
+   *
+   * The logarithmic depth buffer is what makes that possible: its precision is relative, so a
+   * 0.15 m near plane stays usable while the far plane runs out to the Moon. `RenderDomains` owns
+   * how far it reaches; see that file for why this is not two cameras and two passes.
    */
-  readonly planetCamera = new PerspectiveCamera(58, 1, PLANET_DOMAIN.nearM, PLANET_DOMAIN.farM);
-  readonly domains: RenderDomainComposer;
+  readonly camera = new PerspectiveCamera(58, 1, .15, LOCAL_FAR_M);
+  readonly domains: RenderDomains;
   readonly scene = new Scene();
   backend = 'Inicializando';
   renderScale = 1;
@@ -27,10 +27,9 @@ export class RendererManager {
     this.renderer.domElement.id = 'world';
     this.renderer.domElement.setAttribute('aria-label', 'Mundo 3D de DR Manaus. Clique para controlar a câmera.');
     container.prepend(this.renderer.domElement);
-    // Each camera draws only its own domain.
+    // The local domain only, until the planetary one is switched on.
     this.camera.layers.set(LOCAL_LAYER);
-    this.planetCamera.layers.set(PLANET_LAYER);
-    this.domains = new RenderDomainComposer(this.renderer, this.planetCamera);
+    this.domains = new RenderDomains(this.camera);
     window.addEventListener('resize', this.resize);
     this.resize();
   }
@@ -41,8 +40,6 @@ export class RendererManager {
   resize = () => {
     this.camera.aspect = innerWidth / innerHeight;
     this.camera.updateProjectionMatrix();
-    this.planetCamera.aspect = this.camera.aspect;
-    this.planetCamera.updateProjectionMatrix();
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, QUALITY[this.preset].pixelRatio) * this.renderScale);
     this.renderer.setSize(innerWidth, innerHeight);
   };

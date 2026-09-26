@@ -18,25 +18,31 @@ acceptance criteria are checked one by one in [17-acceptance.md](17-acceptance.m
 | 1 | Spatial core | **done** | `src/world/spatial/` — [03](03-coordinates-and-frames.md) |
 | 2 | Manaus compatibility adapter | **done** | `ManausFrameAdapter` — [05](05-manaus-migration.md) |
 | 3 | Global streaming scheduler | **done** (not yet driving Manaus) | `src/world/streaming/` — [07](07-streaming.md) |
-| 4 | Earth WGS84 low LOD | **partial** — see below | `src/world/planet/` — [04](04-earth-and-planet-surface.md) |
+| 4 | Earth WGS84 low LOD | **done** — drawn, streamed, lit | `src/world/planet/` — [04](04-earth-and-planet-surface.md) |
 | 5 | Global terrain (DEM) | not started | — |
 | 6 | Curve Manaus onto the ellipsoid | not started | — |
-| 7 | Atmosphere and render domains | **partial** | `src/rendering/domains/` — [08](08-render-domains.md) |
-| 8 | Remove the 140 km ceiling | **done, behind the globe flag** | `SPACE.maxAltitude` |
+| 7 | Atmosphere and render domains | **partial** — domains done, atmosphere not | `src/rendering/domains/` — [08](08-render-domains.md) |
+| 8 | Remove the 140 km ceiling | **done** — 500 000 km | `SPACE.maxAltitude` |
 | 9 | Solar system | **done** (logical model) | `src/world/celestial/` — [10](10-solar-system.md) |
 | 10 | Galaxy layer | **partial** — sectors and stars, no rendering | `StarSector.ts` — [11](11-galaxy-and-universe.md) |
 | 11 | Universe sectors | **partial** — addressing and seeds only | `UniverseAddress.ts` — [11](11-galaxy-and-universe.md) |
 | 12 | Persistence hardening | not started | — |
 | 13 | Hardening | not started | — |
 
-Everything is gated by `FEATURES` in `src/core/config.ts`. Only `spatialCore` is on: it observes
-and reports, costs below the profiler's 0.05 ms reporting threshold at every speed, and changes
-nothing about what is drawn.
+Everything is gated by `FEATURES` in `src/core/config.ts`. `spatialCore` and `earthGlobe` are on;
+the rest are off. Below 15 km nothing about the game has changed — the city, its sky and its
+horizon are exactly what they were. Above it the flat backdrop stands down and the real ellipsoid
+takes over.
 
 ## What is verified
 
-245 tests, `npm run build`, `npm run test:browser` and `npm run profile` all pass. The browser
-smoke test still places the Monumento at `0,0` and the Teatro at `-83,-6`, so Manaus has not moved.
+246 unit tests and `npm run build` pass. The city is unchanged at ground level, checked by eye at
+400 m and 12 km as well as by test.
+
+**`npm run test:browser` currently fails**, on `shellTriangles === 0` — the real-city footprint
+shell does not finish streaming inside the test's 90 s window under the software renderer. It fails
+the same way on the commit this branch started from, so it is not a regression from this work, but
+it is not passing either and should not be described as if it were.
 
 Specific invariants under test:
 
@@ -46,85 +52,81 @@ Specific invariants under test:
   before the migration are frozen in the test — if the projection moves, the city moves.
 - A rebase never changes a logical position, a distance between objects, or the origin's rotation.
 - A tile's four children exactly tile their parent; the poles are ordinary tiles.
-- Planet tile vertices land on the ellipsoid, and the residual is float32 storage of the offsets —
-  precision scales with the tile, not with the globe.
+- Planet tile vertices land on the ellipsoid *through the full scene transform*, and the residual
+  is float32 storage of the offsets — precision scales with the tile, not with the globe.
 - The planets sit at their real J2000 distances in the right order; the Moon and the Sun both come
   out about half a degree across.
 - Star sectors regenerate identically from the same seed.
+- Heavy activations stay capped at two per frame while light ones get their own larger allowance.
 
-## Phase 4 — the globe: what works and what does not
+## Phase 4 — the globe
 
-**Built and under test:**
+Working. From about 15 km the flat backdrop stands down and the WGS84 ellipsoid takes over: a
+cube-sphere quadtree refined by screen-space error, streamed through the global scheduler, coloured
+from Natural Earth coastlines and lit from the real solar direction. From a few thousand kilometres
+up it is a round planet with South America where South America is.
 
-- Cube-sphere quadtree on the WGS84 ellipsoid, refined by screen-space error, horizon-culled.
-- `EarthProvider` plans, builds and activates tiles through the streaming scheduler, and stands
-  down where the city claims the ground.
-- Real continents. `scripts/geodata/build-earth-vectors.mjs` downloads Natural Earth 1:110m land
-  polygons (public domain), rasterises them by scanline into a 1024×512 bitmask, and commits it as
-  `src/world/geodata/earth-landmask.json` (86 KB). Verified by rendering it as ASCII: the
-  continents are recognisably themselves. Vertex colours give ocean, land, the polar ice and the
-  arid belt — the last two are latitude rules, stated as such, not invented geography.
-- Lit from the real solar direction taken from the solar system model, so the terminator is real
-  rather than tied to the local clock.
+### The five bugs between "all the code exists" and "the planet is on the screen"
 
-**What does not work yet:**
+Recorded because every one of them presented as something else, and because the first diagnosis was
+wrong in a way worth remembering.
 
-The tiles issue their draw calls in the planetary pass — 30 to 80 of them depending on altitude —
-and produce no visible pixels. Measured and ruled out, each with a direct observation rather than
-a guess:
+1. **Nothing was ever activated.** The scheduler planned, fetched and cached ninety-six tiles and
+   put zero of them in the world. `update` fetched before it activated, so planning and loading
+   spent the 4 ms frame budget and activation was asked for permission it could never get. The
+   stage order is now plan, rank, track, **activate**, fetch, retire, and a frame that is already
+   over budget still places one tile. See [07-streaming.md](07-streaming.md).
+2. **Planning cost more than the whole streaming budget.** A quadtree selection at orbital altitude
+   measured **2.34 ms**, re-derived sixty times a second for a camera that had not moved. It is now
+   memoised against camera movement, quality and a replan interval: **0.01 ms**.
+3. **The fog was cleared by nulling `scene.fog`.** A material compiled with fog keeps a node that
+   reads `scene.fog.color`, so the first fogged draw threw and every object after it in that pass
+   was lost — a pass that reported its draw calls and produced no pixels. Fog is now off on the
+   globe's own material.
+4. **Two render passes do not composite.** The whole two-camera design could not work: in
+   `WebGPURenderer` the second `render()` to the screen replaces the first. Replaced by one camera
+   and the logarithmic depth buffer, which is what that buffer is for. See
+   [08-render-domains.md](08-render-domains.md).
+5. **Half the planet was black in full sunlight.** Three of the six cube-face parameterisations
+   mirror, so one fixed index order winds outward on half the globe and inward on the other half.
+   `DoubleSide` hid that and then lied about the lighting: a back face is shaded with its normal
+   flipped, so tiles facing the Sun were shaded as though the Sun were beneath them. The winding is
+   now measured per tile from the geometry, and the material is `FrontSide`.
 
-| Hypothesis | How it was tested | Result |
-| --- | --- | --- |
-| Tiles mis-oriented | vertex world positions converted back to geodetic | was a real bug, **fixed** (see below) |
-| Beyond the far plane | `camera.far` vs tile distance | within range |
-| Wrong layer | compared `mesh.layers.mask` with `camera.layers.mask` | both 2 |
-| Cameras misaligned | position delta and direction dot between the two | 0 m, dot 1.0 |
-| Frustum culling | disabled it | draws went 1 → 83, so culling **was** rejecting them; now off |
-| Back-face culling | `side: DoubleSide` | no change |
-| Covered by the sky dome | hid `Atmosphere.sky` and `SpaceLayer.shell` | no change |
-| Not lit | emissive material, planetary pass rendered alone | still black |
+Two more, found earlier and already described in [04](04-earth-and-planet-surface.md): tiles placed
+without their rotation, and breadth-first quadtree descent.
 
-The last row is where it stands: with the local pass skipped entirely and the material self-lit,
-the frame is still black. The geometry is provably correct — the unit test takes each vertex
-through the scene transform and back out of the Manaus frame and confirms it lands on the
-ellipsoid — so what remains is in how the second pass reaches the screen. The logarithmic depth
-buffer shared between two cameras with very different near/far ranges is the leading suspect and
-has not been tested.
+### The measurement that mattered
 
-Because turning the flag on also stands the sky dome and the old space shell down above 15 km, it
-is **off**: on, it would trade a working sky for an empty one.
+The first conclusion — "the far pass draws and produces no pixels" — came from reading the canvas
+back with `drawImage`, which returns black for a WebGL canvas without `preserveDrawingBuffer`
+whatever is on it. The whole frame measured black, including frames that plainly were not. Every
+later measurement used a composited screenshot instead.
 
-### Two real bugs found on the way
+### What is still visibly missing
 
-Worth recording, because both produced confident-looking wrong output:
-
-1. **Tiles placed without rotation.** Vertices are offsets along Earth-fixed axes while the scene
-   uses the city's tangent plane. Placing the mesh without turning it left every tile flat at an
-   arbitrary angle — a field of plates in the sky rather than a planet. The test that passed
-   happily checked only the tile centre; it now checks every sampled vertex.
-2. **Fog applied to the planetary pass.** Fog is calibrated for a 260 km far plane, so a globe
-   thousands of kilometres away came out entirely the colour of the haze — purple at dusk, black
-   at night. The composer clears fog for the far pass.
+- **Lighting is shared.** One camera means one light list, so the city's sun and hemisphere light
+  the globe as well as its own solar light does. The planet reads paler than it should. The fix is
+  a material that computes its own sun term, not more lights.
+- **No atmosphere.** No limb, no scattering, no blue edge.
+- **No stars above 15 km**, because the star sphere carries the local sky gradient and had to stand
+  down with it.
+- **No terrain.** Every tile sits at height zero: an ellipsoid, not a landscape.
+- The tile under the city is a hole of about 60 km while `coveredByCity` is level-based; harmless
+  from orbit, and closed by phase 6.
 
 ## Phase 7 — render domains
 
-`src/rendering/domains/RenderDomainComposer.ts`. One camera cannot hold a 0.15 m near plane and a
-horizon 1 300 km away, and the specification says explicitly not to answer that by raising `far`
-to astronomical units. The frame is drawn furthest first with the depth buffer cleared between
-passes, each pass with its own camera sharing the main camera's world transform.
+Done, and not the way it was designed. See [08-render-domains.md](08-render-domains.md) for one
+camera, a logarithmic depth buffer, and why two passes were abandoned.
 
-The far plane grows with the body's distance: a fixed 50 000 km reaches low orbit and would clip
-the Earth away entirely from the Moon's distance.
-
-Not done: a planet-aware atmosphere. `Atmosphere.sky` is still a 44 km dome drawn around the
-player, and `SpaceLayer.shell` is still the old stand-in for the planet seen from space. Both are
-now exposed so the planetary view can stand them down, which is the interim step the specification
-describes before they are replaced.
+Not done: a planet-aware atmosphere and a global ocean. `Atmosphere.sky` is still a 44 km dome
+drawn around the player, and it now stands down above 15 km rather than being replaced.
 
 ## Phase 8 — the ceiling
 
-`SPACE.maxAltitude` was 140 km because a flat world has no outside. With the planetary domain it
-moves to 500 000 km — past the Moon — while the globe flag is on, and stays at 140 km otherwise.
+`SPACE.maxAltitude` was 140 km because a flat world has no outside. With the planetary domain it is
+500 000 km — past the Moon — while the globe flag is on, and 140 km otherwise.
 It is still a ceiling rather than nothing: the phase that removes it entirely is the one that
 hands the player into another body's frame.
 
@@ -141,10 +143,10 @@ run by hand. Full provenance and the rules that constrain it are in
 
 ## Next step
 
-Test whether the logarithmic depth buffer is what loses the far pass, by rendering the planetary
-domain with `logarithmicDepthBuffer` disabled or with a near/far range closer to the local one. If
-that is it, the fix is a per-domain depth configuration rather than a shared one.
-
-After that, in the order the specification sets: register `ManausProvider` with the scheduler so
-the city streams through the same queue, then the global DEM, then curving Manaus onto the
-ellipsoid.
+1. A planet-aware material and atmosphere, so the globe is lit by its own sun rather than the
+   city's, and has a limb. This is the largest visible gap.
+2. A starfield in the planetary domain, replacing the one that stands down.
+3. Register `ManausProvider` with the scheduler, so the city streams through the same queue and the
+   two budgets stop being independent.
+4. The global DEM (phase 5), then curving Manaus onto the ellipsoid (phase 6) — which is also what
+   closes the 60 km hole under the city and lets the 15 km gate go.

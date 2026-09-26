@@ -16,11 +16,11 @@ That file is the one to read first when picking the work back up.
 | 01 | Current main audit | read, acted on | — (`docs/geodata.md` corrections) |
 | 02 | Target architecture | implemented | [02-architecture.md](02-architecture.md) |
 | 03 | Coordinates and reference frames | implemented | [03-coordinates-and-frames.md](03-coordinates-and-frames.md) |
-| 04 | Earth WGS84 and planet surface | built, not yet drawn | [04-earth-and-planet-surface.md](04-earth-and-planet-surface.md) |
+| 04 | Earth WGS84 and planet surface | drawn, streamed, lit | [04-earth-and-planet-surface.md](04-earth-and-planet-surface.md) |
 | 05 | Manaus preservation and migration | implemented | [05-manaus-migration.md](05-manaus-migration.md) |
 | 06 | Geodata pipeline | global land mask done; DEM not started | [06-geodata-pipeline.md](06-geodata-pipeline.md) |
-| 07 | Streaming, HLOD and cache | implemented, not yet driving the city | [07-streaming.md](07-streaming.md) |
-| 08 | Render domains, atmosphere, ocean | domains done; atmosphere and ocean not | [08-render-domains.md](08-render-domains.md) |
+| 07 | Streaming, HLOD and cache | implemented; drives the globe, not yet the city | [07-streaming.md](07-streaming.md) |
+| 08 | Render domains, atmosphere, ocean | one camera, log depth; no atmosphere yet | [08-render-domains.md](08-render-domains.md) |
 | 09 | Physics, destruction, high speed | pre-existing; unchanged by this work | `docs/humanoid-destruction.md` |
 | 10 | Solar system | implemented as a logical model | [10-solar-system.md](10-solar-system.md) |
 | 11 | Galaxy and observable universe | addressing and generation only | [11-galaxy-and-universe.md](11-galaxy-and-universe.md) |
@@ -61,7 +61,7 @@ architectures living side by side. Each flag is temporary and comes out once its
 | --- | --- | --- |
 | `spatialCore` | **on** | Frames, floating origin and the solar system model. Observes; draws nothing |
 | `planetStreaming` | off | Global tile streaming through the new scheduler |
-| `earthGlobe` | off | The WGS84 globe as visible geometry — see [15-status.md](15-status.md) |
+| `earthGlobe` | **on** | The WGS84 globe as visible geometry, above 15 km |
 | `planetTerrain` | off | Global terrain from a DEM |
 | `curvedManaus` | off | Manaus curved onto the ellipsoid |
 | `newAtmosphere` | off | Planet-aware atmosphere and the render-domain composer |

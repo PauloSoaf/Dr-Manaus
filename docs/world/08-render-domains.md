@@ -1,101 +1,121 @@
 # Render domains
 
 Implements the render-domain half of `08-RENDER-DOMAINS-ATMOSPHERE-OCEAN.md`. Code:
-`src/rendering/domains/RenderDomainComposer.ts`, plus the visibility rule in `src/game/Game.ts`.
+`src/rendering/domains/RenderDomains.ts`, plus the stand-down rule in `src/game/Game.ts`.
 
-**Status: the composer is built and drives two passes. The planet-aware atmosphere and the global
-ocean are not built.** `FEATURES.newAtmosphere` is off.
+**Status: working.** The planet and the city are drawn in one frame, from the ground to the Moon's
+distance. The planet-aware atmosphere and the global ocean are not built.
 
 ## The problem
 
-One camera cannot hold both ends of this game. A character on a pavement needs a near plane around
-0.15 m. The horizon from orbit is 1 300 km away, and the Moon is 384 000 km. A single depth buffer
-spanning that range has no precision anywhere in it, and the specification says explicitly that
-raising `far` to astronomical units is not the answer.
+One camera has to cover both ends of this game. A character on a pavement needs a near plane around
+0.15 m. The horizon from orbit is 1 300 km away and the Moon is 384 000 km. A **linear** depth
+buffer cannot hold that range, and the specification says plainly that raising `far` is not the
+answer.
 
-## The answer: passes, furthest first
+## What was tried first, and why it is not what ships
 
-```
-planet domain   near 1 km, far ≥ 50 000 km    the globe, the horizon, the limb
-local domain    near 0.15 m, far 260 km       the city, the player, everything played with
-```
+Two cameras, two passes, furthest first, with the depth buffer cleared between them and the colour
+buffer kept. It is the textbook answer and it does not work here: **two successive `render()` calls
+to the screen do not composite in `WebGPURenderer`.** Each call resolves through its own
+frame-buffer target and the second replaces the first, whatever `autoClearColor` says.
 
-Both passes use the same scene. Objects choose their domain with a **layer**, so nothing has to be
-moved between scenes or duplicated:
+That was measured rather than reasoned about, because the symptom pointed the wrong way — the pass
+reported eighty draw calls and put nothing on the screen:
+
+| Experiment | Result |
+| --- | --- |
+| far pass alone | the planet, drawn correctly |
+| local pass alone | the local world, drawn correctly |
+| far pass, then local pass with an empty layer | the planet survives |
+| far pass, then the real local pass | only the local pass |
+
+## What ships: one camera, logarithmic depth
+
+The project already enables `logarithmicDepthBuffer`. Its precision is **relative** rather than
+absolute, so one camera spans 0.15 m to 50 000 km with depth to spare at both ends — 24 bits over
+roughly 28 doublings is about half a million values per doubling.
+
+So there is one camera and one pass. `RenderDomains` is the policy that decides how far it sees:
 
 ```ts
-export const LOCAL_LAYER = 0;   // what every existing object already uses
+export const LOCAL_LAYER = 0;        // what every existing object already uses
 export const PLANET_LAYER = 1;
+export const LOCAL_FAR_M = 260_000;
+export const PLANET_FAR_FLOOR_M = 50_000_000;
 ```
 
-The depth buffer is cleared between the passes and the colour buffer is not. Local geometry
-therefore always draws over the planet, which is correct by construction: anything in the local
-domain is nearer than anything in the planetary one.
+- `active = false` — the camera is exactly the one the flat-world game had: layer 0, far 260 km.
+  The feature flag really does mean "as before".
+- `active = true` — the camera also sees `PLANET_LAYER`, and `setRange(distanceToBodyM)` grows the
+  far plane to four times the distance to the body, floored at 50 000 km. A fixed 50 000 km reaches
+  low orbit and no further; from the Moon the Earth would be clipped away entirely, which is
+  precisely the view the domain exists to make possible.
 
-## Camera synchronisation
+The near plane does not move with it. Under a logarithmic buffer it does not need to, and moving it
+would clip the player's own hands.
 
-The planet camera copies the main camera's **world** transform, decomposed from `matrixWorld` —
-not `position` and `quaternion`, which are relative to whatever the camera is parented to. The
-planet camera has no parent, so copying the local values puts it somewhere else entirely and the
-planet falls outside its frustum. This was a real bug; the measurement that caught it was a
-position delta and a direction dot product between the two cameras.
-
-Field of view and aspect are copied too, so the two images register exactly.
-
-## The far plane moves
-
-A fixed 50 000 km reaches low orbit and no further: from the Moon's distance the Earth would be
-clipped away entirely, which is precisely the view the domain exists to make possible. So
-`setRange(distanceToBodyM)` sets `far` to four times the body distance, with the near plane
-following at `far / 1e6` — a depth buffer spanning a metre to a million kilometres has no
-precision anywhere.
-
-## Fog
-
-Fog is cleared for the planetary pass and restored afterwards. It is calibrated for a 260 km far
-plane, so a globe thousands of kilometres away comes out entirely the colour of the haze — purple
-at dusk, black at night, which is exactly what the player reported seeing. Distance haze on a
-planet seen from orbit is the atmosphere's job, and that is a limb, not a fog ramp.
+Layers still separate the two domains, because the planet has to be able to stand down without
+touching anything else.
 
 ## One ground, one sky
 
-`Game` enforces a single rule so the two representations are never both present:
+Above 15 km the flat world and the round one cannot both be on screen. `Game` tells each layer to
+stand down; it does not set `visible` on their objects:
 
 ```ts
 const localGround = !this.earth.globe.visible;
 this.flatTerrain.visible = localGround;
-this.atmosphere.sky.visible = localGround;
-this.atmosphere.clouds.visible = localGround;
-this.space.shell.visible = localGround;
-this.space.disc.visible = localGround;
+this.atmosphere.planetaryView = !localGround;
+this.space.planetaryView = !localGround;
 ```
 
-The flat terrain, the sky dome, the clouds and the old space shell stand down exactly when the
-globe stands up. This is an interim measure, not the destination: the destination is one atmosphere
-that is correct from the ground and from orbit.
+**Told, not overwritten.** `Atmosphere.update` and `SpaceLayer.update` run later in the frame and
+set their own visibility, so a `visible` flag written earlier is gone before anything is drawn.
+That is not hypothetical: it is why the planet was drawn and then painted over by the old
+Earth-from-space shell for an afternoon.
+
+What stands down:
+
+| Object | Why |
+| --- | --- |
+| `flatTerrain` | the other ground |
+| `Atmosphere.sky` | a 44 km dome drawn around the player; from orbit it covers the planet |
+| `Atmosphere.clouds` | local weather, drawn around the player |
+| `SpaceLayer.shell` | the old stand-in Earth-from-space, and opaque |
+| `SpaceLayer.disc` | the Sun at a fixed local distance |
+| `SpaceLayer.stars` | the star sphere carries the sky gradient, and the camera is inside it |
+
+Losing the stars is a real loss and a temporary one: the star sectors already exist as a model
+(see [11-galaxy-and-universe.md](11-galaxy-and-universe.md)) and belong in the planetary domain.
+
+## Fog
+
+The globe's material sets `fog: false`. The scene's fog is calibrated for a 260 km far plane and
+would paint a planet thousands of kilometres away entirely the colour of the haze — purple at dusk,
+black at night.
+
+Clearing `scene.fog` around the pass looks equivalent and is not: **a material compiled with fog
+keeps a node that reads `scene.fog.color`, so the first fogged draw throws on null and everything
+after it in that pass is lost.** The pass reports its draw calls and puts nothing on the screen. Per
+material is the switch three provides for this, and it is the one to use.
 
 ## The ceiling — spec 08
 
-`SPACE.maxAltitude` was 140 km because a flat world has no outside; there was nothing above it to
-look at. With the planetary domain there is, so the ceiling moves to **500 000 km** — past the
-Moon — while `FEATURES.earthGlobe` is on, and stays at 140 km otherwise.
+`SPACE.maxAltitude` was 140 km because a flat world has no outside. With the planetary domain it is
+**500 000 km**, past the Moon, while `FEATURES.earthGlobe` is on, and 140 km otherwise. It is still
+a ceiling rather than nothing: an unbounded coordinate is how a position stops being representable,
+and the phase that removes the limit entirely is the one that hands the player into another body's
+reference frame.
 
-It is still a ceiling rather than nothing. An unbounded coordinate is how a position stops being
-representable, and the phase that removes the limit entirely is the one that hands the player into
-another body's reference frame.
-
-`SPACE.planetaryHandoff` (2 000 km) is where the globe stops being a place and starts being a body
-in the sky.
-
-## What does not work
-
-The planetary pass issues its draw calls and produces no pixels. Everything measured and ruled out
-is tabulated in [15-status.md](15-status.md). The leading untested suspect is the logarithmic depth
-buffer shared between two cameras with very different near/far ranges.
+`SPACE.planetaryHandoff` (2 000 km) is where the globe stops being a place and becomes a body in
+the sky.
 
 ## Not built
 
-- A planet-aware atmosphere. `Atmosphere.sky` is still a 44 km dome drawn around the player.
+- A planet-aware atmosphere: a limb seen from outside, a sky seen from inside, one model for both.
 - A global ocean surface. The sea is currently a vertex colour on the globe.
-- Cloud handoff between the local cloud layer and a planetary one.
-- A celestial render domain distinct from the planetary one.
+- A starfield in the planetary domain, to replace the one that stands down.
+- Per-domain lighting. One camera means one light list, so the city's sun and hemisphere light the
+  globe as well as its own solar light does, and the planet reads paler than it should. The fix is
+  a material that computes its own sun term rather than more lights.

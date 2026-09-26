@@ -170,7 +170,14 @@ test('climbing hard leaves the atmosphere instead of stopping at the old twelve-
   for (let i = 0; i < 1800; i++) player.update(1 / 60, [], 0, zenith);
   assert.ok(player.position.y > SPACE.orbit, `orbit is reachable, reached ${player.position.y.toFixed(0)} m`);
   // The ceiling holds and stops accumulating upward speed rather than letting the player run away.
+  // How long a climb takes to reach it depends on how high it is, and with the planetary domain it
+  // is past the Moon -- so the climb is checked for never crossing it, and the clamp itself is
+  // checked from just below it. Asserting the climb arrives would tie this test to the ceiling's
+  // current value.
   for (let i = 0; i < 3600; i++) player.update(1 / 60, [], 0, zenith);
+  assert.ok(player.position.y <= SPACE.maxAltitude, `crossed the ceiling at ${player.position.y.toFixed(0)} m`);
+  player.teleport(new Vector3(0, SPACE.maxAltitude - 100, 0));
+  for (let i = 0; i < 600; i++) player.update(1 / 60, [], 0, zenith);
   assert.equal(player.position.y, SPACE.maxAltitude);
   assert.ok(player.velocity.y <= 0);
   // Hover flight has no gravity, so coming home is an explicit descent input, not a release.

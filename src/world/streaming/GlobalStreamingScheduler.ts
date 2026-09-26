@@ -101,7 +101,7 @@ export class GlobalStreamingScheduler {
     this.predictor.reset();
   }
 
-  /** One frame. Plan, rank, fetch, activate, retire — each inside its own budget. */
+  /** One frame. Plan, rank, track, activate, fetch, retire — each inside its own budget. */
   update(context: StreamingContext, dtS: number): void {
     this.frame++;
     this.ledger.setBudget(context.budget);
@@ -114,8 +114,16 @@ export class GlobalStreamingScheduler {
 
     const demands = this.collectDemands(context);
     this.rank(demands, context, player);
-    this.startFetches(demands);
+    this.track(demands);
+    // Finished work goes into the world before new work is started.
+    //
+    // The other order looks natural and starves the world. Planning and fetching run first, spend
+    // the frame's milliseconds, and activation is then asked for permission it can never get --
+    // so the cache fills, the scheduler reports everything ready, and nothing is ever drawn. That
+    // is not a theoretical ordering concern: with a provider that generates its tiles
+    // synchronously, ninety-six tiles sat decoded in memory and zero reached the scene.
     this.activateReady(context.spatial.frame);
+    this.startFetches(demands);
     this.retireUnwanted(demands);
   }
 
@@ -156,13 +164,34 @@ export class GlobalStreamingScheduler {
       const contactTerm = Number.isFinite(demand.timeToContactS)
         ? Math.max(0, 3 - demand.timeToContactS)
         : 0;
-      const criticality = demand.gameplayCritical ? 10 : 0;
+      // What the player is actually looking at. Without this the queue is ordered by how wrong
+      // each tile is rather than by whether it is on the screen, and a hovering player staring
+      // straight down waits while the far side of the planet refines.
+      const inView = this.viewTerm(demand, player, context.camera.forward, offset);
+      // Large enough that nothing else can add up to it. Critical means physics the player is
+      // about to touch, a spawn point, a teleport destination: those are not weighed against
+      // detail, they come first.
+      const criticality = demand.gameplayCritical ? 100 : 0;
       const providerTerm = (provider?.priority ?? 0) / 100;
       const cachedTerm = this.cache.has(demand.key) ? 2 : 0;
 
-      demand.priority = errorTerm * 3 + relevance * 4 + contactTerm * 2 + criticality + providerTerm + cachedTerm;
+      demand.priority = errorTerm * 3 + inView * 6 + relevance * 4 + contactTerm * 2
+        + criticality + providerTerm + cachedTerm;
     }
     demands.sort((a, b) => b.priority - a.priority);
+  }
+
+  /**
+   * 1 for a tile straight ahead, 0 for one directly behind, and nothing in between is wasted:
+   * the half-way value is the edge of a hemisphere, which is roughly what a wide view covers.
+   */
+  private viewTerm(demand: TileDemand, player: Vec3, forward: Vec3, scratch: Vec3): number {
+    if (!demand.centreM) return 0.5;
+    subVec3([demand.centreM[0], demand.centreM[1], demand.centreM[2]], player, scratch);
+    const distance = Math.hypot(scratch[0], scratch[1], scratch[2]);
+    if (!(distance > 0)) return 1;
+    const alignment = (scratch[0] * forward[0] + scratch[1] * forward[1] + scratch[2] * forward[2]) / distance;
+    return Math.min(1, Math.max(0, 0.5 + 0.5 * alignment));
   }
 
   /** A tile with no known centre is treated as neutrally placed rather than guessed at. */
@@ -172,8 +201,14 @@ export class GlobalStreamingScheduler {
     return this.predictor.relevance(scratch);
   }
 
-  /** Starts as many fetches as the budget allows, best first. Cached tiles skip straight ahead. */
-  private startFetches(demands: readonly TileDemand[]): void {
+  /**
+   * Records what was asked for this frame, and promotes anything already in the cache.
+   *
+   * Separate from starting fetches because starting fetches is allowed to stop early when the
+   * budget runs out, and a tile that was wanted but not reached must still count as wanted --
+   * otherwise `retireUnwanted` throws away the far half of the plan every frame.
+   */
+  private track(demands: readonly TileDemand[]): void {
     for (const demand of demands) {
       const id = tileKeyToString(demand.key);
       let tile = this.tiles.get(id);
@@ -187,19 +222,28 @@ export class GlobalStreamingScheduler {
       tile.demand = demand;
       tile.lastSeenFrame = this.frame;
 
-      if (tile.state === 'active' || tile.state === 'fetching' || tile.state === 'activating') continue;
-      if (tile.state === 'failed' && tile.failures >= this.maxFailures) continue;
-
+      if (tile.state !== 'unloaded' && tile.state !== 'dormant') continue;
       // A cached payload needs no network and no worker; it only needs to be put back in.
       const cached = this.cache.get(demand.key);
-      if (cached) {
-        tile.payload = cached;
-        tile.state = 'ready-cpu';
-        tile.generation = this.generation;
-        continue;
-      }
-      if (tile.state === 'ready-cpu') continue;
+      if (!cached) continue;
+      tile.payload = cached;
+      tile.state = 'ready-cpu';
+      tile.generation = this.generation;
+    }
+  }
+
+  /** Starts as many fetches as the budget allows, best first. */
+  private startFetches(demands: readonly TileDemand[]): void {
+    for (const demand of demands) {
+      const tile = this.tiles.get(tileKeyToString(demand.key));
+      if (!tile) continue;
+      if (tile.state !== 'unloaded' && tile.state !== 'dormant' && tile.state !== 'failed') continue;
+      if (tile.state === 'failed' && tile.failures >= this.maxFailures) continue;
       if (!this.ledger.canFetch) break;
+      // Concurrency is not the only limit. A provider that generates rather than downloads returns
+      // an already-resolved promise, so its whole cost lands on this thread inside this loop; the
+      // frame clock is what stops it from spending the budget the rest of the frame needs.
+      if (!this.ledger.hasFrameTime) break;
 
       const provider = this.registry.get(demand.providerId);
       if (!provider) { tile.state = 'failed'; tile.failures++; continue; }
@@ -250,7 +294,14 @@ export class GlobalStreamingScheduler {
 
     for (const tile of ready) {
       const payload = tile.payload!;
-      if (!this.ledger.canActivate(payload.estimatedGpuBytes)) break;
+      // The hard limits -- the per-frame activation cap, the upload cap, the memory ceiling --
+      // are never crossed.
+      if (!this.ledger.canActivateWithinLimits(payload.estimatedGpuBytes)) break;
+      // Frame time is softer than that, for the first tile only. A frame that is already over
+      // budget still places one, because a machine slow enough to never have a spare millisecond
+      // would otherwise never populate its world at all: one small tile is a hitch, an empty
+      // planet is a bug.
+      if (!this.ledger.hasFrameTime && this.activationsLastFrame > 0) break;
       const provider = this.registry.get(tile.providerId);
       if (!provider) { tile.state = 'failed'; continue; }
       tile.state = 'activating';

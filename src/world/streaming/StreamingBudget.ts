@@ -13,6 +13,16 @@ export interface StreamingBudget {
   readonly maxConcurrentFetches: number;
   readonly maxWorkerJobs: number;
   readonly maxActivationsPerFrame: number;
+  /**
+   * Activations at or below this many GPU bytes are cheap enough to have their own allowance.
+   *
+   * A city block and an ellipsoid patch are not the same piece of work: the block is hundreds of
+   * kilobytes of merged geometry with colliders behind it, the patch is a 17x17 grid of about
+   * thirteen kilobytes and nothing else. Holding both to two per frame is what left the planet
+   * arriving a couple of tiles at a time while the budget sat unspent.
+   */
+  readonly lightActivationBytes: number;
+  readonly maxLightActivationsPerFrame: number;
   readonly gpuUploadBytesPerFrame: number;
   readonly gpuMemorySoftBytes: number;
   readonly gpuMemoryHardBytes: number;
@@ -24,6 +34,8 @@ export const DEFAULT_STREAMING_BUDGET: StreamingBudget = {
   maxConcurrentFetches: 6,
   maxWorkerJobs: 4,
   maxActivationsPerFrame: 2,
+  lightActivationBytes: 64 * 1024,
+  maxLightActivationsPerFrame: 12,
   gpuUploadBytesPerFrame: 8 * 1024 * 1024,
   gpuMemorySoftBytes: 512 * 1024 * 1024,
   gpuMemoryHardBytes: 768 * 1024 * 1024,
@@ -45,6 +57,8 @@ export function budgetForSpeed(base: StreamingBudget, speedMps: number): Streami
     mainThreadMs: base.mainThreadMs,
     maxConcurrentFetches: Math.min(16, Math.round(base.maxConcurrentFetches * haste)),
     maxActivationsPerFrame: Math.max(1, Math.round(base.maxActivationsPerFrame * (1 / haste))),
+    // Light activations are not scaled down. They are the coarse tiles ahead of the player, which
+    // is precisely what speed needs more of; it is the heavy city work that has to give way.
     gpuUploadBytesPerFrame: Math.round(base.gpuUploadBytesPerFrame * (1 / haste)),
   };
 }
@@ -58,6 +72,7 @@ export function budgetForSpeed(base: StreamingBudget, speedMps: number): Streami
 export class StreamingLedger {
   private frameStartMs = 0;
   private activations = 0;
+  private lightActivations = 0;
   private uploadedBytes = 0;
   private fetches = 0;
   private residentCpuBytes = 0;
@@ -66,7 +81,7 @@ export class StreamingLedger {
   constructor(private budget: StreamingBudget = DEFAULT_STREAMING_BUDGET) {}
 
   get current(): StreamingBudget { return this.budget; }
-  get activationsThisFrame(): number { return this.activations; }
+  get activationsThisFrame(): number { return this.activations + this.lightActivations; }
   get uploadedBytesThisFrame(): number { return this.uploadedBytes; }
   get inFlightFetches(): number { return this.fetches; }
   get gpuBytes(): number { return this.residentGpuBytes; }
@@ -82,6 +97,7 @@ export class StreamingLedger {
   beginFrame(): void {
     this.frameStartMs = this.nowMs();
     this.activations = 0;
+    this.lightActivations = 0;
     this.uploadedBytes = 0;
   }
 
@@ -95,11 +111,26 @@ export class StreamingLedger {
   get hasFrameTime(): boolean { return this.elapsedMs < this.budget.mainThreadMs; }
   get canFetch(): boolean { return this.fetches < this.budget.maxConcurrentFetches; }
 
-  canActivate(gpuBytes: number): boolean {
-    if (this.activations >= this.budget.maxActivationsPerFrame) return false;
+  /**
+   * The limits that hold whatever else happens: the per-frame activation cap, the upload cap and
+   * the memory ceiling. Separate from `canActivate` because frame time is a softer constraint than
+   * running out of memory, and the caller is entitled to treat them differently.
+   */
+  canActivateWithinLimits(gpuBytes: number): boolean {
+    if (this.isLight(gpuBytes)) {
+      if (this.lightActivations >= this.budget.maxLightActivationsPerFrame) return false;
+    } else if (this.activations >= this.budget.maxActivationsPerFrame) return false;
     if (this.uploadedBytes + gpuBytes > this.budget.gpuUploadBytesPerFrame) return false;
     if (this.residentGpuBytes + gpuBytes > this.budget.gpuMemoryHardBytes) return false;
-    return this.hasFrameTime;
+    return true;
+  }
+
+  private isLight(gpuBytes: number): boolean {
+    return Math.max(0, finite(gpuBytes)) <= this.budget.lightActivationBytes;
+  }
+
+  canActivate(gpuBytes: number): boolean {
+    return this.canActivateWithinLimits(gpuBytes) && this.hasFrameTime;
   }
 
   /** True once memory is high enough that the cache should start letting things go. */
@@ -109,7 +140,7 @@ export class StreamingLedger {
   fetchFinished(): void { this.fetches = Math.max(0, this.fetches - 1); }
 
   activated(cpuBytes: number, gpuBytes: number): void {
-    this.activations++;
+    if (this.isLight(gpuBytes)) this.lightActivations++; else this.activations++;
     this.uploadedBytes += Math.max(0, finite(gpuBytes));
     this.residentCpuBytes += Math.max(0, finite(cpuBytes));
     this.residentGpuBytes += Math.max(0, finite(gpuBytes));
@@ -122,6 +153,7 @@ export class StreamingLedger {
 
   reset(): void {
     this.activations = 0;
+    this.lightActivations = 0;
     this.uploadedBytes = 0;
     this.fetches = 0;
     this.residentCpuBytes = 0;

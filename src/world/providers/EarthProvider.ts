@@ -3,9 +3,9 @@ import { EarthGlobe, buildTileMesh } from '../planet/EarthGlobe';
 import { EARTH } from '../planet/PlanetBody';
 import { PlanetQuadtree } from '../planet/PlanetQuadtree';
 import { DEFAULT_SSE } from '../planet/ScreenSpaceError';
-import { type PlanetTileAddress, tileCentreGeodetic } from '../planet/PlanetTileAddress';
+import { type PlanetTileAddress, tileCentreGeodetic, tileExtentM } from '../planet/PlanetTileAddress';
 import type { EcefPosition } from '../spatial/ECEF';
-import { geodeticToEcef } from '../spatial/ECEF';
+import { ecefDistance, geodeticToEcef } from '../spatial/ECEF';
 import {
   EARTH_FIXED_FRAME_ID, MANAUS_FRAME_ID, legacyLocalToGeodetic,
 } from '../spatial/ManausFrameAdapter';
@@ -45,6 +45,13 @@ export interface EarthProviderOptions {
   fadeM?: number;
   maxTiles?: number;
   maxLevel?: number;
+  /**
+   * How long a selection may be reused before it is recomputed anyway, in seconds.
+   *
+   * The distance test below already catches a moving camera; this catches everything else --
+   * a changed epoch, a body that rotated, a quality change that did not alter the signature.
+   */
+  replanIntervalS?: number;
 }
 
 /**
@@ -77,6 +84,7 @@ export class EarthProvider implements WorldProvider {
       fadeM: Math.max(1, finite(options.fadeM, 10_000)),
       maxTiles: Math.max(6, finite(options.maxTiles, 160)),
       maxLevel: Math.max(0, finite(options.maxLevel, 10)),
+      replanIntervalS: Math.max(0, finite(options.replanIntervalS, 0.25)),
     };
     this.quadtree = new PlanetQuadtree(EARTH, {
       maxTiles: this.options.maxTiles, maxLevel: this.options.maxLevel,
@@ -113,8 +121,30 @@ export class EarthProvider implements WorldProvider {
     return this.globe.visible;
   }
 
+  /**
+   * What the globe would like loaded.
+   *
+   * The selection is memoised. It is a function of where the camera is and how much error the
+   * quality preset tolerates, and neither changes meaningfully in a sixtieth of a second -- but
+   * deriving it costs about 2.3 ms at orbital altitude, which is more than half the streaming
+   * budget for the whole world. Spending that every frame to arrive at the same answer left
+   * nothing for fetching, so tiles were planned and never loaded.
+   *
+   * It is recomputed when the camera has moved a quarter of the finest tile it chose, when the
+   * camera or quality context changes, or once `replanIntervalS` has passed.
+   */
   plan(context: StreamingContext): readonly TileDemand[] {
     const camera = this.playerEcef(context.spatial.player.position);
+    const signature = `${context.camera.fovRad}|${context.camera.viewportHeightPx}`
+      + `|${context.quality.sseTargetPx}|${context.quality.detailFactor}`;
+    const cached = this.cachedPlan;
+    if (cached
+      && cached.signature === signature
+      && context.spatial.timeS - cached.timeS < this.options.replanIntervalS
+      && ecefDistance(cached.cameraEcef, camera) < cached.radiusM) {
+      return cached.demands;
+    }
+
     const selection = this.quadtree.select(camera, {
       ...DEFAULT_SSE,
       fovRad: context.camera.fovRad,
@@ -139,6 +169,20 @@ export class EarthProvider implements WorldProvider {
         centreM: this.toSceneMetres(tile.centre),
       }));
     }
+
+    // How far the camera may move before this selection is worth deriving again: a quarter of the
+    // smallest tile in it. Below that, nothing in the quadtree would choose differently.
+    let finestM = Number.POSITIVE_INFINITY;
+    for (const tile of selection) {
+      finestM = Math.min(finestM, tileExtentM(tile.address, EARTH.semiMajorAxisM));
+    }
+    this.cachedPlan = {
+      demands,
+      cameraEcef: camera,
+      radiusM: Number.isFinite(finestM) ? Math.max(25, finestM * 0.25) : 25,
+      timeS: context.spatial.timeS,
+      signature,
+    };
     return demands;
   }
 
@@ -219,4 +263,13 @@ export class EarthProvider implements WorldProvider {
   }
 
   private sceneRotation?: Quat;
+
+  private cachedPlan?: {
+    readonly demands: readonly TileDemand[];
+    readonly cameraEcef: EcefPosition;
+    /** How far the camera may move before the selection is stale, in metres. */
+    readonly radiusM: number;
+    readonly timeS: number;
+    readonly signature: string;
+  };
 }

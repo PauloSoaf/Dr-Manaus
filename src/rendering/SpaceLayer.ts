@@ -89,6 +89,19 @@ export class SpaceLayer {
   }
   /** 0 on the ground, .62 at the Karman line, 1 from orbit up. Smoothed, so the HUD can show it raw. */
   get spaceFactor() { return this.factor; }
+
+  /**
+   * Stands the fake planet down while the real one is being drawn.
+   *
+   * The shell is a sphere the size of the sky painted with an Earth seen from space, and the disc
+   * is the Sun at a fixed local distance. Both are stand-ins for a planetary domain that did not
+   * exist, and with one in the scene the shell covers the real globe completely -- it is nearer
+   * than the planet and it is opaque.
+   *
+   * This is a switch the layer honours rather than a `visible` flag set from outside, because
+   * `update` runs every frame and would put its own answer back.
+   */
+  planetaryView = false;
   update(altitude: number, sunDirection: Vector3, night: boolean, dt: number, overcast = 0) {
     const metres = Number.isFinite(altitude) ? Math.min(Math.max(altitude, 0), SPACE.maxAltitude) : 0;
     const step = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), .25) : 0;
@@ -122,9 +135,13 @@ export class SpaceLayer {
     this.disc.position.copy(this.axis).multiplyScalar(SUN_DISTANCE);
     this.facing.copy(this.axis).negate();
     this.disc.quaternion.setFromUnitVectors(FORWARD, this.facing);
-    this.stars.visible = this.uVisible.value > .004;
-    this.shell.visible = this.uShellFade.value > .003;
-    this.disc.visible = veil > .02;
+    // The whole rig stands down for the planetary view. The star sphere is not only stars: it
+    // carries the sky gradient, and it is drawn around the player with the camera inside it, so
+    // its sky paints over a planet thousands of kilometres away just as the shell does.
+    const local = !this.planetaryView;
+    this.stars.visible = local && this.uVisible.value > .004;
+    this.shell.visible = local && this.uShellFade.value > .003;
+    this.disc.visible = local && veil > .02;
   }
   dispose() {
     this.scene.remove(this.rig);

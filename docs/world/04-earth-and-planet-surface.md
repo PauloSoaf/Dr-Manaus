@@ -4,8 +4,9 @@ Implements `04-EARTH-WGS84-AND-PLANET-SURFACE.md`. Code: `src/world/planet/`,
 `src/world/providers/EarthProvider.ts`. Tests: `tests/planet-tiles.test.ts` (14),
 `tests/earth-globe.test.ts` (9).
 
-**Status: built and tested, but not drawn.** `FEATURES.earthGlobe` is off. The reason, and
-everything measured while chasing it, is in [15-status.md](15-status.md).
+**Status: drawn.** `FEATURES.earthGlobe` is on: above 15 km the flat backdrop stands down and this
+is the ground. What it took to get the geometry onto the screen, and what is still missing, is in
+[15-status.md](15-status.md).
 
 ## A cube sphere, not a lat/lon grid
 
@@ -100,7 +101,21 @@ plane, and placing a tile without rotating it leaves it lying flat at an arbitra
 shipped a sky full of floating plates, and the test that passed while it did checked only the tile
 centre. It now checks every sampled vertex.
 
-Tiles are `frustumCulled = false` and `DoubleSide`, both deliberate and both commented in place.
+### Winding is measured, not assumed
+
+Three of the six cube-face parameterisations mirror, so one fixed index order winds outward on half
+the planet and inward on the other half. `buildTileMesh` therefore crosses the first quad's edges,
+compares with the surface normal there, and reverses the order for the whole tile when they
+disagree. One quad settles it: handedness changes between faces, never inside one.
+
+Drawing both sides was the earlier answer and it was worse than the problem. A renderer shades a
+back face with its normal flipped, so mirrored tiles faced the Sun geometrically and were lit as
+though the Sun were underneath them — half the globe came out black in full daylight, which reads
+as a lighting bug and is a winding bug. With the winding correct the material is `FrontSide`, and
+the far side of the planet stops being rasterised at all.
+
+Tiles are `frustumCulled = false`, deliberately and commented in place: the quadtree's horizon test
+is stricter and more correct than a bounding sphere on a curved patch.
 
 The globe owns its own `DirectionalLight` and `AmbientLight` on the planet layer, pointed by
 `setSunDirection()` from the solar system model — so the terminator is where the Sun actually is,

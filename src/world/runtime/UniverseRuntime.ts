@@ -60,6 +60,8 @@ export class UniverseRuntime {
   private readonly options: Required<Omit<UniverseRuntimeOptions, 'sse'>> & { sse: ScreenSpaceErrorContext };
   private readonly playerPose: SpatialPose;
   private readonly velocity: Vec3 = [0, 0, 0];
+  /** Where the camera looks, in city metres. Falls back to the direction of travel. */
+  private readonly viewForward: Vec3 = [0, 0, -1];
   private planetTiles = 0;
   private timeS: number;
 
@@ -126,8 +128,15 @@ export class UniverseRuntime {
    *
    * `localPosition` is the game's existing world position in Manaus metres — the same numbers the
    * city has always used. Nothing about this call asks the rest of the game to change coordinates.
+   *
+   * One frame of the model.
+   *
+   * `viewForward` is where the camera is looking, in the city's metres. It is separate from
+   * velocity on purpose: a player hovering and looking down has no velocity at all, and inferring
+   * the view from motion then points the streaming priorities at the horizon while the player
+   * stares at the ground. Callers without a camera may leave it out.
    */
-  update(localPosition: Vec3, localVelocity: Vec3, dtS: number): void {
+  update(localPosition: Vec3, localVelocity: Vec3, dtS: number, viewForward?: Vec3): void {
     const dt = Math.max(0, Math.min(0.25, finite(dtS)));
     this.timeS += dt;
 
@@ -137,6 +146,7 @@ export class UniverseRuntime {
     this.velocity[0] = finite(localVelocity[0]);
     this.velocity[1] = finite(localVelocity[1]);
     this.velocity[2] = finite(localVelocity[2]);
+    this.setViewForward(viewForward);
 
     this.floatingOrigin.update(this.playerPose);
     // A minute of simulated time per second keeps the sky moving without the planets racing.
@@ -150,9 +160,7 @@ export class UniverseRuntime {
       camera: {
         fovRad: this.options.sse.fovRad,
         viewportHeightPx: this.options.sse.viewportHeightPx,
-        forward: speed > 1e-3
-          ? [this.velocity[0] / speed, this.velocity[1] / speed, this.velocity[2] / speed]
-          : [0, 0, -1],
+        forward: this.viewForward,
       },
       quality: { sseTargetPx: this.options.sse.targetPx, detailFactor: this.options.sse.detailFactor },
       budget: budgetForSpeed(DEFAULT_STREAMING_BUDGET, speed),
@@ -183,6 +191,23 @@ export class UniverseRuntime {
    * city's own answer keeps the planet layer agreeing with where the city thinks its buildings
    * are. Giving each 1 024 m tile its own frame is what bounds that to metres instead.
    */
+  /**
+   * Keeps `viewForward` a unit vector, preferring the camera, then travel, then the last answer.
+   * Never zero: a zero view direction would make every tile equally relevant, which is the same
+   * as having no priorities at all.
+   */
+  private setViewForward(given: Vec3 | undefined): void {
+    const candidates: Vec3[] = given ? [given, this.velocity] : [this.velocity];
+    for (const candidate of candidates) {
+      const length = Math.hypot(finite(candidate[0]), finite(candidate[1]), finite(candidate[2]));
+      if (length <= 1e-3) continue;
+      this.viewForward[0] = finite(candidate[0]) / length;
+      this.viewForward[1] = finite(candidate[1]) / length;
+      this.viewForward[2] = finite(candidate[2]) / length;
+      return;
+    }
+  }
+
   playerEcef(): { xM: number; yM: number; zM: number } {
     return legacyLocalToEcef(
       this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2],

@@ -75,12 +75,12 @@ export const FEATURES = {
   /**
    * The WGS84 globe as visible geometry.
    *
-   * Off. The geometry, the streaming, the real coastlines and the solar lighting are all built and
-   * under test, and the far pass issues its draw calls — but the tiles produce no pixels, and
-   * turning this on also stands down the sky dome and the old space shell above 15 km. Shipping it
-   * on would trade a working sky for an empty one. See docs/world/15-status.md.
+   * On. Above 15 km the flat backdrop, the sky dome and the old space shell stand down and the
+   * real ellipsoid takes over: real coastlines from Natural Earth, lit from where the Sun actually
+   * is. Below that the city is untouched, because it is still a flat plane and the two must not be
+   * on screen at the same time. See docs/world/15-status.md.
    */
-  earthGlobe: false,
+  earthGlobe: true,
   /** Global terrain from a DEM. */
   planetTerrain: false,
   /** Manaus curved onto the ellipsoid. */

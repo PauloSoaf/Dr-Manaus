@@ -1,9 +1,9 @@
 import {
-  AmbientLight, BufferAttribute, BufferGeometry, DirectionalLight, DoubleSide, Group, Mesh,
+  AmbientLight, BufferAttribute, BufferGeometry, DirectionalLight, FrontSide, Group, Mesh,
   MeshStandardMaterial, type Object3D,
 } from 'three/webgpu';
 import type { Quat } from '../spatial/units';
-import { PLANET_LAYER } from '../../rendering/domains/RenderDomainComposer';
+import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
 import { directionToGeodetic } from './CubeSphere';
 import { type PlanetTileAddress, tileBounds, tileCentreDirection } from './PlanetTileAddress';
@@ -81,11 +81,29 @@ export function buildTileMesh(address: PlanetTileAddress, heightM = 0): TileMesh
   const quads = (size - 1) * (size - 1);
   const indices = new Uint16Array(quads * 6);
   let cursor = 0;
+  /**
+   * Which way round the triangles go is measured, not assumed.
+   *
+   * Three of the six cube-face parameterisations mirror, so one fixed index order is outward on
+   * half the planet and inward on the other half. Drawing both sides hides that and then lies
+   * about the lighting: a renderer flips the shading normal on a back face, so those tiles face
+   * the sun geometrically and are shaded as though the sun were underneath them. Half the globe
+   * came out black, which looked like a lighting bug and was a winding bug.
+   *
+   * So the first quad's triangle normal is compared with the surface normal there, and the order
+   * is reversed for the whole tile when they disagree.
+   */
+  const outward = windingIsOutward(positions, normals, size);
   for (let row = 0; row < size - 1; row++) {
     for (let column = 0; column < size - 1; column++) {
       const a = row * size + column, b = a + 1, c = a + size, d = c + 1;
-      indices[cursor++] = a; indices[cursor++] = c; indices[cursor++] = b;
-      indices[cursor++] = b; indices[cursor++] = c; indices[cursor++] = d;
+      if (outward) {
+        indices[cursor++] = a; indices[cursor++] = c; indices[cursor++] = b;
+        indices[cursor++] = b; indices[cursor++] = c; indices[cursor++] = d;
+      } else {
+        indices[cursor++] = a; indices[cursor++] = b; indices[cursor++] = c;
+        indices[cursor++] = b; indices[cursor++] = d; indices[cursor++] = c;
+      }
     }
   }
 
@@ -100,6 +118,22 @@ export function buildTileMesh(address: PlanetTileAddress, heightM = 0): TileMesh
     geometry, centre, triangles: quads * 2,
     bytes: positions.byteLength + normals.byteLength + colors.byteLength + indices.byteLength,
   };
+}
+
+/**
+ * True when the order `a, c, b` faces away from the planet's centre at the tile's first quad.
+ *
+ * One quad settles it for the whole tile: within a tile the parameterisation does not change
+ * handedness, only between faces.
+ */
+function windingIsOutward(positions: Float32Array, normals: Float32Array, size: number): boolean {
+  const a = 0, b = 3, c = size * 3;
+  const e1x = positions[c] - positions[a], e1y = positions[c + 1] - positions[a + 1], e1z = positions[c + 2] - positions[a + 2];
+  const e2x = positions[b] - positions[a], e2y = positions[b + 1] - positions[a + 1], e2z = positions[b + 2] - positions[a + 2];
+  const nx = e1y * e2z - e1z * e2y;
+  const ny = e1z * e2x - e1x * e2z;
+  const nz = e1x * e2y - e1y * e2x;
+  return nx * normals[a] + ny * normals[a + 1] + nz * normals[a + 2] >= 0;
 }
 
 /**
@@ -138,15 +172,25 @@ export class EarthGlobe {
     this.material = new MeshStandardMaterial({
       vertexColors: true, roughness: 1, metalness: 0, flatShading: false,
       /**
-       * Both sides, deliberately.
+       * No fog, ever.
        *
-       * The six cube faces do not share a handedness — the parameterisation mirrors on three of
-       * them — so no single triangle winding is outward-facing on all of them. With back-face
-       * culling on, half the planet's tiles issued their draw calls and produced no pixels at
-       * all, which is a far more confusing failure than the cost of drawing both sides. Seen from
-       * outside a closed shell, the back faces are occluded anyway and cost nothing.
+       * The scene's fog is calibrated for a 260 km far plane, so a globe thousands of kilometres
+       * away comes out entirely the colour of the haze -- purple at dusk, black at night. The
+       * composer used to clear `scene.fog` for the far pass instead, which looked equivalent and
+       * was not: the material's compiled fog node still dereferences `scene.fog.color`, so the
+       * planetary pass threw on its first fogged draw and every tile after it was lost. Distance
+       * haze on a planet seen from orbit is the atmosphere's job, and that is a limb, not a ramp.
        */
-      side: DoubleSide,
+      fog: false,
+      /**
+       * Front faces only, now that every tile winds outward.
+       *
+       * Drawing both sides was how the mirrored faces were papered over, and it cost the lighting:
+       * a back face is shaded with its normal flipped, so those tiles came out black in full
+       * sunlight. With the winding measured per tile in `buildTileMesh`, culling is correct again
+       * and the far side of the planet stops being rasterised at all.
+       */
+      side: FrontSide,
     });
   }
 

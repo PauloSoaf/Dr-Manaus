@@ -36,7 +36,6 @@ import { AudioManager } from '../audio/AudioManager';
 import { HUD } from '../ui/HUD';
 import { UniverseRuntime } from '../world/runtime/UniverseRuntime';
 import { EarthProvider } from '../world/providers/EarthProvider';
-import { PLANET_LAYER } from '../rendering/domains/RenderDomainComposer';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   readonly save=new SaveManager();readonly assets=new AssetManager();readonly rendering:RendererManager;
@@ -56,7 +55,7 @@ export class Game {
   private readonly flatTerrain:import('three/webgpu').Group;
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
   stressReport:FrameSample[]=[];private stressRoute:Vector3[]=[];private stressIndex=0;private stressSampleTime=0;
-  private lastTime=0;private discoveryTime=0;private telemetryTime=0;private cpu=0;private colliders:Collider[]=[];private playerLocal=new Vector3();private direction=new Vector3();
+  private lastTime=0;private discoveryTime=0;private telemetryTime=0;private cpu=0;private colliders:Collider[]=[];private playerLocal=new Vector3();private direction=new Vector3();private viewForward=new Vector3();
   private stompTimer=0;private readonly foot=new Vector3();
   private bounds=false;private lod=false;private culling?:CameraHelper;private spaceFactor=0;
   /** Exponentially smoothed per-system frame cost, in milliseconds. Drives the F3 panel. */
@@ -69,7 +68,7 @@ export class Game {
     this.space=new SpaceLayer(this.rendering.scene,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe});
     if(FEATURES.earthGlobe){this.earth=new EarthProvider(this.worldRoot,this.universe.frames);this.universe.providers.register(this.earth);}
-    // Two passes cost two passes, so the composer only runs when something needs the far domain.
+    // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
     this.flatTerrain=createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
@@ -123,8 +122,6 @@ export class Game {
     this.hlod.update(this.player.position,this.streamer.activeKeys);
     // The compact offline geographic payload is optional metadata; gameplay makes no map-service calls.
     void this.assets.json('/geodata/manaus.json').catch(()=>undefined);
-    // Lights belong to every domain: one left on the local layer alone leaves the planet black.
-    this.rendering.scene.traverse(object=>{if((object as {isLight?:boolean}).isLight)object.layers.enable(PLANET_LAYER);});
     this.ready=true;this.hud.ready();this.lastTime=performance.now();
     this.rendering.renderer.setAnimationLoop(this.tick);
   }
@@ -173,7 +170,12 @@ export class Game {
     this.gatherColliders();this.lap('colliders');
     this.updateStomps(dt);
     if(this.stressRoute.length)this.updateStress(dt);else this.player.update(dt,this.colliders,this.camera.yaw,this.camera.pitch);this.lap('player');
-    if(FEATURES.spatialCore)this.universe.update([this.player.position.x,this.player.position.y,this.player.position.z],[this.player.velocity.x,this.player.velocity.y,this.player.velocity.z],dt);this.lap('universe');
+    if(FEATURES.spatialCore){
+      // Where the camera looks, not where the player moves: hovering and looking down is exactly
+      // the case where the two disagree, and it is the view that decides what needs to be loaded.
+      this.rendering.camera.getWorldDirection(this.viewForward);
+      this.universe.update([this.player.position.x,this.player.position.y,this.player.position.z],[this.player.velocity.x,this.player.velocity.y,this.player.velocity.z],dt,[this.viewForward.x,this.viewForward.y,this.viewForward.z]);
+    }this.lap('universe');
     // One ground at a time. The flat backdrop and the curved planet cannot both be the surface,
     // and above the handover altitude the curvature is what the player is looking at.
     if(this.earth){
@@ -183,11 +185,11 @@ export class Game {
       // flat ground it belongs to.
       const localGround=!this.earth.globe.visible;
       this.flatTerrain.visible=localGround;
-      this.atmosphere.sky.visible=localGround;
-      this.atmosphere.clouds.visible=localGround;
-      // The old fake Earth-from-space shell, replaced by the real one.
-      this.space.shell.visible=localGround;
-      this.space.disc.visible=localGround;
+      // Told, not overwritten. Both layers set their own visibility inside an update that runs
+      // later in the frame, so a `visible` flag written here is gone by the time anything is
+      // drawn -- which is why the far pass drew the planet and the shell painted over it.
+      this.atmosphere.planetaryView=!localGround;
+      this.space.planetaryView=!localGround;
       // The far domain has to reach whatever the planet's distance is, or leaving orbit clips the
       // very thing the domain exists to show.
       this.rendering.domains.setRange(this.universe.telemetry.altitudeM+6_378_137);
@@ -223,10 +225,7 @@ export class Game {
     this.audio.update(this.player.velocity.length(),this.player.position.y,['rain','storm'].includes(this.atmosphere.weather),!isLand(this.player.position.x,this.player.position.z));
     this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     this.terrain.update(this.player.position,this.origin);this.forest.update(this.player.position);
-    // Furthest domain first, then the local one over it. Falls back to one ordinary pass when the
-    // composer is off, so the game renders the same as it always did with the feature disabled.
-    if(!this.rendering.domains.render(this.rendering.scene,this.rendering.camera))
-      this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
+    this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
     const frame = this.frame;

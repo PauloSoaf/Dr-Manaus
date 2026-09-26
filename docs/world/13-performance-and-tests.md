@@ -15,6 +15,8 @@ in a document:
 | Concurrent fetches | 6 | spec suggests 4 as an initial default; sized against the city's existing behaviour |
 | Worker jobs | 4 | one per likely core after the main thread |
 | Heavy activations per frame | 2 | the city's existing cap |
+| Light activations per frame | 12 | the spec's separate class for light planetary tiles |
+| Light activation threshold | 64 KB | a tile mesh is ~13 KB; a city block is hundreds |
 | GPU upload per frame | 8 MB | keeps one activation from stalling a frame |
 | GPU memory, soft / hard | 512 MB / 768 MB | spec telemetry targets, unvalidated on real hardware |
 | Additional planetary bootstrap | ≤ 12 MB compressed | currently 86 KB — the land mask |
@@ -51,11 +53,16 @@ scheduler's queue depth, active tiles and cache hit rate.
 ## Tests
 
 ```
-npm test            245 tests, 0 failures
-npm run build       tsc --noEmit && vite build
-npm run test:browser  headless smoke test of the real game
-npm run profile     flight profile across speed bands
+npm test              246 tests, 0 failures
+npm run build         tsc --noEmit && vite build
+npm run test:browser  FAILING (pre-existing, see below)
+npm run profile       flight profile across speed bands
 ```
+
+`npm run test:browser` fails on `shellTriangles === 0`: the real-city footprint shell does not
+finish streaming inside the test's 90 s window under the software renderer. It fails identically on
+the commit this branch started from, so it is not a regression — but it is not passing, and this
+document will not pretend otherwise.
 
 ### The world tests
 
@@ -68,6 +75,7 @@ npm run profile     flight profile across speed bands
 | `tests/earth-globe.test.ts` | 9 | vertices land on the ellipsoid **through the scene transform**; land mask agrees with known coordinates |
 | `tests/solar-system.test.ts` | 12 | real J2000 distances in order; Moon and Sun ≈ 0.5° across; dominant body by gravity |
 | `tests/streaming.test.ts` | 9 | budget caps, generation cancellation, LRU eviction, pinning |
+| `tests/world-streaming.test.ts` | — | the two activation classes, ranking, retirement, dispose |
 | `tests/universe-runtime.test.ts` | 6 | the facade: player pose, ECEF two ways agree, dispose is complete |
 
 ### What a test here has to do
@@ -90,6 +98,13 @@ asserting a precision the representation cannot carry:
 - An exact `0` where the value was `-0`; `assert.equal` distinguishes them.
 
 Every tolerance in these tests now states which representation it comes from.
+
+### And a test can be wrong about the world, not just about the code
+
+`tests/player.test.ts` asserted that a hard climb *arrives* at `SPACE.maxAltitude` within sixty
+seconds. That was true of a 140 km ceiling and false of a 500 000 km one, so the test failed the
+moment the ceiling moved — correct behaviour, wrong assertion. It now checks the invariant (the
+ceiling is never crossed) and tests the clamp from just below it, which is true at any height.
 
 ## Missing
 
