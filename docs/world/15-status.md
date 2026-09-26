@@ -103,14 +103,26 @@ back with `drawImage`, which returns black for a WebGL canvas without `preserveD
 whatever is on it. The whole frame measured black, including frames that plainly were not. Every
 later measurement used a composited screenshot instead.
 
+### Shading
+
+The globe shades itself. `MeshBasicNodeMaterial` takes no part in the light list, and the surface is
+lit explicitly against a sun uniform in TSL: a lambert term with a terminator softened across a few
+degrees, a small night floor for airglow, and a Rayleigh-blue halo that rises with the viewing
+angle so the limb is blue and the centre of the disc is not.
+
+That is not a stylistic choice. There is one camera and therefore one light list, and the scene's
+lights belong to a city at golden hour — one sun near the horizon and a bright hemisphere fill.
+Applied to a planet they wash the day side out and lift the night side off the black, and the
+terminator disappears with them. A planet is lit by one star and shades itself.
+
+The stars stayed after all. They had been stood down on the theory that the star sphere carried the
+sky gradient; reading the shader showed it does not — the stars are additive points and the
+gradient is the shell's. They are back above 15 km, and the shader already fades them below the limb.
+
 ### What is still visibly missing
 
-- **Lighting is shared.** One camera means one light list, so the city's sun and hemisphere light
-  the globe as well as its own solar light does. The planet reads paler than it should. The fix is
-  a material that computes its own sun term, not more lights.
-- **No atmosphere.** No limb, no scattering, no blue edge.
-- **No stars above 15 km**, because the star sphere carries the local sky gradient and had to stand
-  down with it.
+- **No atmosphere as a volume.** The limb is a shading term on the surface, not scattering: there
+  is no glow beyond the edge of the globe and no sky seen from inside.
 - **No terrain.** Every tile sits at height zero: an ellipsoid, not a landscape.
 - The tile under the city is a hole of about 60 km while `coveredByCity` is level-based; harmless
   from orbit, and closed by phase 6.

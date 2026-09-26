@@ -157,6 +157,76 @@ test('mega speed keeps swept collision for thin walls and the ground at long fra
   assert.equal(position.y, 0); assert.equal(velocity.y, 0);
 });
 
+test('the arm key tapped twice reaches interplanetary, and only above the atmosphere', () => {
+  const { input, held, edges } = controls();
+  const player = new PlayerController(new Group(), input);
+  player.teleport(new Vector3(0, 200, 0));
+
+  // One tap arms mega, as it always did.
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  assert.equal(player.armed, 'mega');
+  assert.equal(player.megaMode, true, 'interplanetary is mega and then some, so this stays true');
+
+  // A second tap straight away takes the next tier.
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  assert.equal(player.armed, 'interplanetary');
+  assert.equal(player.interplanetaryMode, true);
+
+  // Still only 200 m up, so boost gives mega: there is a city down here to fly through.
+  held.add('KeyB');
+  for (let i = 0; i < 30; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.speedMode, 'mega', 'below the floor the tier falls back');
+
+  // Above the atmosphere it engages, and the speed is the one on the box: 200 000 km/h.
+  player.teleport(new Vector3(0, FLIGHT.interplanetaryFloorM + 1000, 0));
+  held.delete('KeyB'); player.update(1 / 60, [], 0);
+  held.add('KeyB');
+  for (let i = 0; i < 20; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.speedMode, 'interplanetary');
+  assert.equal(Math.round(FLIGHT.speeds.interplanetary * 3.6 / 1000), 200, 'thousand km/h');
+
+  // A third tap disarms, whatever the timing.
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  assert.equal(player.armed, 'none');
+});
+
+test('stepping up a tier mid-flight keeps the boost instead of dropping to super', () => {
+  const { input, held, edges } = controls();
+  const player = new PlayerController(new Group(), input);
+  player.teleport(new Vector3(0, FLIGHT.interplanetaryFloorM + 5000, 0));
+
+  // Arm mega before touching boost, then fly on it.
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  held.add('KeyB');
+  for (let i = 0; i < 10; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.speedMode, 'mega');
+
+  // Now ask for the next tier without letting go. Arming from cold while boosting costs a
+  // release; asking for more of what you already have must not.
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  assert.equal(player.armed, 'interplanetary');
+  assert.equal(player.speedMode, 'interplanetary', 'the upgrade takes effect at once');
+
+  // Arming from cold while boosting still costs a release, which is the safety it always was.
+  const cold = new PlayerController(new Group(), input);
+  cold.teleport(new Vector3(0, FLIGHT.interplanetaryFloorM + 5000, 0));
+  edges.add('KeyV'); cold.update(1 / 60, [], 0);
+  assert.equal(cold.speedMode, 'super', 'boost was already down when it was armed');
+});
+
+test('a slow second tap still means off, so the old single-key behaviour survives', () => {
+  const { input, edges } = controls();
+  const player = new PlayerController(new Group(), input);
+  player.teleport(new Vector3(0, 200, 0));
+
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  assert.equal(player.armed, 'mega');
+  // Let the double-tap window lapse.
+  for (let i = 0; i < 60; i++) player.update(1 / 60, [], 0);
+  edges.add('KeyV'); player.update(1 / 60, [], 0);
+  assert.equal(player.armed, 'none');
+});
+
 test('climbing hard leaves the atmosphere instead of stopping at the old twelve-kilometre lid', () => {
   const { input, held, edges } = controls();
   const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 200, 0));

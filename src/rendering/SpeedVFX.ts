@@ -1,10 +1,10 @@
 import { AdditiveBlending, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicNodeMaterial, Scene } from 'three/webgpu';
 import { float, max, mix, positionGeometry, smoothstep, uniform, uv, vec3, vec4 } from 'three/tsl';
 
-export type SpeedState = 'normal' | 'fast' | 'super' | 'mega';
+export type SpeedState = 'normal' | 'fast' | 'super' | 'mega' | 'interplanetary';
 
 /** Where each state sits on the 0..1 intensity ramp the shader reads. */
-const LEVEL: Record<SpeedState, number> = { normal: 0, fast: .22, super: .62, mega: 1 };
+const LEVEL: Record<SpeedState, number> = { normal: 0, fast: .22, super: .62, mega: 1, interplanetary: 1 };
 
 /**
  * Edge-only speed effect.

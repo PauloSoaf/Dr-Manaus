@@ -96,7 +96,7 @@ export class SpaceLayer {
    * The shell is a sphere the size of the sky painted with an Earth seen from space, and the disc
    * is the Sun at a fixed local distance. Both are stand-ins for a planetary domain that did not
    * exist, and with one in the scene the shell covers the real globe completely -- it is nearer
-   * than the planet and it is opaque.
+   * than the planet and it is opaque. The stars are not a stand-in and are not stood down.
    *
    * This is a switch the layer honours rather than a `visible` flag set from outside, because
    * `update` runs every frame and would put its own answer back.
@@ -135,11 +135,11 @@ export class SpaceLayer {
     this.disc.position.copy(this.axis).multiplyScalar(SUN_DISTANCE);
     this.facing.copy(this.axis).negate();
     this.disc.quaternion.setFromUnitVectors(FORWARD, this.facing);
-    // The whole rig stands down for the planetary view. The star sphere is not only stars: it
-    // carries the sky gradient, and it is drawn around the player with the camera inside it, so
-    // its sky paints over a planet thousands of kilometres away just as the shell does.
+    // The stars stay in the planetary view. They are additive points with no sky behind them, and
+    // `lift` already fades them below the limb, so they sit above the horizon of a real planet as
+    // readily as above a painted one. The sky gradient is the shell's, not theirs.
     const local = !this.planetaryView;
-    this.stars.visible = local && this.uVisible.value > .004;
+    this.stars.visible = this.uVisible.value > .004;
     this.shell.visible = local && this.uShellFade.value > .003;
     this.disc.visible = local && veil > .02;
   }

@@ -84,10 +84,10 @@ What stands down:
 | `Atmosphere.clouds` | local weather, drawn around the player |
 | `SpaceLayer.shell` | the old stand-in Earth-from-space, and opaque |
 | `SpaceLayer.disc` | the Sun at a fixed local distance |
-| `SpaceLayer.stars` | the star sphere carries the sky gradient, and the camera is inside it |
 
-Losing the stars is a real loss and a temporary one: the star sectors already exist as a model
-(see [11-galaxy-and-universe.md](11-galaxy-and-universe.md)) and belong in the planetary domain.
+The stars are **not** stood down. They are additive points with no sky behind them and the shader
+already fades them below the limb, so they sit above the horizon of a real planet as readily as
+above a painted one. The sky gradient belongs to the shell, not to them.
 
 ## Fog
 
@@ -116,6 +116,6 @@ the sky.
 - A planet-aware atmosphere: a limb seen from outside, a sky seen from inside, one model for both.
 - A global ocean surface. The sea is currently a vertex colour on the globe.
 - A starfield in the planetary domain, to replace the one that stands down.
-- Per-domain lighting. One camera means one light list, so the city's sun and hemisphere light the
-  globe as well as its own solar light does, and the planet reads paler than it should. The fix is
-  a material that computes its own sun term rather than more lights.
+- Per-domain lighting is worked around rather than solved: the globe shades itself in TSL so the
+  city's lights cannot reach it. Anything else in the planetary domain will need the same trick,
+  or a real per-domain light list.

@@ -1,7 +1,10 @@
 import {
-  AmbientLight, BufferAttribute, BufferGeometry, DirectionalLight, FrontSide, Group, Mesh,
-  MeshStandardMaterial, type Object3D,
+  BufferAttribute, BufferGeometry, Color, FrontSide, Group, Mesh, MeshBasicNodeMaterial,
+  type Object3D, Vector3,
 } from 'three/webgpu';
+import {
+  attribute, cameraPosition, float, normalWorld, positionWorld, smoothstep, uniform,
+} from 'three/tsl';
 import type { Quat } from '../spatial/units';
 import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
@@ -22,6 +25,14 @@ import type { Vec3 } from '../spatial/units';
 
 /** Vertices per tile edge. 17 gives 512 triangles: fine enough to read as curved, cheap to build. */
 export const TILE_RESOLUTION = 17;
+
+/** How hard the Sun drives the surface, against a tone mapper set for a city at golden hour. */
+const SUN_GAIN = 1.45;
+/** Airglow, moonlight and cities: what the night side is instead of a hole. */
+const NIGHT_FLOOR = 0.035;
+/** Rayleigh blue, near enough. The limb of the Earth from orbit is this colour. */
+const ATMOSPHERE = uniform(new Color(0.29, 0.53, 0.93));
+const LIMB_GAIN = 0.85;
 
 export interface TileMesh {
   readonly geometry: BufferGeometry;
@@ -145,41 +156,45 @@ function windingIsOutward(positions: Float32Array, normals: Float32Array, size: 
  */
 export class EarthGlobe {
   readonly group = new Group();
-  private readonly material: MeshStandardMaterial;
+  private readonly material: MeshBasicNodeMaterial;
   private readonly meshes = new Map<string, Mesh>();
   /**
-   * The planet's own sun, aimed from the real solar direction rather than from the local sky.
+   * Where the Sun is, in scene axes. A unit vector from the planet toward the Sun.
    *
-   * The scene's own sun is a local-sky construct tied to the time of day: at dusk it sits on the
-   * horizon and the whole globe goes black, which is physically true of the hemisphere you happen
-   * to be over and useless as a view of the planet. Lighting the globe from where the Sun
-   * actually is gives a real terminator and a lit day side.
+   * The planet is shaded against this rather than by a light, because a light would be shared.
+   * There is one camera and therefore one light list, and the scene's lights belong to a city at
+   * golden hour: one sun near the horizon and a bright hemisphere fill. Applied to a planet they
+   * wash the day side out and lift the night side off the black, and the terminator disappears
+   * with them. A planet is lit by one star and shades itself.
    */
-  private readonly sun = new DirectionalLight(0xfff4e6, 3.2);
-  private readonly ambient = new AmbientLight(0x2a3a52, 0.35);
+  private readonly uSun = uniform(new Vector3(0, 1, 0));
   private triangles = 0;
 
   constructor(parent: Object3D) {
     this.group.name = 'earth-globe';
     this.group.visible = false;
     parent.add(this.group);
-    for (const light of [this.sun, this.ambient]) {
-      light.layers.set(PLANET_LAYER);
-      this.group.add(light);
-    }
-    this.sun.target.layers.set(PLANET_LAYER);
-    this.group.add(this.sun.target);
-    this.material = new MeshStandardMaterial({
-      vertexColors: true, roughness: 1, metalness: 0, flatShading: false,
+    this.material = this.buildMaterial();
+  }
+
+  /**
+   * The planet's own shading: one star, a soft terminator, and an atmosphere at the limb.
+   *
+   * Unlit as far as the renderer is concerned -- `MeshBasicNodeMaterial` takes no part in the
+   * light list -- and then lit explicitly against `uSun`. That is the point: see `uSun` for why
+   * the scene's lights must not reach the planet.
+   */
+  private buildMaterial(): MeshBasicNodeMaterial {
+    const material = new MeshBasicNodeMaterial({
       /**
        * No fog, ever.
        *
        * The scene's fog is calibrated for a 260 km far plane, so a globe thousands of kilometres
-       * away comes out entirely the colour of the haze -- purple at dusk, black at night. The
-       * composer used to clear `scene.fog` for the far pass instead, which looked equivalent and
-       * was not: the material's compiled fog node still dereferences `scene.fog.color`, so the
-       * planetary pass threw on its first fogged draw and every tile after it was lost. Distance
-       * haze on a planet seen from orbit is the atmosphere's job, and that is a limb, not a ramp.
+       * away comes out entirely the colour of the haze -- purple at dusk, black at night. Clearing
+       * `scene.fog` around the draw instead looks equivalent and is not: a material compiled with
+       * fog keeps a node that reads `scene.fog.color`, so the first fogged draw throws on null and
+       * everything after it in that pass is lost. Distance haze on a planet seen from orbit is the
+       * atmosphere's job, and that is a limb, not a ramp.
        */
       fog: false,
       /**
@@ -192,6 +207,38 @@ export class EarthGlobe {
        */
       side: FrontSide,
     });
+
+    // The surface colour comes from the vertex attribute the land mask wrote. Read by name rather
+    // than through `vertexColors`, because this material multiplies it in itself.
+    const surface = attribute('color', 'vec3');
+    const incidence = normalWorld.dot(this.uSun);
+
+    /**
+     * The terminator is a band, not an edge.
+     *
+     * Two real effects widen it: the Sun is half a degree across rather than a point, and the
+     * atmosphere carries light past the geometric horizon. A hard `max(0)` gives a knife edge that
+     * reads as a shading bug, so the lambert term is faded across a few degrees either side.
+     */
+    const daylight = smoothstep(-0.10, 0.25, incidence).mul(incidence.max(0).add(0.12));
+    // Not black at night: airglow, moonlight and cities. Small, but zero looks like a hole.
+    const lit = surface.mul(daylight.mul(SUN_GAIN).add(NIGHT_FLOOR));
+
+    /**
+     * The atmosphere, seen edge on.
+     *
+     * Looking at the centre of the disc there is a few hundred kilometres of air between the eye
+     * and the ground; looking at the limb the same line of sight runs through thousands, so the
+     * air is what you see. That is the blue rim on every photograph of the Earth, and it is a
+     * property of the viewing angle -- which is exactly what this term measures.
+     */
+    const toCamera = cameraPosition.sub(positionWorld).normalize();
+    const grazing = float(1).sub(normalWorld.dot(toCamera).max(0)).pow(3.2);
+    // Lit air only. The night limb is dark, not blue.
+    const halo = ATMOSPHERE.mul(grazing.mul(smoothstep(-0.25, 0.15, incidence)).mul(LIMB_GAIN));
+
+    material.colorNode = lit.add(halo);
+    return material;
   }
 
   get stats(): { tiles: number; triangles: number; visible: boolean } {
@@ -201,17 +248,11 @@ export class EarthGlobe {
   set visible(visible: boolean) { this.group.visible = visible; }
   get visible(): boolean { return this.group.visible; }
 
-  /**
-   * Points the planet's sun. `direction` runs from the planet toward the Sun, in scene axes.
-   * A directional light only cares about the vector, so it is parked far enough out that nothing
-   * can wander between it and the surface.
-   */
+  /** Points the planet's sun. `direction` runs from the planet toward the Sun, in scene axes. */
   setSunDirection(direction: Vec3): void {
     const length = Math.hypot(direction[0], direction[1], direction[2]);
     if (!(length > 0)) return;
-    const reach = 1e9 / length;
-    this.sun.position.set(direction[0] * reach, direction[1] * reach, direction[2] * reach);
-    this.sun.target.position.set(0, 0, 0);
+    this.uSun.value.set(direction[0] / length, direction[1] / length, direction[2] / length);
   }
 
   /**
