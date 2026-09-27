@@ -203,7 +203,18 @@ export class Game {
       if(sun&&earthAt)this.earth.setSunDirection([sun[0]-earthAt[0],sun[1]-earthAt[1],sun[2]-earthAt[2]],'solar-system/barycentric');
     }
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
-    if(Math.hypot(this.player.position.x-this.origin.x,this.player.position.z-this.origin.z)>WORLD.originThreshold){this.origin.set(Math.round(this.player.position.x/1024)*1024,0,Math.round(this.player.position.z/1024)*1024);this.worldRoot.position.copy(this.origin).negate();}
+    if(this.player.position.distanceTo(this.origin)>WORLD.originThreshold){
+      // All three axes. Y used to be pinned to zero, which was harmless while the sky was a
+      // 140 km lid and is not now: at orbital altitude the character sits hundreds of kilometres
+      // from the render origin, bone matrices are float32, and the skin comes apart -- the higher
+      // you fly, the worse it gets. Rebasing Y keeps the body next to the origin at any altitude.
+      this.origin.set(
+        Math.round(this.player.position.x/1024)*1024,
+        Math.round(this.player.position.y/1024)*1024,
+        Math.round(this.player.position.z/1024)*1024,
+      );
+      this.worldRoot.position.copy(this.origin).negate();
+    }
     this.streamer.update(this.player.position,this.player.velocity,dt);this.lap('streamer');this.hlod.update(this.player.position,this.streamer.activeKeys);this.lap('hlod');
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
     this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
