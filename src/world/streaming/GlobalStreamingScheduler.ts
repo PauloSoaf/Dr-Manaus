@@ -2,6 +2,7 @@ import type { ActiveReferenceFrame } from '../spatial/ReferenceFrame';
 import { finite, subVec3, type Vec3 } from '../spatial/units';
 import type { StreamingContext, WorldProvider } from '../providers/WorldProvider';
 import type { ProviderRegistry } from '../runtime/ProviderRegistry';
+import type { ManagedStats, ManagedSubsystem } from './ManagedSubsystem';
 import { PrefetchPredictor } from './PrefetchPredictor';
 import { StreamingLedger } from './StreamingBudget';
 import { TileCache } from './TileCache';
@@ -57,6 +58,24 @@ export class GlobalStreamingScheduler {
   private frame = 0;
   private activationsLastFrame = 0;
 
+  /** Subsystems that load their own content out of the same budget. See `ManagedSubsystem`. */
+  private readonly subsystems: ManagedSubsystem[] = [];
+  private lastGrants: ManagedStats[] = [];
+  /** Round robin, so one subsystem cannot take the remainder every frame. */
+  private grantCursor = 0;
+
+  registerSubsystem(subsystem: ManagedSubsystem): this {
+    if (!this.subsystems.some(existing => existing.id === subsystem.id)) this.subsystems.push(subsystem);
+    return this;
+  }
+
+  unregisterSubsystem(id: string): boolean {
+    const index = this.subsystems.findIndex(subsystem => subsystem.id === id);
+    if (index < 0) return false;
+    this.subsystems.splice(index, 1);
+    return true;
+  }
+
   constructor(private readonly registry: ProviderRegistry, options: SchedulerOptions = {}) {
     this.cache = options.cache ?? new TileCache();
     this.predictor = options.predictor ?? new PrefetchPredictor();
@@ -79,6 +98,7 @@ export class GlobalStreamingScheduler {
       cache: this.cache.stats,
       cpuBytes: this.ledger.cpuBytes,
       gpuBytes: this.ledger.gpuBytes,
+      subsystems: this.lastGrants,
     };
   }
 
@@ -125,6 +145,59 @@ export class GlobalStreamingScheduler {
     this.activateReady(context.spatial.frame);
     this.startFetches(demands);
     this.retireUnwanted(demands);
+    this.grantSubsystems(context);
+  }
+
+  /**
+   * Hands what is left of the frame's milliseconds to the managed subsystems.
+   *
+   * What is *left*, which is the whole point: the city used to spend a fixed 3.5 ms whatever the
+   * planet was doing, so a frame could spend 3.5 ms on Manaus and 4 ms on the globe and call each
+   * of them within budget. Now there is one budget and the tile work goes first, because a tile is
+   * ground the player may be about to stand on.
+   *
+   * Round robin between subsystems, and a critical demand jumps the queue. Without the rotation a
+   * subsystem that always plans first would always be served first, which is how the shell tier of
+   * the city starved for months.
+   */
+  private grantSubsystems(context: StreamingContext): void {
+    if (this.subsystems.length === 0) { this.lastGrants = []; return; }
+    const active = this.subsystems.filter(subsystem => {
+      try { return subsystem.covers(context); } catch { return false; }
+    });
+    if (active.length === 0) { this.lastGrants = []; return; }
+
+    /**
+     * The budget is divided once, before anybody is called.
+     *
+     * Re-reading the clock between calls looks more adaptive and is a bug: whoever goes first
+     * benefits from a fresher clock, and one subsystem that overruns -- or merely throws, since
+     * logging the failure is itself slow -- leaves nothing for everyone after it. Measured
+     * exactly that way: a subsystem that threw took the whole frame and the next one was granted
+     * zero. Dividing up front makes a grant independent of what the others did with theirs.
+     */
+    const remainingMs = Math.max(0, context.budget.mainThreadMs - this.ledger.elapsedMs);
+    const share = remainingMs / active.length;
+    // Critical work first, then everyone else starting from wherever the rotation left off, so
+    // that no subsystem is permanently the one served last.
+    const ordered = [...active].sort((a, b) => Number(this.isCritical(b, context)) - Number(this.isCritical(a, context)));
+    const start = this.grantCursor % ordered.length;
+    const grants: ManagedStats[] = [];
+    for (let i = 0; i < ordered.length; i++) {
+      const subsystem = ordered[(start + i) % ordered.length];
+      // The last in the rotation takes the rounding, so the frame is not left partly unspent.
+      const grant = i === ordered.length - 1 ? remainingMs - share * (ordered.length - 1) : share;
+      if (grant > 0) {
+        try { subsystem.advance(grant); } catch (error) { console.error(`Subsystem "${subsystem.id}" failed`, error); }
+      }
+      try { grants.push({ ...subsystem.stats(), grantedMs: grant }); } catch { /* telemetry is optional */ }
+    }
+    this.grantCursor = (this.grantCursor + 1) % ordered.length;
+    this.lastGrants = grants;
+  }
+
+  private isCritical(subsystem: ManagedSubsystem, context: StreamingContext): boolean {
+    try { return subsystem.plan(context).some(demand => demand.critical); } catch { return false; }
   }
 
   /** Gathers every provider's plan, deduplicating by key and keeping the highest priority claim. */

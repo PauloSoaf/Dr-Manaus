@@ -39,6 +39,7 @@ import { EarthProvider } from '../world/providers/EarthProvider';
 
 import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 import { TravelDomain } from '../world/travel/TravelDomain';
+import { ManausSubsystem } from '../world/providers/ManausSubsystem';
 import { WGS84 } from '../world/spatial/WGS84';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
@@ -80,6 +81,9 @@ export class Game {
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
     this.flatTerrain=createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
     this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);this.hlod.setDestructionSource(this.streamer);
+    // The city spends the global budget rather than a private one, so Manaus and the planet stop
+    // each calling themselves within a 4 ms limit while together taking eight. See ManausSubsystem.
+    if(FEATURES.spatialCore)this.universe.scheduler.registerSubsystem(new ManausSubsystem(this.realCity));
     this.streamer.setReplacesChunk((cx, cz) => this.realCity.coversChunk(cx, cz));
     // Behind its flag, and a provider rather than a renderer: the scheduler decides when a
     // sector loads, the budget applies, and a sector nobody wants is disposed.
@@ -376,6 +380,7 @@ export class Game {
       'Frame · Ativo':`${t.frame} · corpo ${t.dominantBody}`,
       'Frame · Local / Rebases':`${t.renderLocalM.toFixed(0)} m · ${t.rebases}`,
       'Planeta · Tiles / Stream':`${t.planetTiles} · ${t.streaming.active} ativos, ${t.streaming.fetching} em voo`,
+      'Orçamento · Subsistemas':t.streaming.subsystems.map(x=>`${x.id.split('/').pop()} ${x.grantedMs.toFixed(1)}ms (${x.pending})`).join(' · ')||'—',
       'Domínio':`${this.travelDomain.kind}${this.travelDomain.transition.kind==='refused'?` · recusado (${this.travelDomain.transition.reason})`:''}`,
       ...(this.earth?{'Planeta · Globo':`${this.earth.stats.tiles} tiles · ${this.earth.stats.triangles.toLocaleString()} tri · ${this.earth.stats.visible?'visível':'oculto'}`}:{}),
     };

@@ -446,6 +446,27 @@ export class RealCityLayer {
     for (const tile of this.tiles.values()) if (tile.nearCount) this.schedule(tile);
   }
 
+  /**
+   * How many milliseconds the next `update` may spend building geometry.
+   *
+   * Set by the global scheduler when the city runs as a managed subsystem, so that Manaus and the
+   * planet are spending one budget rather than two that never meet. Left alone, it is the fixed
+   * budget the city has always used.
+   */
+  grantedBuildMs: number = REAL_CITY.buildBudgetMs;
+
+  /** Outstanding build work, in buildings, for whoever is handing out the budget. */
+  get pendingBuildings(): number {
+    let pending = 0;
+    for (const job of this.jobs) pending += Math.max(0, job.list.length - job.index);
+    return pending;
+  }
+
+  /** True while there is ground near the player that has no collision yet. */
+  get awaitingNearGeometry(): boolean {
+    return this.jobs.some(job => job.kind === 'detail' && job.index < job.list.length);
+  }
+
   update(position: Vector3, velocity: Vector3, dt: number): void {
     if (!this.enabled || !this.manifest) return;
     if (this.colliderFocus.distanceToSquared(position) > 32 * 32) { this.colliderFocus.copy(position); this.collidersDirty = true; }
@@ -472,7 +493,7 @@ export class RealCityLayer {
     }
     this.refreshRichness();
     this.classifyCells(position, speed);
-    this.runJobs();
+    this.runJobs(this.grantedBuildMs);
     this.roads?.update(position.x, position.z, speed);
     if (this.roads) this.metrics.roadTriangles = this.roads.triangleCount;
     if (this.collidersDirty || this.roads?.collidersChanged) { this.collidersDirty = false; this.refreshColliders(); }
@@ -649,9 +670,9 @@ export class RealCityLayer {
    * exact failure the comment above `prioritise` was written to prevent, caused by the sort it
    * describes.
    */
-  private runJobs(): void {
+  private runJobs(budgetMs: number = REAL_CITY.buildBudgetMs): void {
     const start = performance.now();
-    const budget = REAL_CITY.buildBudgetMs;
+    const budget = Math.max(0, budgetMs);
     this.pumpJobs(start, budget * REAL_CITY.detailBudgetShare);
     this.pumpJobs(start, budget, 'shell');
   }
