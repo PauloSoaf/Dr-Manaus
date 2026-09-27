@@ -254,19 +254,78 @@ export class UniverseRuntime {
     this.scheduler.invalidate();
   }
 
+  /**
+   * Changes the player's local reference frame to the given body and updates their local coordinates.
+   * Returns the new local coordinates so the PlayerController can be teleported there.
+   */
+  handoffTo(bodyId: string): Vec3 {
+    let targetFrame = MANAUS_FRAME_ID;
+    if (bodyId === 'moon') {
+      // Create a moon frame if it doesn't exist
+      const MOON_FIXED_FRAME_ID = 'moon/fixed';
+      if (!this.frames.has(MOON_FIXED_FRAME_ID)) {
+        const moonBody = this.solarSystem.bodies.find(b => b.id === 'moon');
+        if (moonBody) {
+          this.frames.register(referenceFrame({
+            id: MOON_FIXED_FRAME_ID,
+            parentId: moonBody.frameId ?? SOLAR_SYSTEM_FRAME,
+            kind: 'body-fixed',
+            label: 'Lua (fixo)',
+          }));
+        }
+      }
+      targetFrame = MOON_FIXED_FRAME_ID;
+    } else if (bodyId === 'earth') {
+      targetFrame = MANAUS_FRAME_ID; // Fall back to Manaus for now
+    }
+
+    if (this.playerPose.frame !== targetFrame && this.frames.has(targetFrame)) {
+      const newPos = this.frames.convertPosition(this.playerPose.frame, targetFrame, this.playerPose.position);
+      this.playerPose.frame = targetFrame;
+      this.playerPose.position[0] = newPos[0];
+      this.playerPose.position[1] = newPos[1];
+      this.playerPose.position[2] = newPos[2];
+      
+      this.floatingOrigin.reset(this.playerPose);
+      this.scheduler.invalidate();
+    }
+    
+    return [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
+  }
+
   get telemetry(): UniverseTelemetry {
     const geodetic = this.playerGeodetic();
     const local = this.floatingOrigin.localDistance(this.playerPose.position);
+    
+    // Find player's position in the solar system to determine dominant body
+    let playerSystemPos = this.activeSystem.positionOf('earth') ?? [0, 0, 0];
+    if (this.frames.has(SOLAR_SYSTEM_FRAME)) {
+      playerSystemPos = this.frames.convertPosition(this.playerPose.frame, SOLAR_SYSTEM_FRAME, this.playerPose.position);
+    }
+    const dominantBody = this.activeSystem.dominantBody(playerSystemPos)?.id ?? 'earth';
+
+    // Altitude relative to dominant body (fallback to earth geodetic if earth)
+    let altitudeM = geodetic.heightM;
+    if (dominantBody !== 'earth') {
+      const bodyPos = this.activeSystem.positionOf(dominantBody);
+      const body = this.activeSystem.bodies.find(b => b.id === dominantBody);
+      if (bodyPos && body) {
+        const dx = playerSystemPos[0] - bodyPos[0];
+        const dy = playerSystemPos[1] - bodyPos[1];
+        const dz = playerSystemPos[2] - bodyPos[2];
+        const dist = Math.hypot(dx, dy, dz);
+        altitudeM = dist - body.radiusM;
+      }
+    }
+
     return {
       frame: this.playerPose.frame,
       latDeg: radToDeg(geodetic.latRad),
       lonDeg: radToDeg(geodetic.lonRad),
-      altitudeM: geodetic.heightM,
+      altitudeM,
       renderLocalM: local,
       rebases: this.floatingOrigin.rebaseCount,
-      dominantBody: this.activeSystem.dominantBody(
-        this.activeSystem.positionOf('earth') ?? [0, 0, 0]
-      )?.id ?? 'none',
+      dominantBody,
       planetTiles: this.planetTiles,
       streaming: this.scheduler.stats,
     };

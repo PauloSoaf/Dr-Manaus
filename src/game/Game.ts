@@ -187,6 +187,19 @@ export class Game {
     const dt=Math.min(.06,rawDt),worldDt=dt*(this.powers.temporal?.14:1);
     this.mark=performance.now();
     this.updateTravelDomain(dt);
+    const transition = this.travelDomain.transition;
+    if (transition.kind === 'returned') {
+      const targetBody = this.universe.telemetry.dominantBody;
+      if (this.universe.telemetry.frame !== 'moon/fixed' && targetBody === 'moon') {
+        const newLocalPos = this.universe.handoffTo('moon');
+        this.player.teleport(new import('three/webgpu').Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
+        this.hud.notify(`Órbita de interceptação · Lua`);
+      } else if (this.universe.telemetry.frame !== 'earth/fixed' && this.universe.telemetry.frame !== 'manaus/local' && targetBody === 'earth') {
+        const newLocalPos = this.universe.handoffTo('earth');
+        this.player.teleport(new import('three/webgpu').Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
+        this.hud.notify(`Reentrada · Terra`);
+      }
+    }
     const local=this.travelDomain.localPhysicsActive;
     this.realCity.update(this.player.position,this.player.velocity,dt);this.lap('realCity');
     // Out here a frame covers thirteen kilometres, so a collider is not something to hit, it is
@@ -220,7 +233,7 @@ export class Game {
       this.rendering.domains.setRange(this.universe.telemetry.altitudeM+6_378_137);
       // The globe is lit from where the Sun actually is, not from the local sky's dusk.
       const sun=this.universe.activeSystem.positionOf('sun') ?? [0,0,0],earthAt=this.universe.activeSystem.positionOf('earth') ?? [0,0,0];
-      if(sun&&earthAt)this.earth.setSunDirection([sun[0]-earthAt[0],sun[1]-earthAt[1],sun[2]-earthAt[2]],'solar-system/barycentric');
+      if(sun&&earthAt)this.earth.setSunDirection([sun[0]-earthAt[0],sun[1]-earthAt[1],sun[2]-earthAt[2]],'solar-system/barycentric',this.universe.telemetry.frame);
     }
     if(this.moon){
       // Where the Moon actually is, from the ephemeris, relative to the Earth. Not a fixed point
@@ -228,8 +241,8 @@ export class Game {
       const system=this.universe.activeSystem;
       const moonAt=system.positionOf('moon'),earthCentre=system.positionOf('earth'),sunAt=system.positionOf('sun');
       if(moonAt&&earthCentre){
-        this.moon.setCentre([moonAt[0]-earthCentre[0],moonAt[1]-earthCentre[1],moonAt[2]-earthCentre[2]],'earth/fixed');
-        if(sunAt)this.moon.setSunDirection([sunAt[0]-moonAt[0],sunAt[1]-moonAt[1],sunAt[2]-moonAt[2]],'solar-system/barycentric');
+        this.moon.setCentre([moonAt[0]-earthCentre[0],moonAt[1]-earthCentre[1],moonAt[2]-earthCentre[2]],'earth/fixed',this.universe.telemetry.frame);
+        if(sunAt)this.moon.setSunDirection([sunAt[0]-moonAt[0],sunAt[1]-moonAt[1],sunAt[2]-moonAt[2]],'solar-system/barycentric',this.universe.telemetry.frame);
       }
     }
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
@@ -376,13 +389,14 @@ export class Game {
       const dx=collider.x-this.player.position.x,dy=(collider.y??0)-this.player.position.y,dz=collider.z-this.player.position.z;
       nearest=Math.min(nearest,Math.hypot(dx,dy,dz));
     }
+    const t=this.universe.telemetry;
     this.travelDomain.update({
-      altitudeM:this.player.position.y,
+      altitudeM:t.altitudeM,
       speedMps:this.player.velocity.length(),
       requested:this.player.speedMode==='interplanetary',
       nearestColliderM:nearest,
-      bodyRadiusM:WGS84.semiMajorAxisM,
-      bodyId:'earth',
+      bodyRadiusM:this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody)?.radiusM ?? WGS84.semiMajorAxisM,
+      bodyId:t.dominantBody,
       systemId:'sol',
     },dt);
   }

@@ -16,7 +16,7 @@ const context = (position: Vec3, altitudeM: number): StreamingContext => ({
   spatial: {
     timeS: 0,
     player: pose('earth/manaus/legacy-enu', position),
-    frame: activeFrame(referenceFrame({ id: 'x', kind: 'render-local' }), pose('x')),
+    frame: activeFrame(referenceFrame({ id: 'earth/manaus/legacy-enu', kind: 'render-local' }), pose('earth/manaus/legacy-enu')),
     localVelocityMps: [0, 0, 0],
     altitudeM,
     bodyId: 'earth',
@@ -101,7 +101,7 @@ test('the Moon is a light in the sky until the player is a long way from Earth',
   const parent = new Group();
   const moon = new MoonProvider(parent, runtime.frames, { minAltitudeM: 400_000, maxRangeM: 4_000_000 });
   try {
-    moon.setCentre([0, 384_400_000, 0], 'earth/fixed');
+    moon.setCentre([0, 384_400_000, 0], 'earth/fixed', 'earth/manaus/legacy-enu');
     // On the ground: no surface, whatever the distance says.
     assert.equal(moon.covers(context([0, 100, 0], 100).spatial), false);
     // High above the Earth but still four hundred thousand kilometres from the Moon.
@@ -120,7 +120,7 @@ test('close to the Moon it becomes a surface, and the surface streams', async ()
   });
   try {
     const centre: Vec3 = [0, 20_000_000, 0];
-    moon.setCentre(centre, 'earth/manaus/legacy-enu');
+    moon.setCentre(centre, 'earth/manaus/legacy-enu', 'earth/manaus/legacy-enu');
     // A hundred kilometres above the surface, on the near side.
     const player: Vec3 = [0, centre[1] - MOON_RADIUS_M - 100_000, 0];
     const ctx = context(player, 20_000_000);

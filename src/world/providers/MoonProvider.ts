@@ -88,6 +88,7 @@ export class MoonProvider implements WorldProvider {
    * a place.
    */
   covers(context: SpatialContext): boolean {
+    this.playerFrameId = context.frame.id;
     const altitudeM = finite(context.altitudeM);
     const player = context.player.position;
     this.distanceM = Math.hypot(
@@ -99,14 +100,14 @@ export class MoonProvider implements WorldProvider {
   }
 
   /** Where the Moon is, from the ephemeris, in the scene's metres. Called by whoever has one. */
-  setCentre(moonRelativeToEarthM: Vec3, systemFrameId: string): void {
-    this.centreM = this.frames.convertPosition(systemFrameId, MANAUS_FRAME_ID, moonRelativeToEarthM);
+  setCentre(moonRelativeToEarthM: Vec3, systemFrameId: string, targetFrameId: string): void {
+    this.centreM = this.frames.convertPosition(systemFrameId, targetFrameId, moonRelativeToEarthM);
     this.globe.setCentre(this.centreM);
     this.globe.setOrientation(this.bodyToScene());
   }
 
-  setSunDirection(moonToSunInSystem: Vec3, systemFrameId: string): void {
-    this.globe.setSunDirection(this.frames.convertDirection(systemFrameId, MANAUS_FRAME_ID, moonToSunInSystem));
+  setSunDirection(moonToSunInSystem: Vec3, systemFrameId: string, targetFrameId: string): void {
+    this.globe.setSunDirection(this.frames.convertDirection(systemFrameId, targetFrameId, moonToSunInSystem));
   }
 
   plan(context: StreamingContext): readonly TileDemand[] {
@@ -185,6 +186,8 @@ export class MoonProvider implements WorldProvider {
 
   dispose(): void { this.globe.dispose(); }
 
+  private playerFrameId = MANAUS_FRAME_ID;
+
   /**
    * The rotation carrying the Moon's fixed axes into the scene's.
    *
@@ -197,17 +200,21 @@ export class MoonProvider implements WorldProvider {
    * without it lies flat at an arbitrary angle -- the same failure the Earth's tiles had.
    */
   private bodyToScene(): Quat {
-    this.sceneRotation ??= this.frames.convertOrientation(
-      EARTH_FIXED_FRAME_ID, MANAUS_FRAME_ID, cloneQuat(IDENTITY_QUAT),
-    );
+    if (!this.sceneRotation || this.sceneRotationFrame !== this.playerFrameId) {
+      this.sceneRotation = this.frames.convertOrientation(
+        EARTH_FIXED_FRAME_ID, this.playerFrameId, cloneQuat(IDENTITY_QUAT),
+      );
+      this.sceneRotationFrame = this.playerFrameId;
+    }
     return this.sceneRotation;
   }
 
   private sceneRotation?: Quat;
+  private sceneRotationFrame?: string;
 
   /** The observer relative to the Moon's centre, as the quadtree's ECEF-shaped input. */
   private toMoonEcef(observer: Vec3): EcefPosition {
-    const inverse = this.frames.convertDirection(MANAUS_FRAME_ID, EARTH_FIXED_FRAME_ID, observer);
+    const inverse = this.frames.convertDirection(this.playerFrameId, EARTH_FIXED_FRAME_ID, observer);
     return ecef(inverse[0], inverse[1], inverse[2]);
   }
 

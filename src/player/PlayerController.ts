@@ -319,10 +319,7 @@ export class PlayerController {
      * an unbounded `position.y` is not freedom, it is the point at which a coordinate stops being
      * representable — and every system downstream takes it at face value.
      */
-    if (this.position.y >= SPACE.maxAltitude) {
-      this.position.y = SPACE.maxAltitude;
-      this.velocity.y = Math.min(0, this.velocity.y);
-    }
+    // The altitude ceiling was removed here as part of Sprint H5 step 7.
 
     // Model facing rotation
     if (flying && this.velocity.lengthSq() > 2) {

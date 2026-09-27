@@ -116,15 +116,18 @@ export class EarthProvider implements WorldProvider {
    * Aims the globe's sun. Takes the Earth-to-Sun direction in the solar system frame and turns it
    * into scene axes, so the lit hemisphere is the one genuinely facing the Sun.
    */
-  setSunDirection(earthToSunInSystem: Vec3, systemFrameId: string): void {
-    const inScene = this.frames.convertDirection(systemFrameId, MANAUS_FRAME_ID, earthToSunInSystem);
+  setSunDirection(earthToSunInSystem: Vec3, systemFrameId: string, targetFrameId: string): void {
+    const inScene = this.frames.convertDirection(systemFrameId, targetFrameId, earthToSunInSystem);
     this.globe.setSunDirection(inScene);
   }
 
   covers(context: SpatialContext): boolean {
-    const geodetic = legacyLocalToGeodetic(
-      context.player.position[0], context.player.position[1], context.player.position[2],
-    );
+    this.playerFrameId = context.frame.id;
+    let local = context.player.position;
+    if (context.frame.id !== MANAUS_FRAME_ID) {
+      local = this.frames.convertPosition(context.frame.id, MANAUS_FRAME_ID, local);
+    }
+    const geodetic = legacyLocalToGeodetic(local[0], local[1], local[2]);
     this.altitudeM = geodetic.heightM;
     const above = this.altitudeM - this.options.minAltitudeM;
     this.opacity = Math.min(1, Math.max(0, above / this.options.fadeM));
@@ -246,6 +249,8 @@ export class EarthProvider implements WorldProvider {
     return { kind: 'planet', bodyId: address.bodyId, face: address.face, level: address.level, x: address.x, y: address.y };
   }
 
+  private playerFrameId = MANAUS_FRAME_ID;
+
   private addressFor(key: WorldTileKey): PlanetTileAddress | undefined {
     return key.kind === 'planet'
       ? { bodyId: key.bodyId, face: key.face as PlanetTileAddress['face'], level: key.level, x: key.x, y: key.y }
@@ -253,28 +258,35 @@ export class EarthProvider implements WorldProvider {
   }
 
   private playerEcef(local: Vec3): EcefPosition {
-    return geodeticToEcef(legacyLocalToGeodetic(local[0], local[1], local[2]));
+    let manausLocal = local;
+    if (this.playerFrameId !== MANAUS_FRAME_ID) {
+      manausLocal = this.frames.convertPosition(this.playerFrameId, MANAUS_FRAME_ID, local);
+    }
+    return geodeticToEcef(legacyLocalToGeodetic(manausLocal[0], manausLocal[1], manausLocal[2]));
   }
 
-  /** Earth-fixed metres into the scene's own Manaus metres, through the frame graph. */
+  /** Earth-fixed metres into the scene's own metres, through the frame graph. */
   private toSceneMetres(position: EcefPosition): Vec3 {
     return this.frames.convertPosition(
-      EARTH_FIXED_FRAME_ID, MANAUS_FRAME_ID, [position.xM, position.yM, position.zM],
+      EARTH_FIXED_FRAME_ID, this.playerFrameId, [position.xM, position.yM, position.zM],
     );
   }
 
   /**
-   * The rotation carrying Earth-fixed axes into the scene's. Constant while the city is the
-   * active frame, and cached because every tile needs the same one.
+   * The rotation carrying Earth-fixed axes into the scene's. Cached per active frame.
    */
   private bodyToScene(): Quat {
-    this.sceneRotation ??= this.frames.convertOrientation(
-      EARTH_FIXED_FRAME_ID, MANAUS_FRAME_ID, cloneQuat(IDENTITY_QUAT),
-    );
+    if (!this.sceneRotation || this.sceneRotationFrame !== this.playerFrameId) {
+      this.sceneRotation = this.frames.convertOrientation(
+        EARTH_FIXED_FRAME_ID, this.playerFrameId, cloneQuat(IDENTITY_QUAT),
+      );
+      this.sceneRotationFrame = this.playerFrameId;
+    }
     return this.sceneRotation;
   }
 
   private sceneRotation?: Quat;
+  private sceneRotationFrame?: string;
 
   private cachedPlan?: {
     readonly demands: readonly TileDemand[];
