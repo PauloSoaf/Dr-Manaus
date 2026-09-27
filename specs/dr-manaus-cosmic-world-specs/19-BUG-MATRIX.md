@@ -56,14 +56,16 @@ Gate do Sprint H0: build verde, 250 testes verdes, 0 skipped.
   reamostrado offline para 512x256 (341 KB). Tiles vizinhos amostram a mesma coordenada, então as
   bordas coincidem sem tratamento de seam. Relevo real não aparece em silhueta — 0,2% do raio — e
   por isso a *inclinação* é exagerada só para o sombreamento, com a superfície na altura correta.
-- **P1-03 / P1-04**  virou , um : scheduler
-  decide, budget vale, setor sem demanda é descartado e a geometria é liberada. Setor vem do
-  endereço cósmico, não de metros de Manaus. Atrás de .
+- **P1-03 / P1-04** `UniverseRenderer` virou `StarSectorProvider`, um `WorldProvider`: o scheduler
+  decide, o budget vale, setor sem demanda é desativado e a geometria é liberada. O setor vem do
+  endereço cósmico, não de metros de Manaus. Atrás de `FEATURES.galaxyTravel`.
 - **P1-06** elementos orbitais gravados no corpo na geração e lidos pelo runtime. Antes o runtime
   re-derivava com o mesmo seed mas outra sequência de saques, então a órbita dada e a desenhada
-  não tinham relação — e o que falhava caía em [0,0,0].
-- **P1-07**  removido dos dois lados.
-- Origem de render passou a rebasear Y também. Era o motivo de a skin quebrar em altitude: a
-   100 000 km o personagem era esfolado a 1e8 em float32.
+  não tinham relação — e o que falhava caía em `[0,0,0]`.
+- **P1-07** `sceneScale` removido dos dois lados: do `CameraController`, que o aceitava e que
+  multiplicava `camera.near` com ele, e do `UniverseRuntime`, que o calculava sem leitor.
+- A origem de render passou a rebasear Y também. Era o motivo de a skin quebrar em altitude: a
+  100 000 km o personagem era esfolado a 1e8 em float32, onde um ulp vale oito metros.
 
-Falta: P0-04 (TravelDomain, Sprint H5), P1-08 (persistência), P2-02, Sprint H2 (ManausProvider).
+Falta: P0-04 (`TravelDomain`, Sprint H5), P1-08 (persistência), P2-02, Sprint H2
+(`ManausProvider`).
