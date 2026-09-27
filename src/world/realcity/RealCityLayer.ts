@@ -15,6 +15,7 @@ import {
   appendNearBuilding, appendShellBuilding, buildingExtent, createBuffers, districtCharacter, setDistrictSampler,
   type MeshBuffers, type RealBuilding,
 } from './buildingGeometry';
+import { createSurfaceTileFrame } from '../spatial/SurfaceTileFrame';
 
 interface PackedTile { key: string; tx: number; tz: number; buildings: RealBuilding[] }
 interface RuinedBuilding { bounds: Collider; tile: string; blocks: number[] }
@@ -558,9 +559,13 @@ export class RealCityLayer {
       }
       const group = new Group();
       group.name = `real-city-tile:${key}`;
-      group.position.set(packed.tx * size, 0, packed.tz * size);
+      const frame = createSurfaceTileFrame('earth', key, packed.tx * size, packed.tz * size);
+      group.matrixAutoUpdate = false;
+      group.matrix.copy(frame.getSceneMatrix());
+      const originX = packed.tx * size;
+      const originZ = packed.tz * size;
       const tile: Tile = {
-        key, tx: packed.tx, tz: packed.tz, originX: group.position.x, originZ: group.position.z,
+        key, tx: packed.tx, tz: packed.tz, originX, originZ,
         cells, bounds, near: new Array(cells.length).fill(false), nearCount: 0,
         group, colliders: [], detailRanges: new Map(), shellRanges: new Map(), touched: performance.now(),
       };

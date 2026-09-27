@@ -5,6 +5,7 @@ import {
 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
+import { createSurfaceTileFrame } from '../spatial/SurfaceTileFrame';
 import { BUILDING_STRIDE, TREE_STRIDE, type ChunkPayload } from './Chunk';
 
 function facadeAtlas(): { color: CanvasTexture; light: CanvasTexture } {
@@ -64,7 +65,10 @@ export class ChunkMeshes {
 
   create(payload: ChunkPayload): { group: Group; colliders: Collider[]; bytes: number } {
     const group = new Group(); group.name = `chunk:${payload.key}`;
-    group.position.set(payload.cx * WORLD.chunkSize, 0, payload.cz * WORLD.chunkSize);
+    const frame = createSurfaceTileFrame('earth', payload.key, payload.cx * WORLD.chunkSize, payload.cz * WORLD.chunkSize);
+    group.matrixAutoUpdate = false;
+    group.matrix.copy(frame.getSceneMatrix());
+
     const buildings = payload.buildings, trees = payload.trees;
     const count = buildings.length / BUILDING_STRIDE, treeCount = trees.length / TREE_STRIDE;
     const colliders: Collider[] = [];
@@ -80,7 +84,8 @@ export class ChunkMeshes {
       const sidewalk = make(this.box, this.pavement, count, 'sidewalks');
       for (let i = 0; i < count; i++) {
         const p = i * BUILDING_STRIDE;
-        const x = buildings[p] - group.position.x, z = buildings[p + 1] - group.position.z;
+        const local = frame.legacyToLocal(buildings[p], 0, buildings[p + 1]);
+        const x = local[0], z = local[2];
         const w = buildings[p + 2], h = buildings[p + 3], d = buildings[p + 4], roof = buildings[p + 8];
         this.set(walls, i, x, h * .5 + .25, z, w, h, d);
         walls.setColorAt(i, this.color.setRGB(buildings[p + 5], buildings[p + 6], buildings[p + 7]));
@@ -100,7 +105,8 @@ export class ChunkMeshes {
       let leafCount = 0;
       for (let i = 0; i < treeCount; i++) {
         const p = i * TREE_STRIDE;
-        const x = trees[p] - group.position.x, z = trees[p + 1] - group.position.z;
+        const local = frame.legacyToLocal(trees[p], 0, trees[p + 1]);
+        const x = local[0], z = local[2];
         const h = trees[p + 2], radius = trees[p + 3], palm = trees[p + 4] > .5;
         canopyStart[i] = leafCount;
         this.set(trunks, i, x, h * .5, z, palm ? .3 : .5, h, palm ? .3 : .5);
