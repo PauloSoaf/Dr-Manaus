@@ -304,6 +304,21 @@ export class EarthGlobe {
     return { tiles: this.meshes.size, triangles: this.triangles, visible: this.group.visible };
   }
 
+  hasLevel(requiredLod: number): boolean {
+    for (const key of this.meshes.keys()) {
+      // Key format: 'earth:0,1,0,0' -> 'bodyId:face,level,x,y'
+      const parts = key.split(':');
+      if (parts.length > 1) {
+        const coords = parts[1].split(',');
+        if (coords.length > 1) {
+          const level = parseInt(coords[1], 10);
+          if (level >= requiredLod) return true;
+        }
+      }
+    }
+    return false;
+  }
+
   set visible(visible: boolean) { this.group.visible = visible; }
   get visible(): boolean { return this.group.visible; }
 

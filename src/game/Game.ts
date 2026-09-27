@@ -36,6 +36,7 @@ import { AudioManager } from '../audio/AudioManager';
 import { HUD } from '../ui/HUD';
 import { UniverseRuntime } from '../world/runtime/UniverseRuntime';
 import { EarthProvider } from '../world/providers/EarthProvider';
+import { EarthTransitionController } from '../world/providers/EarthTransitionController';
 
 import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 import { TravelDomain } from '../world/travel/TravelDomain';
@@ -61,6 +62,7 @@ export class Game {
   /** Present only while `FEATURES.earthGlobe` is on. The runtime itself never touches the scene. */
   readonly earth?:EarthProvider;
   readonly moon?:MoonProvider;
+  readonly earthTransition = new EarthTransitionController();
   /** The generalized flat backdrop. It stands down once the globe becomes the ground. */
   private readonly flatTerrain:import('three/webgpu').Group;
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
@@ -192,11 +194,11 @@ export class Game {
       const targetBody = this.universe.telemetry.dominantBody;
       if (this.universe.telemetry.frame !== 'moon/fixed' && targetBody === 'moon') {
         const newLocalPos = this.universe.handoffTo('moon');
-        this.player.teleport(new import('three/webgpu').Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
+        this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
         this.hud.notify(`Órbita de interceptação · Lua`);
       } else if (this.universe.telemetry.frame !== 'earth/fixed' && this.universe.telemetry.frame !== 'manaus/local' && targetBody === 'earth') {
         const newLocalPos = this.universe.handoffTo('earth');
-        this.player.teleport(new import('three/webgpu').Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
+        this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
         this.hud.notify(`Reentrada · Terra`);
       }
     }
@@ -221,7 +223,10 @@ export class Game {
       // around the player in the local pass, so from orbit it paints straight over the planet the
       // far pass just drew. A planet-aware shell replaces it; until then it stands down with the
       // flat ground it belongs to.
-      const localGround=!this.earth.globe.visible;
+      const state = this.earthTransition.update(this.universe.telemetry.altitudeM, this.earth);
+      // Wait until target coverage is ready before hiding the local ground
+      // localWeight will be 1 until target is ready, but when ready it drops to 0 at high altitude.
+      const localGround = state.localWeight > 0.01;
       this.flatTerrain.visible=localGround;
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
       // later in the frame, so a `visible` flag written here is gone by the time anything is
@@ -395,7 +400,7 @@ export class Game {
       speedMps:this.player.velocity.length(),
       requested:this.player.speedMode==='interplanetary',
       nearestColliderM:nearest,
-      bodyRadiusM:this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody)?.radiusM ?? WGS84.semiMajorAxisM,
+      bodyRadiusM:this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody)?.equatorialRadiusM ?? WGS84.semiMajorAxisM,
       bodyId:t.dominantBody,
       systemId:'sol',
     },dt);

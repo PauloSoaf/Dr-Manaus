@@ -314,7 +314,7 @@ export class UniverseRuntime {
         const dy = playerSystemPos[1] - bodyPos[1];
         const dz = playerSystemPos[2] - bodyPos[2];
         const dist = Math.hypot(dx, dy, dz);
-        altitudeM = dist - body.radiusM;
+        altitudeM = dist - body.equatorialRadiusM;
       }
     }
 

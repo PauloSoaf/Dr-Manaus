@@ -137,6 +137,17 @@ export class EarthProvider implements WorldProvider {
   }
 
   /**
+   * Checks if the required representation is already loaded and active.
+   * A crossfader uses this to wait before retiring the local representation.
+   */
+  isCoverageReady(requiredLod: number): boolean {
+    // If the quadtree hasn't produced tiles at the required level, or they are not in the globe:
+    // Actually, checking if there's any tile of `level >= requiredLod` in `this.globe.stats.tiles`.
+    // We can iterate the meshes keys. But we need access to the keys.
+    return this.globe.hasLevel(requiredLod);
+  }
+
+  /**
    * What the globe would like loaded.
    *
    * The selection is memoised. It is a function of where the camera is and how much error the
