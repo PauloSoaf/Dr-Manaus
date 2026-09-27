@@ -47,70 +47,70 @@ Only after verified:
 FEATURES.curvedManaus = true
 ```
 
-## N4 Travel authority and zero-g
+## N4 Travel authority and zero-g (DONE)
 
-- PlayerController local-only;
-- InterplanetaryController;
-- inertial movement;
-- GravityField;
-- body handoff.
+- [x] PlayerController local-only;
+- [x] InterplanetaryController;
+- [x] inertial movement;
+- [x] GravityField;
+- [x] body handoff.
 
-## N5 Solar vertical slice
+## N5 Solar vertical slice (DONE)
 
-- Moon landing;
-- return Earth;
-- Mars;
-- visual profiles;
-- rings;
-- gas giants;
-- Sun.
+- [x] Moon landing;
+- [x] return Earth;
+- [x] Mars;
+- [x] visual profiles;
+- [x] rings;
+- [x] gas giants;
+- [x] Sun.
 
-## N6 Milky Way
+## N6 Milky Way (DONE)
 
-- GalaxyDefinition;
-- density field;
-- bar/arms/dust;
-- Sgr A*;
-- galaxy LOD.
+- [x] GalaxyDefinition;
+- [x] density field;
+- [x] bar/arms/dust;
+- [x] Sgr A*;
+- [x] galaxy LOD.
 
-## N7 Black holes
+## N7 Black holes (DONE)
 
-- BlackHoleDefinition;
-- gravity;
-- horizon;
-- accretion;
-- TSL lens;
-- budgets.
+- [x] BlackHoleDefinition;
+- [x] gravity;
+- [x] horizon;
+- [x] accretion;
+- [x] TSL lens;
+- [x] budgets.
 
-## N8 Andromeda and Local Group
+## N8 Andromeda and Local Group (DONE)
 
-- M31;
-- M33;
-- satellites;
-- galaxy handoff.
+- [x] M31;
+- [x] M33;
+- [x] satellites;
+- [x] galaxy handoff.
 
-## N9 Cosmic web
+## N9 Cosmic web (DONE)
 
-- Mpc cells;
-- clusters;
-- Great Attractor region;
-- LSS renderer.
+- [x] Mpc cells;
+- [x] clusters;
+- [x] Great Attractor region;
+- [x] LSS renderer.
 
-## N10 Horizon
+## N10 Horizon (DONE)
 
-- CosmologyDomain;
-- Gpc addressing;
-- horizon/CMB representation.
+- [x] CosmologyDomain;
+- [x] Gpc addressing;
+- [x] horizon/CMB representation.
 
-## N11 Hardening
+## N11 Hardening (DONE)
 
-- profiling;
-- memory;
-- cache;
-- WebGPU;
-- fallback;
-- long travel;
-- docs.
+- [x] profiling;
+- [x] memory;
+- [x] cache;
+- [x] WebGPU;
+- [x] fallback;
+- [x] long travel;
+- [x] docs.
 
 ## Gate per stage
 

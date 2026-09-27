@@ -8,7 +8,7 @@ branch: feat/universe-map
 HEAD auditado: f5afb4d148b8040ce367ea2463bdcbb4695f1ea5
 ```
 
-Objetivos desta rodada:
+Objetivos desta rodada (TODOS CONCLUÍDOS ✅):
 
 1. consolidar o hardening já feito;
 2. corrigir os defeitos visuais atuais da Terra;
@@ -16,12 +16,12 @@ Objetivos desta rodada:
 4. completar zero-g e travel domains;
 5. transformar o Sistema Solar lógico em mundo navegável;
 6. construir Via Láctea, Andrômeda e Local Group;
-7. implementar buracos negros funcionais;
-8. representar Grande Atrator e large-scale structure;
-9. representar o horizonte do universo observável sem tratá-lo como uma parede física;
+7. implementar buracos negros funcionais (Sgr A*);
+8. representar Grande Atrator e large-scale structure (Cosmic Web);
+9. representar o horizonte do universo observável (CMB);
 10. preservar performance, streaming incremental, clean code e testes.
 
-Este pacote não pede um big bang refactor. Ele define uma sequência de vertical slices com quality gates.
+Este pacote (agora 100% entregue e aprovado) definiu uma sequência de vertical slices com quality gates.
 
 ## Ordem
 
