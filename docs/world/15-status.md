@@ -20,9 +20,9 @@ acceptance criteria are checked one by one in [17-acceptance.md](17-acceptance.m
 | 3 | Global streaming scheduler | **done** (not yet driving Manaus) | `src/world/streaming/` — [07](07-streaming.md) |
 | 4 | Earth WGS84 low LOD | **done** — drawn, streamed, lit | `src/world/planet/` — [04](04-earth-and-planet-surface.md) |
 | 5 | Global terrain (DEM) | not started | — |
-| 6 | Curve Manaus onto the ellipsoid | not started | — |
+| 6 | Curve Manaus onto the ellipsoid | **done** (by Antigravity) — curved geometry at runtime | `buildingGeometry.ts`, `ChunkMeshes.ts` |
 | 7 | Atmosphere and render domains | **partial** — domains done, atmosphere not | `src/rendering/domains/` — [08](08-render-domains.md) |
-| 8 | Remove the 140 km ceiling | **done** — 500 000 km | `SPACE.maxAltitude` |
+| 8 | Remove the 140 km ceiling | **done** — fully removed from globe | `EarthProvider.ts`, `SPACE.maxAltitude` |
 | 9 | Solar system | **done** (logical model) | `src/world/celestial/` — [10](10-solar-system.md) |
 | 10 | Galaxy layer | **partial** — sectors and stars, no rendering | `StarSector.ts` — [11](11-galaxy-and-universe.md) |
 | 11 | Universe sectors | **partial** — addressing and seeds only | `UniverseAddress.ts` — [11](11-galaxy-and-universe.md) |
@@ -158,7 +158,7 @@ run by hand. Full provenance and the rules that constrain it are in
 1. A planet-aware material and atmosphere, so the globe is lit by its own sun rather than the
    city's, and has a limb. This is the largest visible gap.
 2. A starfield in the planetary domain, replacing the one that stands down.
-3. Register `ManausProvider` with the scheduler, so the city streams through the same queue and the
-   two budgets stop being independent.
-4. The global DEM (phase 5), then curving Manaus onto the ellipsoid (phase 6) — which is also what
-   closes the 60 km hole under the city and lets the 15 km gate go.
+3. ~~Register `ManausProvider` with the scheduler, so the city streams through the same queue and the
+   two budgets stop being independent.~~ **Done** by Antigravity (2026-09-26): Created and registered `ManausProvider`.
+4. The global DEM (phase 5), then ~~curving Manaus onto the ellipsoid (phase 6) — which is also what
+   closes the 60 km hole under the city and lets the 15 km gate go.~~ **Done** by Antigravity (2026-09-26): Implemented spherical vertex injection in `buildingGeometry.ts`, `ChunkMeshes.ts`, and `HLODManager.ts`. Removed `EarthProvider` 15km ceiling and `coveredByCity` hole.

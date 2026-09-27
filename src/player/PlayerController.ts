@@ -7,7 +7,7 @@ import { SPACE, WORLD } from '../core/config';
 import { FLIGHT, type FlightSpeedMode } from './flightConfig';
 
 /** What the arm key has selected. Each tier unlocks the one below it as well. */
-export type ArmedTier = 'none' | 'mega' | 'interplanetary';
+export type ArmedTier = 'none' | 'mega' | 'interplanetary' | 'cosmic';
 import { getDoubleJumpDuration, getJumpHeight, getJumpVelocity, getGravity } from './physics/JumpPhysics';
 import { TitanGroundSupport } from './physics/TitanGroundSupport';
 import type { FlipDirection } from './animations/types';
@@ -120,7 +120,8 @@ export class PlayerController {
   /** True for either armed tier. Interplanetary is mega and then some. */
   get megaMode(): boolean { return this.armedTier !== 'none'; }
   set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
-  get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
+  get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary' || this.armedTier === 'cosmic'; }
+  get cosmicMode(): boolean { return this.armedTier === 'cosmic'; }
 
   /**
    * One press of the arm key.
@@ -134,6 +135,7 @@ export class PlayerController {
     this.lastArmTapS = this.armClockS;
     this.armed = this.armedTier === 'none' ? 'mega'
       : this.armedTier === 'mega' && quick ? 'interplanetary'
+      : this.armedTier === 'interplanetary' && quick ? 'cosmic'
         : 'none';
   }
   toggleMegaMode(): void { this.tapArm(); }
@@ -165,7 +167,7 @@ export class PlayerController {
     this.speedMode = flying
       ? boosting
         ? armedReady
-          ? this.armedTier === 'interplanetary' && inSpace ? 'interplanetary' : 'mega'
+          ? this.armedTier === 'cosmic' && inSpace ? 'cosmic' : (this.armedTier === 'interplanetary' || this.armedTier === 'cosmic') && inSpace ? 'interplanetary' : 'mega'
           : 'super'
         : sprinting ? 'fast' : 'normal'
       : 'ground';
@@ -310,10 +312,8 @@ export class PlayerController {
     // already been zeroed by the sweep, so the arrival speed is the snapshot taken before it.
     if (!wasGrounded && this.grounded) this.registerImpact();
 
-    if (this.position.y >= SPACE.maxAltitude) {
-      this.position.y = SPACE.maxAltitude;
-      this.velocity.y = Math.min(0, this.velocity.y);
-    }
+    // 500 000 km altitude clamp removed for interplanetary flight.
+    // The scene is scaled down instead.
 
     // Model facing rotation
     if (flying && this.velocity.lengthSq() > 2) {

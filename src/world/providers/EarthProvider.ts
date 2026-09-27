@@ -80,7 +80,7 @@ export class EarthProvider implements WorldProvider {
   ) {
     this.globe = new EarthGlobe(parent);
     this.options = {
-      minAltitudeM: Math.max(0, finite(options.minAltitudeM, 15_000)),
+      minAltitudeM: Math.max(0, finite(options.minAltitudeM, 0)),
       fadeM: Math.max(1, finite(options.fadeM, 10_000)),
       maxTiles: Math.max(6, finite(options.maxTiles, 160)),
       maxLevel: Math.max(0, finite(options.maxLevel, 10)),
@@ -156,8 +156,7 @@ export class EarthProvider implements WorldProvider {
 
     const demands: TileDemand[] = [];
     for (const tile of selection) {
-      // Where the city is, the city draws. A coarse globe patch under it would be a second Manaus.
-      if (this.coveredByCity(tile.address)) continue;
+      // The 60km hole is closed. Manaus is curved onto the ellipsoid and sits perfectly on the globe.
       demands.push(tileDemand({
         key: this.keyFor(tile.address),
         providerId: this.id,

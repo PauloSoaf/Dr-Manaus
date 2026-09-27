@@ -67,13 +67,20 @@ export class SolarSystem {
   }
 
   get time(): number { return this.epochS; }
-  get bodies(): readonly CelestialBody[] { return SOLAR_SYSTEM_BODIES; }
+  get bodies(): readonly CelestialBody[] { return this.dynamicBodies; }
+
+  private dynamicBodies: CelestialBody[] = [...SOLAR_SYSTEM_BODIES];
+
+  setSystemBodies(newBodies: readonly CelestialBody[]): void {
+    this.dynamicBodies = [...newBodies];
+    this.update(this.epochS);
+  }
 
   /** Advances to an epoch and recomputes every body. Cheap: it is a few dozen Kepler solves. */
   update(epochS: number): void {
     this.epochS = finite(epochS);
     this.states.clear();
-    for (const body of SOLAR_SYSTEM_BODIES) this.resolve(body);
+    for (const body of this.dynamicBodies) this.resolve(body);
   }
 
   /**
@@ -89,7 +96,7 @@ export class SolarSystem {
     const velocity: Vec3 = sample ? cloneVec3(sample.velocityMps) : [0, 0, 0];
 
     if (body.parentId && body.parentId !== 'sun') {
-      const parent = bodyById(body.parentId);
+      const parent = this.dynamicBodies.find(b => b.id === body.parentId);
       if (parent) {
         const parentState = this.resolve(parent);
         addVec3(local, parentState.positionM, local);

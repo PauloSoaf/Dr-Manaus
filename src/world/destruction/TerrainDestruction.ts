@@ -5,6 +5,7 @@ import {
 } from 'three/webgpu';
 import { bool, positionWorld, texture, uniform } from 'three/tsl';
 import type { TerrainProvider } from '../../physics/PhysicsWorld';
+import { mutationStore } from '../persistence/WorldMutationStore';
 
 export const TERRAIN_DAMAGE = {
   maxStored: 2048, maxActive: 1024, radiusMin: 3, radiusMax: 640, depthMax: 180,
@@ -25,7 +26,7 @@ function finite(value: number, fallback = 0): number { return Number.isFinite(va
 export class TerrainDestruction implements TerrainProvider {
   readonly group = new Group();
   readonly bowl: Mesh;
-  private readonly records: CraterRecord[] = [];
+  private records: CraterRecord[] = [];
   private readonly active: CraterRecord[] = [];
   private readonly heights = new Float32Array(GRID * GRID);
   private readonly pixels = new Uint8Array(GRID * GRID * 4);
@@ -55,6 +56,7 @@ export class TerrainDestruction implements TerrainProvider {
   private triangles = 0;
   private dirty = false;
   private disposed = false;
+  private currentBodyId: string = 'earth';
 
   constructor(root: Group) {
     this.group.name = 'destructible-earth'; root.add(this.group);
@@ -67,6 +69,18 @@ export class TerrainDestruction implements TerrainProvider {
     this.bowl = new Mesh(this.geometry, this.earth); this.bowl.name = 'crater-earth-bowls';
     this.bowl.userData.terrainDestructionBowl = true; this.bowl.receiveShadow = true; this.bowl.visible = false;
     this.group.add(this.bowl);
+    
+    // Load initial state
+    this.records = mutationStore.loadCraters(this.currentBodyId);
+  }
+
+  setBodyId(bodyId: string) {
+    if (this.currentBodyId !== bodyId) {
+      mutationStore.saveCraters(this.currentBodyId, this.records);
+      this.currentBodyId = bodyId;
+      this.records = mutationStore.loadCraters(this.currentBodyId);
+      this.revision++;
+    }
   }
 
   get stats(): { stored: number; active: number; surfaces: number; triangles: number; revision: number; buildMs: number; bytes: number; span:number } {

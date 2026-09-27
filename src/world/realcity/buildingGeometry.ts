@@ -323,7 +323,17 @@ function pushTri(
   if (nx * ref[0] + ny * ref[1] + nz * ref[2] < 0) { p = c; q = b; nx = -nx; ny = -ny; nz = -nz; }
   nx /= length; ny /= length; nz /= length;
   for (const point of [a, p, q]) {
-    buf.position.push(point[0], point[1], point[2]);
+    let px = point[0], py = point[1], pz = point[2];
+    const dist = Math.hypot(px, pz);
+    if (dist > 0) {
+      const theta = dist / 6378137;
+      const drop = 6378137 * (1 - Math.cos(theta));
+      const scale = Math.sin(theta) / theta;
+      px *= scale;
+      pz *= scale;
+      py -= drop;
+    }
+    buf.position.push(px, py, pz);
     buf.normal.push(nx, ny, nz);
     buf.color.push(color[0], color[1], color[2]);
     buf.lit.push(lit);
