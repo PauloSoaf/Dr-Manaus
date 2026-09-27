@@ -22,6 +22,56 @@ export interface CelestialBody {
 
   /** The reference frame this body's fixed frame is registered under. */
   readonly frameId: string;
+
+  /**
+   * Where this body is in its orbit, for bodies that were generated rather than measured.
+   *
+   * The real solar system does not use this: its positions come from published Keplerian elements
+   * with secular rates, in `OfflineEphemeris`. A procedural system has no published anything, so
+   * its generator writes the elements here at the moment it invents the body -- which is the only
+   * moment they are known.
+   *
+   * Leaving them off and re-deriving them later is what this replaces, and it could not work: the
+   * generator and the runtime were both replaying the same seeded stream but consuming different
+   * numbers of values from it, so the orbit a planet was given and the orbit it was drawn in had
+   * nothing to do with each other.
+   */
+  readonly orbit?: OrbitElements;
+}
+
+/**
+ * A circular orbit, which is what a generated system needs and all it needs.
+ *
+ * Deliberately not the full Keplerian set. Eccentricity, inclination and precession are what make
+ * the real planets interesting and are exactly what `OfflineEphemeris` exists to carry; inventing
+ * them for a star nobody has visited would be detail without information. What matters here is
+ * that the same seed puts the same planet in the same place forever.
+ */
+export interface OrbitElements {
+  /** Orbital radius from the parent, metres. */
+  readonly semiMajorAxisM: number;
+  /** Angle at epoch zero, radians. */
+  readonly phaseRad: number;
+  /** Radians per second. Positive is counter-clockwise seen from the north of the orbital plane. */
+  readonly angularRateRadS: number;
+  /** Tilt of the orbital plane, radians. Small, so a system reads as a disc rather than a shell. */
+  readonly inclinationRad: number;
+}
+
+/** Newton's constant, for turning a parent mass and a radius into an orbital rate. */
+export const GRAVITATIONAL_CONSTANT_SI = 6.674_30e-11;
+
+/**
+ * The angular rate of a circular orbit of `radiusM` about `parentMassKg`.
+ *
+ * v = sqrt(GM/r), and the angular rate is v/r. Returns zero rather than infinity for a degenerate
+ * radius, because a body at the centre of its parent should sit still, not divide by zero.
+ */
+export function circularOrbitRateRadS(radiusM: number, parentMassKg: number): number {
+  const radius = finite(radiusM);
+  const mass = finite(parentMassKg);
+  if (!(radius > 0) || !(mass > 0)) return 0;
+  return Math.sqrt((GRAVITATIONAL_CONSTANT_SI * mass) / radius) / radius;
 }
 
 const DEG = Math.PI / 180;

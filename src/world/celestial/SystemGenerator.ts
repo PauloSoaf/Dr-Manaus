@@ -1,4 +1,4 @@
-import { type CelestialBody } from './CelestialBody';
+import { circularOrbitRateRadS, type CelestialBody } from './CelestialBody';
 
 export interface ProceduralSystem {
   readonly starId: string;
@@ -23,13 +23,16 @@ export function generateSystem(starId: string, starSeed: bigint, starMass: numbe
   const planetCount = nextInt(2, 10);
   const bodies: CelestialBody[] = [];
 
-  // Generate the star itself
+  // Generate the star itself. One radius, not two draws: a star drawn with an equatorial radius
+  // from one random and a polar radius from the next is not oblate, it is arbitrary.
+  const starRadiusM = 6.957e8 * Math.max(0.1, nextFloat() * 5);
+  const starMassKg = 1.989e30 * starMass;
   bodies.push({
     id: starId,
     name: starId,
-    equatorialRadiusM: 6.957e8 * Math.max(0.1, nextFloat() * 5),
-    polarRadiusM: 6.957e8 * Math.max(0.1, nextFloat() * 5),
-    massKg: 1.989e30 * starMass,
+    equatorialRadiusM: starRadiusM,
+    polarRadiusM: starRadiusM,
+    massKg: starMassKg,
     rotationPeriodS: 2.14e6,
     frameId: `${starId}-fixed`
   });
@@ -52,7 +55,15 @@ export function generateSystem(starId: string, starSeed: bigint, starMass: numbe
       polarRadiusM: radiusM,
       massKg,
       rotationPeriodS: nextFloat() * 86400 * 2,
-      frameId: `${planetId}-fixed`
+      frameId: `${planetId}-fixed`,
+      // The orbit this planet was just given, recorded where the runtime will find it.
+      orbit: {
+        semiMajorAxisM: currentOrbitM,
+        phaseRad: nextFloat() * Math.PI * 2,
+        angularRateRadS: circularOrbitRateRadS(currentOrbitM, starMassKg),
+        // A few degrees at most: a planetary system is a disc, not a swarm.
+        inclinationRad: (nextFloat() - 0.5) * 0.12,
+      },
     });
 
     // Moons
@@ -69,7 +80,13 @@ export function generateSystem(starId: string, starSeed: bigint, starMass: numbe
         polarRadiusM: moonRadiusM,
         massKg: moonRadiusM * 1e17,
         rotationPeriodS: nextFloat() * 86400 * 5,
-        frameId: `${planetId}_moon_${m}-fixed`
+        frameId: `${planetId}_moon_${m}-fixed`,
+        orbit: {
+          semiMajorAxisM: moonOrbitM,
+          phaseRad: nextFloat() * Math.PI * 2,
+          angularRateRadS: circularOrbitRateRadS(moonOrbitM, massKg),
+          inclinationRad: (nextFloat() - 0.5) * 0.3,
+        },
       });
     }
   }
