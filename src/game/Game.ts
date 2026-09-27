@@ -37,7 +37,7 @@ import { HUD } from '../ui/HUD';
 import { UniverseRuntime } from '../world/runtime/UniverseRuntime';
 import { EarthProvider } from '../world/providers/EarthProvider';
 
-import { UniverseRenderer } from '../world/celestial/UniverseRenderer';
+import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   readonly save=new SaveManager();readonly assets=new AssetManager();readonly rendering:RendererManager;
@@ -51,7 +51,7 @@ export class Game {
    * With `FEATURES.planetStreaming` off it observes and reports without touching the scene.
    */
   readonly universe:UniverseRuntime;
-  readonly universeRenderer:UniverseRenderer;
+  readonly galaxy?:StarSectorProvider;
   /** Present only while `FEATURES.earthGlobe` is on. The runtime itself never touches the scene. */
   readonly earth?:EarthProvider;
   /** The generalized flat backdrop. It stands down once the globe becomes the ground. */
@@ -77,8 +77,9 @@ export class Game {
     this.flatTerrain=createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
     this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);this.hlod.setDestructionSource(this.streamer);
     this.streamer.setReplacesChunk((cx, cz) => this.realCity.coversChunk(cx, cz));
-    this.universeRenderer = new UniverseRenderer(this.universe);
-    this.rendering.scene.add(this.universeRenderer.group);
+    // Behind its flag, and a provider rather than a renderer: the scheduler decides when a
+    // sector loads, the budget applies, and a sector nobody wants is disposed.
+    if(FEATURES.galaxyTravel){this.galaxy=new StarSectorProvider(this.rendering.scene);this.universe.providers.register(this.galaxy);}
     this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
     this.input=new InputController(this.rendering.renderer.domElement);this.player=new PlayerController(this.worldRoot,this.input);this.camera=new CameraController(this.rendering.camera,this.input);
     this.population=new PopulationManager(this.worldRoot);
@@ -238,7 +239,7 @@ export class Game {
     this.player.character.updateCosmicView(this.rendering.camera);
     this.player.character.setCosmicLevel(this.cosmicLevel(),this.player.velocity.length(),this.direction);this.powers.update(dt,worldDt);
     this.playerLocal.copy(this.player.position).sub(this.origin);this.atmosphere.setAltitude(this.player.position.y);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(this.player.position.y,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=this.weather.update(worldDt,this.player.position,this.atmosphere.weather);if(flash)this.atmosphere.sun.intensity+=flash;
-    this.universeRenderer?.update(this.rendering.camera);
+    if(this.galaxy)this.galaxy.recentre([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z]);
     this.audio.update(this.player.velocity.length(),this.player.position.y,['rain','storm'].includes(this.atmosphere.weather),!isLand(this.player.position.x,this.player.position.z));
     this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     this.terrain.update(this.player.position,this.origin);this.forest.update(this.player.position);

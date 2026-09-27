@@ -32,7 +32,16 @@ export class CameraController {
   shake(amount: number): void { this.shakeAmount = Math.max(this.shakeAmount, amount); }
   skipIntro(): void { this.intro = false; }
 
-  update(player: PlayerController, origin: Vector3, dt: number, colliders: readonly Collider[], sceneScale: number = 1): void {
+  /**
+   * The camera has no scene scale.
+   *
+   * It used to take one, defaulting to 1, and no caller ever passed anything else. Scaling the
+   * scene is not how this engine gets from metres to astronomical distances -- reference frames
+   * and a logarithmic depth buffer are -- and a scale that also multiplies `near` changes depth
+   * behaviour in a way nobody had measured. Dead scaffolding that quietly fights the real
+   * mechanism is worse than no mechanism, so it is gone.
+   */
+  update(player: PlayerController, origin: Vector3, dt: number, colliders: readonly Collider[]): void {
     const switched = this.input.consume('F5');
     if (switched) {
       const modes = ['rear', 'shoulder', 'first', 'front', 'lookBack'] as const;
@@ -99,11 +108,10 @@ export class CameraController {
     const targetFov = Math.min(112, this.baseFov + Math.min(6, player.velocity.length() * .006 + this.speedFov * .12));
     this.camera.fov = MathUtils.lerp(this.camera.fov, targetFov, 1 - Math.exp(-dt * 3));
     this.camera.updateProjectionMatrix();
-    this.camera.position.copy(this.globalPosition).sub(origin).multiplyScalar(sceneScale);
+    this.camera.position.copy(this.globalPosition).sub(origin);
     this.shakeAmount *= Math.exp(-dt * 9);
-    if (this.shakeAmount > 0.001) { this.camera.position.x += Math.sin(this.elapsed * 83) * this.shakeAmount * sceneScale; this.camera.position.y += Math.cos(this.elapsed * 97) * this.shakeAmount * sceneScale; }
-    this.target.sub(origin).multiplyScalar(sceneScale);
+    if (this.shakeAmount > 0.001) { this.camera.position.x += Math.sin(this.elapsed * 83) * this.shakeAmount; this.camera.position.y += Math.cos(this.elapsed * 97) * this.shakeAmount; }
+    this.target.sub(origin);
     this.camera.lookAt(this.target);
-    this.camera.near = 0.15 * sceneScale;
   }
 }

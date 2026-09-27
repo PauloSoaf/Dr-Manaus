@@ -42,7 +42,6 @@ export interface UniverseTelemetry {
   readonly dominantBody: string;
   readonly planetTiles: number;
   readonly streaming: GlobalStreamingScheduler['stats'];
-  readonly sceneScale: number;
 }
 
 /**
@@ -264,7 +263,6 @@ export class UniverseRuntime {
       )?.id ?? 'none',
       planetTiles: this.planetTiles,
       streaming: this.scheduler.stats,
-      sceneScale: Math.min(1, 20_000_000 / Math.max(1, local)),
     };
   }
 
