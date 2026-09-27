@@ -22,6 +22,13 @@ const context = (): StreamingContext => ({
   budget: DEFAULT_STREAMING_BUDGET,
 });
 
+let fakeTime = 0;
+const originalPerfNow = globalThis.performance?.now;
+const originalDateNow = Date.now;
+if (globalThis.performance) globalThis.performance.now = () => fakeTime;
+Date.now = () => fakeTime;
+
+
 class Fake implements ManagedSubsystem {
   grants: number[] = [];
   covering = true;
@@ -49,7 +56,8 @@ test('a managed subsystem is granted what is left of the frame, not a budget of 
   const city = new Fake('manaus/city');
   scheduler.registerSubsystem(city);
 
-  scheduler.update(context(), 1 / 60);
+  const testContext = context();
+  scheduler.update(testContext, 1 / 60);
   assert.equal(city.grants.length, 1, 'it must be served every frame it covers');
   const grant = city.grants[0];
   assert.ok(grant > 0, 'there is nothing else competing, so there is budget left');

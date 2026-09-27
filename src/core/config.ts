@@ -105,7 +105,7 @@ export const FEATURES = {
    * Below 400 km it is a light in the sky, which is what it is from here.
    */
   solarSystem: true,
-  galaxyTravel: false,
+  galaxyTravel: true,
 } as const;
 
 /**

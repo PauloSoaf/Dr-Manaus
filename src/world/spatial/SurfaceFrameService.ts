@@ -1,4 +1,5 @@
 import { Vector3, Matrix4 } from 'three/webgpu';
+import type { Collider } from '../../core/types';
 import { type SurfaceTileFrame, createSurfaceTileFrame } from './SurfaceTileFrame';
 import { ecefToTrueLocal, legacyLocalToEcef } from './ManausFrameAdapter';
 import { legacyLocalToGeodetic } from './ManausFrameAdapter';
@@ -42,5 +43,21 @@ export class SurfaceFrameService {
     const endLocal = ecefToTrueLocal(endEcef);
 
     return new Vector3(endLocal[0] - startLocal[0], endLocal[1] - startLocal[1], endLocal[2] - startLocal[2]);
+  }
+
+  /**
+   * Curves a legacy flat collider into the true rendering local frame.
+   * Modifies the provided output collider.
+   */
+  legacyColliderToRenderLocal(collider: Collider, out: Collider): Collider {
+    const local = this.legacyPointToRenderLocal(collider.x, collider.y ?? 0, collider.z);
+    out.id = collider.id;
+    out.x = local.x;
+    out.y = local.y;
+    out.z = local.z;
+    out.width = collider.width;
+    out.height = collider.height;
+    out.depth = collider.depth;
+    return out;
   }
 }

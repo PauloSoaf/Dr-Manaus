@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { Vector3 } from 'three/webgpu';
 import { TravelDomain, type TravelContext } from '../src/world/travel/TravelDomain.ts';
+import { InterplanetaryController } from '../src/world/travel/InterplanetaryController.ts';
 
 const EARTH_R = 6_378_137;
 
@@ -73,19 +75,17 @@ test('releasing the request, slowing down or dropping in hands the player back',
 });
 
 test('travel integrates in metres, not in whatever the renderer can hold', () => {
-  const domain = new TravelDomain();
-  domain.update(context(), 1 / 60);
-  domain.setState({
+  const controller = new InterplanetaryController();
+  let state = {
     systemId: 'sol',
-    positionM: [0, EARTH_R + 1_000_000, 0],
-    velocityMps: [222_222, 0, 0],
+    positionM: [0, EARTH_R + 1_000_000, 0] as [number, number, number],
+    velocityMps: [222_222, 0, 0] as [number, number, number],
     referenceBodyId: 'earth',
-  });
+  };
+  for (let i = 0; i < 60; i++) {
+    state = controller.update(state, 1 / 60, new Vector3(), false, context({ altitudeM: 1_000_000 }));
+  }
 
-  for (let i = 0; i < 60; i++) domain.update(context({ altitudeM: 1_000_000 }), 1 / 60);
-  const state = domain.state;
-  assert.ok(state);
-  // One second at 222 222 m/s. Exact enough to notice a lost digit, which is the point of float64.
   assert.ok(
     Math.abs(state.positionM[0] - 222_222) < 1,
     `a second of travel moved ${state.positionM[0].toFixed(1)} m`,
@@ -93,37 +93,32 @@ test('travel integrates in metres, not in whatever the renderer can hold', () =>
 });
 
 test('the envelope stops the player at the surface rather than inside the planet', () => {
-  const domain = new TravelDomain();
-  domain.update(context(), 1 / 60);
+  const controller = new InterplanetaryController();
   // Aimed straight at the centre of the Earth at full speed.
-  domain.setState({
+  let state = {
     systemId: 'sol',
-    positionM: [0, EARTH_R + 500_000, 0],
-    velocityMps: [0, -222_222, 0],
+    positionM: [0, EARTH_R + 500_000, 0] as [number, number, number],
+    velocityMps: [0, -222_222, 0] as [number, number, number],
     referenceBodyId: 'earth',
-  });
+  };
 
-  for (let i = 0; i < 300; i++) domain.update(context({ altitudeM: 1_000_000 }), 1 / 60);
-  const state = domain.state;
-  assert.ok(state);
+  for (let i = 0; i < 300; i++) {
+    state = controller.update(state, 1 / 60, new Vector3(), false, context({ altitudeM: 1_000_000 }));
+  }
   const radius = Math.hypot(...state.positionM);
   assert.ok(radius >= EARTH_R, `the player reached ${(radius / 1000).toFixed(0)} km from the centre`);
   assert.ok(state.velocityMps[1] >= -1, 'the inward speed is spent, not carried through the planet');
 });
 
 test('a grazing pass keeps its speed instead of being stopped by the envelope', () => {
-  const domain = new TravelDomain();
-  domain.update(context(), 1 / 60);
-  // Moving sideways at the floor: nothing about this is a collision.
-  domain.setState({
+  const controller = new InterplanetaryController();
+  let state = {
     systemId: 'sol',
-    positionM: [0, EARTH_R + 1_000, 0],
-    velocityMps: [100_000, 0, 0],
+    positionM: [0, EARTH_R + 1_000, 0] as [number, number, number],
+    velocityMps: [100_000, 0, 0] as [number, number, number],
     referenceBodyId: 'earth',
-  });
-  domain.update(context({ altitudeM: 1_000_000 }), 1 / 60);
-  const state = domain.state;
-  assert.ok(state);
+  };
+  state = controller.update(state, 1 / 60, new Vector3(), false, context({ altitudeM: 1_000_000 }));
   assert.ok(state.velocityMps[0] > 99_000, 'tangential speed survives');
 });
 
@@ -138,17 +133,14 @@ test('a reset puts the player back in the local game, whatever it was doing', ()
 });
 
 test('rubbish in the context does not move the player anywhere', () => {
-  const domain = new TravelDomain();
-  domain.update(context(), 1 / 60);
-  domain.setState({
+  const controller = new InterplanetaryController();
+  let state = {
     systemId: 'sol',
-    positionM: [Number.NaN, EARTH_R, Number.POSITIVE_INFINITY],
-    velocityMps: [Number.NaN, 0, 0],
+    positionM: [Number.NaN, EARTH_R, Number.POSITIVE_INFINITY] as [number, number, number],
+    velocityMps: [Number.NaN, 0, 0] as [number, number, number],
     referenceBodyId: 'earth',
-  });
-  domain.update(context({ altitudeM: 1_000_000 }), Number.NaN);
-  const state = domain.state;
-  assert.ok(state);
+  };
+  state = controller.update(state, Number.NaN, new Vector3(), false, context({ altitudeM: 1_000_000 }));
   for (const value of [...state.positionM, ...state.velocityMps]) {
     assert.ok(Number.isFinite(value), 'a non-finite coordinate must never survive the boundary');
   }

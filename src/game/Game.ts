@@ -35,14 +35,19 @@ import { MissionManager } from '../missions/MissionManager';
 import { AudioManager } from '../audio/AudioManager';
 import { HUD } from '../ui/HUD';
 import { UniverseRuntime } from '../world/runtime/UniverseRuntime';
+import { BlackHoleProvider } from '../world/providers/BlackHoleProvider';
 import { EarthProvider } from '../world/providers/EarthProvider';
 import { EarthTransitionController } from '../world/providers/EarthTransitionController';
+import { GalaxyProvider } from '../world/providers/GalaxyProvider';
+import { LargeScaleStructureProvider } from '../world/providers/LargeScaleStructureProvider';
+import { LOCAL_GROUP_CATALOG } from '../world/celestial/GalaxyDefinition';
 
 import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 import { TravelDomain } from '../world/travel/TravelDomain';
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
 import { MoonProvider } from '../world/providers/MoonProvider';
 import { WGS84 } from '../world/spatial/WGS84';
+import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import { InterplanetaryController } from '../world/travel/InterplanetaryController';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
@@ -58,6 +63,9 @@ export class Game {
    */
   readonly universe:UniverseRuntime;
   readonly galaxy?:StarSectorProvider;
+  readonly sgra?:BlackHoleProvider;
+  readonly localGroup:GalaxyProvider[] = [];
+  readonly cosmicWeb?:LargeScaleStructureProvider;
   /** Which simulation the player is in. Urban physics runs in one of them and not the other. */
   readonly travelDomain=new TravelDomain();
   readonly interplanetary=new InterplanetaryController();
@@ -69,8 +77,8 @@ export class Game {
   private readonly flatTerrain:import('three/webgpu').Group;
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
   stressReport:FrameSample[]=[];private stressRoute:Vector3[]=[];private stressIndex=0;private stressSampleTime=0;
-  private lastTime=0;private discoveryTime=0;private telemetryTime=0;private cpu=0;private colliders:Collider[]=[];private playerLocal=new Vector3();private direction=new Vector3();private viewForward=new Vector3();
-  private stompTimer=0;private readonly foot=new Vector3();
+  private lastTime=0;private discoveryTime=0;private telemetryTime=0;private cpu=0;private colliders:Collider[]=[];private curvedColliders:Collider[]=[];private playerLocal=new Vector3();private direction=new Vector3();private viewForward=new Vector3();
+  private stompTimer=0;private readonly foot=new Vector3();private readonly surfaceService=new SurfaceFrameService('earth');
   private bounds=false;private lod=false;private culling?:CameraHelper;private spaceFactor=0;
   /** Exponentially smoothed per-system frame cost, in milliseconds. Drives the F3 panel. */
   readonly profile:Record<string,number>={realCity:0,colliders:0,player:0,universe:0,streamer:0,hlod:0,landmarks:0,population:0,destruction:0,traffic:0,render:0};
@@ -97,19 +105,51 @@ export class Game {
     this.streamer.setReplacesChunk((cx, cz) => this.realCity.coversChunk(cx, cz));
     // Behind its flag, and a provider rather than a renderer: the scheduler decides when a
     // sector loads, the budget applies, and a sector nobody wants is disposed.
-    if(FEATURES.galaxyTravel){this.galaxy=new StarSectorProvider(this.rendering.scene);this.universe.providers.register(this.galaxy);}
+    if(FEATURES.galaxyTravel){
+      this.galaxy=new StarSectorProvider(this.rendering.scene);
+      this.universe.providers.register(this.galaxy);
+      
+      const LY_TO_M = 9.4607304725808e15;
+      
+      // Instantiate Local Group galaxies (except Milky Way which is local)
+      for (const galDef of LOCAL_GROUP_CATALOG) {
+        if (galDef.id === 'milky_way') continue;
+        const galProv = new GalaxyProvider(this.rendering.scene, { galaxy: galDef });
+        this.localGroup.push(galProv);
+        this.universe.providers.register(galProv);
+      }
+      
+      this.sgra = new BlackHoleProvider(this.rendering.scene, {
+        blackHole: {
+          id: 'sgra',
+          massKg: 8.26e36,
+          spin01: 0.9,
+          positionM: [26000 * LY_TO_M, 0, 0],
+          accretion: {
+            innerRadiusRs: 3,
+            outerRadiusRs: 20,
+            temperatureK: 1e6,
+            luminosity: 1e36
+          }
+        }
+      });
+      this.universe.providers.register(this.sgra);
+      
+      this.cosmicWeb = new LargeScaleStructureProvider(this.rendering.scene);
+      this.universe.providers.register(this.cosmicWeb);
+    }
     this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
     this.input=new InputController(this.rendering.renderer.domElement);this.player=new PlayerController(this.worldRoot,this.input);this.camera=new CameraController(this.rendering.camera,this.input);
     this.population=new PopulationManager(this.worldRoot);
     this.missions=new MissionManager(this.worldRoot,this.save,message=>this.hud?.notify(message));
     this.destruction=new DestructionSystem(this.worldRoot,this.destructible);
-    this.player.beforeMove=(position,velocity,dt)=>{this.destruction.plough(position,velocity,dt,true);this.gatherColliders();return this.colliders;};
+    this.player.beforeMove=(position,velocity,dt)=>{this.destruction.plough(position,velocity,dt,true);this.gatherColliders();this.curveColliders();return this.curvedColliders;};
     this.powers=new PowerSystem(this.worldRoot,this.player,this.rendering.camera,this.input,{
       targets:()=>[...this.population.targets,...this.missions.targets],
       hit:(id,force)=>{this.missions.hit(id,force)||this.population.hit(id,force);},
       reconstruct:(position,radius)=>this.population.reconstruct(position,radius)+this.realCity.restore(position,radius)+this.streamer.restore(position,radius)+this.landmarks.restore(position,radius)+this.largo.restore(position,radius)+this.airport.restore(position,radius)+this.terrain.restoreAt(position,radius),
       impulse:(position,radius,force)=>{this.population.impulse(position,radius,force);this.camera.shake(.45);},
-      damage:(point,radius,amount,deform)=>this.destruction.damageAt(point,radius,amount,deform),prepare:destination=>this.streamer.prepare(destination),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.origin,getColliders:()=>this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
+      damage:(point,radius,amount,deform)=>this.destruction.damageAt(point,radius,amount,deform),prepare:destination=>this.streamer.prepare(destination),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.origin,getColliders:()=>this.curvedColliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
     this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress()});
@@ -208,11 +248,17 @@ export class Game {
     this.realCity.update(this.player.position,this.player.velocity,dt);this.lap('realCity');
     // Out here a frame covers thirteen kilometres, so a collider is not something to hit, it is
     // something to pass through before it has been tested. See TravelDomain.
-    if(local)this.gatherColliders();else this.colliders.length=0;
+    if(local){
+      this.gatherColliders();
+      this.curveColliders();
+    }else{
+      this.colliders.length=0;
+      this.curvedColliders.length=0;
+    }
     this.lap('colliders');
     this.updateStomps(dt);
     if(this.stressRoute.length)this.updateStress(dt);
-    else if (local) this.player.update(dt,this.colliders,this.camera.yaw,this.camera.pitch);
+    else if (local) this.player.update(dt,this.curvedColliders,this.camera.yaw,this.camera.pitch);
     this.lap('player');
 
     if(FEATURES.spatialCore){
@@ -231,10 +277,25 @@ export class Game {
         const thrust = new Vector3(right, 0, -forward).applyAxisAngle(new Vector3(0,1,0), this.camera.yaw);
         if (this.camera.pitch) thrust.applyAxisAngle(new Vector3(1,0,0), this.camera.pitch);
         
-        const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, brake);
+        const t = this.universe.telemetry;
+        const ctx = {
+          altitudeM: t.altitudeM,
+          speedMps: this.player.velocity.length(),
+          requested: this.player.speedMode === 'interplanetary',
+          nearestColliderM: Number.POSITIVE_INFINITY,
+          bodyRadiusM: this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody)?.equatorialRadiusM ?? 6378137,
+          bodyId: t.dominantBody,
+          systemId: 'sol',
+        };
+        const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, brake, ctx);
         this.travelDomain.setState?.(newState); // We'll add setState to TravelDomain next
         
         this.universe.updateSystemPose(newState.positionM, newState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
+        
+        // In space, Universe is the source of truth. We must place the player in local render coordinates.
+        // floatingOrigin perfectly tracks playerPose within the grid, so this yields the small local offset.
+        const local = this.universe.floatingOrigin.toRenderLocal(this.universe.player.position);
+        this.player.position.set(local[0], local[1], local[2]);
       }
     }this.lap('universe');
     // One ground at a time. The flat backdrop and the curved planet cannot both be the surface,
@@ -244,10 +305,11 @@ export class Game {
       // around the player in the local pass, so from orbit it paints straight over the planet the
       // far pass just drew. A planet-aware shell replaces it; until then it stands down with the
       // flat ground it belongs to.
-      const state = this.earthTransition.update(this.universe.telemetry.altitudeM, this.earth);
+      const isEarth = this.universe.telemetry.dominantBody === 'earth';
+      const state = this.earthTransition.update(isEarth ? this.universe.telemetry.altitudeM : Number.POSITIVE_INFINITY, this.earth);
       // Wait until target coverage is ready before hiding the local ground
       // localWeight will be 1 until target is ready, but when ready it drops to 0 at high altitude.
-      const localGround = state.localWeight > 0.01;
+      const localGround = state.localWeight > 0.01 && isEarth;
       this.flatTerrain.visible=localGround;
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
       // later in the frame, so a `visible` flag written here is gone by the time anything is
@@ -301,7 +363,7 @@ export class Game {
     this.lastSpeed=speedNow;
     this.largo.update(this.player.position,worldDt);
     if(local){this.landmarks.update(this.player.position,worldDt);this.lap('landmarks');this.population.update(worldDt,this.player.position,this.player.size);this.lap('population');}this.missions.update(worldDt,this.player.position);
-    this.camera.update(this.player,this.origin,dt,this.colliders);this.rendering.camera.updateMatrixWorld();
+    this.camera.update(this.player,this.origin,dt,this.curvedColliders);this.rendering.camera.updateMatrixWorld();
     // After the camera settles: the portal skin samples in screen space, so a stale matrix would
     // stretch the galaxy by the viewport and leave it static as the player looks around.
     this.player.character.updateCosmicView(this.rendering.camera);
@@ -333,6 +395,14 @@ export class Game {
     if(this.traffic)for(const collider of this.traffic.colliders)list.push(collider);
     for(const collider of this.population.colliders)list.push(collider);
   }
+  private curveColliders(){
+    const curvedList = this.curvedColliders;
+    curvedList.length = 0;
+    for (let i = 0; i < this.colliders.length; i++) {
+      if (curvedList.length <= i) curvedList.push({ id: '', x: 0, y: 0, z: 0, width: 0, height: 0, depth: 0 });
+      this.surfaceService.legacyColliderToRenderLocal(this.colliders[i], curvedList[i]);
+    }
+  }
   private updateStomps(dt:number):void{
     this.stompTimer-=dt;if(this.player.size<5||this.stompTimer>0)return;
     this.stompTimer=.12;
@@ -340,13 +410,13 @@ export class Game {
     for(const side of [-1,1]){
       this.foot.copy(this.player.position);this.foot.x+=Math.cos(angle)*side*.112*size;this.foot.z-=Math.sin(angle)*side*.112*size;
       const floor=PhysicsWorld.terrainHeight(this.foot.x,this.foot.z);
-      const supported=this.foot.y<=floor+Math.max(2,size*.08)||this.colliders.some(c=>Math.abs(c.x-this.foot.x)<c.width/2+size*.1&&Math.abs(c.z-this.foot.z)<c.depth/2+size*.1&&Math.abs(c.y+c.height/2-this.foot.y)<Math.max(2,size*.08));
+      const supported=this.foot.y<=floor+Math.max(2,size*.08)||this.curvedColliders.some(c=>Math.abs(c.x-this.foot.x)<c.width/2+size*.1&&Math.abs(c.z-this.foot.z)<c.depth/2+size*.1&&Math.abs(c.y+c.height/2-this.foot.y)<Math.max(2,size*.08));
       if(supported)this.destruction.damageAt(this.foot,Math.max(2,size*.18),100000);
     }
   }
   private attackTime=-Infinity;private attackRadius=0;private readonly attackPosition=new Vector3();private attackBoxes:Collider[]=[];
   private attackColliders(point:Vector3,radius:number):readonly Collider[]{
-    if(this.player.size<7)return this.colliders;
+    if(this.player.size<7)return this.curvedColliders;
     const now=performance.now();
     if(now-this.attackTime>120||radius!==this.attackRadius||point.distanceToSquared(this.attackPosition)>65536){
       this.attackBoxes=Array.from(this.destructible.blastColliders(point,radius));this.attackTime=now;this.attackRadius=radius;this.attackPosition.copy(point);
@@ -407,16 +477,16 @@ export class Game {
    * either having to know about the other's thresholds.
    */
   private updateTravelDomain(dt:number){
-    // Last frame'"'"'s colliders, deliberately: the decision has to come before the gathering it
+    // Last frame's colliders, deliberately: the decision has to come before the gathering it
     // governs, and one frame of staleness at nine kilometres up is nothing. While travelling the
     // list is empty, which is the correct answer rather than a stale one.
     let nearest=Number.POSITIVE_INFINITY;
-    for(const collider of this.colliders){
+    for(const collider of this.curvedColliders){
       const dx=collider.x-this.player.position.x,dy=(collider.y??0)-this.player.position.y,dz=collider.z-this.player.position.z;
       nearest=Math.min(nearest,Math.hypot(dx,dy,dz));
     }
     const t=this.universe.telemetry;
-    this.travelDomain.update({
+    const transition = this.travelDomain.update({
       altitudeM:t.altitudeM,
       speedMps:this.player.velocity.length(),
       requested:this.player.speedMode==='interplanetary',
@@ -425,6 +495,11 @@ export class Game {
       bodyId:t.dominantBody,
       systemId:'sol',
     },dt);
+
+    if (transition.kind === 'returned') {
+      const localPos = this.universe.handoffTo(t.dominantBody);
+      this.player.position.set(localPos[0], localPos[1], localPos[2]);
+    }
   }
 
   private universeDebug():Record<string,string|number>{

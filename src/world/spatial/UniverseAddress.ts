@@ -12,12 +12,15 @@
 
 import { finite, LIGHT_YEAR_M, type Vec3 } from './units';
 
-/** Integer sector coordinates. */
-export interface SectorIndex {
+/** Integer vector for arbitrary massive scale structures (like Cosmic Web cells). */
+export interface BigInt3 {
   readonly x: bigint;
   readonly y: bigint;
   readonly z: bigint;
 }
+
+/** Integer sector coordinates. */
+export interface SectorIndex extends BigInt3 {}
 
 /**
  * Where something is in the universe.
@@ -32,6 +35,16 @@ export interface UniverseAddress {
   readonly systemId?: string;
   readonly bodyId?: string;
   readonly childFrame?: string;
+}
+
+/**
+ * Address for cosmological scale (Mpc / Gpc).
+ * Used for the Great Attractor, Cosmic Web, and Observable Universe horizon.
+ */
+export interface CosmologicalAddress {
+  readonly cell: BigInt3;
+  readonly localMpc: Vec3;
+  readonly epoch: number;
 }
 
 /** Sector edge length. One hundred light years keeps a sector's interior well inside a double. */

@@ -2,6 +2,7 @@ import {
   type SectorIndex, SECTOR_SIZE_M, sectorKey, sectorSeed,
 } from '../spatial/UniverseAddress';
 import { LIGHT_YEAR_M, type Vec3 } from '../spatial/units';
+import { LOCAL_GROUP_CATALOG, type GalaxyDefinition } from './GalaxyDefinition';
 
 /**
  * Stars, generated rather than stored.
@@ -77,17 +78,88 @@ class SeededRandom {
  */
 export function milkyWayDensity(positionM: Vec3): number {
   const kpc = 3.085_677_581e19;
-  const radialScale = 2.6 * kpc;
-  const heightScale = 0.3 * kpc;
+  
   const radius = Math.hypot(positionM[0], positionM[1]);
   const height = Math.abs(positionM[2]);
 
-  const disc = Math.exp(-radius / radialScale) * Math.exp(-height / heightScale);
-  // A bulge inside about 2 kpc, which is where the density genuinely climbs.
+  // Thin disc (where most stars are, including the Sun)
+  const thinDisc = Math.exp(-radius / (2.6 * kpc)) * Math.exp(-height / (0.3 * kpc));
+  
+  // Thick disc (older stars, more puffed up)
+  const thickDisc = 0.05 * Math.exp(-radius / (3.6 * kpc)) * Math.exp(-height / (0.9 * kpc));
+
+  // Bulge (spherical/ellipsoidal dense core)
   const bulgeRadius = Math.hypot(radius, height * 1.6);
-  const bulge = 6 * Math.exp(-((bulgeRadius / (1.2 * kpc)) ** 2));
-  // Normalised so the Sun's neighbourhood, 8.2 kpc out and in the plane, is about one.
-  return (disc + bulge) / Math.exp(-8.2 / 2.6);
+  const bulge = 1.5 * Math.exp(-((bulgeRadius / (1.2 * kpc)) ** 2));
+  
+  // Central Bar (elongated structure in the center)
+  // Approximate the bar as being aligned along the X axis for simplicity
+  const barRadius = Math.hypot(positionM[0] / 2.0, positionM[1], positionM[2] * 2.0);
+  const bar = 0.8 * Math.exp(-((barRadius / (1.5 * kpc)) ** 2));
+
+  // Stellar Halo (very sparse, very large spherical component)
+  const haloRadius = Math.hypot(radius, height);
+  const halo = 0.001 * Math.pow(1 + haloRadius / (3.0 * kpc), -3.5);
+
+  // Spiral Arm Modulation
+  const theta = Math.atan2(positionM[1], positionM[0]);
+  // A two-arm logarithmic spiral approximation
+  const pitchAngle = 12.0 * Math.PI / 180.0;
+  const k = 1.0 / Math.tan(pitchAngle);
+  // Logarithmic spiral phase
+  const spiralPhase = k * Math.log(Math.max(radius / kpc, 0.1));
+  const spiralModulation = 1.0 + 0.4 * Math.cos(2 * (theta - spiralPhase));
+
+  const totalDensity = (thinDisc + thickDisc) * spiralModulation + bulge + bar + halo;
+
+  // Normalised so the Sun's neighbourhood, 8.2 kpc out and in the plane, is exactly one.
+  const sunRadius = 8.2 * kpc;
+  const sunThinDisc = Math.exp(-sunRadius / (2.6 * kpc));
+  const sunThickDisc = 0.05 * Math.exp(-sunRadius / (3.6 * kpc));
+  const sunHalo = 0.001 * Math.pow(1 + sunRadius / (3.0 * kpc), -3.5);
+  // Solar system is near the Orion spur, not exactly in a main arm, so modulation might be ~1.0
+  const sunTotalDensity = (sunThinDisc + sunThickDisc) * 1.0 + sunHalo;
+
+  return totalDensity / sunTotalDensity;
+}
+
+export function andromedaDensity(positionM: Vec3): number {
+  const kpc = 3.085_677_581e19;
+  
+  const radius = Math.hypot(positionM[0], positionM[1]);
+  const height = Math.abs(positionM[2]);
+
+  // Andromeda is larger and denser than the Milky Way
+  const thinDisc = 1.2 * Math.exp(-radius / (3.0 * kpc)) * Math.exp(-height / (0.4 * kpc));
+  const thickDisc = 0.08 * Math.exp(-radius / (4.0 * kpc)) * Math.exp(-height / (1.0 * kpc));
+  
+  // Bulge is much larger
+  const bulgeRadius = Math.hypot(radius, height * 1.4);
+  const bulge = 2.5 * Math.exp(-((bulgeRadius / (1.5 * kpc)) ** 2));
+  
+  // No significant bar
+  
+  // Halo is larger
+  const haloRadius = Math.hypot(radius, height);
+  const halo = 0.002 * Math.pow(1 + haloRadius / (4.0 * kpc), -3.5);
+
+  const theta = Math.atan2(positionM[1], positionM[0]);
+  const pitchAngle = 10.0 * Math.PI / 180.0;
+  const k = 1.0 / Math.tan(pitchAngle);
+  const spiralPhase = k * Math.log(Math.max(radius / kpc, 0.1));
+  const spiralModulation = 1.0 + 0.3 * Math.cos(2 * (theta - spiralPhase));
+
+  const totalDensity = (thinDisc + thickDisc) * spiralModulation + bulge + halo;
+
+  // We still normalize against the Sun's expected density so STARS_PER_SECTOR_BASE makes sense
+  // If we want Andromeda to be generally denser, we just scale it.
+  const sunRadius = 8.2 * kpc;
+  const sunThinDisc = Math.exp(-sunRadius / (2.6 * kpc));
+  const sunThickDisc = 0.05 * Math.exp(-sunRadius / (3.6 * kpc));
+  const sunHalo = 0.001 * Math.pow(1 + sunRadius / (3.0 * kpc), -3.5);
+  const sunTotalDensity = (sunThinDisc + sunThickDisc) * 1.0 + sunHalo;
+
+  return totalDensity / sunTotalDensity;
 }
 
 /** Stars per sector in the solar neighbourhood. A hundred light years holds a few hundred. */
@@ -122,13 +194,57 @@ export function generateStarSector(
   const seed = sectorSeed(galaxyId, sector);
   const random = new SeededRandom(seed);
 
-  // Where this sector sits in the galaxy, for the density model.
-  const centre: Vec3 = [
+  // Find the galaxy definition
+  const galDef = LOCAL_GROUP_CATALOG.find(g => g.id === galaxyId);
+  const densityScale = (galDef?.densityScale ?? 1) * (options.densityScale ?? 1);
+
+  // Where this sector sits in the galaxy, relative to the Solar System (Sector 0, 0, 0)
+  const localCentre: Vec3 = [
     Number(sector.x) * SECTOR_SIZE_M,
     Number(sector.y) * SECTOR_SIZE_M,
     Number(sector.z) * SECTOR_SIZE_M,
   ];
-  const density = milkyWayDensity(centre) * (options.densityScale ?? 1);
+  
+  // The galactic center position relative to the local centre
+  const LY_TO_M = 9.4607304725808e15;
+  let galacticCentrePosM: Vec3 = [0, 0, 0];
+  
+  if (galaxyId === 'milky_way' || galaxyId === 'milky-way') {
+    // The galactic center is ~26,000 ly away from the Solar System. We place it at +X for now.
+    galacticCentrePosM = [
+      localCentre[0] - 26000 * LY_TO_M,
+      localCentre[1],
+      localCentre[2],
+    ];
+  } else if (galDef) {
+    // Other galaxies are relative to the Milky Way (0,0,0) in our global intergalactic coordinates
+    // localCentre is relative to Solar System. Solar System is at [-26000ly, 0, 0] relative to MW.
+    // MW Center is at [+26000ly, 0, 0] relative to Solar System.
+    // If galDef.positionM is relative to MW Center, then:
+    // Pos relative to SS = MW_center_relative_to_SS + galDef.positionM
+    const mwCenterRelToSS = [26000 * LY_TO_M, 0, 0];
+    const galCenterRelToSS = [
+      mwCenterRelToSS[0] + galDef.positionM[0],
+      mwCenterRelToSS[1] + galDef.positionM[1],
+      mwCenterRelToSS[2] + galDef.positionM[2],
+    ];
+    // Position of this sector relative to the galaxy center
+    galacticCentrePosM = [
+      localCentre[0] - galCenterRelToSS[0],
+      localCentre[1] - galCenterRelToSS[1],
+      localCentre[2] - galCenterRelToSS[2],
+    ];
+  } else {
+    // Fallback for tests or unknown galaxies: center is at 0,0,0 in local space
+    galacticCentrePosM = localCentre;
+  }
+
+  let density = 0;
+  if (galDef?.densityProfile === 'andromeda') {
+    density = andromedaDensity(galacticCentrePosM) * densityScale;
+  } else {
+    density = milkyWayDensity(galacticCentrePosM) * densityScale;
+  }
   const target = Math.min(options.maxStars ?? 2000, Math.round(STARS_PER_SECTOR_BASE * density));
   const count = Math.max(0, target);
 

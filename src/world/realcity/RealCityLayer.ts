@@ -304,11 +304,17 @@ export class RealCityLayer {
       if (this.tiles.has(key)) continue;
       const [tx, tz] = key.split(',').map(Number);
       const originX = tx * size, originZ = tz * size;
+      const frame = createSurfaceTileFrame('earth', key, originX, originZ);
+      const tileMatrix = frame.getSceneMatrix();
+      
       for (let p = 0; p + 7 < blocks.length; p += 8) {
         if (this.ruinedSkyline.get(key)?.has(p)) continue;
         if (index >= mesh.instanceMatrix.count) break;
         for(const building of this.skylineShapes.get(key)![p/8]){
-          matrix.makeScale(building.width,building.height,building.depth);matrix.setPosition(building.x,0,building.z);
+          const local = frame.legacyToLocal(building.x, 0, building.z);
+          matrix.makeScale(building.width,building.height,building.depth);
+          matrix.setPosition(local[0], local[1], local[2]);
+          matrix.premultiply(tileMatrix);
           mesh.setMatrixAt(index,matrix);mesh.setColorAt(index++,color.setRGB(building.gray*.96,building.gray,building.gray*1.04));
         }
       }

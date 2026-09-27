@@ -2,13 +2,30 @@ import { BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshSt
 import { LAND_MASK } from './landmask';
 import { urbanDensity } from '../chunks/BuildingGenerator';
 import { LANDMARKS, OSM_ROADS, SHORELINE, isLand, riverWidth, shoreZ } from './geodata';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+
+const surfaceService = new SurfaceFrameService('earth');
 
 function polygon(points: readonly (readonly [number, number])[], material: MeshStandardMaterial, y: number): Mesh {
   const shape = new Shape();
   points.forEach(([x, z], i) => i === 0 ? shape.moveTo(x, -z) : shape.lineTo(x, -z));
   shape.closePath();
   const geometry = new ShapeGeometry(shape); geometry.rotateX(-Math.PI / 2);
-  const mesh = new Mesh(geometry, material); mesh.position.y = y; mesh.receiveShadow = true; return mesh;
+  
+  // Curve the geometry
+  const posAttr = geometry.getAttribute('position');
+  const arr = posAttr.array as Float32Array;
+  for (let i = 0; i < arr.length; i += 3) {
+    const pt = surfaceService.legacyPointToRenderLocal(arr[i], y, arr[i + 2]);
+    arr[i] = pt.x;
+    arr[i + 1] = pt.y;
+    arr[i + 2] = pt.z;
+  }
+  posAttr.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+
+  const mesh = new Mesh(geometry, material); mesh.receiveShadow = true; return mesh;
 }
 
 /**
@@ -42,7 +59,13 @@ function groundCover(): Mesh {
     const g = (base[1] + (target[1] - base[1]) * f) * shade;
     const b = (base[2] + (target[2] - base[2]) * f) * shade;
     for (const [px, pz] of [[x, z], [x + CELL, z], [x + CELL, z + CELL], [x, z], [x + CELL, z + CELL], [x, z + CELL]] as const) {
-      position.push(px, .02, pz); normal.push(0, 1, 0); color.push(r, g, b);
+      const pt = surfaceService.legacyPointToRenderLocal(px, .02, pz);
+      position.push(pt.x, pt.y, pt.z); 
+      
+      const up = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, px, .02, pz);
+      normal.push(up.x, up.y, up.z); 
+      
+      color.push(r, g, b);
     }
   }
   const geometry = new BufferGeometry();
@@ -94,6 +117,8 @@ export function createTerrain(root: Group): Group {
     ribbon(roadVertices, a[0], a[1], b[0], b[1], width, .16);
     ribbon(lineVertices, a[0], a[1], b[0], b[1], .42, .18);
   }
+
+
   const bridge = LANDMARKS.find(landmark => landmark.id === 'ponte');
   const iranduba = LANDMARKS.find(landmark => landmark.id === 'iranduba');
   if (bridge && iranduba) {
@@ -107,6 +132,17 @@ export function createTerrain(root: Group): Group {
       ribbon(lineVertices, a[0], a[1], b[0], b[1], .48, .19);
     }
   }
+  
+  // Curve the ribbons
+  for (const verts of [roadVertices, lineVertices]) {
+    for (let i = 0; i < verts.length; i += 3) {
+      const pt = surfaceService.legacyPointToRenderLocal(verts[i], verts[i + 1], verts[i + 2]);
+      verts[i] = pt.x;
+      verts[i + 1] = pt.y;
+      verts[i + 2] = pt.z;
+    }
+  }
+
   for (const [vertices, color, name] of [
     [roadVertices, '#383d3d', 'legacy-osm-roads'],
     [lineVertices, '#d0be89', 'legacy-osm-road-markings'],

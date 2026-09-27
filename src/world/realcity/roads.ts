@@ -2,6 +2,9 @@ import { BufferAttribute, BufferGeometry, Float32BufferAttribute, Group, Mesh, t
 import type { Collider } from '../../core/types';
 import { REAL_CITY } from '../../core/config';
 import { drawnByLandmark } from './ownership';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+
+const surfaceService = new SurfaceFrameService('earth');
 
 export interface RoadRecord {
   class: string;
@@ -123,6 +126,22 @@ function canopy(
 
 function toGeometry(out: Ribbon): BufferGeometry | null {
   if (!out.position.length) return null;
+  
+  for (let i = 0; i < out.position.length; i += 3) {
+    // Preserve old coordinate to calculate direction correctly!
+    const ox = out.position[i], oy = out.position[i+1], oz = out.position[i+2];
+    
+    const pt = surfaceService.legacyPointToRenderLocal(ox, oy, oz);
+    out.position[i] = pt.x;
+    out.position[i + 1] = pt.y;
+    out.position[i + 2] = pt.z;
+    
+    const up = surfaceService.legacyDirectionToRenderLocal(out.normal[i], out.normal[i + 1], out.normal[i + 2], ox, oy, oz);
+    out.normal[i] = up.x;
+    out.normal[i + 1] = up.y;
+    out.normal[i + 2] = up.z;
+  }
+  
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new Float32BufferAttribute(out.position, 3));
   geometry.setAttribute('normal', new Float32BufferAttribute(out.normal, 3));
