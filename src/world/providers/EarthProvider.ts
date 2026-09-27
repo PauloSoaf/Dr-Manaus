@@ -118,6 +118,7 @@ export class EarthProvider implements WorldProvider {
     const above = this.altitudeM - this.options.minAltitudeM;
     this.opacity = Math.min(1, Math.max(0, above / this.options.fadeM));
     this.globe.visible = this.opacity > 0.01;
+    this.globe.setCenterM(this.toSceneMetres({ xM: 0, yM: 0, zM: 0 }));
     return this.globe.visible;
   }
 

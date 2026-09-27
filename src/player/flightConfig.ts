@@ -8,8 +8,8 @@ export type FlightSpeedMode = 'ground' | 'normal' | 'fast' | 'super' | 'mega' | 
  * superhero's cruise, not a rocket's.
  */
 export const FLIGHT = {
-  speeds: { normal: 120, fast: 500, super: 2000, mega: 8000, interplanetary: 55_556 },
-  maxSpeed: 60_000,
+  speeds: { normal: 120, fast: 500, super: 2000, mega: 8000, interplanetary: 1155_556 },
+  maxSpeed: 1260_000,
   response: {
     normal: 8.5, fast: 8.5, super: 4.5, mega: 1.7,
     /**

@@ -1,6 +1,7 @@
 import { AdditiveBlending, BackSide, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshBasicNodeMaterial, NormalBlending, PerspectiveCamera, PlaneGeometry, Scene, SphereGeometry, Uint32BufferAttribute, Vector3 } from 'three/webgpu';
 import { attribute, float, mix, positionLocal, sin, smoothstep, time, uniform, uv } from 'three/tsl';
 import { SPACE } from '../core/config';
+import { PLANET_LAYER } from './domains/RenderDomains';
 /** The rig rides the camera, so these are viewing distances, not world extents. Far plane is 260 km. */
 const STAR_RADIUS = 150000, SHELL_RADIUS = 170000, SUN_DISTANCE = 120000, SUN_QUAD = SUN_DISTANCE * .0968;
 const FIELD_STARS = 2200, BAND_STARS = 1200, STARS = FIELD_STARS + BAND_STARS;
@@ -142,6 +143,17 @@ export class SpaceLayer {
     this.stars.visible = this.uVisible.value > .004;
     this.shell.visible = local && this.uShellFade.value > .003;
     this.disc.visible = local && veil > .02;
+
+    if (this.planetaryView) {
+      // The camera's far plane is set by RenderDomains to wrap the planet. Push the stars
+      // out to just inside it, so they are physically behind the planet and occluded by it.
+      const farM = this.camera.far * 0.95;
+      this.stars.scale.setScalar(farM / STAR_RADIUS);
+      this.stars.layers.set(PLANET_LAYER);
+    } else {
+      this.stars.scale.setScalar(1);
+      this.stars.layers.set(0);
+    }
   }
   dispose() {
     this.scene.remove(this.rig);

@@ -1,6 +1,6 @@
 import {
   BufferAttribute, BufferGeometry, Color, FrontSide, Group, Mesh, MeshBasicNodeMaterial,
-  type Object3D, Vector3,
+  type Object3D, Vector3, SphereGeometry, DoubleSide, AdditiveBlending
 } from 'three/webgpu';
 import {
   attribute, cameraPosition, float, normalWorld, positionWorld, smoothstep, uniform,
@@ -157,6 +157,8 @@ function windingIsOutward(positions: Float32Array, normals: Float32Array, size: 
 export class EarthGlobe {
   readonly group = new Group();
   private readonly material: MeshBasicNodeMaterial;
+  private readonly atmosphereMaterial: MeshBasicNodeMaterial;
+  private readonly atmosphereMesh: Mesh;
   private readonly meshes = new Map<string, Mesh>();
   /**
    * Where the Sun is, in scene axes. A unit vector from the planet toward the Sun.
@@ -175,6 +177,15 @@ export class EarthGlobe {
     this.group.visible = false;
     parent.add(this.group);
     this.material = this.buildMaterial();
+    this.atmosphereMaterial = this.buildAtmosphereMaterial();
+    this.atmosphereMesh = new Mesh(new SphereGeometry(6378137 + 60000, 64, 64), this.atmosphereMaterial);
+    this.atmosphereMesh.layers.set(PLANET_LAYER);
+    this.atmosphereMesh.frustumCulled = false;
+    this.group.add(this.atmosphereMesh);
+  }
+
+  setCenterM(positionM: Vec3): void {
+    this.atmosphereMesh.position.set(positionM[0], positionM[1], positionM[2]);
   }
 
   /**
@@ -238,6 +249,27 @@ export class EarthGlobe {
     const halo = ATMOSPHERE.mul(grazing.mul(smoothstep(-0.25, 0.15, incidence)).mul(LIMB_GAIN));
 
     material.colorNode = lit.add(halo);
+    return material;
+  }
+
+  private buildAtmosphereMaterial(): MeshBasicNodeMaterial {
+    const material = new MeshBasicNodeMaterial({
+      fog: false,
+      side: DoubleSide,
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending,
+    });
+    
+    const incidence = normalWorld.dot(this.uSun);
+    const daylight = smoothstep(-0.25, 0.15, incidence);
+    const toCamera = cameraPosition.sub(positionWorld).normalize();
+    const grazing = float(1).sub(normalWorld.dot(toCamera).abs());
+    
+    // density peaks at the horizon (grazing = 1), falls off at zenith (grazing = 0)
+    const density = grazing.pow(4.0).mul(2.5).add(grazing.pow(1.0).mul(0.2));
+    
+    material.colorNode = ATMOSPHERE.mul(density).mul(daylight);
     return material;
   }
 
