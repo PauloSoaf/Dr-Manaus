@@ -70,9 +70,16 @@ export class TerrainDestruction implements TerrainProvider {
     this.bowl.userData.terrainDestructionBowl = true; this.bowl.receiveShadow = true; this.bowl.visible = false;
     this.group.add(this.bowl);
     
-    // Load initial state
+    // What was saved, once it has been read. The store hydrates asynchronously -- IndexedDB has
+    // no synchronous read -- so the first frame starts empty and the craters arrive when they do.
     this.records = mutationStore.loadCraters(this.currentBodyId);
+    this.unsubscribe = mutationStore.onChange(() => {
+      this.records = mutationStore.loadCraters(this.currentBodyId);
+      this.revision++;
+    });
   }
+
+  private unsubscribe?: () => void;
 
   setBodyId(bodyId: string) {
     if (this.currentBodyId !== bodyId) {
@@ -302,6 +309,7 @@ export class TerrainDestruction implements TerrainProvider {
 
   dispose(): void {
     if (this.disposed) return; this.disposed = true;
+    this.unsubscribe?.(); this.unsubscribe = undefined;
     for (const mesh of this.bindings.keys()) this.unregisterSurface(mesh);
     for (const material of this.replacements.values()) material.dispose(); this.replacements.clear();
     this.geometry.dispose(); this.earth.dispose(); this.mask.dispose(); this.group.removeFromParent();
