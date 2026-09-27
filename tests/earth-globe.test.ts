@@ -4,10 +4,11 @@ import { Group, Mesh, Vector3 } from 'three/webgpu';
 import { EarthGlobe, TILE_RESOLUTION, buildTileMesh } from '../src/world/planet/EarthGlobe.ts';
 import { EarthProvider, MANAUS_COVERAGE } from '../src/world/providers/EarthProvider.ts';
 import { regionContains } from '../src/world/providers/WorldProvider.ts';
-import { planetTile, tileCentreGeodetic } from '../src/world/planet/PlanetTileAddress.ts';
+import { planetTile, tileCentreGeodetic, tileContaining } from '../src/world/planet/PlanetTileAddress.ts';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
 import { MANAUS_ANCHOR } from '../src/world/spatial/ManausFrameAdapter.ts';
 import { ecefToGeodetic } from '../src/world/spatial/ECEF.ts';
+import { surfaceHeightAt } from '../src/world/planet/EarthElevation.ts';
 import { WGS84, WGS84_B } from '../src/world/spatial/WGS84.ts';
 import { pose } from '../src/world/spatial/SpatialPose.ts';
 import { activeFrame, referenceFrame } from '../src/world/spatial/ReferenceFrame.ts';
@@ -64,7 +65,8 @@ test('tile vertices are small numbers, whatever the tile is', () => {
 });
 
 test('every vertex lands on the surface, and its normal is the plumb line', () => {
-  const mesh = buildTileMesh(planetTile('earth', 2, 4, 5, 9));
+  // The bare ellipsoid. Terrain is checked separately, below.
+  const mesh = buildTileMesh(planetTile('earth', 2, 4, 5, 9), 0, true);
   const positions = mesh.geometry.getAttribute('position');
   const normals = mesh.geometry.getAttribute('normal');
   assert.equal(positions.count, TILE_RESOLUTION * TILE_RESOLUTION);
@@ -92,6 +94,80 @@ test('every vertex lands on the surface, and its normal is the plumb line', () =
     assert.ok(alignment > 0.999 && alignment <= 1 + 1e-9, `normal points away from the surface (${alignment})`);
   }
   assert.equal(mesh.triangles, (TILE_RESOLUTION - 1) ** 2 * 2);
+});
+
+test('a tile carries the real relief, and its normals tilt with the slope', () => {
+  // Whichever tile actually contains the Himalayas, asked rather than guessed.
+  const address = tileContaining('earth', { latRad: 28 * Math.PI / 180, lonRad: 87 * Math.PI / 180, heightM: 0 }, 5);
+  const flat = buildTileMesh(address, 0, true);
+  const relief = buildTileMesh(address);
+  const flatPositions = flat.geometry.getAttribute('position');
+  const reliefPositions = relief.geometry.getAttribute('position');
+
+  let raised = 0, worstM = 0, tiltedNormals = 0;
+  const normals = relief.geometry.getAttribute('normal');
+  for (let i = 0; i < reliefPositions.count; i++) {
+    const point = {
+      xM: reliefPositions.getX(i) + relief.centre.xM,
+      yM: reliefPositions.getY(i) + relief.centre.yM,
+      zM: reliefPositions.getZ(i) + relief.centre.zM,
+    };
+    const geodetic = ecefToGeodetic(point);
+    // Never below sea level: the ocean floor is not the surface of the planet.
+    assert.ok(geodetic.heightM > -1, `a vertex sank to ${geodetic.heightM.toFixed(1)} m`);
+    // And exactly the height the grid says, which is what makes two tiles agree on a shared edge.
+    const expected = surfaceHeightAt(geodetic.latRad, geodetic.lonRad);
+    worstM = Math.max(worstM, Math.abs(geodetic.heightM - expected));
+    if (geodetic.heightM > 1) raised++;
+
+    const normal: Vec3 = [normals.getX(i), normals.getY(i), normals.getZ(i)];
+    assert.ok(Math.abs(Math.hypot(...normal) - 1) < 1e-6, 'normals must stay unit length');
+    // The plumb line for comparison: a sloped vertex must not be shaded as though it were flat.
+    const cosLat = Math.cos(geodetic.latRad), sinLat = Math.sin(geodetic.latRad);
+    const plumb: Vec3 = [cosLat * Math.cos(geodetic.lonRad), cosLat * Math.sin(geodetic.lonRad), sinLat];
+    const alignment = normal[0] * plumb[0] + normal[1] * plumb[1] + normal[2] * plumb[2];
+    assert.ok(alignment > 0, 'a terrain normal still points outward');
+    if (alignment < 0.995) tiltedNormals++;
+  }
+
+  assert.ok(raised > 0, 'a tile over land must sit above sea level somewhere');
+  assert.ok(worstM < 1.5, `height disagreed with the grid by ${worstM.toFixed(2)} m`);
+  assert.ok(tiltedNormals > 0, 'relief that does not reach the normals is invisible from orbit');
+
+  // The relief is a displacement of the ellipsoid, not a different surface.
+  let moved = 0;
+  for (let i = 0; i < reliefPositions.count; i++) {
+    moved = Math.max(moved, Math.abs(reliefPositions.getX(i) - flatPositions.getX(i)));
+  }
+  assert.ok(moved > 0, 'the terrain must actually move the vertices');
+});
+
+test('two tiles that share an edge agree on its height, without any seam handling', () => {
+  // Neighbours on the same face: the right edge of one is the left edge of the other.
+  const left = buildTileMesh(planetTile('earth', 0, 3, 3, 4));
+  const right = buildTileMesh(planetTile('earth', 0, 3, 4, 4));
+  const leftPositions = left.geometry.getAttribute('position');
+  const rightPositions = right.geometry.getAttribute('position');
+
+  let worst = 0;
+  for (let row = 0; row < TILE_RESOLUTION; row++) {
+    const a = row * TILE_RESOLUTION + (TILE_RESOLUTION - 1);
+    const b = row * TILE_RESOLUTION;
+    const pa = {
+      xM: leftPositions.getX(a) + left.centre.xM,
+      yM: leftPositions.getY(a) + left.centre.yM,
+      zM: leftPositions.getZ(a) + left.centre.zM,
+    };
+    const pb = {
+      xM: rightPositions.getX(b) + right.centre.xM,
+      yM: rightPositions.getY(b) + right.centre.yM,
+      zM: rightPositions.getZ(b) + right.centre.zM,
+    };
+    worst = Math.max(worst, Math.hypot(pa.xM - pb.xM, pa.yM - pb.yM, pa.zM - pb.zM));
+  }
+  // Float32 storage of offsets from two different tile centres is the whole budget here. The
+  // noise this replaced seeded itself per tile, so neighbours disagreed by whole mountains.
+  assert.ok(worst < 50, `the shared edge is ${worst.toFixed(1)} m apart`);
 });
 
 test('the globe holds a tile and gives it back again', () => {

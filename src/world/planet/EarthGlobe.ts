@@ -11,6 +11,8 @@ import { geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
 import { directionToGeodetic } from './CubeSphere';
 import { type PlanetTileAddress, tileBounds, tileCentreDirection } from './PlanetTileAddress';
 import { surfaceColour } from './EarthLandMask';
+import { surfaceHeightAt, surfaceNormalEnu } from './EarthElevation';
+import { enuBasis } from '../spatial/ENU';
 import { faceUvToDirection } from './CubeSphere';
 import type { Vec3 } from '../spatial/units';
 
@@ -50,7 +52,14 @@ export interface TileMesh {
  * not the direction to the centre — on an oblate body those differ, and using the geocentric
  * direction instead would tilt the shading slightly everywhere away from the equator.
  */
-export function buildTileMesh(address: PlanetTileAddress, heightM = 0): TileMesh {
+/**
+ * Geometry for one tile, on the ellipsoid and at the real elevation.
+ *
+ * `heightM` offsets the whole tile; the terrain on top of it comes from the global relief grid,
+ * sampled per vertex. Pass `flat` to get the bare ellipsoid, which is what the tests want when
+ * they are checking that a vertex lands on it.
+ */
+export function buildTileMesh(address: PlanetTileAddress, heightM = 0, flat = false): TileMesh {
   const size = TILE_RESOLUTION;
   const { minU, maxU, minV, maxV } = tileBounds(address);
   const centreDirection = tileCentreDirection(address, [0, 0, 0]);
@@ -61,24 +70,42 @@ export function buildTileMesh(address: PlanetTileAddress, heightM = 0): TileMesh
   const colors = new Float32Array(size * size * 3);
   const direction: Vec3 = [0, 0, 0];
   const colour: [number, number, number] = [0, 0, 0];
+  const slope: [number, number, number] = [0, 0, 1];
 
   for (let row = 0; row < size; row++) {
     const v = minV + (maxV - minV) * (row / (size - 1));
     for (let column = 0; column < size; column++) {
       const u = minU + (maxU - minU) * (column / (size - 1));
       faceUvToDirection(address.face, u, v, direction);
-      const geodetic = directionToGeodetic(direction, heightM);
+      const base = directionToGeodetic(direction, heightM);
+      // Real relief on top of the ellipsoid, from the global grid. Two tiles that share an edge
+      // sample the same coordinate and get the same height, so edges match with no seam handling.
+      const relief = flat ? 0 : surfaceHeightAt(base.latRad, base.lonRad);
+      const geodetic = { latRad: base.latRad, lonRad: base.lonRad, heightM: base.heightM + relief };
       const point = geodeticToEcef(geodetic);
       const index = (row * size + column) * 3;
       positions[index] = point.xM - centre.xM;
       positions[index + 1] = point.yM - centre.yM;
       positions[index + 2] = point.zM - centre.zM;
 
-      // The ellipsoid normal: the direction a plumb line points, not the direction to the centre.
+      // The ellipsoid normal is the direction a plumb line points, not the direction to the
+      // centre. The terrain normal tilts it by the real slope, which is what makes a mountain
+      // range visible from orbit -- height alone is 0.2% of the radius and shows up nowhere.
       const cosLat = Math.cos(geodetic.latRad), sinLat = Math.sin(geodetic.latRad);
-      normals[index] = cosLat * Math.cos(geodetic.lonRad);
-      normals[index + 1] = cosLat * Math.sin(geodetic.lonRad);
-      normals[index + 2] = sinLat;
+      const cosLon = Math.cos(geodetic.lonRad), sinLon = Math.sin(geodetic.lonRad);
+      if (flat) {
+        normals[index] = cosLat * cosLon;
+        normals[index + 1] = cosLat * sinLon;
+        normals[index + 2] = sinLat;
+      } else {
+        surfaceNormalEnu(base.latRad, base.lonRad, slope);
+        const basis = enuBasis(geodetic);
+        for (let axis = 0; axis < 3; axis++) {
+          normals[index + axis] = basis.east[axis] * slope[0]
+            + basis.north[axis] * slope[1]
+            + basis.up[axis] * slope[2];
+        }
+      }
 
       // Real coastlines, from the bundled Natural Earth mask. Per vertex rather than per texel:
       // at these tile sizes the interpolation reads as a coast, and it costs no texture at all.
