@@ -23,6 +23,7 @@ These are project constraints, not preferences:
 | Asset | Source | Licence | Size | Retrieved |
 | --- | --- | --- | --- | --- |
 | `src/world/geodata/earth-landmask.json` | Natural Earth 1:110m Physical Vectors — land | Public domain | 86 KB | 2026-09-25 |
+| `src/world/geodata/earth-elevation.json` | NOAA NGDC ETOPO5 global relief, 5 arc-minute | Public domain (US Gov) | 341 KB | 2026-09-26 |
 
 Natural Earth's terms state that no permission is needed to use it and that crediting the authors
 is appreciated but not required. It is public domain.
@@ -83,8 +84,8 @@ equirectangular inflates the poles — and Antarctica is at the bottom.
 
 ## Not built
 
-- **Global terrain (DEM).** Copernicus GLO-90 is the specification's choice; GLO-30 optional.
-  Nothing is implemented, and every planet tile is currently at height zero.
+- **A finer DEM.** ETOPO5 at 512x256 is about 78 km per sample, which matches the tiles the globe
+  is drawn with today. Copernicus GLO-90 is the specification's choice for when they get finer.
 - **Global rivers and coastline vectors** at higher detail than 110m.
 - **Bathymetry**, and therefore an ocean with depth.
 

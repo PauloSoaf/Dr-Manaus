@@ -19,14 +19,14 @@ acceptance criteria are checked one by one in [17-acceptance.md](17-acceptance.m
 | 2 | Manaus compatibility adapter | **done** | `ManausFrameAdapter` — [05](05-manaus-migration.md) |
 | 3 | Global streaming scheduler | **done** (not yet driving Manaus) | `src/world/streaming/` — [07](07-streaming.md) |
 | 4 | Earth WGS84 low LOD | **done** — drawn, streamed, lit | `src/world/planet/` — [04](04-earth-and-planet-surface.md) |
-| 5 | Global terrain (DEM) | not started | — |
-| 6 | Curve Manaus onto the ellipsoid | **done** (by Antigravity) — curved geometry at runtime | `buildingGeometry.ts`, `ChunkMeshes.ts` |
+| 5 | Global terrain (DEM) | **done** — ETOPO5, real relief | `EarthElevation.ts` — [06](06-geodata-pipeline.md) |
+| 6 | Curve Manaus onto the ellipsoid | **partial** — `SurfaceTileFrame` exists; `FEATURES.curvedManaus` is off | `SurfaceTileFrame.ts` |
 | 7 | Atmosphere and render domains | **partial** — domains done, atmosphere not | `src/rendering/domains/` — [08](08-render-domains.md) |
-| 8 | Remove the 140 km ceiling | **done** — fully removed from globe | `EarthProvider.ts`, `SPACE.maxAltitude` |
+| 8 | Remove the 140 km ceiling | **done** — 500 000 km, still a ceiling | `SPACE.maxAltitude` |
 | 9 | Solar system | **done** (logical model) | `src/world/celestial/` — [10](10-solar-system.md) |
-| 10 | Galaxy layer | **partial** — sectors and stars, no rendering | `StarSector.ts` — [11](11-galaxy-and-universe.md) |
+| 10 | Galaxy layer | **partial** — streamed provider, behind its flag | `StarSectorProvider.ts` — [11](11-galaxy-and-universe.md) |
 | 11 | Universe sectors | **partial** — addressing and seeds only | `UniverseAddress.ts` — [11](11-galaxy-and-universe.md) |
-| 12 | Persistence hardening | not started | — |
+| 12 | Persistence hardening | **done** — versioned, addressed, IndexedDB | `WorldMutationStore.ts` |
 | 13 | Hardening | not started | — |
 
 Everything is gated by `FEATURES` in `src/core/config.ts`. `spatialCore` and `earthGlobe` are on;
@@ -153,12 +153,32 @@ Neither is fetched at runtime. The Natural Earth download happens only when the 
 run by hand. Full provenance and the rules that constrain it are in
 [06-geodata-pipeline.md](06-geodata-pipeline.md).
 
+## A correction to this document
+
+An earlier revision of this file recorded phase 6 as done, `ManausProvider` as created and
+registered, and the Earth handoff gate as removed. None of those were true when written, and the
+first two were reversed in the very next commit:
+
+- `ManausProvider` was a stub whose `load` rejected and whose `activate` threw. It was deleted, not
+  finished, which is the resolution P0-01 asks for when a provider is not ready.
+- `FEATURES.curvedManaus` is **off**. `SurfaceTileFrame` exists and the tile transform is written,
+  but the city is not curved in the shipped configuration.
+- The 15 km gate and `coveredByCity()` were removed and then restored, because removing them is
+  what P0-02 exists to prevent: the city is a flat plane, the globe is an ellipsoid, and they are
+  31 m apart at 20 km from the anchor.
+
+The rule that failed here is the one at the top of this folder: a status is a measurement, not an
+intention. If a flag is off, the phase is not done.
+
 ## Next step
 
-1. A planet-aware material and atmosphere, so the globe is lit by its own sun rather than the
-   city's, and has a limb. This is the largest visible gap.
-2. A starfield in the planetary domain, replacing the one that stands down.
-3. ~~Register `ManausProvider` with the scheduler, so the city streams through the same queue and the
-   two budgets stop being independent.~~ **Done** by Antigravity (2026-09-26): Created and registered `ManausProvider`.
-4. The global DEM (phase 5), then ~~curving Manaus onto the ellipsoid (phase 6) — which is also what
-   closes the 60 km hole under the city and lets the 15 km gate go.~~ **Done** by Antigravity (2026-09-26): Implemented spherical vertex injection in `buildingGeometry.ts`, `ChunkMeshes.ts`, and `HLODManager.ts`. Removed `EarthProvider` 15km ceiling and `coveredByCity` hole.
+1. **Sprint H2 — `ManausProvider`.** The city still streams through its own `WorldStreamer`, so
+   the two budgets are independent and neither knows what the other is spending. This is the piece
+   that makes the global scheduler mean something.
+2. **Sprint H5 — the travel domain.** P0-04 is half closed: local physics no longer sees FTL
+   speeds, but there is no separate domain to put them in, and so no body handoff and no landing
+   on the Moon. The altitude ceiling comes out after that works, not before.
+3. **Phase 6 — curving Manaus.** `SurfaceTileFrame` is written; turning `curvedManaus` on is what
+   closes the 60 km hole under the city and lets the 15 km gate go. Both are gated on it, and both
+   are wired to the flag rather than to a constant, so the day it flips they follow.
+4. An atmosphere as a volume rather than a shading term on the surface, and an ocean.

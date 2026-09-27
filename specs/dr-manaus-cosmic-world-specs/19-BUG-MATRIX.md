@@ -15,9 +15,9 @@
 | P1-05 | ~~alta~~ resolvido | `UniverseAddress.ts` | bigint passa por Number | preservar bigint |
 | P1-06 | ~~alta~~ resolvido | `SystemGenerator.ts` | órbita calculada e descartada | orbital elements |
 | P1-07 | ~~alta~~ resolvido | `CameraController.ts` | sceneScale parcial | render-local frames |
-| P1-08 | alta | `WorldMutationStore.ts` | persistence incompleta | IndexedDB + schema |
+| P1-08 | ~~alta~~ resolvido | `WorldMutationStore.ts` | persistence incompleta | IndexedDB + schema |
 | P2-01 | ~~média~~ resolvido | `CurveManaus.ts` | arquivo vazio | remover ou implementar |
-| P2-02 | média | docs/status | status otimista | usar estados factuais |
+| P2-02 | ~~média~~ resolvido | docs/status | status otimista | usar estados factuais |
 
 ## Estado em 2026-09-26
 
@@ -69,3 +69,19 @@ Gate do Sprint H0: build verde, 250 testes verdes, 0 skipped.
 
 Falta: P0-04 (`TravelDomain`, Sprint H5), P1-08 (persistência), P2-02, Sprint H2
 (`ManausProvider`).
+
+## Terceira passagem
+
+- **P1-08** contrato de persistência fechado: schema version com migração, generator version,
+  endereço de corpo/sistema/setor, IndexedDB com fallback, escrita assíncrona e coalescida,
+  validação campo a campo na leitura, quota tratada por descarte do corpo mais antigo. 10 testes.
+- **P2-02** `docs/world/15-status.md` dizia que a fase 6 estava pronta, que o `ManausProvider`
+  estava criado e registrado, e que o gate de 15 km tinha sido removido. Nada disso era verdade —
+  o provider foi apagado no commit seguinte e `FEATURES.curvedManaus` continua desligada. O
+  documento agora registra o que está ligado, e traz a correção por escrito.
+
+Estado: todos os P0 e P1 resolvidos exceto **P0-04** (metade: física local já não vê FTL, mas o
+`TravelDomain` não existe — Sprint H5). P2 resolvidos.
+
+Falta de roadmap: Sprint H2 (`ManausProvider`), Sprint H5 (travel domain, Lua), fase 6 (ligar
+`curvedManaus`), atmosfera como volume, oceano, Sprint H9 (hardening).
