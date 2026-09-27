@@ -29,6 +29,16 @@ export const REAL_CITY = {
   /** Prediction: the ring rides ahead of the player instead of loading what is behind. */
   leadSeconds: 1.6, maxLead: 3200,
   buildBudgetMs: 3.5,
+  /**
+   * The share of the build budget facades may take before the shell tier is served.
+   *
+   * Facades first is right -- they are what the player is standing in -- but "first" has to mean
+   * "before", not "instead of". Detail work is re-queued every time a tile streams in or a cell
+   * changes tier, so a moving player regenerates it faster than it drains, and a strict ordering
+   * meant the shell tier never ran at all: the middle distance stayed empty for as long as the
+   * player kept flying. The remainder of the budget is reserved for shells so they always advance.
+   */
+  detailBudgetShare: 0.7,
   /** The physical region is far smaller than the visible one at every flight speed. */
   maxColliders: 900,
   /** Levelled buildings remembered before the oldest is allowed to rebuild. */

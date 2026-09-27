@@ -635,12 +635,39 @@ export class RealCityLayer {
     });
   }
 
-  /** A fixed millisecond budget per frame; a 2 600-building tile spreads over several frames. */
+  /**
+   * A fixed millisecond budget per frame; a 2 600-building tile spreads over several frames.
+   *
+   * Two passes over one budget. The first takes the queue as `prioritise` ordered it, which puts
+   * facades first because facades are what the player is standing in. The second is reserved for
+   * the shell tier.
+   *
+   * That reservation is not tuning, it is the difference between the shell tier running and not
+   * running at all. Detail work is re-queued every time a tile streams in or a cell changes tier,
+   * so a moving player regenerates it faster than the budget drains it; with a strict ordering the
+   * shell jobs sat at index zero indefinitely and the middle distance stayed empty -- which is the
+   * exact failure the comment above `prioritise` was written to prevent, caused by the sort it
+   * describes.
+   */
   private runJobs(): void {
     const start = performance.now();
+    const budget = REAL_CITY.buildBudgetMs;
+    this.pumpJobs(start, budget * REAL_CITY.detailBudgetShare);
+    this.pumpJobs(start, budget, 'shell');
+  }
+
+  /**
+   * Runs queued work until the deadline, optionally only of one kind.
+   *
+   * The deadline is measured from the frame's start rather than from this call, so two passes
+   * share one budget instead of each taking a whole one.
+   */
+  private pumpJobs(startMs: number, deadlineMs: number, kind?: BuildJob['kind']): void {
     while (this.jobs.length) {
-      const job = this.jobs[0];
-      if (!this.tiles.has(job.tile.key)) { this.jobs.shift(); continue; }
+      const position = kind ? this.jobs.findIndex(job => job.kind === kind) : 0;
+      if (position < 0) return;
+      const job = this.jobs[position];
+      if (!this.tiles.has(job.tile.key)) { this.jobs.splice(position, 1); continue; }
       while (job.index < job.list.length) {
         const building = job.list[job.index++];
         if (this.destroyed.has(building.id)) continue;
@@ -655,11 +682,11 @@ export class RealCityLayer {
           collider.x += job.tile.originX; collider.z += job.tile.originZ;
           job.colliders.push(collider);
         }
-        if ((job.index & 31) === 0 && performance.now() - start > REAL_CITY.buildBudgetMs) return;
+        if ((job.index & 31) === 0 && performance.now() - startMs > deadlineMs) return;
       }
       this.finish(job);
-      this.jobs.shift();
-      if (performance.now() - start > REAL_CITY.buildBudgetMs) return;
+      this.jobs.splice(position, 1);
+      if (performance.now() - startMs > deadlineMs) return;
     }
   }
 
