@@ -1,4 +1,4 @@
-export type FlightSpeedMode = 'ground' | 'normal' | 'fast' | 'super' | 'mega' | 'interplanetary' | 'cosmic';
+export type FlightSpeedMode = 'ground' | 'normal' | 'fast' | 'super' | 'mega' | 'interplanetary';
 
 /**
  * Metres per second. Mega and interplanetary both require an arm action before holding boost.
@@ -6,12 +6,10 @@ export type FlightSpeedMode = 'ground' | 'normal' | 'fast' | 'super' | 'mega' | 
  * Interplanetary is 200 000 km/h, which is 55 556 m/s — about twice the speed a spacecraft needs
  * to leave Earth, and the difference between two and a half hours to the Moon and a week. It is a
  * superhero's cruise, not a rocket's.
- * 
- * Cosmic mode is Faster-Than-Light (FTL). 1000 light years per second for interstellar traversal.
  */
 export const FLIGHT = {
-  speeds: { normal: 120, fast: 500, super: 2000, mega: 8000, interplanetary: 1155_556, cosmic: 9.4607e18 },
-  maxSpeed: 1e20, // Huge max speed
+  speeds: { normal: 120, fast: 500, super: 2000, mega: 8000, interplanetary: 55556 },
+  maxSpeed: 80000,
   response: {
     normal: 8.5, fast: 8.5, super: 4.5, mega: 1.7,
     /**
@@ -20,7 +18,6 @@ export const FLIGHT = {
      * to be slow enough that a heading is a decision rather than a twitch.
      */
     interplanetary: 0.85,
-    cosmic: 0.1, // extremely slow response for FTL
     braking: 6,
   },
   /**

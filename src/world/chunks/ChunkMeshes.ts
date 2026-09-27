@@ -134,21 +134,9 @@ export class ChunkMeshes {
   private set(mesh: InstancedMesh, index: number, x: number, y: number, z: number, w: number, h: number, d: number, yaw = 0): void {
     const parent = mesh.parent as Group;
     const gx = x + parent.position.x, gz = z + parent.position.z;
-    const dist = Math.hypot(gx, gz);
-    let tilt: Quaternion | null = null;
-    if (dist > 0) {
-      const theta = dist / 6378137;
-      const drop = 6378137 * (1 - Math.cos(theta));
-      const scale = Math.sin(theta) / theta;
-      x = gx * scale - parent.position.x;
-      z = gz * scale - parent.position.z;
-      y -= drop;
-      const axisX = -gz / dist, axisZ = gx / dist;
-      tilt = new Quaternion().setFromAxisAngle(new Vector3(axisX, 0, axisZ), theta);
-    }
-    this.position.set(x, y, z); this.scale.set(w, h, d);
+    this.position.set(gx - parent.position.x, y, gz - parent.position.z);
+    this.scale.set(w, h, d);
     this.rotation.set(0, Math.sin(yaw * .5), 0, Math.cos(yaw * .5));
-    if (tilt) this.rotation.premultiply(tilt);
     this.matrix.compose(this.position, this.rotation, this.scale); mesh.setMatrixAt(index, this.matrix);
   }
 

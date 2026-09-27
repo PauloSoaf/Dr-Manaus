@@ -18,7 +18,8 @@ import { ProviderRegistry } from './ProviderRegistry';
 import { sectorIndex, SECTOR_SIZE_M, sectorSeed, type UniverseAddress } from '../spatial/UniverseAddress';
 import { generateStarSector } from '../celestial/StarSector';
 import { generateSystem } from '../celestial/SystemGenerator';
-
+import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
+import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 export interface UniverseRuntimeOptions {
   /**
    * When false the runtime tracks the world and reports on it but streams nothing and touches no
@@ -58,6 +59,7 @@ export class UniverseRuntime {
   readonly providers = new ProviderRegistry();
   readonly scheduler: GlobalStreamingScheduler;
   readonly solarSystem: SolarSystem;
+  public activeSystem: CelestialSystemRuntime;
   readonly earthQuadtree: PlanetQuadtree;
   readonly floatingOrigin: FloatingOrigin3D;
   address: UniverseAddress;
@@ -80,6 +82,7 @@ export class UniverseRuntime {
 
     this.solarSystem = new SolarSystem({ epochS: this.timeS });
     this.solarSystem.registerFrames(this.frames);
+    this.activeSystem = this.solarSystem;
     this.registerEarthFrames();
 
     this.scheduler = new GlobalStreamingScheduler(this.providers);
@@ -159,79 +162,12 @@ export class UniverseRuntime {
     this.velocity[2] = finite(localVelocity[2]);
     this.setViewForward(viewForward);
 
-    // If FTL carries the player past the sector boundary, re-center the position and increment the sector
-    if (this.address) {
-      let dx = this.playerPose.position[0] - this.floatingOrigin.logicalOrigin.position[0];
-      let dy = this.playerPose.position[1] - this.floatingOrigin.logicalOrigin.position[1];
-      let dz = this.playerPose.position[2] - this.floatingOrigin.logicalOrigin.position[2];
-      
-      let sx = this.address.sector.x;
-      let sy = this.address.sector.y;
-      let sz = this.address.sector.z;
-      
-      const halfSector = SECTOR_SIZE_M / 2;
-      let changed = false;
-      
-      if (Math.abs(dx) > halfSector) {
-        const shifts = Math.round(dx / SECTOR_SIZE_M);
-        sx += BigInt(shifts);
-        this.playerPose.position[0] -= shifts * SECTOR_SIZE_M;
-        changed = true;
-      }
-      if (Math.abs(dy) > halfSector) {
-        const shifts = Math.round(dy / SECTOR_SIZE_M);
-        sy += BigInt(shifts);
-        this.playerPose.position[1] -= shifts * SECTOR_SIZE_M;
-        changed = true;
-      }
-      if (Math.abs(dz) > halfSector) {
-        const shifts = Math.round(dz / SECTOR_SIZE_M);
-        sz += BigInt(shifts);
-        this.playerPose.position[2] -= shifts * SECTOR_SIZE_M;
-        changed = true;
-      }
-      
-      if (changed) {
-        const newSector = sectorIndex(sx, sy, sz);
-        this.address = {
-          galaxyId: this.address.galaxyId,
-          sector: newSector,
-          systemId: this.address.systemId,
-          bodyId: this.address.bodyId,
-          childFrame: this.address.childFrame
-        };
-
-        // Materialize system logic
-        // Find the closest star in the sector to potentially approach
-        const sectorContent = generateStarSector(this.address.galaxyId, newSector);
-        let closestStar = null;
-        let minDistanceSq = Infinity;
-        const playerPos = this.playerPose.position;
-
-        for (const star of sectorContent.stars) {
-          const dx = playerPos[0] - star.offsetM[0];
-          const dy = playerPos[1] - star.offsetM[1];
-          const dz = playerPos[2] - star.offsetM[2];
-          const distSq = dx * dx + dy * dy + dz * dz;
-          if (distSq < minDistanceSq) {
-            minDistanceSq = distSq;
-            closestStar = star;
-          }
-        }
-
-        // Materialize system if close enough (e.g. within 1 light year)
-        // For gameplay purposes, we can generate it immediately upon sector entry or if we are close.
-        if (closestStar) {
-          const seed = sectorSeed(this.address.galaxyId, newSector);
-          const system = generateSystem(closestStar.id, seed, closestStar.massSolar);
-          this.solarSystem.setSystemBodies(system.bodies);
-        }
-      }
-    }
-
     this.floatingOrigin.update(this.playerPose);
     // A minute of simulated time per second keeps the sky moving without the planets racing.
     this.solarSystem.update(this.timeS);
+    if (this.activeSystem !== this.solarSystem) {
+      this.activeSystem.update(this.timeS);
+    }
 
     if (!this.options.streaming) { this.planetTiles = 0; return; }
 
@@ -323,9 +259,9 @@ export class UniverseRuntime {
       altitudeM: geodetic.heightM,
       renderLocalM: local,
       rebases: this.floatingOrigin.rebaseCount,
-      dominantBody: this.solarSystem.dominantBody(
-        this.solarSystem.positionOf('earth') ?? [0, 0, 0],
-      ).id,
+      dominantBody: this.activeSystem.dominantBody(
+        this.activeSystem.positionOf('earth') ?? [0, 0, 0]
+      )?.id ?? 'none',
       planetTiles: this.planetTiles,
       streaming: this.scheduler.stats,
       sceneScale: Math.min(1, 20_000_000 / Math.max(1, local)),

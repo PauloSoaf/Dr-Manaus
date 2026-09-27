@@ -28,20 +28,7 @@ export interface BodyState {
   readonly velocityMps: Vec3;
 }
 
-/**
- * How a body should currently be treated: a point of light, a globe, or ground underfoot.
- *
- * `blend` exists only for the renderer to cross-fade with. The specification is explicit that the
- * logical position never depends on it — a body is where it is whichever way it is being drawn.
- */
-export interface BodyHandoffState {
-  readonly bodyId: string;
-  readonly mode: 'celestial' | 'planet' | 'surface';
-  readonly blend: number;
-  readonly apparentAngularRadiusRad: number;
-  readonly distanceToSurfaceM: number;
-}
-
+import type { CelestialSystemRuntime, BodyHandoffState } from './CelestialSystemRuntime';
 export interface SolarSystemOptions {
   ephemeris?: EphemerisProvider;
   /** Seconds from J2000 at which the game's clock starts. */
@@ -55,7 +42,7 @@ export interface SolarSystemOptions {
  * the render layer receives is a handoff state and an angular size, which is what lets the Sun sit
  * at a genuine astronomical unit without a single astronomical number reaching a vertex buffer.
  */
-export class SolarSystem {
+export class SolarSystem implements CelestialSystemRuntime {
   private readonly ephemeris: EphemerisProvider;
   private readonly states = new Map<string, BodyState>();
   private epochS: number;

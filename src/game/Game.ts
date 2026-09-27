@@ -36,7 +36,7 @@ import { AudioManager } from '../audio/AudioManager';
 import { HUD } from '../ui/HUD';
 import { UniverseRuntime } from '../world/runtime/UniverseRuntime';
 import { EarthProvider } from '../world/providers/EarthProvider';
-import { ManausProvider } from '../world/providers/ManausProvider';
+
 import { UniverseRenderer } from '../world/celestial/UniverseRenderer';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
@@ -77,8 +77,6 @@ export class Game {
     this.flatTerrain=createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
     this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);this.hlod.setDestructionSource(this.streamer);
     this.streamer.setReplacesChunk((cx, cz) => this.realCity.coversChunk(cx, cz));
-    const manausProvider = new ManausProvider(this.streamer, this.realCity, this.hlod, this.landmarks);
-    this.universe.providers.register(manausProvider);
     this.universeRenderer = new UniverseRenderer(this.universe);
     this.rendering.scene.add(this.universeRenderer.group);
     this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
@@ -201,7 +199,7 @@ export class Game {
       // very thing the domain exists to show.
       this.rendering.domains.setRange(this.universe.telemetry.altitudeM+6_378_137);
       // The globe is lit from where the Sun actually is, not from the local sky's dusk.
-      const sun=this.universe.solarSystem.positionOf('sun'),earthAt=this.universe.solarSystem.positionOf('earth');
+      const sun=this.universe.activeSystem.positionOf('sun') ?? [0,0,0],earthAt=this.universe.activeSystem.positionOf('earth') ?? [0,0,0];
       if(sun&&earthAt)this.earth.setSunDirection([sun[0]-earthAt[0],sun[1]-earthAt[1],sun[2]-earthAt[2]],'solar-system/barycentric');
     }
     // Global doubles stay stable. Every world object receives the same inverse origin transform.

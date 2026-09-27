@@ -2,7 +2,6 @@ import {
   BufferAttribute, BufferGeometry, Color, FrontSide, Group, Mesh, MeshBasicNodeMaterial,
   type Object3D, Vector3, SphereGeometry, DoubleSide, AdditiveBlending
 } from 'three/webgpu';
-import { SimplexNoise } from 'three/examples/jsm/math/SimplexNoise.js';
 import {
   attribute, cameraPosition, float, normalWorld, positionWorld, smoothstep, uniform,
 } from 'three/tsl';
@@ -62,38 +61,13 @@ export function buildTileMesh(address: PlanetTileAddress, heightM = 0): TileMesh
   const colors = new Float32Array(size * size * 3);
   const direction: Vec3 = [0, 0, 0];
   const colour: [number, number, number] = [0, 0, 0];
-  
-  // A deterministic noise instance for procedural global terrain.
-  const noise = new SimplexNoise();
-  const getElevation = (latRad: number, lonRad: number) => {
-    // Convert lat/lon to 3D Cartesian on a unit sphere for seamless noise
-    const nx = Math.cos(latRad) * Math.cos(lonRad);
-    const ny = Math.cos(latRad) * Math.sin(lonRad);
-    const nz = Math.sin(latRad);
-    
-    // Low frequency continents / large mountains
-    let e = 1.0 * noise.noise3d(nx * 2, ny * 2, nz * 2)
-          + 0.5 * noise.noise3d(nx * 4, ny * 4, nz * 4)
-          + 0.25 * noise.noise3d(nx * 8, ny * 8, nz * 8);
-    // Normalize to rough [0, 1] range (Simplex output is approx -1 to 1)
-    e = e / 1.75;
-    
-    // Only apply height if it's "land" (above sea level logic)
-    // To make it simple, if e > 0 it's land, else water
-    if (e < 0) return heightM; // Ocean level
-    
-    // Max elevation around 8000m (Himalayas)
-    return heightM + e * 8000;
-  };
 
   for (let row = 0; row < size; row++) {
     const v = minV + (maxV - minV) * (row / (size - 1));
     for (let column = 0; column < size; column++) {
       const u = minU + (maxU - minU) * (column / (size - 1));
       faceUvToDirection(address.face, u, v, direction);
-      const baseGeodetic = directionToGeodetic(direction, heightM);
-      const elevation = getElevation(baseGeodetic.latRad, baseGeodetic.lonRad);
-      const geodetic = directionToGeodetic(direction, elevation);
+      const geodetic = directionToGeodetic(direction, heightM);
       const point = geodeticToEcef(geodetic);
       const index = (row * size + column) * 3;
       positions[index] = point.xM - centre.xM;

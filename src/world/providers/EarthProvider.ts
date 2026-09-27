@@ -80,7 +80,7 @@ export class EarthProvider implements WorldProvider {
   ) {
     this.globe = new EarthGlobe(parent);
     this.options = {
-      minAltitudeM: Math.max(0, finite(options.minAltitudeM, 0)),
+      minAltitudeM: Math.max(0, finite(options.minAltitudeM, 15_000)),
       fadeM: Math.max(1, finite(options.fadeM, 10_000)),
       maxTiles: Math.max(6, finite(options.maxTiles, 160)),
       maxLevel: Math.max(0, finite(options.maxLevel, 10)),

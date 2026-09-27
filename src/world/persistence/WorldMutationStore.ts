@@ -41,6 +41,7 @@ export class WorldMutationStore {
   private persistToDisk() {
     // In a real implementation with electron or Tauri, we'd write to the file system.
     // For web, we push to IndexedDB or localStorage.
+    if (typeof localStorage === 'undefined') return;
     try {
       const state = {
         discoveries: Array.from(this.discoveries),
@@ -53,6 +54,7 @@ export class WorldMutationStore {
   }
 
   loadFromDisk() {
+    if (typeof localStorage === 'undefined') return;
     try {
       const data = localStorage.getItem('dr_manaus_world_mutations');
       if (data) {

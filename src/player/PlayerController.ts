@@ -167,7 +167,7 @@ export class PlayerController {
     this.speedMode = flying
       ? boosting
         ? armedReady
-          ? this.armedTier === 'cosmic' && inSpace ? 'cosmic' : (this.armedTier === 'interplanetary' || this.armedTier === 'cosmic') && inSpace ? 'interplanetary' : 'mega'
+          ? this.armedTier === 'interplanetary' && inSpace ? 'interplanetary' : 'mega'
           : 'super'
         : sprinting ? 'fast' : 'normal'
       : 'ground';

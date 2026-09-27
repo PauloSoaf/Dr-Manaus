@@ -259,22 +259,8 @@ export class HLODManager {
   }
 
   private set(mesh: InstancedMesh, index: number, x: number, y: number, z: number, w: number, h: number, d: number): void {
-    const dist = Math.hypot(x, z);
-    if (dist > 0) {
-      const theta = dist / 6378137;
-      const drop = 6378137 * (1 - Math.cos(theta));
-      const scale = Math.sin(theta) / theta;
-      x *= scale;
-      z *= scale;
-      y -= drop;
-      this.matrix.makeScale(w, h, d);
-      const axisX = -z / dist, axisZ = x / dist;
-      const tilt = new Matrix4().makeRotationAxis(new Vector3(axisX, 0, axisZ), theta);
-      this.matrix.premultiply(tilt);
-      this.matrix.setPosition(x, y, z);
-    } else {
-      this.matrix.makeScale(w, h, d); this.matrix.setPosition(x, y, z);
-    }
+    this.matrix.makeScale(w, h, d);
+    this.matrix.setPosition(x, y, z);
     mesh.setMatrixAt(index, this.matrix);
   }
   setDetailRadius(radius: number): void { this.detailRadius = radius; this.dirty = true; }
