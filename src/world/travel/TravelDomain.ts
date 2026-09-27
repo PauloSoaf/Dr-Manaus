@@ -117,9 +117,11 @@ export class TravelDomain {
     this.lastTransition = this.current === 'local'
       ? this.considerEntering(context)
       : this.considerReturning(context);
-    if (this.current === 'interplanetary') this.advance(context, dt);
+    // advance() is now handled externally by InterplanetaryController
     return this.lastTransition;
   }
+
+
 
   private considerEntering(context: TravelContext): TravelTransition {
     if (!context.requested) return { kind: 'none' };
@@ -160,46 +162,6 @@ export class TravelDomain {
     this.travel = undefined;
   }
 
-  /**
-   * Integrates the travel state, and keeps the player outside the body.
-   *
-   * The envelope is the whole of collision out here: a sphere, or rather a radius, which is what
-   * the specification asks for at this domain. Flying into a planet at two hundred kilometres a
-   * second should stop at its surface, not tunnel through it into whatever the local simulation
-   * makes of being inside a world.
-   */
-  private advance(context: TravelContext, dtS: number): void {
-    const state = this.travel;
-    if (!state) return;
-    const position: Vec3 = [
-      state.positionM[0] + state.velocityMps[0] * dtS,
-      state.positionM[1] + state.velocityMps[1] * dtS,
-      state.positionM[2] + state.velocityMps[2] * dtS,
-    ];
-    const velocity: Vec3 = [...state.velocityMps] as Vec3;
-
-    const floor = finite(context.bodyRadiusM) + this.options.envelopeMarginM;
-    const radius = Math.hypot(position[0], position[1], position[2]);
-    if (floor > 0 && radius > 0 && radius < floor) {
-      const scale = floor / radius;
-      position[0] *= scale; position[1] *= scale; position[2] *= scale;
-      // Kill only the component going into the body; a grazing pass keeps its tangential speed.
-      const nx = position[0] / floor, ny = position[1] / floor, nz = position[2] / floor;
-      const into = velocity[0] * nx + velocity[1] * ny + velocity[2] * nz;
-      if (into < 0) {
-        velocity[0] -= into * nx;
-        velocity[1] -= into * ny;
-        velocity[2] -= into * nz;
-      }
-    }
-
-    this.travel = {
-      systemId: state.systemId,
-      positionM: position,
-      velocityMps: velocity,
-      referenceBodyId: state.referenceBodyId,
-    };
-  }
 
   /** Replaces the travel state, for a caller that knows the real system position and heading. */
   setState(state: InterplanetaryState): void {

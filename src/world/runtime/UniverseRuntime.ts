@@ -185,6 +185,26 @@ export class UniverseRuntime {
     this.planetTiles = this.earthQuadtree.select(this.playerEcef(), this.options.sse).length;
   }
 
+  updateSystemPose(systemPosition: [number, number, number], systemVelocity: [number, number, number], dtS: number, viewForward?: [number, number, number]): void {
+    const dt = Math.max(0, Math.min(0.25, finite(dtS)));
+    this.timeS += dt;
+
+    this.playerPose.frame = 'solar-system/barycentric';
+    this.playerPose.position[0] = finite(systemPosition[0]);
+    this.playerPose.position[1] = finite(systemPosition[1]);
+    this.playerPose.position[2] = finite(systemPosition[2]);
+    this.velocity[0] = finite(systemVelocity[0]);
+    this.velocity[1] = finite(systemVelocity[1]);
+    this.velocity[2] = finite(systemVelocity[2]);
+    this.setViewForward(viewForward);
+
+    this.floatingOrigin.update(this.playerPose);
+    this.solarSystem.update(this.timeS);
+    if (this.activeSystem !== this.solarSystem) {
+      this.activeSystem.update(this.timeS);
+    }
+  }
+
   private spatialContext(): SpatialContext {
     const frame = this.frames.has(this.playerPose.frame) ? this.frames.get(this.playerPose.frame) : undefined;
     return {

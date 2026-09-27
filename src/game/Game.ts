@@ -43,6 +43,7 @@ import { TravelDomain } from '../world/travel/TravelDomain';
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
 import { MoonProvider } from '../world/providers/MoonProvider';
 import { WGS84 } from '../world/spatial/WGS84';
+import { InterplanetaryController } from '../world/travel/InterplanetaryController';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   readonly save=new SaveManager();readonly assets=new AssetManager();readonly rendering:RendererManager;
@@ -59,6 +60,7 @@ export class Game {
   readonly galaxy?:StarSectorProvider;
   /** Which simulation the player is in. Urban physics runs in one of them and not the other. */
   readonly travelDomain=new TravelDomain();
+  readonly interplanetary=new InterplanetaryController();
   /** Present only while `FEATURES.earthGlobe` is on. The runtime itself never touches the scene. */
   readonly earth?:EarthProvider;
   readonly moon?:MoonProvider;
@@ -209,12 +211,31 @@ export class Game {
     if(local)this.gatherColliders();else this.colliders.length=0;
     this.lap('colliders');
     this.updateStomps(dt);
-    if(this.stressRoute.length)this.updateStress(dt);else this.player.update(dt,this.colliders,this.camera.yaw,this.camera.pitch);this.lap('player');
+    if(this.stressRoute.length)this.updateStress(dt);
+    else if (local) this.player.update(dt,this.colliders,this.camera.yaw,this.camera.pitch);
+    this.lap('player');
+
     if(FEATURES.spatialCore){
-      // Where the camera looks, not where the player moves: hovering and looking down is exactly
-      // the case where the two disagree, and it is the view that decides what needs to be loaded.
       this.rendering.camera.getWorldDirection(this.viewForward);
-      this.universe.update([this.player.position.x,this.player.position.y,this.player.position.z],[this.player.velocity.x,this.player.velocity.y,this.player.velocity.z],dt,[this.viewForward.x,this.viewForward.y,this.viewForward.z]);
+      if (local) {
+        this.universe.update([this.player.position.x,this.player.position.y,this.player.position.z],[this.player.velocity.x,this.player.velocity.y,this.player.velocity.z],dt,[this.viewForward.x,this.viewForward.y,this.viewForward.z]);
+      } else if (this.travelDomain.state) {
+        // We are interplanetary! Zero out local velocity so the player stays put relative to the camera.
+        this.player.velocity.set(0,0,0);
+        
+        // Read input for thrust and brake
+        const forward = (this.input.held('KeyW') ? 1 : 0) - (this.input.held('KeyS') ? 1 : 0);
+        const right = (this.input.held('KeyD') ? 1 : 0) - (this.input.held('KeyA') ? 1 : 0);
+        const brake = this.input.held('ShiftLeft'); // or whatever braking key makes sense
+        
+        const thrust = new Vector3(right, 0, -forward).applyAxisAngle(new Vector3(0,1,0), this.camera.yaw);
+        if (this.camera.pitch) thrust.applyAxisAngle(new Vector3(1,0,0), this.camera.pitch);
+        
+        const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, brake);
+        this.travelDomain.setState?.(newState); // We'll add setState to TravelDomain next
+        
+        this.universe.updateSystemPose(newState.positionM, newState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
+      }
     }this.lap('universe');
     // One ground at a time. The flat backdrop and the curved planet cannot both be the surface,
     // and above the handover altitude the curvature is what the player is looking at.
