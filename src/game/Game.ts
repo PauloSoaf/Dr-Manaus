@@ -38,6 +38,8 @@ import { UniverseRuntime } from '../world/runtime/UniverseRuntime';
 import { EarthProvider } from '../world/providers/EarthProvider';
 
 import { StarSectorProvider } from '../world/providers/StarSectorProvider';
+import { TravelDomain } from '../world/travel/TravelDomain';
+import { WGS84 } from '../world/spatial/WGS84';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   readonly save=new SaveManager();readonly assets=new AssetManager();readonly rendering:RendererManager;
@@ -52,6 +54,8 @@ export class Game {
    */
   readonly universe:UniverseRuntime;
   readonly galaxy?:StarSectorProvider;
+  /** Which simulation the player is in. Urban physics runs in one of them and not the other. */
+  readonly travelDomain=new TravelDomain();
   /** Present only while `FEATURES.earthGlobe` is on. The runtime itself never touches the scene. */
   readonly earth?:EarthProvider;
   /** The generalized flat backdrop. It stands down once the globe becomes the ground. */
@@ -142,7 +146,7 @@ export class Game {
   applySettings(settings:Settings){this.save.data.settings=settings;this.save.save();this.rendering.setQuality(settings.quality);
     this.rendering.setShadows(settings.shadows);this.camera.baseFov=settings.fov;this.camera.sensitivity=settings.sensitivity;this.camera.invertY=settings.invertY;
     this.audio.setVolumes(settings.masterVolume,settings.ambienceVolume,settings.effectsVolume);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.destruction.setQuality(QUALITY[settings.quality].particles);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');this.realCity.setNight(settings.time==='Night');this.realCity.setDetail(settings.quality!=='Low');}
-  async travel(id:string,debug=false){const landmark=LANDMARKS.find(l=>l.id===id);if(!landmark)return;if(!debug&&!this.save.data.discovered.includes(id)){this.hud.notify('Descubra esse lugar pelo voo.');return;}this.stressRoute=[];this.camera.skipIntro();await this.powers.teleportTo(new Vector3(landmark.x,landmark.spawnHeight+4,landmark.z));this.hud.notify(landmark.name);}
+  async travel(id:string,debug=false){const landmark=LANDMARKS.find(l=>l.id===id);if(!landmark)return;if(!debug&&!this.save.data.discovered.includes(id)){this.hud.notify('Descubra esse lugar pelo voo.');return;}this.stressRoute=[];this.camera.skipIntro();this.travelDomain.reset();await this.powers.teleportTo(new Vector3(landmark.x,landmark.spawnHeight+4,landmark.z));this.hud.notify(landmark.name);}
   private setDebug(option:string,value:boolean|number){
     if(option==='speed'){this.player.speedMultiplier=Number(value);return;}
     if(option==='bounds')this.bounds=Boolean(value);if(option==='lod')this.lod=Boolean(value);
@@ -172,8 +176,13 @@ export class Game {
     const start=performance.now(),rawDt=Math.max(.001,(time-this.lastTime)/1000);this.lastTime=time;
     const dt=Math.min(.06,rawDt),worldDt=dt*(this.powers.temporal?.14:1);
     this.mark=performance.now();
+    this.updateTravelDomain(dt);
+    const local=this.travelDomain.localPhysicsActive;
     this.realCity.update(this.player.position,this.player.velocity,dt);this.lap('realCity');
-    this.gatherColliders();this.lap('colliders');
+    // Out here a frame covers thirteen kilometres, so a collider is not something to hit, it is
+    // something to pass through before it has been tested. See TravelDomain.
+    if(local)this.gatherColliders();else this.colliders.length=0;
+    this.lap('colliders');
     this.updateStomps(dt);
     if(this.stressRoute.length)this.updateStress(dt);else this.player.update(dt,this.colliders,this.camera.yaw,this.camera.pitch);this.lap('player');
     if(FEATURES.spatialCore){
@@ -218,8 +227,8 @@ export class Game {
     }
     this.streamer.update(this.player.position,this.player.velocity,dt);this.lap('streamer');this.hlod.update(this.player.position,this.streamer.activeKeys);this.lap('hlod');
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
-    this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
-    this.traffic?.update(worldDt,this.player.position);this.lap('traffic');
+    if(local){this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
+    this.traffic?.update(worldDt,this.player.position);this.lap('traffic');}
     // Actors are suppressed as the world starts to blur past: simulating NPCs kilometres behind
     // the player costs the same as simulating them in front, and none of it can be seen.
     this.suppressActors();
@@ -232,7 +241,7 @@ export class Game {
     if(shake>.004)this.camera.shake(shake);
     this.lastSpeed=speedNow;
     this.largo.update(this.player.position,worldDt);
-    this.landmarks.update(this.player.position,worldDt);this.lap('landmarks');this.population.update(worldDt,this.player.position,this.player.size);this.lap('population');this.missions.update(worldDt,this.player.position);
+    if(local){this.landmarks.update(this.player.position,worldDt);this.lap('landmarks');this.population.update(worldDt,this.player.position,this.player.size);this.lap('population');}this.missions.update(worldDt,this.player.position);
     this.camera.update(this.player,this.origin,dt,this.colliders);this.rendering.camera.updateMatrixWorld();
     // After the camera settles: the portal skin samples in screen space, so a stale matrix would
     // stretch the galaxy by the viewport and leave it static as the player looks around.
@@ -242,7 +251,7 @@ export class Game {
     if(this.galaxy)this.galaxy.recentre([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z]);
     this.audio.update(this.player.velocity.length(),this.player.position.y,['rain','storm'].includes(this.atmosphere.weather),!isLand(this.player.position.x,this.player.position.z));
     this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
-    this.terrain.update(this.player.position,this.origin);this.forest.update(this.player.position);
+    if(local){this.terrain.update(this.player.position,this.origin);this.forest.update(this.player.position);}
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
@@ -331,6 +340,33 @@ export class Game {
     this.traffic?.setCount(Math.round(config.vehicles*2*fade));
   }
   /** Planetary state for the F3 panel. Empty while the spatial core is switched off. */
+  /**
+   * Decides which simulation the player is in.
+   *
+   * The request is the interplanetary tier actually engaged, not merely armed: the tier already
+   * refuses below the atmosphere for the same reason the domain does, so the two agree without
+   * either having to know about the other's thresholds.
+   */
+  private updateTravelDomain(dt:number){
+    // Last frame'"'"'s colliders, deliberately: the decision has to come before the gathering it
+    // governs, and one frame of staleness at nine kilometres up is nothing. While travelling the
+    // list is empty, which is the correct answer rather than a stale one.
+    let nearest=Number.POSITIVE_INFINITY;
+    for(const collider of this.colliders){
+      const dx=collider.x-this.player.position.x,dy=(collider.y??0)-this.player.position.y,dz=collider.z-this.player.position.z;
+      nearest=Math.min(nearest,Math.hypot(dx,dy,dz));
+    }
+    this.travelDomain.update({
+      altitudeM:this.player.position.y,
+      speedMps:this.player.velocity.length(),
+      requested:this.player.speedMode==='interplanetary',
+      nearestColliderM:nearest,
+      bodyRadiusM:WGS84.semiMajorAxisM,
+      bodyId:'earth',
+      systemId:'sol',
+    },dt);
+  }
+
   private universeDebug():Record<string,string|number>{
     if(!FEATURES.spatialCore)return{};
     const t=this.universe.telemetry;
@@ -340,6 +376,7 @@ export class Game {
       'Frame · Ativo':`${t.frame} · corpo ${t.dominantBody}`,
       'Frame · Local / Rebases':`${t.renderLocalM.toFixed(0)} m · ${t.rebases}`,
       'Planeta · Tiles / Stream':`${t.planetTiles} · ${t.streaming.active} ativos, ${t.streaming.fetching} em voo`,
+      'Domínio':`${this.travelDomain.kind}${this.travelDomain.transition.kind==='refused'?` · recusado (${this.travelDomain.transition.reason})`:''}`,
       ...(this.earth?{'Planeta · Globo':`${this.earth.stats.tiles} tiles · ${this.earth.stats.triangles.toLocaleString()} tri · ${this.earth.stats.visible?'visível':'oculto'}`}:{}),
     };
   }

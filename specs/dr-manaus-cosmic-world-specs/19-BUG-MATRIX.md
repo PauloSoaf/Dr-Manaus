@@ -5,7 +5,7 @@
 | P0-01 | ~~crítica~~ resolvido | `ManausProvider.ts` | provider registrado mas não implementado | implementar adapter real ou desregistrar |
 | P0-02 | ~~crítica~~ resolvido | `EarthProvider.ts` | globo substitui ground cedo demais | restaurar gate seguro |
 | P0-03 | crítica | building/HLOD/chunks | curvatura parcial/esférica | tile frame WGS84 |
-| P0-04 | ~~crítica~~ parcial | `flightConfig.ts` / `PlayerController.ts` | FTL na física local | travel controller separado |
+| P0-04 | ~~crítica~~ resolvido | `flightConfig.ts` / `PlayerController.ts` | FTL na física local | travel controller separado |
 | P0-05 | crítica | `UniverseRuntime.ts` | sector state sobrescrito | authority explícita |
 | P0-06 | crítica | `SolarSystem.ts` | Sistema Solar substituído | generic system runtime |
 | P1-01 | ~~alta~~ resolvido | `flightConfig.ts` | velocidade interplanetária inconsistente | corrigir requisito/valor |
@@ -85,3 +85,18 @@ Estado: todos os P0 e P1 resolvidos exceto **P0-04** (metade: física local já 
 
 Falta de roadmap: Sprint H2 (`ManausProvider`), Sprint H5 (travel domain, Lua), fase 6 (ligar
 `curvedManaus`), atmosfera como volume, oceano, Sprint H9 (hardening).
+
+## Quarta passagem
+
+- **P0-04 fechado.** A primeira metade (tirar FTL da física local) já estava. A segunda é o
+  `TravelDomain`: dois domínios, o jogador está em exatamente um, e a física urbana roda em um e
+  não no outro. Entrada exige altitude segura, ausência de collider relevante e pedido explícito —
+  os três gates que a spec nomeia — e a recusa carrega o motivo, porque "a tecla não fez nada" é a
+  frase menos depurável de um jogo. Saída por soltar, por desacelerar ou por aproximar de um corpo.
+  Estado em float64, e colisão reduzida a um envelope de altitude: voar contra um planeta a
+  222 km/s para na superfície em vez de atravessá-la. 9 testes.
+
+Todos os P0, P1 e P2 da matriz estão resolvidos.
+
+Falta de roadmap (não são bugs): Sprint H2 (`ManausProvider`), Sprint H5 completo (handoff de
+corpo e pouso na Lua), fase 6 (ligar `curvedManaus`), atmosfera como volume, oceano, Sprint H9.
