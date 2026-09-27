@@ -37,8 +37,22 @@ export interface UniverseAddress {
 /** Sector edge length. One hundred light years keeps a sector's interior well inside a double. */
 export const SECTOR_SIZE_M = 100 * LIGHT_YEAR_M;
 
+/**
+ * A sector index, from either representation.
+ *
+ * A `bigint` is kept exactly. Routing it through `Number` to truncate it -- which this used to do
+ * -- defeats the one thing the type exists for: past 2^53 the conversion silently drops the low
+ * bits, so two sectors a few hundred light years apart collapse onto the same index and their
+ * contents become each other's.
+ */
 export function sectorIndex(x: bigint | number, y: bigint | number, z: bigint | number): SectorIndex {
-  return { x: BigInt(Math.trunc(Number(x))), y: BigInt(Math.trunc(Number(y))), z: BigInt(Math.trunc(Number(z))) };
+  return { x: toSectorAxis(x), y: toSectorAxis(y), z: toSectorAxis(z) };
+}
+
+/** Bigints pass through untouched; numbers truncate toward zero, and a non-finite one is zero. */
+function toSectorAxis(value: bigint | number): bigint {
+  if (typeof value === 'bigint') return value;
+  return Number.isFinite(value) ? BigInt(Math.trunc(value)) : 0n;
 }
 
 export function universeAddress(

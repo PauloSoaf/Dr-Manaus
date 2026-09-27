@@ -3,18 +3,22 @@ export type FlightSpeedMode = 'ground' | 'normal' | 'fast' | 'super' | 'mega' | 
 /**
  * Metres per second. Mega and interplanetary both require an arm action before holding boost.
  *
- * Interplanetary is 200 000 km/h, which is 55 556 m/s — about twice the speed a spacecraft needs
- * to leave Earth, and the difference between two and a half hours to the Moon and a week. It is a
- * superhero's cruise, not a rocket's.
+ * Interplanetary is 800 000 km/h, which is 222 222 m/s — roughly twenty times what a spacecraft
+ * needs to leave Earth, and half an hour to the Moon rather than three days. It is a superhero's
+ * cruise, not a rocket's.
+ *
+ * It is also the ceiling of what may touch the local physics. Anything beyond this belongs to a
+ * travel domain that does not exist yet (spec P0-04, Sprint H5): a speed that reaches another star
+ * cannot share a `Vector3` with collision sweeps, streaming and the camera.
  */
 export const FLIGHT = {
-  speeds: { normal: 120, fast: 500, super: 2000, mega: 8000, interplanetary: 55556 },
-  maxSpeed: 80000,
+  speeds: { normal: 120, fast: 500, super: 2000, mega: 8000, interplanetary: 222_222 },
+  maxSpeed: 260_000,
   response: {
     normal: 8.5, fast: 8.5, super: 4.5, mega: 1.7,
     /**
-     * Heavier than mega, deliberately. At fifty-five kilometres a second a turn that settles in a
-     * second has already carried the player further than the planet is wide, so the response has
+     * Heavier than mega, deliberately. At two hundred kilometres a second a turn that settles in a
+     * second has carried the player thirty-five times the width of the planet, so the response has
      * to be slow enough that a heading is a decision rather than a twitch.
      */
     interplanetary: 0.85,
@@ -23,8 +27,8 @@ export const FLIGHT = {
   /**
    * Interplanetary only engages above the top of the atmosphere; below it, boost gives mega.
    *
-   * Two reasons, and both are about the world rather than the fiction. A frame at 55 km/s covers
-   * three kilometres, so nothing on the ground can be collided with — the player would pass
+   * Two reasons, and both are about the world rather than the fiction. A frame at 222 km/s covers
+   * thirteen kilometres, so nothing on the ground can be collided with — the player would pass
    * through the city rather than over it. And the speed exists to leave the planet, which is a
    * thing you do from the sky.
    */

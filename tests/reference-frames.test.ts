@@ -5,7 +5,7 @@ import { referenceFrame } from '../src/world/spatial/ReferenceFrame.ts';
 import { pose, distanceInFrame } from '../src/world/spatial/SpatialPose.ts';
 import { quatFromAxisAngle, rotateVec3, type Vec3 } from '../src/world/spatial/units.ts';
 import {
-  SECTOR_SIZE_M, addressKey, normalizeSectorOffset, sectorIndex, sectorSeed, separationM,
+  SECTOR_SIZE_M, addressKey, normalizeSectorOffset, sectorIndex, sectorSeed, sectorsEqual, separationM,
 } from '../src/world/spatial/UniverseAddress.ts';
 
 /** A three-level tree: a root, a body offset inside it, and a surface patch rotated on the body. */
@@ -180,4 +180,22 @@ test('sector seeds are deterministic, which is the whole contract of a procedura
   // And a seed is a full 64 bits rather than a float that has lost its low end.
   assert.ok(sectorSeed('milky-way', sector) <= 0xffff_ffff_ffff_ffffn);
   assert.ok(typeof sectorSeed('milky-way', sector) === 'bigint');
+});
+
+test('a sector index past 2^53 survives being built, which is the whole reason it is a bigint', () => {
+  // Two sectors one apart, far enough out that a double cannot tell them apart.
+  const far = 9_007_199_254_740_993n;          // 2^53 + 1
+  const alsoFar = 9_007_199_254_740_995n;      // 2^53 + 3
+  const a = sectorIndex(far, 0, 0);
+  const b = sectorIndex(alsoFar, 0, 0);
+
+  assert.equal(a.x, far, 'the index must be kept exactly, not rounded through a double');
+  assert.equal(b.x, alsoFar);
+  assert.ok(!sectorsEqual(a, b), 'two different sectors must not collapse onto one');
+
+  // Numbers still work, and still truncate toward zero.
+  assert.equal(sectorIndex(3.9, -3.9, 0).x, 3n);
+  assert.equal(sectorIndex(3.9, -3.9, 0).y, -3n);
+  // And nothing throws on rubbish, which BigInt(NaN) would.
+  assert.equal(sectorIndex(Number.NaN, Number.POSITIVE_INFINITY, 0).x, 0n);
 });

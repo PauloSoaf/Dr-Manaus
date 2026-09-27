@@ -135,7 +135,7 @@ test('the globe stays hidden on the ground and appears once altitude makes it ho
   }
 });
 
-test.skip('the globe refuses to draw where the city owns the ground', () => {
+test('the globe refuses to draw where the city owns the ground', () => {
   const runtime = new UniverseRuntime();
   const parent = new Group();
   const earth = new EarthProvider(parent, runtime.frames, { minAltitudeM: 0, maxLevel: 12 });
@@ -214,7 +214,7 @@ test('the provider loses every overlap, which is what makes it a fallback', () =
   }
 });
 
-test.skip('an activated tile lands on the planet, vertex by vertex, not just at its centre', async () => {
+test('an activated tile lands on the planet, vertex by vertex, not just at its centre', async () => {
   // The bug this exists for: the centre was placed correctly while the geometry kept Earth-fixed
   // axes, so every tile sat flat at an arbitrary angle. Checking the centre alone passed happily
   // and the sky filled with plates.
@@ -230,9 +230,10 @@ test.skip('an activated tile lands on the planet, vertex by vertex, not just at 
     const frame = activeFrame(referenceFrame({ id: 'x', kind: 'render-local' }), pose('x'));
     earth.activate(payload, frame);
 
-    // By index would find the globe's own sun, which shares the group with the tiles.
-    const mesh = parent.children[0].children.find(child => (child as Mesh).isMesh) as Mesh;
-    assert.ok(mesh, 'the tile must be in the scene');
+    // By name, not by index or by 'first mesh': the group also holds the atmosphere shell, which
+    // is a sphere 60 km up and would fail this test for reasons that have nothing to do with tiles.
+    const mesh = parent.children[0].children.find(child => child.name.startsWith('globe-')) as Mesh;
+    assert.ok(mesh?.isMesh, 'the tile must be in the scene');
     parent.updateMatrixWorld(true);
 
     // Every sampled vertex, taken through the scene transform and back out of the Manaus frame,

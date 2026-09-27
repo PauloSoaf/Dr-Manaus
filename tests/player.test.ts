@@ -183,7 +183,7 @@ test('the arm key tapped twice reaches interplanetary, and only above the atmosp
   held.add('KeyB');
   for (let i = 0; i < 20; i++) player.update(1 / 60, [], 0);
   assert.equal(player.speedMode, 'interplanetary');
-  assert.equal(Math.round(FLIGHT.speeds.interplanetary * 3.6 / 1000), 200, 'thousand km/h');
+  assert.equal(Math.round(FLIGHT.speeds.interplanetary * 3.6 / 1000), 800, 'thousand km/h');
 
   // A third tap disarms, whatever the timing.
   edges.add('KeyV'); player.update(1 / 60, [], 0);
@@ -227,7 +227,7 @@ test('a slow second tap still means off, so the old single-key behaviour survive
   assert.equal(player.armed, 'none');
 });
 
-test.skip('climbing hard leaves the atmosphere instead of stopping at the old twelve-kilometre lid', () => {
+test('climbing hard leaves the atmosphere instead of stopping at the old twelve-kilometre lid', () => {
   const { input, held, edges } = controls();
   const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 200, 0));
   edges.add('KeyV'); player.update(1 / 60, [], 0);

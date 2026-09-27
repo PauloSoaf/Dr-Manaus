@@ -7,7 +7,7 @@ import { SPACE, WORLD } from '../core/config';
 import { FLIGHT, type FlightSpeedMode } from './flightConfig';
 
 /** What the arm key has selected. Each tier unlocks the one below it as well. */
-export type ArmedTier = 'none' | 'mega' | 'interplanetary' | 'cosmic';
+export type ArmedTier = 'none' | 'mega' | 'interplanetary';
 import { getDoubleJumpDuration, getJumpHeight, getJumpVelocity, getGravity } from './physics/JumpPhysics';
 import { TitanGroundSupport } from './physics/TitanGroundSupport';
 import type { FlipDirection } from './animations/types';
@@ -120,8 +120,7 @@ export class PlayerController {
   /** True for either armed tier. Interplanetary is mega and then some. */
   get megaMode(): boolean { return this.armedTier !== 'none'; }
   set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
-  get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary' || this.armedTier === 'cosmic'; }
-  get cosmicMode(): boolean { return this.armedTier === 'cosmic'; }
+  get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
 
   /**
    * One press of the arm key.
@@ -135,7 +134,6 @@ export class PlayerController {
     this.lastArmTapS = this.armClockS;
     this.armed = this.armedTier === 'none' ? 'mega'
       : this.armedTier === 'mega' && quick ? 'interplanetary'
-      : this.armedTier === 'interplanetary' && quick ? 'cosmic'
         : 'none';
   }
   toggleMegaMode(): void { this.tapArm(); }
@@ -312,8 +310,19 @@ export class PlayerController {
     // already been zeroed by the sweep, so the arrival speed is the snapshot taken before it.
     if (!wasGrounded && this.grounded) this.registerImpact();
 
-    // 500 000 km altitude clamp removed for interplanetary flight.
-    // The scene is scaled down instead.
+    /**
+     * The ceiling holds.
+     *
+     * It was briefly removed so that interplanetary flight could keep climbing, and that is the
+     * one thing the roadmap says not to do yet: "remove altitude ceiling only after successful
+     * handoff" (Sprint H5). Until the player can be handed into another body's reference frame,
+     * an unbounded `position.y` is not freedom, it is the point at which a coordinate stops being
+     * representable — and every system downstream takes it at face value.
+     */
+    if (this.position.y >= SPACE.maxAltitude) {
+      this.position.y = SPACE.maxAltitude;
+      this.velocity.y = Math.min(0, this.velocity.y);
+    }
 
     // Model facing rotation
     if (flying && this.velocity.lengthSq() > 2) {

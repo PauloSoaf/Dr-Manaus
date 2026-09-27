@@ -6,7 +6,7 @@ import type { TimeKind, WeatherKind } from '../core/types';
 import { CityMap } from './CityMap';
 import { icon, POWERS } from './icons';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; cosmicMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number> }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number> }
 const $=<T extends HTMLElement=HTMLElement>(selector:string)=>document.querySelector<T>(selector)!;
 /** A labelled slider with a live readout; `format` turns the raw value into what the player reads. */
 const slider=(id:string,label:string,min:number,max:number,step:number,note='')=>

@@ -52,6 +52,16 @@ export interface EarthProviderOptions {
    * a changed epoch, a body that rotated, a quality change that did not alter the signature.
    */
   replanIntervalS?: number;
+  /**
+   * Whether the compiled city owns the ground beneath it, so the globe must not draw there.
+   *
+   * True while Manaus is a flat plane on a curved planet. The two disagree by 31 m at 20 km from
+   * the anchor, so a globe tile under the city is a second, coarser Manaus pushing up through the
+   * real one. Curving the city onto the ellipsoid is what makes them agree, and only then can
+   * this be turned off -- which is why the caller decides it from the feature flag rather than
+   * this file deciding it from a comment.
+   */
+  cityOwnsGround?: boolean;
 }
 
 /**
@@ -85,6 +95,7 @@ export class EarthProvider implements WorldProvider {
       maxTiles: Math.max(6, finite(options.maxTiles, 160)),
       maxLevel: Math.max(0, finite(options.maxLevel, 10)),
       replanIntervalS: Math.max(0, finite(options.replanIntervalS, 0.25)),
+      cityOwnsGround: options.cityOwnsGround ?? true,
     };
     this.quadtree = new PlanetQuadtree(EARTH, {
       maxTiles: this.options.maxTiles, maxLevel: this.options.maxLevel,
@@ -156,7 +167,8 @@ export class EarthProvider implements WorldProvider {
 
     const demands: TileDemand[] = [];
     for (const tile of selection) {
-      // The 60km hole is closed. Manaus is curved onto the ellipsoid and sits perfectly on the globe.
+      // Where the city owns the ground, the city draws it. See `cityOwnsGround`.
+      if (this.options.cityOwnsGround && this.coveredByCity(tile.address)) continue;
       demands.push(tileDemand({
         key: this.keyFor(tile.address),
         providerId: this.id,
