@@ -194,6 +194,12 @@ export class UniverseRuntime {
         ? activeFrame(frame, this.floatingOrigin.logicalOrigin)
         : activeFrame(referenceFrame({ id: this.playerPose.frame, kind: 'render-local' }), this.floatingOrigin.logicalOrigin),
       localVelocityMps: this.velocity,
+      // Height above the ellipsoid, which the interface has always promised and nothing was
+      // filling in. Every provider that read it got undefined and therefore zero, so any gate of
+      // the form "only above N metres" was permanently shut -- which is why the Moon and the
+      // galaxy never appeared however far the player flew. EarthProvider did not notice because
+      // it recomputes the altitude itself; that is now a duplicate rather than a workaround.
+      altitudeM: this.playerGeodetic().heightM,
       bodyId: 'earth',
     };
   }

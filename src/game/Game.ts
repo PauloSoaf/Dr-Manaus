@@ -40,6 +40,7 @@ import { EarthProvider } from '../world/providers/EarthProvider';
 import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 import { TravelDomain } from '../world/travel/TravelDomain';
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
+import { MoonProvider } from '../world/providers/MoonProvider';
 import { WGS84 } from '../world/spatial/WGS84';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
@@ -59,6 +60,7 @@ export class Game {
   readonly travelDomain=new TravelDomain();
   /** Present only while `FEATURES.earthGlobe` is on. The runtime itself never touches the scene. */
   readonly earth?:EarthProvider;
+  readonly moon?:MoonProvider;
   /** The generalized flat backdrop. It stands down once the globe becomes the ground. */
   private readonly flatTerrain:import('three/webgpu').Group;
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
@@ -76,6 +78,10 @@ export class Game {
     this.space=new SpaceLayer(this.rendering.scene,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe});
     if(FEATURES.earthGlobe){this.earth=new EarthProvider(this.worldRoot,this.universe.frames,{cityOwnsGround:!FEATURES.curvedManaus});this.universe.providers.register(this.earth);}
+    // The Moon as a place rather than a point of light. Its own flag, because it is a
+    // destination and the flight that reaches it is a different sprint from the one that draws
+    // the Earth.
+    if(FEATURES.solarSystem){this.moon=new MoonProvider(this.worldRoot,this.universe.frames);this.universe.providers.register(this.moon);}
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -215,6 +221,16 @@ export class Game {
       // The globe is lit from where the Sun actually is, not from the local sky's dusk.
       const sun=this.universe.activeSystem.positionOf('sun') ?? [0,0,0],earthAt=this.universe.activeSystem.positionOf('earth') ?? [0,0,0];
       if(sun&&earthAt)this.earth.setSunDirection([sun[0]-earthAt[0],sun[1]-earthAt[1],sun[2]-earthAt[2]],'solar-system/barycentric');
+    }
+    if(this.moon){
+      // Where the Moon actually is, from the ephemeris, relative to the Earth. Not a fixed point
+      // in the sky: the whole reason the solar system is modelled is that the Moon moves.
+      const system=this.universe.activeSystem;
+      const moonAt=system.positionOf('moon'),earthCentre=system.positionOf('earth'),sunAt=system.positionOf('sun');
+      if(moonAt&&earthCentre){
+        this.moon.setCentre([moonAt[0]-earthCentre[0],moonAt[1]-earthCentre[1],moonAt[2]-earthCentre[2]],'earth/fixed');
+        if(sunAt)this.moon.setSunDirection([sunAt[0]-moonAt[0],sunAt[1]-moonAt[1],sunAt[2]-moonAt[2]],'solar-system/barycentric');
+      }
     }
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
     if(this.player.position.distanceTo(this.origin)>WORLD.originThreshold){
@@ -382,6 +398,7 @@ export class Game {
       'Planeta · Tiles / Stream':`${t.planetTiles} · ${t.streaming.active} ativos, ${t.streaming.fetching} em voo`,
       'Orçamento · Subsistemas':t.streaming.subsystems.map(x=>`${x.id.split('/').pop()} ${x.grantedMs.toFixed(1)}ms (${x.pending})`).join(' · ')||'—',
       'Domínio':`${this.travelDomain.kind}${this.travelDomain.transition.kind==='refused'?` · recusado (${this.travelDomain.transition.reason})`:''}`,
+      ...(this.moon?{'Lua':`${this.moon.stats.tiles} tiles · ${(this.moon.stats.distanceM/1000).toFixed(0)} km · ${this.moon.stats.visible?'superfície':'distante'}`}:{}),
       ...(this.earth?{'Planeta · Globo':`${this.earth.stats.tiles} tiles · ${this.earth.stats.triangles.toLocaleString()} tri · ${this.earth.stats.visible?'visível':'oculto'}`}:{}),
     };
   }

@@ -97,8 +97,14 @@ export const FEATURES = {
   curvedManaus: false,
   /** Planet-aware atmosphere and the render-domain composer. */
   newAtmosphere: false,
-  /** Leaving the atmosphere, and the bodies beyond it. */
-  solarSystem: false,
+  /**
+   * The bodies beyond the atmosphere, as places.
+   *
+   * On. The Moon has a surface now -- a cube-sphere quadtree streamed through the same scheduler
+   * as the Earth's -- and it is drawn only when the player is far enough out for it to be one.
+   * Below 400 km it is a light in the sky, which is what it is from here.
+   */
+  solarSystem: true,
   galaxyTravel: false,
 } as const;
 
