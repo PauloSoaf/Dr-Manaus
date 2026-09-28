@@ -63,11 +63,25 @@ export class SolarSystem implements CelestialSystemRuntime {
     this.update(this.epochS);
   }
 
+  private frameGraph?: ReferenceFrameGraph;
+
   /** Advances to an epoch and recomputes every body. Cheap: it is a few dozen Kepler solves. */
   update(epochS: number): void {
     this.epochS = finite(epochS);
     this.states.clear();
     for (const body of this.dynamicBodies) this.resolve(body);
+
+    if (this.frameGraph) {
+      for (const body of this.dynamicBodies) {
+        const state = this.states.get(body.id);
+        if (state && this.frameGraph.has(body.frameId)) {
+          const frame = this.frameGraph.get(body.frameId);
+          (frame.originInParent as number[])[0] = state.positionM[0];
+          (frame.originInParent as number[])[1] = state.positionM[1];
+          (frame.originInParent as number[])[2] = state.positionM[2];
+        }
+      }
+    }
   }
 
   /**
@@ -178,6 +192,7 @@ export class SolarSystem implements CelestialSystemRuntime {
    * hierarchy. Called once; the frames' origins are updated as the bodies move.
    */
   registerFrames(graph: ReferenceFrameGraph): void {
+    this.frameGraph = graph;
     if (!graph.has(SOLAR_SYSTEM_FRAME)) {
       graph.register(referenceFrame({ id: SOLAR_SYSTEM_FRAME, kind: 'system', label: 'Sistema Solar' }));
     }

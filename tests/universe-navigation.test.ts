@@ -1,0 +1,93 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime';
+import { sectorIndex } from '../src/world/spatial/UniverseAddress';
+import { SolarSystem } from '../src/world/celestial/SolarSystem';
+import { ReferenceFrameGraph } from '../src/world/spatial/ReferenceFrameGraph';
+
+test('UniverseRuntime.navigationState uses this.address as true authority', () => {
+  const runtime = new UniverseRuntime();
+  
+  // Initial state should match initial address
+  assert.equal(runtime.navigationState.galaxyId, 'milky_way');
+  assert.equal(runtime.navigationState.systemId, 'sol');
+  assert.equal(runtime.navigationState.sector.x, 0n);
+  assert.equal(runtime.navigationState.sector.y, 0n);
+
+  // If address moves 50,000 sectors, navigationState must reflect the moved address
+  runtime.setAddress({
+    galaxyId: 'andromeda',
+    sector: sectorIndex(50000n, -25000n, 12000n),
+    systemId: 'm31-prime',
+    bodyId: 'alpha',
+  });
+
+  const state = runtime.navigationState;
+  assert.equal(state.galaxyId, 'andromeda');
+  assert.equal(state.sector.x, 50000n);
+  assert.equal(state.sector.y, -25000n);
+  assert.equal(state.sector.z, 12000n);
+  assert.equal(state.systemId, 'm31-prime');
+  assert.equal(state.bodyId, 'alpha');
+});
+
+test('SolarSystem.update() dynamically updates reference frame origins on ephemeris change', () => {
+  const frames = new ReferenceFrameGraph();
+  const solarSystem = new SolarSystem();
+  solarSystem.registerFrames(frames);
+
+  // Get initial Earth frame origin at epoch 0
+  const earthFrame0 = frames.get('solar-system/earth-fixed');
+  assert.ok(earthFrame0);
+  const pos0 = [...earthFrame0.originInParent];
+
+  // Advance time by 90 days (~quarter orbit around Sun)
+  solarSystem.update(90 * 86400);
+
+  const earthFrame90 = frames.get('solar-system/earth-fixed');
+  assert.ok(earthFrame90);
+  const pos90 = earthFrame90.originInParent;
+
+  // The position in parent must have genuinely moved millions of kilometres along its orbit
+  const delta = Math.hypot(pos90[0] - pos0[0], pos90[1] - pos0[1], pos90[2] - pos0[2]);
+  assert.ok(delta > 1e10, `Earth frame did not move: delta was ${delta} m`);
+});
+
+test('UniverseRuntime.location computes real spherical coordinates for Moon and Mars, not Manaus projection', () => {
+  const runtime = new UniverseRuntime();
+  
+  // Set frame to Moon surface
+  runtime.setPlayerPose('solar-system/moon-fixed', [1000, 1737400 + 50, 2000]);
+  const moonLoc = runtime.location;
+  assert.ok(moonLoc.surface);
+  // Altitude must be relative to Moon radius (1737400 m)
+  assert.ok(Math.abs(moonLoc.surface.altitudeM - 50) < 5);
+  // Lat/Lon should be bounded to sphere [-90, 90] and [-180, 180]
+  assert.ok(moonLoc.surface.latDeg >= -90 && moonLoc.surface.latDeg <= 90);
+  assert.ok(moonLoc.surface.lonDeg >= -180 && moonLoc.surface.lonDeg <= 180);
+
+  // Set frame to Mars surface: point near the pole [0, 3389500 + 120, 0]
+  runtime.setPlayerPose('solar-system/mars-fixed', [0, 3389500 + 120, 0]);
+  const marsLoc = runtime.location;
+  assert.ok(marsLoc.surface);
+  assert.ok(Math.abs(marsLoc.surface.altitudeM - 120) < 5);
+  // Lat at (0, R, 0) should be North pole = 90 deg
+  assert.ok(Math.abs(marsLoc.surface.latDeg - 90) < 0.1);
+});
+
+test('End-to-end frame conversion: Manaus -> Orbit -> Barycentric', () => {
+  const runtime = new UniverseRuntime();
+
+  // Convert surface position at Manaus to Earth fixed
+  const manausLocal: [number, number, number] = [0, 100, 0];
+  const earthFixed = runtime.frames.convertPosition('earth/manaus/legacy-enu', 'earth/fixed', manausLocal);
+  // Radius from Earth center must be ~6.37e6 m
+  const earthR = Math.hypot(earthFixed[0], earthFixed[1], earthFixed[2]);
+  assert.ok(earthR > 6.3e6 && earthR < 6.4e6, `Earth radius unexpected: ${earthR}`);
+
+  // Convert to Solar System Barycentric
+  const barycentric = runtime.frames.convertPosition('earth/fixed', 'solar-system/barycentric', earthFixed);
+  // Earth distance from Sun is ~1 AU (1.49e11 m)
+  const sunDistanceM = Math.hypot(barycentric[0], barycentric[1], barycentric[2]);
+  assert.ok(sunDistanceM > 1.4e11 && sunDistanceM < 1.6e11, `Sun distance unexpected: ${sunDistanceM}`);
+});

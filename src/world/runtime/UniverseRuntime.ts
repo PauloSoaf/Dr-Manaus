@@ -94,9 +94,20 @@ export class UniverseRuntime {
     this.address = {
       galaxyId: 'milky_way',
       sector: sectorIndex(0n, 0n, 0n),
-      systemId: 'solar',
+      systemId: 'sol',
       bodyId: 'earth'
     };
+  }
+
+  setAddress(address: UniverseAddress): void {
+    this.address = address;
+  }
+
+  setPlayerPose(frameId: string, position: Vec3): void {
+    this.playerPose.frame = frameId;
+    this.playerPose.position[0] = finite(position[0]);
+    this.playerPose.position[1] = finite(position[1]);
+    this.playerPose.position[2] = finite(position[2]);
   }
 
   /**
@@ -133,24 +144,27 @@ export class UniverseRuntime {
   get navigationState(): UniverseAddress {
     if (this.playerPose.frame === 'solar-system/barycentric') {
       return {
-        galaxyId: 'milky-way',
-        sector: sectorIndex(0n, 0n, 0n),
-        systemId: 'sol',
+        galaxyId: this.address.galaxyId,
+        sector: this.address.sector,
+        systemId: this.address.systemId,
       };
     }
     
-    // In local frame, we are on a body in the sol system
-    let bodyId = 'earth';
-    if (this.playerPose.frame.startsWith('moon')) {
-      bodyId = 'moon';
-    } else if (this.playerPose.frame.startsWith('mars')) {
-      bodyId = 'mars';
+    let bodyId = this.address.bodyId;
+    if (!bodyId) {
+      if (this.playerPose.frame.startsWith('moon') || this.playerPose.frame === 'solar-system/moon-fixed') {
+        bodyId = 'moon';
+      } else if (this.playerPose.frame.startsWith('mars') || this.playerPose.frame === 'solar-system/mars-fixed') {
+        bodyId = 'mars';
+      } else if (this.playerPose.frame.startsWith('earth') || this.playerPose.frame === 'solar-system/earth-fixed') {
+        bodyId = 'earth';
+      }
     }
 
     return {
-      galaxyId: 'milky-way',
-      sector: sectorIndex(0n, 0n, 0n),
-      systemId: 'sol',
+      galaxyId: this.address.galaxyId,
+      sector: this.address.sector,
+      systemId: this.address.systemId,
       bodyId,
       childFrame: this.playerPose.frame,
     };
@@ -165,18 +179,32 @@ export class UniverseRuntime {
     
     if (this.playerPose.frame === 'solar-system/barycentric') {
       loc.systemPositionM = [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
+    } else if (this.playerPose.frame.startsWith('moon') || this.playerPose.frame === 'solar-system/moon-fixed') {
+      const radius = Math.hypot(...this.playerPose.position);
+      const altitudeM = radius - 1737400;
+      const latRad = radius > 0 ? Math.asin(Math.max(-1, Math.min(1, this.playerPose.position[1] / radius))) : 0;
+      const lonRad = Math.atan2(this.playerPose.position[0], this.playerPose.position[2]);
+      loc.surface = {
+        latDeg: (latRad * 180) / Math.PI,
+        lonDeg: (lonRad * 180) / Math.PI,
+        altitudeM,
+      };
+    } else if (this.playerPose.frame.startsWith('mars') || this.playerPose.frame === 'solar-system/mars-fixed') {
+      const radius = Math.hypot(...this.playerPose.position);
+      const altitudeM = radius - 3389500;
+      const latRad = radius > 0 ? Math.asin(Math.max(-1, Math.min(1, this.playerPose.position[1] / radius))) : 0;
+      const lonRad = Math.atan2(this.playerPose.position[0], this.playerPose.position[2]);
+      loc.surface = {
+        latDeg: (latRad * 180) / Math.PI,
+        lonDeg: (lonRad * 180) / Math.PI,
+        altitudeM,
+      };
     } else {
       const geo = this.playerGeodetic();
-      let altitudeM = geo.heightM;
-      if (this.playerPose.frame.startsWith('moon')) {
-        altitudeM = Math.hypot(...this.playerPose.position) - 1737400;
-      } else if (this.playerPose.frame.startsWith('mars')) {
-        altitudeM = Math.hypot(...this.playerPose.position) - 3389500;
-      }
       loc.surface = {
         latDeg: (geo.latRad * 180) / Math.PI,
         lonDeg: (geo.lonRad * 180) / Math.PI,
-        altitudeM
+        altitudeM: geo.heightM,
       };
     }
     return loc;

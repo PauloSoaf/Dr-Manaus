@@ -147,7 +147,7 @@ export class Game {
     this.population=new PopulationManager(this.worldRoot);
     this.missions=new MissionManager(this.worldRoot,this.save,message=>this.hud?.notify(message));
     this.destruction=new DestructionSystem(this.worldRoot,this.destructible);
-    this.player.beforeMove=(position,velocity,dt)=>{this.destruction.plough(position,velocity,dt,true);this.gatherColliders();this.curveColliders();return this.curvedColliders;};
+    this.player.beforeMove=(position,velocity,dt)=>{this.destruction.plough(position,velocity,dt,true);this.gatherColliders();if(FEATURES.curvedManaus)this.curveColliders();return FEATURES.curvedManaus?this.curvedColliders:this.colliders;};
     this.powers=new PowerSystem(this.worldRoot,this.player,this.rendering.camera,this.input,{
       targets:()=>[...this.population.targets,...this.missions.targets],
       hit:(id,force)=>{this.missions.hit(id,force)||this.population.hit(id,force);},
@@ -165,7 +165,7 @@ export class Game {
         }
         this.population.impulse(flat,radius,force);this.camera.shake(.45);
       },
-      damage:(point,radius,amount,deform)=>this.destruction.damageAt(point,radius,amount,deform),prepare:destination=>this.streamer.prepare(destination),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.origin,getColliders:()=>this.curvedColliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
+      damage:(point,radius,amount,deform)=>this.destruction.damageAt(point,radius,amount,deform),prepare:destination=>this.streamer.prepare(destination),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.origin,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
     this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress()});
@@ -299,7 +299,7 @@ export class Game {
     // something to pass through before it has been tested. See TravelDomain.
     if(local){
       this.gatherColliders();
-      this.curveColliders();
+      if(FEATURES.curvedManaus)this.curveColliders();
     }else{
       this.colliders.length=0;
       this.curvedColliders.length=0;
@@ -307,7 +307,7 @@ export class Game {
     this.lap('colliders');
     this.updateStomps(dt);
     if(this.stressRoute.length)this.updateStress(dt);
-    else if (local) this.player.update(dt,this.curvedColliders,this.camera.yaw,this.camera.pitch);
+    else if (local) this.player.update(dt,FEATURES.curvedManaus?this.curvedColliders:this.colliders,this.camera.yaw,this.camera.pitch);
     this.lap('player');
 
     if(FEATURES.spatialCore){
@@ -425,7 +425,7 @@ export class Game {
     this.lastSpeed=speedNow;
     this.largo.update(this.player.position,worldDt);
     if(local){this.landmarks.update(this.player.position,worldDt);this.lap('landmarks');this.population.update(worldDt,this.player.position,this.player.size);this.lap('population');}this.missions.update(worldDt,this.player.position);
-    this.camera.update(this.player,this.origin,dt,this.curvedColliders);this.rendering.camera.updateMatrixWorld();
+    this.camera.update(this.player,this.origin,dt,FEATURES.curvedManaus?this.curvedColliders:this.colliders);this.rendering.camera.updateMatrixWorld();
     // After the camera settles: the portal skin samples in screen space, so a stale matrix would
     // stretch the galaxy by the viewport and leave it static as the player looks around.
     this.player.character.updateCosmicView(this.rendering.camera);
@@ -469,16 +469,17 @@ export class Game {
     this.stompTimer-=dt;if(this.player.size<5||this.stompTimer>0)return;
     this.stompTimer=.12;
     const size=this.player.size,angle=this.player.facingYaw;
+    const activeColliders = FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
     for(const side of [-1,1]){
       this.foot.copy(this.player.position);this.foot.x+=Math.cos(angle)*side*.112*size;this.foot.z-=Math.sin(angle)*side*.112*size;
       const floor=PhysicsWorld.terrainHeight(this.foot.x,this.foot.z);
-      const supported=this.foot.y<=floor+Math.max(2,size*.08)||this.curvedColliders.some(c=>Math.abs(c.x-this.foot.x)<c.width/2+size*.1&&Math.abs(c.z-this.foot.z)<c.depth/2+size*.1&&Math.abs(c.y+c.height/2-this.foot.y)<Math.max(2,size*.08));
+      const supported=this.foot.y<=floor+Math.max(2,size*.08)||activeColliders.some(c=>Math.abs(c.x-this.foot.x)<c.width/2+size*.1&&Math.abs(c.z-this.foot.z)<c.depth/2+size*.1&&Math.abs(c.y+c.height/2-this.foot.y)<Math.max(2,size*.08));
       if(supported)this.destruction.damageAt(this.foot,Math.max(2,size*.18),100000);
     }
   }
   private attackTime=-Infinity;private attackRadius=0;private readonly attackPosition=new Vector3();private attackBoxes:Collider[]=[];
   private attackColliders(point:Vector3,radius:number):readonly Collider[]{
-    if(this.player.size<7)return this.curvedColliders;
+    if(this.player.size<7)return FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
     const now=performance.now();
     if(now-this.attackTime>120||radius!==this.attackRadius||point.distanceToSquared(this.attackPosition)>65536){
       this.attackBoxes=Array.from(this.destructible.blastColliders(point,radius));this.attackTime=now;this.attackRadius=radius;this.attackPosition.copy(point);
@@ -569,7 +570,7 @@ export class Game {
     // governs, and one frame of staleness at nine kilometres up is nothing. While travelling the
     // list is empty, which is the correct answer rather than a stale one.
     let nearest=Number.POSITIVE_INFINITY;
-    for(const collider of this.curvedColliders){
+    for(const collider of (FEATURES.curvedManaus ? this.curvedColliders : this.colliders)){
       const dx=collider.x-this.player.position.x,dy=(collider.y??0)-this.player.position.y,dz=collider.z-this.player.position.z;
       nearest=Math.min(nearest,Math.hypot(dx,dy,dz));
     }
