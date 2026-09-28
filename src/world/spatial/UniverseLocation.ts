@@ -1,11 +1,6 @@
-import type { UniverseAddress } from './UniverseAddress';
+import type { UniverseAddress, CosmologicalAddress } from './UniverseAddress';
 
-export interface CosmologicalAddress {
-  redshift: number;
-  comovingDistanceM: number;
-  rightAscensionRad: number;
-  declinationRad: number;
-}
+export type { CosmologicalAddress };
 
 export interface UniverseLocation {
   address: UniverseAddress;
@@ -23,9 +18,9 @@ export interface UniverseLocation {
 }
 
 export type TeleportTarget = 
-  | { kind: 'surface-geodetic', bodyId: string, latDeg: number, lonDeg: number, altitudeM: number }
-  | { kind: 'body-orbit', bodyId: string, altitudeM: number }
-  | { kind: 'system-position', systemId: string, positionM: [number, number, number] }
+  | { kind: 'surface-geodetic', galaxyId?: string, systemId?: string, bodyId: string, latDeg: number, lonDeg: number, altitudeM: number }
+  | { kind: 'body-orbit', galaxyId?: string, systemId?: string, bodyId: string, altitudeM: number }
+  | { kind: 'system-position', galaxyId?: string, systemId: string, positionM: [number, number, number] }
   | { kind: 'cosmic-sector', galaxyId: string, sector: { x: bigint, y: bigint, z: bigint }, offsetM: [number, number, number] }
   | { kind: 'cosmological', address: CosmologicalAddress }
   | { kind: 'catalog-object', id: string };

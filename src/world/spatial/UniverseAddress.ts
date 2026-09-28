@@ -44,7 +44,11 @@ export interface UniverseAddress {
 export interface CosmologicalAddress {
   readonly cell: BigInt3;
   readonly localMpc: Vec3;
-  readonly epoch: number;
+  readonly epoch?: number;
+  readonly redshift?: number;
+  readonly comovingDistanceM?: number;
+  readonly rightAscensionRad?: number;
+  readonly declinationRad?: number;
 }
 
 /** Sector edge length. One hundred light years keeps a sector's interior well inside a double. */
