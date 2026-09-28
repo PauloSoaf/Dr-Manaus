@@ -37,16 +37,10 @@ export class EarthTransitionController {
       regionalWeight = 0;
       planetWeight = 0;
       phase = 'LOCAL_ONLY';
-    } else if (alt < 20000) {
-      const t = (alt - 8000) / 12000;
-      localWeight = 1 - t;
-      regionalWeight = t;
-      planetWeight = 0;
-      phase = isAscending ? 'REQUESTING_PLANET' : 'RETURNING_LOCAL';
     } else if (alt < 60000) {
-      const t = (alt - 20000) / 40000;
-      localWeight = 0;
-      regionalWeight = 1 - t;
+      const t = (alt - 8000) / 52000;
+      localWeight = 1 - t;
+      regionalWeight = 0;
       planetWeight = t;
       phase = t > 0.5 ? 'PLANET_DOMINANT' : 'OVERLAP_SAFE';
     } else {

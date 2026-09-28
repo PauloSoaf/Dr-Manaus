@@ -222,3 +222,58 @@ Status: **verified** (T1–T11 unit/integration tests passing; 318 test suite pa
 - **T10:** `terrain-backdrop` and `ground-cover` receive `'sheet'` crater masking across full vertical depth.
 - **T11:** Crater physics depth and visual bowl depth agree within grid tolerance.
 
+## Hotfix P0 — Visual Proxy, 3-Root Scene Separation & Camera-Relative Earth (`feat/universe-map`)
+
+Status: **verified** (326 unit tests passing; typecheck passing; build clean; browser E2E passing full authentic ascent to 1,000 km, nadir orbit and atmospheric reentry).
+
+Baseline HEAD: `2609e4d30901720f9b18e05939f717e590dc7140`
+
+### Root causes identified & resolved
+
+1. **Character visual freeze and HUD 0 km/h at ~9.8 km (Screenshot 2):**
+   - Handoff at 9 km disabled `PlayerController.update()` and set `player.velocity.set(0, 0, 0)`.
+   - Character animation was previously invoked only inside local `PlayerController.update()`, freezing the 3D model in its last frame.
+   - HUD speed readout read `player.velocity.length()` directly, dropping to 0 km/h despite traveling at logical interplanetary speed (~222 km/s / 800,000 km/h).
+   - `CameraController` continued running raycast and ground clamping against Manaus terrain colliders while in travel mode.
+
+2. **Black voids, star leakage, and local world fragments at 20–60 km (Screenshot 1):**
+   - Single `worldRoot` combined local city, player, and planetary globes. Hiding the world hid the actor; keeping the world drew Manaus floating in deep space.
+   - `EarthTransitionController` computed `regionalWeight` in the 20–60 km range, but no regional renderer existed, zeroing `localWeight` and leaving an unrendered void.
+   - Without camera-relative rendering, barycentric Earth positions delivered coordinates on the order of 1 AU (~$1.49 \times 10^{11}$ m) into Three.js `Object3D.position`, causing extreme Float32 jitter or clipping outside the far plane.
+   - Star layer lacked depth testing against the planet, and Earth materials lacked explicit `depthWrite`, causing stars to shine through the dark side of Earth.
+
+3. **Interplanetary thrust direction mismatch:**
+   - Camera look direction was taken in local Manaus ENU axes ($[0, 1, 0]$ = local Up) and added directly to barycentric ecliptic velocity in `InterplanetaryController`.
+   - Up from Manaus did not match Up in ecliptic barycentric coordinates, pointing thrust into the planet and triggering the envelope floor clamp.
+
+### Implemented architecture & changes
+
+1. **Three-root scene separation (`Game.ts`):**
+   - `localRoot`: Contains city, roads, terrain, water, landmarks, streamer, HLOD, destruction. Completely hidden (`visible = false`) during space flight, preventing floating urban fragments.
+   - `actorRoot`: Dedicated group for player and visual proxies. Always visible. Positioned at `(0, 0, 0)` during space travel.
+   - `planetRoot`: Dedicated group for camera-relative celestial globes (Earth and Moon).
+   - `worldRoot`: Retained as alias to `localRoot` for compatibility.
+
+2. **Visual proxy animation in space (`Game.ts`):**
+   - While `localPhysicsActive === false`, `player.character.animate(...)` runs each frame with logical simulation speed, `flying = true`, `boosting = true`, and pose `'interplanetary'`, keeping full cosmic skin, particle trails, and flight pose alive without re-enabling `PhysicsWorld`.
+
+3. **Camera-relative rendering (`RenderSpaceService.ts`, `EarthProvider.ts`, `MoonProvider.ts`):**
+   - Implemented `RenderSpaceService` using double-precision math.
+   - Translates celestial coordinates relative to the player's reference frame before passing to Three.js `position`.
+   - Maximum render coordinate at 1,100 km orbit is strictly bounded to $5.36 \times 10^6$ m, well below the 20,000,000 m Float32 precision limit (NEVER 1 AU).
+
+4. **HUD logical display speed (`HUD.ts`, `Game.ts`):**
+   - `HUDState` accepts `speedMps` and `altitudeM`.
+   - Displays logical relative speed and true cosmic altitude during spaceflight.
+
+5. **Star occlusion & depth integrity (`EarthGlobe.ts`, `SpaceLayer.ts`):**
+   - Earth tile and fallback materials explicitly enforce `depthWrite: true` and `depthTest: true`.
+   - Space layer stars enforce `depthTest: true`, occluding all stars behind the globe.
+
+6. **Continuous representation across 20–60 km (`EarthTransitionController.ts`):**
+   - Eliminated the phantom regional renderer gap. Crossfades smoothly between local world and Earth planetary view.
+
+7. **Thrust direction transformation (`Game.ts`):**
+   - Direction vectors from the camera are transformed via `universe.frames.convertDirection(MANAUS_FRAME_ID, 'solar-system/barycentric', ...)` before reaching `InterplanetaryController`.
+
+

@@ -49,10 +49,12 @@ import { MoonProvider } from '../world/providers/MoonProvider';
 import { WGS84 } from '../world/spatial/WGS84';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import { InterplanetaryController } from '../world/travel/InterplanetaryController';
+import { MANAUS_FRAME_ID } from '../world/spatial/ManausFrameAdapter';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   readonly save=new SaveManager();readonly assets=new AssetManager();readonly rendering:RendererManager;
-  readonly worldRoot=new Group();readonly origin=new Vector3();readonly player:PlayerController;readonly input:InputController;readonly camera:CameraController;
+  readonly localRoot=new Group();readonly actorRoot=new Group();readonly planetRoot=new Group();
+  readonly worldRoot=this.localRoot;readonly origin=new Vector3();readonly player:PlayerController;readonly input:InputController;readonly camera:CameraController;
   readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
   readonly forest:ForestBackdrop;readonly terrain:TerrainDestruction;readonly airport=new AuthoredDestruction();
@@ -84,16 +86,22 @@ export class Game {
   readonly profile:Record<string,number>={realCity:0,colliders:0,player:0,universe:0,streamer:0,hlod:0,landmarks:0,population:0,destruction:0,traffic:0,render:0};
   private mark=0;private lastSpeed=0;private district='AMAZONAS';
   constructor(container:HTMLElement){
-    this.rendering=new RendererManager(container);this.worldRoot.name='Manaus · global meters';this.rendering.scene.add(this.worldRoot);
+    this.rendering=new RendererManager(container);
+    this.localRoot.name='Manaus · local city/terrain';
+    this.actorRoot.name='Actors · player & dynamic entities';
+    this.planetRoot.name='Planets · camera-relative celestial bodies';
+    this.rendering.scene.add(this.localRoot);
+    this.rendering.scene.add(this.actorRoot);
+    this.rendering.scene.add(this.planetRoot);
     this.atmosphere=new Atmosphere(this.rendering.scene);
     // Lights belong to every domain: a light left on layer 0 alone would leave the planet black.
     this.space=new SpaceLayer(this.rendering.scene,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe});
-    if(FEATURES.earthGlobe){this.earth=new EarthProvider(this.worldRoot,this.universe.frames,{cityOwnsGround:!FEATURES.curvedManaus});this.universe.providers.register(this.earth);}
+    if(FEATURES.earthGlobe){this.earth=new EarthProvider(this.planetRoot,this.universe.frames,{cityOwnsGround:!FEATURES.curvedManaus,renderSpace:this.universe.renderSpace});this.universe.providers.register(this.earth);}
     // The Moon as a place rather than a point of light. Its own flag, because it is a
     // destination and the flight that reaches it is a different sprint from the one that draws
     // the Earth.
-    if(FEATURES.solarSystem){this.moon=new MoonProvider(this.worldRoot,this.universe.frames);this.universe.providers.register(this.moon);}
+    if(FEATURES.solarSystem){this.moon=new MoonProvider(this.planetRoot,this.universe.frames,{renderSpace:this.universe.renderSpace});this.universe.providers.register(this.moon);}
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -137,7 +145,7 @@ export class Game {
     }
     this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
     this.input=new InputController(this.rendering.renderer.domElement);
-    this.player=new PlayerController(this.worldRoot,this.input);
+    this.player=new PlayerController(this.actorRoot,this.input);
     if (FEATURES.curvedManaus) {
       const flat = this.player.position;
       const curved = this.surfaceService.legacyPointToRenderLocal(flat.x, flat.y, flat.z);
@@ -274,6 +282,12 @@ export class Game {
         ],
         referenceBodyId: this.universe.telemetry.dominantBody,
       });
+      this.player.position.set(0, 0, 0);
+      this.player.velocity.set(0, 0, 0);
+      this.player.model.position.set(0, 0, 0);
+      this.origin.set(0, 0, 0);
+      this.actorRoot.position.set(0, 0, 0);
+      this.camera.inSpace = true;
       this.hud.notify(`Comando de voo · Interplanetário`);
     } else if (transition.kind === 'returned') {
       const targetBody = this.universe.telemetry.dominantBody;
@@ -284,6 +298,14 @@ export class Game {
       } else if (this.universe.telemetry.frame !== 'earth/fixed' && this.universe.telemetry.frame !== 'manaus/legacy-local' && targetBody === 'earth') {
         const newLocalPos = this.universe.handoffTo('earth');
         this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
+        this.origin.set(
+          Math.round(this.player.position.x / 1024) * 1024,
+          Math.round(this.player.position.y / 1024) * 1024,
+          Math.round(this.player.position.z / 1024) * 1024,
+        );
+        this.localRoot.position.copy(this.origin).negate();
+        this.actorRoot.position.copy(this.origin).negate();
+        this.camera.inSpace = false;
         this.hud.notify(`Reentrada · Terra`);
       }
     }
@@ -294,7 +316,10 @@ export class Game {
     if (FEATURES.curvedManaus && local) {
       legacyPos = this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z);
     }
-    this.realCity.update(legacyPos,this.player.velocity,dt);this.lap('realCity');
+    if (local) {
+      this.realCity.update(legacyPos,this.player.velocity,dt);
+    }
+    this.lap('realCity');
     // Out here a frame covers thirteen kilometres, so a collider is not something to hit, it is
     // something to pass through before it has been tested. See TravelDomain.
     if(local){
@@ -308,6 +333,26 @@ export class Game {
     this.updateStomps(dt);
     if(this.stressRoute.length)this.updateStress(dt);
     else if (local) this.player.update(dt,FEATURES.curvedManaus?this.curvedColliders:this.colliders,this.camera.yaw,this.camera.pitch);
+    else {
+      const simSpeed = this.currentGameplaySpeedMps();
+      this.player.character.animate(
+        dt,
+        simSpeed,
+        true,
+        true,
+        'interplanetary',
+        0,
+        0,
+        this.player.size,
+        undefined,
+        1,
+        'interplanetary',
+        this.viewForward,
+        this.camera.yaw
+      );
+      this.player.model.position.set(0, 0, 0);
+      this.player.model.scale.setScalar(this.player.size);
+    }
     this.lap('player');
 
     if(FEATURES.spatialCore){
@@ -339,6 +384,17 @@ export class Game {
           thrust.normalize();
         } else if (this.input.held('KeyB')) {
           thrust.copy(camFwd).normalize();
+        }
+
+        if (thrust.lengthSq() > 1e-4) {
+          const thrustBary: [number, number, number] = [0, 0, 0];
+          this.universe.frames.convertDirection(
+            MANAUS_FRAME_ID,
+            'solar-system/barycentric',
+            [thrust.x, thrust.y, thrust.z],
+            thrustBary
+          );
+          thrust.set(thrustBary[0], thrustBary[1], thrustBary[2]);
         }
         
         const t = this.universe.telemetry;
@@ -387,6 +443,7 @@ export class Game {
       // localWeight will be 1 until target is ready, but when ready it drops to 0 at high altitude.
       const localGround = state.localWeight > 0.01 && isEarth;
       this.flatTerrain.visible=localGround;
+      this.localRoot.visible=local;
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
       // later in the frame, so a `visible` flag written here is gone by the time anything is
       // drawn -- which is why the far pass drew the planet and the shell painted over it.
@@ -420,7 +477,8 @@ export class Game {
         Math.round(this.player.position.y/1024)*1024,
         Math.round(this.player.position.z/1024)*1024,
       );
-      this.worldRoot.position.copy(this.origin).negate();
+      this.localRoot.position.copy(this.origin).negate();
+      this.actorRoot.position.copy(this.origin).negate();
     }
     if(local){
       this.streamer.update(this.player.position,this.player.velocity,dt);this.lap('streamer');this.hlod.update(this.player.position,this.streamer.activeKeys);this.lap('hlod');
@@ -441,7 +499,8 @@ export class Game {
     this.lastSpeed=speedNow;
     if(local)this.largo.update(this.player.position,worldDt);
     if(local){this.landmarks.update(this.player.position,worldDt);this.lap('landmarks');this.population.update(worldDt,this.player.position,this.player.size);this.lap('population');}this.missions.update(worldDt,this.player.position);
-    this.camera.update(this.player,this.origin,dt,FEATURES.curvedManaus?this.curvedColliders:this.colliders);this.rendering.camera.updateMatrixWorld();
+    this.camera.inSpace = !local;
+    this.camera.update(this.player,this.origin,dt,local ? (FEATURES.curvedManaus?this.curvedColliders:this.colliders) : []);this.rendering.camera.updateMatrixWorld();
     // After the camera settles: the portal skin samples in screen space, so a stale matrix would
     // stretch the galaxy by the viewport and leave it static as the player looks around.
     this.player.character.updateCosmicView(this.rendering.camera);
@@ -462,7 +521,7 @@ export class Game {
     const animDebug = this.player.character.animationController.debugState;
     const softTarget = this.powers.softTargetInfo;
     const hitStopMs = this.powers.hitStop.remainingMs;
-    this.hud.update(dt,{position:this.player.position,origin:this.origin,velocity:this.player.velocity,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,speedMode:this.player.speedMode,megaMode:this.player.megaMode,interplanetaryMode:this.player.interplanetaryMode,spaceFactor:this.spaceFactor,district:this.district,location:this.universe.location,debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'Cidade real · tiles':`${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`,'Cidade real · triângulos':`${Math.round(this.realCity.stats.detailTriangles/1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles/1000)}k casca`,'Cidade real · skyline':this.realCity.stats.skyline,'Cidade real · colisores':this.realCity.stats.colliders,'Destruição':`${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`,'Perfil (ms)':Object.entries(this.profile).filter(([,v])=>v>.05).map(([k,v])=>`${k} ${v.toFixed(1)}`).join(' · ')||'—','Animação · Base / Voo':`${animDebug.baseLayer} / ${animDebug.flightLayer}`,'Animação · Combate':`${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`,'Animação · Pulo / Flip':`jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress*100).toFixed(0)}%`,'Voo · Alinhamento / Vel':`${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`,'Voo · Pitch / Bank':`${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`,'Voo · Modo / Vertical':`${animDebug.flightMode} · ${(animDebug.upright*100).toFixed(0)}% em pé`,'Movimento · Esquiva / Mortal':`${animDebug.dodge??'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming?' · SLAM':''}`,'Combate · Soft Target':`${softTarget.id??'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`,'Combate · Hit Stop':`${hitStopMs} ms`,'Largo':`${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`,'Skin cósmica':Object.entries(this.player.character.cosmicDiagnostics).filter(([,v])=>v!==undefined&&v!==null).slice(0,5).map(([k,v])=>`${k} ${v}`).join(' · '),'Trânsito':this.traffic?`${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos`:'sem malha viária','Ruas reais (tri)':this.realCity.stats.roadTriangles,'Voo':this.player.speedMode+(this.player.armed==='none'?'':` · ${this.player.armed.toUpperCase()} armado`),'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`,...this.universeDebug()}},this.rendering.camera);
+    this.hud.update(dt,{position:this.player.position,origin:this.origin,velocity:this.player.velocity,speedMps:speedNow,altitudeM:altitudeNow,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,speedMode:this.player.speedMode,megaMode:this.player.megaMode,interplanetaryMode:this.player.interplanetaryMode,spaceFactor:this.spaceFactor,district:this.district,location:this.universe.location,debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'Cidade real · tiles':`${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`,'Cidade real · triângulos':`${Math.round(this.realCity.stats.detailTriangles/1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles/1000)}k casca`,'Cidade real · skyline':this.realCity.stats.skyline,'Cidade real · colisores':this.realCity.stats.colliders,'Destruição':`${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`,'Perfil (ms)':Object.entries(this.profile).filter(([,v])=>v>.05).map(([k,v])=>`${k} ${v.toFixed(1)}`).join(' · ')||'—','Animação · Base / Voo':`${animDebug.baseLayer} / ${animDebug.flightLayer}`,'Animação · Combate':`${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`,'Animação · Pulo / Flip':`jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress*100).toFixed(0)}%`,'Voo · Alinhamento / Vel':`${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`,'Voo · Pitch / Bank':`${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`,'Voo · Modo / Vertical':`${animDebug.flightMode} · ${(animDebug.upright*100).toFixed(0)}% em pé`,'Movimento · Esquiva / Mortal':`${animDebug.dodge??'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming?' · SLAM':''}`,'Combate · Soft Target':`${softTarget.id??'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`,'Combate · Hit Stop':`${hitStopMs} ms`,'Largo':`${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`,'Skin cósmica':Object.entries(this.player.character.cosmicDiagnostics).filter(([,v])=>v!==undefined&&v!==null).slice(0,5).map(([k,v])=>`${k} ${v}`).join(' · '),'Trânsito':this.traffic?`${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos`:'sem malha viária','Ruas reais (tri)':this.realCity.stats.roadTriangles,'Voo':this.player.speedMode+(this.player.armed==='none'?'':` · ${this.player.armed.toUpperCase()} armado`),'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`,...this.universeDebug()}},this.rendering.camera);
     this.input.endFrame();
   };
   /** Rebuilt in place every frame: spreads and filters would allocate three arrays per tick. */

@@ -1,0 +1,78 @@
+{
+  "branch": "feat/universe-map",
+  "baseline": "2609e4d30901720f9b18e05939f717e590dc7140",
+  "files": {
+    "00-INDEX.md": {
+      "lines": 501,
+      "chars": 16015
+    },
+    "01-CURRENT-HEAD-RISK-AUDIT.md": {
+      "lines": 522,
+      "chars": 17687
+    },
+    "02-P0-CAMERA-RELATIVE-RENDERING.md": {
+      "lines": 1372,
+      "chars": 44900
+    },
+    "03-P0-RENDER-DOMAIN-AUTHORITY.md": {
+      "lines": 742,
+      "chars": 23704
+    },
+    "04-P0-REAL-BROWSER-E2E.md": {
+      "lines": 1142,
+      "chars": 32725
+    },
+    "05-P0-EARTH-MOON-PROVIDER-HARDENING.md": {
+      "lines": 802,
+      "chars": 23139
+    },
+    "06-REFERENCE-FRAMES-AND-HANDOFFS.md": {
+      "lines": 854,
+      "chars": 25461
+    },
+    "07-SOLAR-SYSTEM-LOGICAL-MODEL.md": {
+      "lines": 978,
+      "chars": 25198
+    },
+    "08-SUN-RENDERING-AND-LIGHTING.md": {
+      "lines": 647,
+      "chars": 17833
+    },
+    "09-MOON-LANDING-AND-SURFACE.md": {
+      "lines": 958,
+      "chars": 25831
+    },
+    "10-PLANETS-AND-MOONS-ROADMAP.md": {
+      "lines": 1233,
+      "chars": 35808
+    },
+    "11-CELESTIAL-LOD-AND-ANGULAR-RENDERING.md": {
+      "lines": 967,
+      "chars": 28025
+    },
+    "12-STREAMING-PERFORMANCE-CACHE.md": {
+      "lines": 958,
+      "chars": 24541
+    },
+    "13-TEST-MATRIX-AND-ACCEPTANCE.md": {
+      "lines": 1595,
+      "chars": 44598
+    },
+    "14-FILE-BY-FILE-IMPLEMENTATION.md": {
+      "lines": 982,
+      "chars": 28618
+    },
+    "15-COMMIT-PR-PLAN.md": {
+      "lines": 425,
+      "chars": 11203
+    },
+    "16-MASTER-AGENT-PROMPT.md": {
+      "lines": 425,
+      "chars": 11616
+    },
+    "17-SOURCES-AND-DATA-PROVENANCE.md": {
+      "lines": 562,
+      "chars": 15523
+    }
+  }
+}

@@ -10,6 +10,7 @@ import {
   EARTH_FIXED_FRAME_ID, MANAUS_FRAME_ID, legacyLocalToGeodetic,
 } from '../spatial/ManausFrameAdapter';
 import type { ReferenceFrameGraph } from '../spatial/ReferenceFrameGraph';
+import type { RenderSpaceService } from '../spatial/RenderSpaceService';
 import { cloneQuat, finite, IDENTITY_QUAT, radToDeg, type Quat, type Vec3 } from '../spatial/units';
 import {
   type ActiveTile, type TileDemand, type TilePayload, type WorldTileKey,
@@ -63,6 +64,7 @@ export interface EarthProviderOptions {
    * this file deciding it from a comment.
    */
   cityOwnsGround?: boolean;
+  renderSpace?: RenderSpaceService;
 }
 
 /**
@@ -80,7 +82,7 @@ export class EarthProvider implements WorldProvider {
 
   readonly globe: EarthGlobe;
   private readonly quadtree: PlanetQuadtree;
-  private readonly options: Required<EarthProviderOptions>;
+  private readonly options: Required<Omit<EarthProviderOptions, 'renderSpace'>> & { renderSpace?: RenderSpaceService };
   private altitudeM = 0;
   private opacity = 0;
 
@@ -97,6 +99,7 @@ export class EarthProvider implements WorldProvider {
       maxLevel: Math.max(0, finite(options.maxLevel, 10)),
       replanIntervalS: Math.max(0, finite(options.replanIntervalS, 0.25)),
       cityOwnsGround: options.cityOwnsGround ?? true,
+      renderSpace: options.renderSpace,
     };
     this.quadtree = new PlanetQuadtree(EARTH, {
       maxTiles: this.options.maxTiles, maxLevel: this.options.maxLevel,
@@ -137,7 +140,7 @@ export class EarthProvider implements WorldProvider {
     const above = this.altitudeM - this.options.minAltitudeM;
     this.opacity = Math.min(1, Math.max(0, above / this.options.fadeM));
     this.globe.visible = this.opacity > 0.01;
-    this.globe.setCenterM(this.toSceneMetres({ xM: 0, yM: 0, zM: 0 }), this.bodyToScene());
+    this.globe.setCenterM(this.earthCenterRender(context), this.bodyToScene());
     return this.globe.visible;
   }
 
@@ -251,7 +254,7 @@ export class EarthProvider implements WorldProvider {
         timeToContactS: Number.POSITIVE_INFINITY,
         gameplayCritical: false,
         representation: 'planet',
-        centreM: this.toSceneMetres(tile.centre),
+        centreM: [tile.centre.xM, tile.centre.yM, tile.centre.zM],
       }));
     }
 
@@ -302,7 +305,8 @@ export class EarthProvider implements WorldProvider {
   activate(payload: TilePayload): ActiveTile {
     const mesh = payload.geometry as ReturnType<typeof buildTileMesh>;
     const key = tileKeyToString(payload.key);
-    this.globe.add(key, mesh, this.toSceneMetres(mesh.centre), this.bodyToScene());
+    // Body-local placement: mesh sits at its ECEF coordinates inside the Earth body group.
+    this.globe.add(key, mesh, [mesh.centre.xM, mesh.centre.yM, mesh.centre.zM]);
     return {
       key: payload.key, providerId: this.id, payload, representation: 'planet',
       dispose: () => this.globe.remove(key),
@@ -341,6 +345,19 @@ export class EarthProvider implements WorldProvider {
     return { xM: 0, yM: 0, zM: 0 };
   }
 
+  /** Calculates the Earth's center in camera/origin-relative render space. */
+  private earthCenterRender(context?: SpatialContext): Vec3 {
+    if (this.options.renderSpace) {
+      return this.options.renderSpace.logicalToRender(EARTH_FIXED_FRAME_ID, [0, 0, 0]);
+    }
+    if (this.playerFrameId === 'solar-system/barycentric') {
+      const earthBary = this.frames.convertPosition(EARTH_FIXED_FRAME_ID, 'solar-system/barycentric', [0, 0, 0]);
+      const playerPos = context?.player.position ?? [0, 0, 0];
+      return [earthBary[0] - playerPos[0], earthBary[1] - playerPos[1], earthBary[2] - playerPos[2]];
+    }
+    return this.frames.convertPosition(EARTH_FIXED_FRAME_ID, this.playerFrameId, [0, 0, 0]);
+  }
+
   /** Earth-fixed metres into the scene's own metres, through the frame graph. */
   private toSceneMetres(position: EcefPosition): Vec3 {
     return this.frames.convertPosition(
@@ -352,14 +369,18 @@ export class EarthProvider implements WorldProvider {
    * The rotation carrying Earth-fixed axes into the scene's. Cached per active frame.
    */
   private bodyToScene(): Quat {
-    if (!this.sceneRotation || this.sceneRotationFrame !== this.playerFrameId) {
+    const targetFrame = this.options.renderSpace
+      ? this.options.renderSpace.currentOrigin.frame
+      : this.playerFrameId;
+    if (!this.sceneRotation || this.sceneRotationFrame !== targetFrame) {
       this.sceneRotation = this.frames.convertOrientation(
-        EARTH_FIXED_FRAME_ID, this.playerFrameId, cloneQuat(IDENTITY_QUAT),
+        EARTH_FIXED_FRAME_ID, targetFrame, cloneQuat(IDENTITY_QUAT),
       );
-      this.sceneRotationFrame = this.playerFrameId;
+      this.sceneRotationFrame = targetFrame;
     }
     return this.sceneRotation;
   }
+
 
   private sceneRotation?: Quat;
   private sceneRotationFrame?: string;

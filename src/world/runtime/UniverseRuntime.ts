@@ -21,6 +21,8 @@ import { generateStarSector } from '../celestial/StarSector';
 import { generateSystem } from '../celestial/SystemGenerator';
 import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
+import { RenderSpaceService } from '../spatial/RenderSpaceService';
+import { createRenderOrigin } from '../spatial/RenderOrigin';
 export interface UniverseRuntimeOptions {
   /**
    * When false the runtime tracks the world and reports on it but streams nothing and touches no
@@ -62,6 +64,7 @@ export class UniverseRuntime {
   public activeSystem: CelestialSystemRuntime;
   readonly earthQuadtree: PlanetQuadtree;
   readonly floatingOrigin: FloatingOrigin3D;
+  readonly renderSpace: RenderSpaceService;
   address: UniverseAddress;
 
   private readonly options: Required<Omit<UniverseRuntimeOptions, 'sse'>> & { sse: ScreenSpaceErrorContext };
@@ -84,6 +87,7 @@ export class UniverseRuntime {
     this.solarSystem.registerFrames(this.frames);
     this.activeSystem = this.solarSystem;
     this.registerEarthFrames();
+    this.registerMoonFrames();
 
     this.scheduler = new GlobalStreamingScheduler(this.providers);
     this.earthQuadtree = new PlanetQuadtree(EARTH, { maxTiles: 192, maxLevel: 16 });
@@ -91,6 +95,11 @@ export class UniverseRuntime {
     this.floatingOrigin = new FloatingOrigin3D(pose(MANAUS_FRAME_ID, [0, 0, 0]), {
       thresholdM: 2048, gridM: 1024,
     });
+    this.renderSpace = new RenderSpaceService(
+      this.frames,
+      createRenderOrigin(MANAUS_FRAME_ID, [0, 0, 0]),
+      { maxRenderMagnitudeM: 20_000_000 },
+    );
     this.address = {
       galaxyId: 'milky_way',
       sector: sectorIndex(0n, 0n, 0n),
@@ -139,6 +148,18 @@ export class UniverseRuntime {
       rotationToParent: quatFromBasis(cloneVec3(MANAUS_BASIS.east), cloneVec3(MANAUS_BASIS.up), south),
       label: 'Manaus (projeção compilada)',
     }));
+  }
+
+  private registerMoonFrames(): void {
+    const moonBody = this.solarSystem.bodies.find(body => body.id === 'moon');
+    if (moonBody && !this.frames.has('moon/fixed')) {
+      this.frames.register(referenceFrame({
+        id: 'moon/fixed',
+        parentId: moonBody.frameId ?? SOLAR_SYSTEM_FRAME,
+        kind: 'body-fixed',
+        label: 'Lua (fixo)',
+      }));
+    }
   }
 
   get navigationState(): UniverseAddress {
@@ -243,6 +264,12 @@ export class UniverseRuntime {
     this.setViewForward(viewForward);
 
     this.floatingOrigin.update(this.playerPose);
+    this.renderSpace.setOrigin(createRenderOrigin(
+      this.floatingOrigin.frame,
+      this.floatingOrigin.logicalOrigin.position,
+      this.floatingOrigin.logicalOrigin.orientation,
+      this.timeS,
+    ));
     // A minute of simulated time per second keeps the sky moving without the planets racing.
     this.solarSystem.update(this.timeS);
     if (this.activeSystem !== this.solarSystem) {
@@ -280,6 +307,12 @@ export class UniverseRuntime {
     this.setViewForward(viewForward);
 
     this.floatingOrigin.update(this.playerPose);
+    this.renderSpace.setOrigin(createRenderOrigin(
+      this.floatingOrigin.frame,
+      this.floatingOrigin.logicalOrigin.position,
+      this.floatingOrigin.logicalOrigin.orientation,
+      this.timeS,
+    ));
     this.solarSystem.update(this.timeS);
     if (this.activeSystem !== this.solarSystem) {
       this.activeSystem.update(this.timeS);
@@ -471,6 +504,12 @@ export class UniverseRuntime {
       this.playerPose.position[2] = newPos[2];
       
       this.floatingOrigin.reset(this.playerPose);
+      this.renderSpace.setOrigin(createRenderOrigin(
+        targetFrame,
+        this.playerPose.position,
+        this.playerPose.orientation,
+        this.timeS,
+      ));
       this.scheduler.invalidate();
     }
     

@@ -47,7 +47,7 @@ export class SpaceLayer {
    */
   readonly shell: Mesh;
   readonly disc: Mesh;
-  private starMaterial = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, fog: false });
+  private starMaterial = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: AdditiveBlending, fog: false });
   private shellMaterial = new MeshBasicNodeMaterial({ side: BackSide, transparent: true, depthWrite: false, blending: NormalBlending, fog: false });
   private discMaterial = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, fog: false });
   private uSpace = uniform(0);

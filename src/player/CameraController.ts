@@ -27,6 +27,7 @@ export class CameraController {
   private readonly collisionDirection = new Vector3();
   private readonly up = new Vector3(0, 1, 0);
   private following = false;
+  inSpace = false;
 
   constructor(readonly camera: PerspectiveCamera, readonly input: InputController) {}
   shake(amount: number): void { this.shakeAmount = Math.max(this.shakeAmount, amount); }
@@ -84,16 +85,18 @@ export class CameraController {
         const side = 1.5 * Math.pow(player.size, .83);
         this.target.x += Math.cos(this.yaw) * side; this.target.z -= Math.sin(this.yaw) * side;
       }
-      const obstruction = PhysicsWorld.raycast(this.target, this.direction, colliders, distance, 0.35);
+      const obstruction = this.inSpace ? null : PhysicsWorld.raycast(this.target, this.direction, colliders, distance, 0.35);
       const safeDistance = obstruction ? Math.max(0.1, obstruction.distance - 0.6) : distance;
       this.desired.copy(this.target).addScaledVector(this.direction, safeDistance);
-      this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .3, this.desired.y);
+      if (!this.inSpace) {
+        this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .3, this.desired.y);
+      }
       if (switched || !this.following) this.globalPosition.copy(this.desired);
       else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstruction ? 25 : 9)));
       // Bound orbit lag, including abrupt reversals and frame-time spikes.
       this.pivotOffset.subVectors(this.globalPosition, this.desired).clampLength(0, .65 * player.size);
       this.globalPosition.copy(this.desired).add(this.pivotOffset);
-      if (obstruction) {
+      if (obstruction && !this.inSpace) {
         this.pivotOffset.subVectors(this.globalPosition, this.target);
         const hit = PhysicsWorld.raycast(this.target, this.collisionDirection.copy(this.pivotOffset).normalize(), colliders, this.pivotOffset.length(), .35);
         if (hit) this.globalPosition.copy(this.target).addScaledVector(this.pivotOffset.normalize(), Math.max(.1, hit.distance - .6));

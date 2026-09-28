@@ -9,6 +9,7 @@ import { tileExtentM } from '../planet/PlanetTileAddress';
 import { ecef, type EcefPosition } from '../spatial/ECEF';
 import { EARTH_FIXED_FRAME_ID, MANAUS_FRAME_ID } from '../spatial/ManausFrameAdapter';
 import type { ReferenceFrameGraph } from '../spatial/ReferenceFrameGraph';
+import type { RenderSpaceService } from '../spatial/RenderSpaceService';
 import { cloneQuat, finite, IDENTITY_QUAT, type Quat, type Vec3 } from '../spatial/units';
 import {
   type ActiveTile, type TileDemand, type TilePayload, type WorldTileKey,
@@ -37,6 +38,7 @@ export interface MoonProviderOptions {
   maxTiles?: number;
   maxLevel?: number;
   replanIntervalS?: number;
+  renderSpace?: RenderSpaceService;
 }
 
 export class MoonProvider implements WorldProvider {
@@ -46,7 +48,7 @@ export class MoonProvider implements WorldProvider {
 
   readonly globe: MoonGlobe;
   private readonly quadtree: PlanetQuadtree;
-  private readonly options: Required<MoonProviderOptions>;
+  private readonly options: Required<Omit<MoonProviderOptions, 'renderSpace'>> & { renderSpace?: RenderSpaceService };
   /** The Moon's centre in scene metres, refreshed from the ephemeris each frame. */
   private centreM: Vec3 = [0, 0, 0];
   private distanceM = Number.POSITIVE_INFINITY;
@@ -67,6 +69,7 @@ export class MoonProvider implements WorldProvider {
       maxTiles: Math.max(6, finite(options.maxTiles, 96)),
       maxLevel: Math.max(0, finite(options.maxLevel, 9)),
       replanIntervalS: Math.max(0, finite(options.replanIntervalS, 0.25)),
+      renderSpace: options.renderSpace,
     };
     this.quadtree = new PlanetQuadtree(MOON, {
       maxTiles: this.options.maxTiles, maxLevel: this.options.maxLevel,
@@ -90,20 +93,57 @@ export class MoonProvider implements WorldProvider {
   covers(context: SpatialContext): boolean {
     this.playerFrameId = context.frame.id;
     const altitudeM = finite(context.altitudeM);
-    const player = context.player.position;
-    this.distanceM = Math.hypot(
-      this.centreM[0] - player[0], this.centreM[1] - player[1], this.centreM[2] - player[2],
-    );
+
+    if (this.options.renderSpace) {
+      this.centreM = this.moonCenterRender(context);
+      this.globe.setCentre(this.centreM);
+      this.globe.setOrientation(this.bodyToScene());
+      this.distanceM = Math.hypot(...this.centreM);
+    } else {
+      const player = context.player.position;
+      this.distanceM = Math.hypot(
+        this.centreM[0] - player[0], this.centreM[1] - player[1], this.centreM[2] - player[2],
+      );
+    }
+
     const visible = altitudeM >= this.options.minAltitudeM && this.distanceM <= this.options.maxRangeM;
     this.globe.visible = visible;
     return visible;
   }
 
   /** Where the Moon is, from the ephemeris, in the scene's metres. Called by whoever has one. */
-  setCentre(moonRelativeToEarthM: Vec3, systemFrameId: string, targetFrameId: string): void {
-    this.centreM = this.frames.convertPosition(systemFrameId, targetFrameId, moonRelativeToEarthM);
+  setCentre(moonRelativeToEarthM: Vec3, systemFrameId: string, targetFrameId: string, observerPosition?: Vec3): void {
+    const moonFrame = this.frames.has('moon/fixed')
+      ? 'moon/fixed'
+      : (this.frames.has('solar-system/moon-fixed') ? 'solar-system/moon-fixed' : null);
+    if (this.options.renderSpace && moonFrame) {
+      this.centreM = this.options.renderSpace.logicalToRender(moonFrame, [0, 0, 0]);
+    } else if (targetFrameId === 'solar-system/barycentric' && observerPosition) {
+      const moonBary = this.frames.convertPosition(systemFrameId, 'solar-system/barycentric', moonRelativeToEarthM);
+      this.centreM = [moonBary[0] - observerPosition[0], moonBary[1] - observerPosition[1], moonBary[2] - observerPosition[2]];
+    } else {
+      this.centreM = this.frames.convertPosition(systemFrameId, targetFrameId, moonRelativeToEarthM);
+    }
     this.globe.setCentre(this.centreM);
     this.globe.setOrientation(this.bodyToScene());
+  }
+
+  private moonCenterRender(context?: SpatialContext): Vec3 {
+    const moonFrame = this.frames.has('moon/fixed')
+      ? 'moon/fixed'
+      : (this.frames.has('solar-system/moon-fixed') ? 'solar-system/moon-fixed' : null);
+    if (this.options.renderSpace && moonFrame) {
+      return this.options.renderSpace.logicalToRender(moonFrame, [0, 0, 0]);
+    }
+    if (moonFrame) {
+      if (this.playerFrameId === 'solar-system/barycentric') {
+        const moonBary = this.frames.convertPosition(moonFrame, 'solar-system/barycentric', [0, 0, 0]);
+        const playerPos = context?.player.position ?? [0, 0, 0];
+        return [moonBary[0] - playerPos[0], moonBary[1] - playerPos[1], moonBary[2] - playerPos[2]];
+      }
+      return this.frames.convertPosition(moonFrame, this.playerFrameId, [0, 0, 0]);
+    }
+    return this.centreM;
   }
 
   setSunDirection(moonToSunInSystem: Vec3, systemFrameId: string, targetFrameId: string): void {
@@ -112,10 +152,13 @@ export class MoonProvider implements WorldProvider {
 
   plan(context: StreamingContext): readonly TileDemand[] {
     // The observer, expressed in the Moon's own fixed frame: the quadtree knows nothing else.
-    const player = context.spatial.player.position;
-    const observer: Vec3 = [
-      player[0] - this.centreM[0], player[1] - this.centreM[1], player[2] - this.centreM[2],
-    ];
+    const observer: Vec3 = this.options.renderSpace
+      ? [-this.centreM[0], -this.centreM[1], -this.centreM[2]]
+      : [
+          context.spatial.player.position[0] - this.centreM[0],
+          context.spatial.player.position[1] - this.centreM[1],
+          context.spatial.player.position[2] - this.centreM[2],
+        ];
     const cached = this.cachedPlan;
     if (cached
       && context.spatial.timeS - cached.timeS < this.options.replanIntervalS
@@ -146,6 +189,7 @@ export class MoonProvider implements WorldProvider {
         timeToContactS: Number.POSITIVE_INFINITY,
         gameplayCritical: false,
         representation: 'planet',
+        centreM: [tile.centre.xM, tile.centre.yM, tile.centre.zM],
       }));
     }
 

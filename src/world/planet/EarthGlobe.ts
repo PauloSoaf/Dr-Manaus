@@ -261,11 +261,14 @@ export class EarthGlobe {
   }
 
   setCenterM(positionM: Vec3, orientation?: Quat): void {
-    this.atmosphereMesh.position.set(positionM[0], positionM[1], positionM[2]);
-    this.fallbackGroup.position.set(positionM[0], positionM[1], positionM[2]);
+    this.group.position.set(positionM[0], positionM[1], positionM[2]);
     if (orientation) {
-      this.fallbackGroup.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
+      this.group.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
     }
+    this.atmosphereMesh.position.set(0, 0, 0);
+    this.atmosphereMesh.quaternion.identity();
+    this.fallbackGroup.position.set(0, 0, 0);
+    this.fallbackGroup.quaternion.identity();
   }
 
   /**
@@ -297,6 +300,8 @@ export class EarthGlobe {
        * and the far side of the planet stops being rasterised at all.
        */
       side: FrontSide,
+      depthWrite: true,
+      depthTest: true,
       polygonOffset: isFallback,
       polygonOffsetFactor: isFallback ? 2 : 0,
       polygonOffsetUnits: isFallback ? 2 : 0,
@@ -400,12 +405,17 @@ export class EarthGlobe {
    * scene's axes are the city's tangent plane — placing the mesh without turning it leaves every
    * tile flat at an arbitrary angle, which is a field of plates rather than a planet.
    */
-  add(key: string, mesh: TileMesh, positionM: Vec3, orientation: Quat): Mesh {
+  add(key: string, mesh: TileMesh, positionM?: Vec3, orientation?: Quat): Mesh {
     this.remove(key);
     const object = new Mesh(mesh.geometry, this.material);
     object.name = `globe-${key}`;
-    object.position.set(positionM[0], positionM[1], positionM[2]);
-    object.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
+    const pos = positionM ?? [mesh.centre.xM, mesh.centre.yM, mesh.centre.zM];
+    object.position.set(pos[0], pos[1], pos[2]);
+    if (orientation) {
+      object.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
+    } else {
+      object.quaternion.identity();
+    }
     /**
      * Frustum culling off, deliberately.
      *
