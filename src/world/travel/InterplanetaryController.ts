@@ -1,12 +1,26 @@
 import { Vector3 } from 'three/webgpu';
 import { type InterplanetaryState, type TravelContext } from './TravelDomain';
 
-function finite(value: number, fallback = 0): number {
-  return Number.isFinite(value) ? value : fallback;
+function finite(value: number | undefined, fallback = 0): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+export interface InterplanetaryControllerOptions {
+  thrustAcceleration?: number;
+  maxRelativeSpeedMps?: number;
+  envelopeMarginM?: number;
 }
 
 export class InterplanetaryController {
-  private readonly thrustAcceleration = 50000; // arbitrary strong thrust for space travel
+  private readonly thrustAcceleration: number;
+  private readonly maxRelativeSpeedMps: number;
+  private readonly envelopeMarginM: number;
+
+  constructor(options: InterplanetaryControllerOptions = {}) {
+    this.thrustAcceleration = finite(options.thrustAcceleration, 50_000);
+    this.maxRelativeSpeedMps = finite(options.maxRelativeSpeedMps, 222_222);
+    this.envelopeMarginM = finite(options.envelopeMarginM, 1_000);
+  }
 
   update(
     state: InterplanetaryState,
@@ -19,25 +33,51 @@ export class InterplanetaryController {
     const positionM: [number, number, number] = [finite(state.positionM[0]), finite(state.positionM[1]), finite(state.positionM[2])];
     const velocityMps: [number, number, number] = [finite(state.velocityMps[0]), finite(state.velocityMps[1]), finite(state.velocityMps[2])];
 
-    // Thrust
+    const bodyVel: [number, number, number] = context.bodyVelocityMps
+      ? [finite(context.bodyVelocityMps[0]), finite(context.bodyVelocityMps[1]), finite(context.bodyVelocityMps[2])]
+      : [0, 0, 0];
+
+    // Relative velocity to dominant body
+    const relVel: [number, number, number] = [
+      velocityMps[0] - bodyVel[0],
+      velocityMps[1] - bodyVel[1],
+      velocityMps[2] - bodyVel[2],
+    ];
+
+    // Thrust applied to relative velocity
     const thrustLenSq = finite(thrustDirection.lengthSq());
     if (thrustLenSq > 0.01) {
-      velocityMps[0] += finite(thrustDirection.x) * this.thrustAcceleration * dt;
-      velocityMps[1] += finite(thrustDirection.y) * this.thrustAcceleration * dt;
-      velocityMps[2] += finite(thrustDirection.z) * this.thrustAcceleration * dt;
+      relVel[0] += finite(thrustDirection.x) * this.thrustAcceleration * dt;
+      relVel[1] += finite(thrustDirection.y) * this.thrustAcceleration * dt;
+      relVel[2] += finite(thrustDirection.z) * this.thrustAcceleration * dt;
     }
 
-    // Braking
+    // Braking relative to body
     if (brake) {
-      const speed = Math.hypot(velocityMps[0], velocityMps[1], velocityMps[2]);
-      if (speed > 0) {
-        const drop = speed * 0.5 * dt; // simple exponential braking
-        const factor = Math.max(0, speed - drop) / speed;
-        velocityMps[0] *= factor;
-        velocityMps[1] *= factor;
-        velocityMps[2] *= factor;
+      const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
+      if (relSpeed > 0) {
+        const drop = relSpeed * 0.5 * dt; // simple exponential braking
+        const factor = Math.max(0, relSpeed - drop) / relSpeed;
+        relVel[0] *= factor;
+        relVel[1] *= factor;
+        relVel[2] *= factor;
       }
     }
+
+    // Clamp relative speed to maxRelativeSpeedMps
+    const maxSpeed = context.maxRelativeSpeedMps ?? this.maxRelativeSpeedMps;
+    const currentRelSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    if (currentRelSpeed > maxSpeed && currentRelSpeed > 0) {
+      const scale = maxSpeed / currentRelSpeed;
+      relVel[0] *= scale;
+      relVel[1] *= scale;
+      relVel[2] *= scale;
+    }
+
+    // Reconstruct player velocity
+    velocityMps[0] = bodyVel[0] + relVel[0];
+    velocityMps[1] = bodyVel[1] + relVel[1];
+    velocityMps[2] = bodyVel[2] + relVel[2];
 
     // Inertial drift
     positionM[0] += velocityMps[0] * dt;
@@ -45,7 +85,8 @@ export class InterplanetaryController {
     positionM[2] += velocityMps[2] * dt;
 
     // Envelope collision
-    const floor = (Number.isFinite(context.bodyRadiusM) ? context.bodyRadiusM : 0) + 14000; // envelopeMarginM
+    const margin = context.envelopeMarginM ?? this.envelopeMarginM;
+    const floor = (Number.isFinite(context.bodyRadiusM) ? context.bodyRadiusM : 0) + margin;
     const bx = context.bodyPositionM ? context.bodyPositionM[0] : 0;
     const by = context.bodyPositionM ? context.bodyPositionM[1] : 0;
     const bz = context.bodyPositionM ? context.bodyPositionM[2] : 0;
@@ -60,11 +101,14 @@ export class InterplanetaryController {
       positionM[1] = by + dy * scale;
       positionM[2] = bz + dz * scale;
       const nx = dx / radius, ny = dy / radius, nz = dz / radius;
-      const into = velocityMps[0] * nx + velocityMps[1] * ny + velocityMps[2] * nz;
-      if (into < 0) {
-        velocityMps[0] -= into * nx;
-        velocityMps[1] -= into * ny;
-        velocityMps[2] -= into * nz;
+      const intoRel = relVel[0] * nx + relVel[1] * ny + relVel[2] * nz;
+      if (intoRel < 0) {
+        relVel[0] -= intoRel * nx;
+        relVel[1] -= intoRel * ny;
+        relVel[2] -= intoRel * nz;
+        velocityMps[0] = bodyVel[0] + relVel[0];
+        velocityMps[1] = bodyVel[1] + relVel[1];
+        velocityMps[2] = bodyVel[2] + relVel[2];
       }
     }
 

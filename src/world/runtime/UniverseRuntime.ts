@@ -3,7 +3,7 @@ import { EARTH } from '../planet/PlanetBody';
 import { PlanetQuadtree } from '../planet/PlanetQuadtree';
 import { DEFAULT_SSE, type ScreenSpaceErrorContext } from '../planet/ScreenSpaceError';
 import type { SpatialContext, StreamingContext } from '../providers/WorldProvider';
-import { geodeticToEcef } from '../spatial/ECEF';
+import { ecefToGeodetic, geodeticToEcef } from '../spatial/ECEF';
 import { FloatingOrigin3D } from '../spatial/FloatingOrigin3D';
 import {
   EARTH_FIXED_FRAME_ID, MANAUS_BASIS, MANAUS_FRAME_ID, legacyLocalToEcef, legacyLocalToGeodetic,
@@ -302,36 +302,61 @@ export class UniverseRuntime {
     this.planetTiles = this.earthQuadtree.select(this.playerEcef(), this.options.sse).length;
   }
 
+  public resolveBodyContext(): {
+    systemPositionM: Vec3;
+    dominantBody: string;
+    bodyPositionM: Vec3;
+    bodyVelocityMps: Vec3;
+    altitudeM: number;
+  } {
+    let systemPos: Vec3 = [0, 0, 0];
+    if (this.playerPose.frame === SOLAR_SYSTEM_FRAME) {
+      systemPos = [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
+    } else if (this.frames.has(this.playerPose.frame) && this.frames.has(SOLAR_SYSTEM_FRAME)) {
+      systemPos = this.frames.convertPosition(this.playerPose.frame, SOLAR_SYSTEM_FRAME, this.playerPose.position);
+    } else {
+      const earthPos = this.activeSystem.positionOf('earth') ?? [0, 0, 0];
+      systemPos = [earthPos[0], earthPos[1], earthPos[2]];
+    }
+
+    const dominant = this.activeSystem.dominantBody(systemPos) ?? this.solarSystem.bodies.find(b => b.id === 'earth')!;
+    const dominantId = dominant.id;
+    const bodyState = this.activeSystem.stateOf(dominantId);
+    const bodyPos: Vec3 = bodyState ? cloneVec3(bodyState.positionM) : (this.activeSystem.positionOf(dominantId) ?? [0, 0, 0]);
+    const bodyVel: Vec3 = bodyState ? cloneVec3(bodyState.velocityMps) : [0, 0, 0];
+
+    let altitudeM = 0;
+    if (this.playerPose.frame === MANAUS_FRAME_ID) {
+      altitudeM = this.playerGeodetic().heightM;
+    } else if (dominantId === 'earth') {
+      const ecef = this.playerEcef();
+      const distEcef = Math.hypot(ecef.xM, ecef.yM, ecef.zM);
+      if (distEcef < 20_000_000) {
+        altitudeM = ecefToGeodetic(ecef).heightM;
+      } else {
+        altitudeM = distEcef - dominant.equatorialRadiusM;
+      }
+    } else {
+      const dist = Math.hypot(
+        systemPos[0] - bodyPos[0],
+        systemPos[1] - bodyPos[1],
+        systemPos[2] - bodyPos[2],
+      );
+      altitudeM = dist - dominant.equatorialRadiusM;
+    }
+
+    return {
+      systemPositionM: systemPos,
+      dominantBody: dominantId,
+      bodyPositionM: bodyPos,
+      bodyVelocityMps: bodyVel,
+      altitudeM,
+    };
+  }
+
   private spatialContext(): SpatialContext {
     const frame = this.frames.has(this.playerPose.frame) ? this.frames.get(this.playerPose.frame) : undefined;
-    
-    let bodyId = 'earth';
-    let altitudeM = 0;
-
-    if (this.playerPose.frame === 'solar-system/barycentric') {
-      const pos = this.playerPose.position;
-      let nearest = 'earth';
-      let minD = Infinity;
-      for (const b of this.solarSystem.bodies) {
-        const bp = this.solarSystem.positionOf(b.id) ?? [0,0,0];
-        const d = Math.hypot(pos[0]-bp[0], pos[1]-bp[1], pos[2]-bp[2]);
-        if (d < minD) { minD = d; nearest = b.id; }
-      }
-      bodyId = nearest;
-      const bDef = this.solarSystem.bodies.find(b => b.id === bodyId);
-      altitudeM = minD - (bDef?.equatorialRadiusM ?? 6378137);
-    } else {
-      if (this.playerPose.frame.startsWith('moon')) {
-        bodyId = 'moon';
-        altitudeM = Math.hypot(...this.playerPose.position) - 1737400;
-      } else if (this.playerPose.frame.startsWith('mars')) {
-        bodyId = 'mars';
-        altitudeM = Math.hypot(...this.playerPose.position) - 3389500;
-      } else {
-        bodyId = 'earth';
-        altitudeM = this.playerGeodetic().heightM;
-      }
-    }
+    const resolved = this.resolveBodyContext();
 
     return {
       timeS: this.timeS,
@@ -340,8 +365,8 @@ export class UniverseRuntime {
         ? activeFrame(frame, this.floatingOrigin.logicalOrigin)
         : activeFrame(referenceFrame({ id: this.playerPose.frame, kind: 'render-local' }), this.floatingOrigin.logicalOrigin),
       localVelocityMps: this.velocity,
-      altitudeM,
-      bodyId,
+      altitudeM: resolved.altitudeM,
+      bodyId: resolved.dominantBody,
       address: this.navigationState,
     };
   }
@@ -373,22 +398,39 @@ export class UniverseRuntime {
   }
 
   playerEcef(): { xM: number; yM: number; zM: number } {
-    return legacyLocalToEcef(
-      this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2],
-    );
+    if (this.playerPose.frame === MANAUS_FRAME_ID) {
+      return legacyLocalToEcef(
+        this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2],
+      );
+    }
+    if (this.playerPose.frame === EARTH_FIXED_FRAME_ID) {
+      return {
+        xM: this.playerPose.position[0],
+        yM: this.playerPose.position[1],
+        zM: this.playerPose.position[2],
+      };
+    }
+    if (this.frames.has(this.playerPose.frame) && this.frames.has(EARTH_FIXED_FRAME_ID)) {
+      const converted = this.frames.convertPosition(this.playerPose.frame, EARTH_FIXED_FRAME_ID, this.playerPose.position);
+      return { xM: converted[0], yM: converted[1], zM: converted[2] };
+    }
+    return { xM: 0, yM: 0, zM: 0 };
   }
 
   /** The same position through the frame graph, as a rigid tangent plane on the ellipsoid. */
   playerEcefViaFrames(): { xM: number; yM: number; zM: number } {
-    const converted = this.frames.convertPosition(MANAUS_FRAME_ID, EARTH_FIXED_FRAME_ID, this.playerPose.position);
+    const converted = this.frames.convertPosition(this.playerPose.frame, EARTH_FIXED_FRAME_ID, this.playerPose.position);
     return { xM: converted[0], yM: converted[1], zM: converted[2] };
   }
 
   /** Where the player is on the planet, for the HUD and for provider coverage tests. */
   playerGeodetic() {
-    return legacyLocalToGeodetic(
-      this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2],
-    );
+    if (this.playerPose.frame === MANAUS_FRAME_ID) {
+      return legacyLocalToGeodetic(
+        this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2],
+      );
+    }
+    return ecefToGeodetic(this.playerEcef());
   }
 
   /** Called on teleport: everything in flight was for somewhere the player no longer is. */
@@ -438,36 +480,16 @@ export class UniverseRuntime {
   get telemetry(): UniverseTelemetry {
     const geodetic = this.playerGeodetic();
     const local = this.floatingOrigin.localDistance(this.playerPose.position);
-    
-    // Find player's position in the solar system to determine dominant body
-    let playerSystemPos = this.activeSystem.positionOf('earth') ?? [0, 0, 0];
-    if (this.frames.has(SOLAR_SYSTEM_FRAME)) {
-      playerSystemPos = this.frames.convertPosition(this.playerPose.frame, SOLAR_SYSTEM_FRAME, this.playerPose.position);
-    }
-    const dominantBody = this.activeSystem.dominantBody(playerSystemPos)?.id ?? 'earth';
-
-    // Altitude relative to dominant body (fallback to earth geodetic if earth)
-    let altitudeM = geodetic.heightM;
-    if (dominantBody !== 'earth') {
-      const bodyPos = this.activeSystem.positionOf(dominantBody);
-      const body = this.activeSystem.bodies.find(b => b.id === dominantBody);
-      if (bodyPos && body) {
-        const dx = playerSystemPos[0] - bodyPos[0];
-        const dy = playerSystemPos[1] - bodyPos[1];
-        const dz = playerSystemPos[2] - bodyPos[2];
-        const dist = Math.hypot(dx, dy, dz);
-        altitudeM = dist - body.equatorialRadiusM;
-      }
-    }
+    const resolved = this.resolveBodyContext();
 
     return {
       frame: this.playerPose.frame,
       latDeg: radToDeg(geodetic.latRad),
       lonDeg: radToDeg(geodetic.lonRad),
-      altitudeM,
+      altitudeM: resolved.altitudeM,
       renderLocalM: local,
       rebases: this.floatingOrigin.rebaseCount,
-      dominantBody,
+      dominantBody: resolved.dominantBody,
       planetTiles: this.planetTiles,
       streaming: this.scheduler.stats,
     };

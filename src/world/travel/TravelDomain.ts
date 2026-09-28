@@ -48,25 +48,36 @@ export interface TravelContext {
   /** The reference body's radius toward the player, metres. */
   readonly bodyRadiusM: number;
   readonly bodyPositionM?: Vec3;
+  readonly bodyVelocityMps?: Vec3;
   readonly bodyId?: string;
   readonly systemId?: string;
+  readonly envelopeMarginM?: number;
+  readonly maxRelativeSpeedMps?: number;
 }
 
 export interface TravelDomainOptions {
   /** No transition below this altitude, whatever else is true. */
+  entryAltitudeM?: number;
+  /** Altitude below which the player may return to local simulation. */
+  returnAltitudeM?: number;
+  /** Legacy alias for entryAltitudeM */
   safeAltitudeM?: number;
   /** A collider nearer than this keeps the player local. */
   colliderClearanceM?: number;
-  /** Below this speed the interplanetary domain has nothing to offer, so it hands back. */
+  /** Below or equal to this relative speed, returning to local physics is safe. */
+  maxLocalReturnSpeedMps?: number;
+  /** Deprecated alias */
   minTravelSpeedMps?: number;
   /** How close to the surface the envelope allows before it pushes back. */
   envelopeMarginM?: number;
 }
 
 const DEFAULTS: Required<TravelDomainOptions> = {
-  // The same altitude the interplanetary speed tier needs, for the same reason.
+  entryAltitudeM: 9_000,
+  returnAltitudeM: 7_000,
   safeAltitudeM: 9_000,
   colliderClearanceM: 2_000,
+  maxLocalReturnSpeedMps: 10_000,
   minTravelSpeedMps: 2_000,
   envelopeMarginM: 1_000,
 };
@@ -85,9 +96,16 @@ export class TravelDomain {
   private lastTransition: TravelTransition = { kind: 'none' };
 
   constructor(options: TravelDomainOptions = {}) {
+    const entryAlt = options.entryAltitudeM ?? options.safeAltitudeM ?? DEFAULTS.entryAltitudeM;
+    const returnAlt = options.returnAltitudeM ?? Math.min(entryAlt - 2000, DEFAULTS.returnAltitudeM);
+    const maxReturnSpeed = options.maxLocalReturnSpeedMps ?? DEFAULTS.maxLocalReturnSpeedMps;
+
     this.options = {
-      safeAltitudeM: Math.max(0, finite(options.safeAltitudeM, DEFAULTS.safeAltitudeM)),
+      entryAltitudeM: Math.max(0, finite(entryAlt, DEFAULTS.entryAltitudeM)),
+      returnAltitudeM: Math.max(0, finite(returnAlt, DEFAULTS.returnAltitudeM)),
+      safeAltitudeM: Math.max(0, finite(entryAlt, DEFAULTS.safeAltitudeM)),
       colliderClearanceM: Math.max(0, finite(options.colliderClearanceM, DEFAULTS.colliderClearanceM)),
+      maxLocalReturnSpeedMps: Math.max(0, finite(maxReturnSpeed, DEFAULTS.maxLocalReturnSpeedMps)),
       minTravelSpeedMps: Math.max(0, finite(options.minTravelSpeedMps, DEFAULTS.minTravelSpeedMps)),
       envelopeMarginM: Math.max(0, finite(options.envelopeMarginM, DEFAULTS.envelopeMarginM)),
     };
@@ -122,12 +140,10 @@ export class TravelDomain {
     return this.lastTransition;
   }
 
-
-
   private considerEntering(context: TravelContext): TravelTransition {
     if (!context.requested) return { kind: 'none' };
     // Every gate the specification names, checked in the order that makes the reason useful.
-    if (finite(context.altitudeM) < this.options.safeAltitudeM) return { kind: 'refused', reason: 'altitude' };
+    if (finite(context.altitudeM) < this.options.entryAltitudeM) return { kind: 'refused', reason: 'altitude' };
     if (finite(context.nearestColliderM, Infinity) < this.options.colliderClearanceM) {
       return { kind: 'refused', reason: 'collider' };
     }
@@ -144,14 +160,12 @@ export class TravelDomain {
   }
 
   private considerReturning(context: TravelContext): TravelTransition {
-    if (!context.requested) { this.toLocal(); return { kind: 'returned', reason: 'released' }; }
-    if (finite(context.speedMps) < this.options.minTravelSpeedMps) {
-      this.toLocal();
-      return { kind: 'returned', reason: 'speed' };
-    }
-    // Approaching a body: hand back before the surface, not at it, so the local simulation has a
-    // frame to find the ground before the player is standing on it.
-    if (finite(context.altitudeM) < this.options.safeAltitudeM) {
+    // Releasing requested (e.g. B key) does NOT return to local: the player coasts in space.
+    // Returning to local only occurs when the player approaches a body and reaches safe altitude AND safe relative speed.
+    const alt = finite(context.altitudeM);
+    const speed = finite(context.speedMps);
+
+    if (alt <= this.options.returnAltitudeM && speed <= this.options.maxLocalReturnSpeedMps) {
       this.toLocal();
       return { kind: 'returned', reason: 'altitude' };
     }

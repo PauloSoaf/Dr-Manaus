@@ -328,11 +328,17 @@ export class EarthProvider implements WorldProvider {
   }
 
   private playerEcef(local: Vec3): EcefPosition {
-    let manausLocal = local;
-    if (this.playerFrameId !== MANAUS_FRAME_ID) {
-      manausLocal = this.frames.convertPosition(this.playerFrameId, MANAUS_FRAME_ID, local);
+    if (this.playerFrameId === MANAUS_FRAME_ID) {
+      return geodeticToEcef(legacyLocalToGeodetic(local[0], local[1], local[2]));
     }
-    return geodeticToEcef(legacyLocalToGeodetic(manausLocal[0], manausLocal[1], manausLocal[2]));
+    if (this.playerFrameId === EARTH_FIXED_FRAME_ID) {
+      return { xM: local[0], yM: local[1], zM: local[2] };
+    }
+    if (this.frames.has(this.playerFrameId) && this.frames.has(EARTH_FIXED_FRAME_ID)) {
+      const ecef = this.frames.convertPosition(this.playerFrameId, EARTH_FIXED_FRAME_ID, local);
+      return { xM: ecef[0], yM: ecef[1], zM: ecef[2] };
+    }
+    return { xM: 0, yM: 0, zM: 0 };
   }
 
   /** Earth-fixed metres into the scene's own metres, through the frame graph. */

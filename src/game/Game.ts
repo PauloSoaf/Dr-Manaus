@@ -281,7 +281,7 @@ export class Game {
         const newLocalPos = this.universe.handoffTo('moon');
         this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
         this.hud.notify(`Órbita de interceptação · Lua`);
-      } else if (this.universe.telemetry.frame !== 'earth/fixed' && this.universe.telemetry.frame !== 'manaus/local' && targetBody === 'earth') {
+      } else if (this.universe.telemetry.frame !== 'earth/fixed' && this.universe.telemetry.frame !== 'manaus/legacy-local' && targetBody === 'earth') {
         const newLocalPos = this.universe.handoffTo('earth');
         this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
         this.hud.notify(`Reentrada · Terra`);
@@ -318,36 +318,50 @@ export class Game {
         // We are interplanetary! Zero out local velocity so the player stays put relative to the camera.
         this.player.velocity.set(0,0,0);
         
-        // Read input for thrust and brake
-        const forward = (this.input.held('KeyW') ? 1 : 0) - (this.input.held('KeyS') ? 1 : 0);
-        const right = (this.input.held('KeyD') ? 1 : 0) - (this.input.held('KeyA') ? 1 : 0);
-        const brake = this.input.held('ShiftLeft'); // or whatever braking key makes sense
-        
-        const thrust = new Vector3(right, 0, -forward).applyAxisAngle(new Vector3(0,1,0), this.camera.yaw);
-        if (this.camera.pitch) thrust.applyAxisAngle(new Vector3(1,0,0), this.camera.pitch);
+        // Read input for thrust and brake aligned with camera
+        const camFwd = new Vector3();
+        this.rendering.camera.getWorldDirection(camFwd);
+        const worldUp = new Vector3(0, 1, 0);
+        let camRight = new Vector3().crossVectors(camFwd, worldUp).normalize();
+        if (camRight.lengthSq() < 1e-4) camRight.set(1, 0, 0);
+        const camUp = new Vector3().crossVectors(camRight, camFwd).normalize();
+
+        const fwdInput = (this.input.held('KeyW') ? 1 : 0) - (this.input.held('KeyS') ? 1 : 0);
+        const rightInput = (this.input.held('KeyD') ? 1 : 0) - (this.input.held('KeyA') ? 1 : 0);
+        const upInput = (this.input.held('Space') ? 1 : 0) - (this.input.held('ControlLeft') || this.input.held('KeyC') ? 1 : 0);
+        const brake = this.input.held('ShiftLeft') || this.input.held('KeyX');
+
+        const thrust = new Vector3();
+        if (fwdInput !== 0 || rightInput !== 0 || upInput !== 0) {
+          thrust.addScaledVector(camFwd, fwdInput);
+          thrust.addScaledVector(camRight, rightInput);
+          thrust.addScaledVector(camUp, upInput);
+          thrust.normalize();
+        } else if (this.input.held('KeyB')) {
+          thrust.copy(camFwd).normalize();
+        }
         
         const t = this.universe.telemetry;
         const bodyDef = this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody);
+        const bodyVel = this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps ?? [0,0,0];
+        const bodyPos = this.universe.activeSystem.positionOf(t.dominantBody) ?? [0,0,0];
         
         const ctx = {
           altitudeM: t.altitudeM,
-          speedMps: Math.hypot(...this.travelDomain.state.velocityMps),
-          requested: this.player.speedMode === 'interplanetary',
+          speedMps: this.currentGameplaySpeedMps(),
+          requested: this.player.interplanetaryMode && this.input.held('KeyB'),
           nearestColliderM: Number.POSITIVE_INFINITY,
           bodyRadiusM: bodyDef?.equatorialRadiusM ?? 6378137,
-          bodyPositionM: this.universe.solarSystem.positionOf(t.dominantBody) ?? [0,0,0],
+          bodyPositionM: bodyPos,
+          bodyVelocityMps: bodyVel,
           bodyId: t.dominantBody,
           systemId: 'sol',
+          envelopeMarginM: 1000,
         };
         const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, brake, ctx);
         this.travelDomain.setState(newState); 
         
         this.universe.updateSystemPose(newState.positionM, newState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
-        
-        // In space, Universe is the source of truth. We must place the player in local render coordinates.
-        // floatingOrigin perfectly tracks playerPose within the grid, so this yields the small local offset.
-        const local = this.universe.floatingOrigin.toRenderLocal(this.universe.player.position);
-        this.player.position.set(local[0], local[1], local[2]);
       }
       
       if (FEATURES.galaxyTravel) {
@@ -396,7 +410,7 @@ export class Game {
       }
     }
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
-    if(this.player.position.distanceTo(this.origin)>WORLD.originThreshold){
+    if(local && this.player.position.distanceTo(this.origin)>WORLD.originThreshold){
       // All three axes. Y used to be pinned to zero, which was harmless while the sky was a
       // 140 km lid and is not now: at orbital altitude the character sits hundreds of kilometres
       // from the render origin, bone matrices are float32, and the skin comes apart -- the higher
@@ -408,14 +422,16 @@ export class Game {
       );
       this.worldRoot.position.copy(this.origin).negate();
     }
-    this.streamer.update(this.player.position,this.player.velocity,dt);this.lap('streamer');this.hlod.update(this.player.position,this.streamer.activeKeys);this.lap('hlod');
+    if(local){
+      this.streamer.update(this.player.position,this.player.velocity,dt);this.lap('streamer');this.hlod.update(this.player.position,this.streamer.activeKeys);this.lap('hlod');
+    }
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
     if(local){this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
     this.traffic?.update(worldDt,this.player.position);this.lap('traffic');}
     // Actors are suppressed as the world starts to blur past: simulating NPCs kilometres behind
     // the player costs the same as simulating them in front, and none of it can be seen.
     this.suppressActors();
-    const speedNow=this.player.velocity.length();
+    const speedNow=this.currentGameplaySpeedMps();
     this.speedVfx.update(dt,this.speedState(),speedNow);
     // The field of view opens with the effect, and the shake follows ACCELERATION rather than
     // speed, so holding a steady 8 000 m/s is smooth while entering it is not.
@@ -423,17 +439,21 @@ export class Game {
     const shake=this.speedVfx.shakeFor((speedNow-this.lastSpeed)/Math.max(dt,.001));
     if(shake>.004)this.camera.shake(shake);
     this.lastSpeed=speedNow;
-    this.largo.update(this.player.position,worldDt);
+    if(local)this.largo.update(this.player.position,worldDt);
     if(local){this.landmarks.update(this.player.position,worldDt);this.lap('landmarks');this.population.update(worldDt,this.player.position,this.player.size);this.lap('population');}this.missions.update(worldDt,this.player.position);
     this.camera.update(this.player,this.origin,dt,FEATURES.curvedManaus?this.curvedColliders:this.colliders);this.rendering.camera.updateMatrixWorld();
     // After the camera settles: the portal skin samples in screen space, so a stale matrix would
     // stretch the galaxy by the viewport and leave it static as the player looks around.
     this.player.character.updateCosmicView(this.rendering.camera);
-    this.player.character.setCosmicLevel(this.cosmicLevel(),this.player.velocity.length(),this.direction);this.powers.update(dt,worldDt);
-    this.playerLocal.copy(this.player.position).sub(this.origin);this.atmosphere.setAltitude(this.player.position.y);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(this.player.position.y,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=this.weather.update(worldDt,this.player.position,this.atmosphere.weather);if(flash)this.atmosphere.sun.intensity+=flash;
+    this.player.character.setCosmicLevel(this.cosmicLevel(),speedNow,this.direction);this.powers.update(dt,worldDt);
+    this.playerLocal.copy(this.player.position).sub(this.origin);
+    const altitudeNow = local ? this.player.position.y : this.universe.telemetry.altitudeM;
+    this.atmosphere.setAltitude(altitudeNow);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(altitudeNow,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=this.weather.update(worldDt,this.player.position,this.atmosphere.weather);if(flash)this.atmosphere.sun.intensity+=flash;
     if(this.galaxy)this.galaxy.recentre([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z]);
-    this.audio.update(this.player.velocity.length(),this.player.position.y,['rain','storm'].includes(this.atmosphere.weather),!isLand(this.player.position.x,this.player.position.z));
-    this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
+    this.audio.update(speedNow,altitudeNow,['rain','storm'].includes(this.atmosphere.weather),!isLand(this.player.position.x,this.player.position.z));
+    if(local){
+      this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
+    }
     if(local){this.terrain.update(this.player.position,this.origin);this.forest.update(this.player.position);}
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
@@ -528,7 +548,7 @@ export class Game {
   private readonly watchedGround=new WeakSet<import('three/webgpu').Object3D>();
   private watchGround(object:import('three/webgpu').Object3D,ground=false):void{
     if(this.watchedGround.has(object))return;this.watchedGround.add(object);
-    ground ||= /Generalized Manaus|airport-pavement|sidewalks|destruction-scars|real-city-road-network|largo-sao-sebastiao/.test(object.name);
+    ground ||= /Generalized Manaus|airport-pavement|sidewalks|destruction-scars|real-city-road-network|largo-sao-sebastiao/.test(object.name) || object.userData?.terrainSurface !== undefined;
     if(ground&&object instanceof Mesh)this.terrain.registerSurface(object);
     for(const child of object.children)this.watchGround(child,ground);
     object.addEventListener('childadded',event=>this.watchGround(event.child,ground));
@@ -547,52 +567,54 @@ export class Game {
       :this.player.state==='Grounded'?'idle':'flight';
   }
   private speedState():SpeedState{
+    if(!this.travelDomain.localPhysicsActive)return 'interplanetary';
     const mode=this.player.speedMode;
     return mode==='interplanetary'?'interplanetary':mode==='mega'?'mega':mode==='super'?'super':mode==='fast'?'fast':'normal';
   }
   private suppressActors(){
+    if(!this.travelDomain.localPhysicsActive){
+      this.population.npcCount=0;
+      this.traffic?.setCount(0);
+      return;
+    }
     const speed=this.player.velocity.length();
     const config=QUALITY[this.save.data.settings.quality];
     const fade=speed<=WORLD.actorSpeedLimit?1:Math.max(0,1-(speed-WORLD.actorSpeedLimit)/(WORLD.actorCutoffSpeed-WORLD.actorSpeedLimit));
     this.population.npcCount=Math.round(config.npcs*fade);
     this.traffic?.setCount(Math.round(config.vehicles*2*fade));
   }
-  /** Planetary state for the F3 panel. Empty while the spatial core is switched off. */
-  /**
-   * Decides which simulation the player is in.
-   *
-   * The request is the interplanetary tier actually engaged, not merely armed: the tier already
-   * refuses below the atmosphere for the same reason the domain does, so the two agree without
-   * either having to know about the other's thresholds.
-   */
+  private currentGameplaySpeedMps():number{
+    if(this.travelDomain.state){
+      const t=this.universe.telemetry;
+      const bodyVelocity=this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps??[0,0,0];
+      const vel=this.travelDomain.state.velocityMps;
+      return Math.hypot(vel[0]-bodyVelocity[0],vel[1]-bodyVelocity[1],vel[2]-bodyVelocity[2]);
+    }
+    return this.player.velocity.length();
+  }
   private updateTravelDomain(dt:number){
-    // Last frame's colliders, deliberately: the decision has to come before the gathering it
-    // governs, and one frame of staleness at nine kilometres up is nothing. While travelling the
-    // list is empty, which is the correct answer rather than a stale one.
     let nearest=Number.POSITIVE_INFINITY;
     for(const collider of (FEATURES.curvedManaus ? this.curvedColliders : this.colliders)){
       const dx=collider.x-this.player.position.x,dy=(collider.y??0)-this.player.position.y,dz=collider.z-this.player.position.z;
       nearest=Math.min(nearest,Math.hypot(dx,dy,dz));
     }
     const t=this.universe.telemetry;
-    const logicalSpeed = this.travelDomain.state 
-      ? Math.hypot(...this.travelDomain.state.velocityMps) 
-      : this.player.velocity.length();
-      
-    const transition = this.travelDomain.update({
+    const bodyVelocity=this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps??[0,0,0];
+    const bodyPos=this.universe.activeSystem.positionOf(t.dominantBody)??[0,0,0];
+    const requested=this.player.interplanetaryMode&&this.input.held('KeyB');
+
+    this.travelDomain.update({
       altitudeM:t.altitudeM,
-      speedMps:logicalSpeed,
-      requested:this.player.speedMode==='interplanetary',
+      speedMps:this.currentGameplaySpeedMps(),
+      requested,
       nearestColliderM:nearest,
       bodyRadiusM:this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody)?.equatorialRadiusM ?? WGS84.semiMajorAxisM,
+      bodyPositionM:bodyPos,
+      bodyVelocityMps:bodyVelocity,
       bodyId:t.dominantBody,
       systemId:'sol',
+      envelopeMarginM:1000,
     },dt);
-
-    if (transition.kind === 'returned') {
-      const localPos = this.universe.handoffTo(t.dominantBody);
-      this.player.position.set(localPos[0], localPos[1], localPos[2]);
-    }
   }
 
   private universeDebug():Record<string,string|number>{
