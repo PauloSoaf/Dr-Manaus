@@ -4,9 +4,12 @@ import type { Settings, SaveManager } from '../core/SaveManager';
 import type { QualityPreset } from '../core/config';
 import type { TimeKind, WeatherKind } from '../core/types';
 import { CityMap } from './CityMap';
+import { UniversalMapPanel } from './map/UniversalMapPanel';
+import type { UniverseLocation } from '../world/spatial/UniverseLocation';
+import { sectorIndex } from '../world/spatial/UniverseAddress';
 import { icon, POWERS } from './icons';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number> }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation }
 const $=<T extends HTMLElement=HTMLElement>(selector:string)=>document.querySelector<T>(selector)!;
 /** A labelled slider with a live readout; `format` turns the raw value into what the player reads. */
 const slider=(id:string,label:string,min:number,max:number,step:number,note='')=>
@@ -29,7 +32,7 @@ const CONTROLS: readonly (readonly [string,string])[]=[
   ['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
 ];
 export class HUD {
-  private mini:CityMap;private map:CityMap;private elapsed=0;private mapElapsed=0;private toastTimer=0;private lastPlace='';private temp=new Vector3();
+  private mini:CityMap;private map:CityMap;private universalMap:UniversalMapPanel;private elapsed=0;private mapElapsed=0;private toastTimer=0;private lastPlace='';private temp=new Vector3();
   private openPanel='';private pauseTab='audio';private lastFps=0;private lastBackend='\u2014';debugOpen=false;
   constructor(private save:SaveManager,private hooks:HUDHooks){
     const root=document.createElement('div');root.id='hud';root.innerHTML=`
@@ -85,10 +88,11 @@ export class HUD {
             <p class="field-note">Apaga as descobertas e o progresso salvos neste navegador.</p>
           </div>
         </div></div></section>
-      <section class="panel map-panel" id="map-panel" hidden><div class="panel-header"><div><span class="eyebrow">03° S · 60° O</span><h2>Uma cidade. Infinitas possibilidades.</h2></div><button class="icon-button close-panel" aria-label="Fechar mapa">${icon('close')}</button></div><div class="map-layout"><div class="map-visual"><canvas id="city-map"></canvas><div class="map-scale">━━━━━━ <span>5 km</span></div><span class="map-credit">Dados viários © OpenStreetMap contributors · Geografia estilizada</span></div><div class="map-destinations"><span class="eyebrow">PONTOS DE INTERESSE</span><div id="landmark-list"></div><p>Descubra um lugar voando até ele para liberar a translocação.</p></div></div></section>
+      <section class="panel map-panel" id="map-panel" hidden><div class="panel-header"><div><span class="eyebrow">MAPA UNIVERSAL</span><h2>Navegação Cósmica</h2></div><button class="icon-button close-panel" aria-label="Fechar mapa">${icon('close')}</button></div><div id="universal-map-container"></div></section>
       <section class="debug-panel" id="debug-panel" hidden><div class="eyebrow">DIAGNÓSTICO · F3</div><div id="debug-metrics"></div><div class="debug-controls"><select id="debug-travel"><option value="">Teleportar para…</option>${LANDMARKS.map(l=>`<option value="${l.id}">${l.shortName}</option>`).join('')}</select>${[['bounds','Limites de chunks'],['lod','Cores de LOD'],['hlod','HLOD'],['geo','Marcos geográficos'],['roads','Cores de via'],['wireframe','Wireframe'],['culling','Frustum de câmera']].map(([id,label])=>`<label><input type="checkbox" data-debug="${id}"/>${label}</label>`).join('')}<label>Velocidade <input type="range" min="0.25" max="3" step="0.25" value="1" id="flight-speed"/></label><button class="text-button" id="stress-run">Iniciar rota de stress</button></div></section>
       <div class="loading-tag" id="loading-tag"><span class="spinner"></span>Despertando sobre a Amazônia…</div>`;
     document.querySelector('#app')!.append(root);
+    this.universalMap = new UniversalMapPanel($('#universal-map-container'), { address: { galaxyId: 'milky_way', sector: sectorIndex(0, 0, 0) }, frameId: 'manaus/compiled' }, id => this.travel(id), () => this.togglePanel(''));
     this.mini=new CityMap($('#minimap'),false);this.map=new CityMap($('#city-map'),true);
     root.querySelectorAll<HTMLButtonElement>('[data-panel]').forEach(button=>button.onclick=()=>this.togglePanel(button.dataset.panel!));
     root.querySelectorAll<HTMLButtonElement>('.close-panel').forEach(button=>button.onclick=()=>this.togglePanel(''));
@@ -210,6 +214,6 @@ export class HUD {
     const marker=$('#objective-marker');this.temp.copy(state.destination).sub(state.origin).project(camera);marker.hidden=state.stage===0||state.stage===4&&state.remaining===0||this.temp.z>1||Math.abs(this.temp.x)>.85||Math.abs(this.temp.y)>.7;
     if(!marker.hidden){marker.style.left=`${(this.temp.x*.5+.5)*100}%`;marker.style.top=`${(-this.temp.y*.5+.5)*100}%`;marker.querySelector('small')!.textContent=distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m';}
     if(this.debugOpen)$('#debug-metrics').innerHTML=Object.entries(state.debug).map(([key,value])=>`<div><span>${key}</span><b>${value}</b></div>`).join('');
-    if(this.mapElapsed>.3){this.mapElapsed=0;this.mini.draw(state.position,state.yaw,this.save.data.discovered,state.stage>0?state.destination:undefined);if(this.openPanel==='map')this.map.draw(state.position,state.yaw,this.save.data.discovered,state.destination);}
+    if(this.mapElapsed>.3){this.mapElapsed=0;this.mini.draw(state.position,state.yaw,this.save.data.discovered,state.stage>0?state.destination:undefined);if(this.openPanel==='map'){this.map.draw(state.position,state.yaw,this.save.data.discovered,state.destination);this.universalMap.update(state.location, state.position, state.destination);}}
   }
 }

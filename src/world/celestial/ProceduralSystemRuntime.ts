@@ -97,6 +97,10 @@ export class ProceduralSystemRuntime implements CelestialSystemRuntime {
     return this.states.get(bodyId)?.positionM;
   }
 
+  stateOf(bodyId: string): { positionM: Vec3, velocityMps: Vec3 } | undefined {
+    return this.states.get(bodyId);
+  }
+
   dominantBody(observerM: Vec3): CelestialBody | undefined {
     // Determine the closest body by surface distance
     let closest: CelestialBody | undefined;

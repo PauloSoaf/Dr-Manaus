@@ -22,6 +22,7 @@ export interface CelestialSystemRuntime {
   
   update(epochS: number): void;
   positionOf(bodyId: string): Vec3 | undefined;
+  stateOf(bodyId: string): { positionM: Vec3, velocityMps: Vec3 } | undefined;
   dominantBody(observerM: Vec3): CelestialBody | undefined;
   handoff(bodyId: string, observerM: Vec3): BodyHandoffState | undefined;
   registerFrames(graph: ReferenceFrameGraph): void;

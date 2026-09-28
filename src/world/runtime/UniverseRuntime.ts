@@ -16,6 +16,7 @@ import { GlobalStreamingScheduler } from '../streaming/GlobalStreamingScheduler'
 import { budgetForSpeed, DEFAULT_STREAMING_BUDGET } from '../streaming/StreamingBudget';
 import { ProviderRegistry } from './ProviderRegistry';
 import { sectorIndex, SECTOR_SIZE_M, sectorSeed, type UniverseAddress } from '../spatial/UniverseAddress';
+import type { UniverseLocation } from '../spatial/UniverseLocation';
 import { generateStarSector } from '../celestial/StarSector';
 import { generateSystem } from '../celestial/SystemGenerator';
 import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
@@ -153,6 +154,32 @@ export class UniverseRuntime {
       bodyId,
       childFrame: this.playerPose.frame,
     };
+  }
+
+  get location(): UniverseLocation {
+    const address = this.navigationState;
+    const loc: UniverseLocation = {
+      address,
+      frameId: this.playerPose.frame
+    };
+    
+    if (this.playerPose.frame === 'solar-system/barycentric') {
+      loc.systemPositionM = [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
+    } else {
+      const geo = this.playerGeodetic();
+      let altitudeM = geo.heightM;
+      if (this.playerPose.frame.startsWith('moon')) {
+        altitudeM = Math.hypot(...this.playerPose.position) - 1737400;
+      } else if (this.playerPose.frame.startsWith('mars')) {
+        altitudeM = Math.hypot(...this.playerPose.position) - 3389500;
+      }
+      loc.surface = {
+        latDeg: (geo.latRad * 180) / Math.PI,
+        lonDeg: (geo.lonRad * 180) / Math.PI,
+        altitudeM
+      };
+    }
+    return loc;
   }
 
   get time(): number { return this.timeS; }
