@@ -58,7 +58,7 @@ export class EarthTransitionController {
     const targetCoverageReady = readiness.viewCoverageReady;
 
     // Invariant: Never retire local representation until target representation is ready
-    if (!targetCoverageReady && alt >= 8000 && alt < 60000) {
+    if (!targetCoverageReady && alt >= 8000) {
       localWeight = Math.max(localWeight, 1);
       regionalWeight = 0;
       planetWeight = 0;

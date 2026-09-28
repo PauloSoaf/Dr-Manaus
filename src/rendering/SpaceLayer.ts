@@ -1,6 +1,6 @@
 import { AdditiveBlending, BackSide, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshBasicNodeMaterial, NormalBlending, PerspectiveCamera, PlaneGeometry, Scene, SphereGeometry, Uint32BufferAttribute, Vector3 } from 'three/webgpu';
 import { attribute, float, mix, positionLocal, sin, smoothstep, time, uniform, uv } from 'three/tsl';
-import { SPACE } from '../core/config';
+import { FEATURES, SPACE } from '../core/config';
 import { PLANET_LAYER } from './domains/RenderDomains';
 /** The rig rides the camera, so these are viewing distances, not world extents. Far plane is 260 km. */
 const STAR_RADIUS = 150000, SHELL_RADIUS = 170000, SUN_DISTANCE = 120000, SUN_QUAD = SUN_DISTANCE * .0968;
@@ -143,8 +143,8 @@ export class SpaceLayer {
     // Semantic guard: at low altitude during daytime, stars are forbidden to prevent leakage through transparent sky dome
     const allowStars = night || space > 0.05 || metres >= SPACE.atmosphereTop || this.planetaryView;
     this.stars.visible = allowStars && this.uVisible.value > .004;
-    this.shell.visible = local && this.uShellFade.value > .003;
-    this.disc.visible = local && veil > .02;
+    this.shell.visible = !FEATURES.earthGlobe && local && this.uShellFade.value > .003;
+    this.disc.visible = !FEATURES.earthGlobe && local && veil > .02;
 
     if (this.planetaryView) {
       // The camera's far plane is set by RenderDomains to wrap the planet. Push the stars

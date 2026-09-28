@@ -306,17 +306,30 @@ export class UniverseRuntime {
     this.velocity[2] = finite(systemVelocity[2]);
     this.setViewForward(viewForward);
 
-    this.floatingOrigin.update(this.playerPose);
-    this.renderSpace.setOrigin(createRenderOrigin(
-      this.floatingOrigin.frame,
-      this.floatingOrigin.logicalOrigin.position,
-      this.floatingOrigin.logicalOrigin.orientation,
-      this.timeS,
-    ));
     this.solarSystem.update(this.timeS);
     if (this.activeSystem !== this.solarSystem) {
       this.activeSystem.update(this.timeS);
     }
+
+    const resolved = this.resolveBodyContext();
+    this.floatingOrigin.update(this.playerPose);
+
+    let renderFrame = this.floatingOrigin.frame;
+    let renderPos: Vec3 = cloneVec3(this.floatingOrigin.logicalOrigin.position);
+    let renderOrientation = this.floatingOrigin.logicalOrigin.orientation;
+
+    if (resolved.dominantBody === 'earth' && this.frames.has(MANAUS_FRAME_ID)) {
+      renderFrame = MANAUS_FRAME_ID;
+      renderPos = [0, 0, 0];
+      renderOrientation = this.frames.convertOrientation(this.playerPose.frame, MANAUS_FRAME_ID, this.playerPose.orientation);
+    }
+
+    this.renderSpace.setOrigin(createRenderOrigin(
+      renderFrame,
+      renderPos,
+      renderOrientation,
+      this.timeS,
+    ));
 
     if (!this.options.streaming) { this.planetTiles = 0; return; }
 

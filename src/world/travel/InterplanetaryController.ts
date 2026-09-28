@@ -56,7 +56,7 @@ export class InterplanetaryController {
     if (brake) {
       const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
       if (relSpeed > 0) {
-        const drop = relSpeed * 0.5 * dt; // simple exponential braking
+        const drop = Math.max(relSpeed * 2.5 * dt, 40_000 * dt);
         const factor = Math.max(0, relSpeed - drop) / relSpeed;
         relVel[0] *= factor;
         relVel[1] *= factor;

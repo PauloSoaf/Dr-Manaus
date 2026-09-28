@@ -443,7 +443,7 @@ export class Game {
       // localWeight will be 1 until target is ready, but when ready it drops to 0 at high altitude.
       const localGround = state.localWeight > 0.01 && isEarth;
       this.flatTerrain.visible=localGround;
-      this.localRoot.visible=local;
+      this.localRoot.visible=localGround;
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
       // later in the frame, so a `visible` flag written here is gone by the time anything is
       // drawn -- which is why the far pass drew the planet and the shell painted over it.

@@ -276,4 +276,12 @@ Baseline HEAD: `2609e4d30901720f9b18e05939f717e590dc7140`
 7. **Thrust direction transformation (`Game.ts`):**
    - Direction vectors from the camera are transformed via `universe.frames.convertDirection(MANAUS_FRAME_ID, 'solar-system/barycentric', ...)` before reaching `InterplanetaryController`.
 
+8. **Earth Globe & Manaus Alignment & Visual Hardening (`UniverseRuntime.ts`, `EarthProvider.ts`, `EarthGlobe.ts`, `SpaceLayer.ts`, `Game.ts`):**
+   - **Suppressed legacy saw-tooth shell (`SpaceLayer.ts`)**: The legacy 48-segment colored sky wedge dome (`this.shell`) and fake sun disc (`this.disc`) are suppressed when `FEATURES.earthGlobe` is active.
+   - **Aligned atmosphere mesh pole axis (`EarthGlobe.ts`)**: Rotated `SphereGeometry` via `atmoGeo.rotateX(Math.PI / 2)` to align Three.js Y-up pole with ECEF Z-up polar axis. Guarded inner haze so it is only visible above 20,000 m.
+   - **Continuous terrain under Manaus (`EarthProvider.ts`)**: At altitude >= 20,000 m, `coveredByCity` is bypassed so the Earth globe generates continuous high-altitude terrain under Manaus, eliminating the black void hole under the city.
+   - **Synchronized local city visibility (`Game.ts`)**: Synchronized `localRoot.visible = localGround` with `flatTerrain.visible = localGround`, ensuring water ribbons and landmarks stand down together with ground backdrop instead of floating in empty vacuum.
+   - **Earth camera-relative ENU frame authority (`UniverseRuntime.ts`)**: When `dominantBody === 'earth'`, `renderSpace.origin` is set to `MANAUS_FRAME_ID` (`renderPos = [0, 0, 0]`), placing Earth directly underneath the camera at `Y = -6,378,073 m` and perfectly aligned with Manaus, eliminating coordinate inversion and 45° tilt.
+   - **Full E2E verification**: `npm test` (326/326 tests pass), `npm run build` (clean 0 errors), and `npm run test:browser` (full launch -> 1,000 km deep orbit -> nadir capture -> atmospheric braking -> local landing at 0m, 100% clean).
+
 

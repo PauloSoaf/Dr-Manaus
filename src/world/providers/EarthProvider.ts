@@ -93,7 +93,7 @@ export class EarthProvider implements WorldProvider {
   ) {
     this.globe = new EarthGlobe(parent);
     this.options = {
-      minAltitudeM: Math.max(0, finite(options.minAltitudeM, 15_000)),
+      minAltitudeM: Math.max(0, finite(options.minAltitudeM, 0)),
       fadeM: Math.max(1, finite(options.fadeM, 10_000)),
       maxTiles: Math.max(6, finite(options.maxTiles, 160)),
       maxLevel: Math.max(0, finite(options.maxLevel, 10)),
@@ -138,9 +138,11 @@ export class EarthProvider implements WorldProvider {
       this.altitudeM = geodetic.heightM;
     }
     const above = this.altitudeM - this.options.minAltitudeM;
-    this.opacity = Math.min(1, Math.max(0, above / this.options.fadeM));
+    this.opacity = this.options.minAltitudeM > 0
+      ? Math.min(1, Math.max(0, above / this.options.fadeM))
+      : 1;
     this.globe.visible = this.opacity > 0.01;
-    this.globe.setCenterM(this.earthCenterRender(context), this.bodyToScene());
+    this.globe.setCenterM(this.earthCenterRender(context), this.bodyToScene(), this.altitudeM);
     return this.globe.visible;
   }
 
@@ -243,8 +245,9 @@ export class EarthProvider implements WorldProvider {
 
     const demands: TileDemand[] = [];
     for (const tile of selection) {
-      // Where the city owns the ground, the city draws it. See `cityOwnsGround`.
-      if (this.options.cityOwnsGround && this.coveredByCity(tile.address)) continue;
+      // Where the city owns the ground at low altitude, the city draws it.
+      // At high altitude (>= 20,000 m), Earth globe must draw all tiles so there is no hole under Manaus.
+      if (this.options.cityOwnsGround && this.altitudeM < 20_000 && this.coveredByCity(tile.address)) continue;
       demands.push(tileDemand({
         key: this.keyFor(tile.address),
         providerId: this.id,

@@ -240,7 +240,9 @@ export class EarthGlobe {
     this.initCoarseFallback();
 
     this.atmosphereMaterial = this.buildAtmosphereMaterial();
-    this.atmosphereMesh = new Mesh(new SphereGeometry(6378137 + 60000, 64, 64), this.atmosphereMaterial);
+    const atmoGeo = new SphereGeometry(6378137 + 60000, 64, 64);
+    atmoGeo.rotateX(Math.PI / 2); // Align Three.js Y-up sphere with ECEF Z-up pole
+    this.atmosphereMesh = new Mesh(atmoGeo, this.atmosphereMaterial);
     this.atmosphereMesh.layers.set(PLANET_LAYER);
     this.atmosphereMesh.frustumCulled = false;
     this.group.add(this.atmosphereMesh);
@@ -260,13 +262,14 @@ export class EarthGlobe {
     }
   }
 
-  setCenterM(positionM: Vec3, orientation?: Quat): void {
+  setCenterM(positionM: Vec3, orientation?: Quat, altitudeM = 0): void {
     this.group.position.set(positionM[0], positionM[1], positionM[2]);
     if (orientation) {
       this.group.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
     }
     this.atmosphereMesh.position.set(0, 0, 0);
     this.atmosphereMesh.quaternion.identity();
+    this.atmosphereMesh.visible = altitudeM >= 20000;
     this.fallbackGroup.position.set(0, 0, 0);
     this.fallbackGroup.quaternion.identity();
   }
