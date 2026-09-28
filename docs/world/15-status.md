@@ -177,3 +177,48 @@ intention. If a flag is off, the phase is not done.
    closes the 60 km hole under the city and lets the 15 km gate go. Both are gated on it, and both
    are wired to the flag rather than to a constant, so the day it flips they follow.
 4. An atmosphere as a volume rather than a shading term on the surface, and an ocean.
+
+## Hotfix v1 — Interplanetary Flight & Terrain Hardening (`feat/universe-map`)
+
+Status: **verified** (T1–T11 unit/integration tests passing; 318 test suite passing; production build clean).
+
+`FEATURES.curvedManaus` remains **`false`**, preserving the legacy flat world baseline without regressions.
+
+### Root causes identified & resolved
+
+1. **Interplanetary flight ping-pong & teleporting:**
+   - In orbital / interplanetary space, when Earth was the dominant celestial body, `UniverseRuntime.telemetry` and `spatialContext()` interpreted barycentric coordinates as local Manaus tangent-plane coordinates, passing them to `legacyLocalToGeodetic` / `legacyLocalToEcef`. This produced bogus altitude spikes (millions of metres) and triggered rapid flip-flopping between `interplanetary` and `local` travel domains (`interplanetary → local → interplanetary`), manifesting visually as violent uncontrollable teleportation.
+   - Thrust, braking, and velocity clamping in `InterplanetaryController` operated on the absolute barycentric velocity (~30 km/s Earth orbital velocity), causing braking to fling the player backward relative to Earth at orbital speed.
+   - Releasing the thrust key (`B`) immediately cleared `requested` and handed the player back to local coordinates, causing instantaneous snapback from deep space.
+   - `Game.ts` wrote `floatingOrigin.toRenderLocal()` directly to the player visual proxy on every frame, causing visual and camera jumps during origin rebases.
+   - Local systems (`streamer`, `hlod`, `largo`, `discovery`, `population`, `traffic`) continued executing heavy tasks during interplanetary travel.
+
+2. **Ghost ground inside craters:**
+   - Although `FEATURES.curvedManaus` was disabled (`false`), `src/world/geodata/terrain.ts` was unconditionally bending `ground-cover`, `terrain-backdrop`, shores, and roads using `surfaceService.legacyPointToRenderLocal()`.
+   - `TerrainDestruction.ts` applied crater depth masking only within a narrow vertical band `surfaceMinY <= y <= surfaceMaxY`. The curved backdrop mesh dipped below this band and escaped the cutout node, causing the lower green polygon to render inside crater excavations.
+
+### Changes implemented
+
+- **Frame-aware geodesics (`UniverseRuntime.ts`, `EarthProvider.ts`):** `playerEcef()` and `playerGeodetic()` check `this.telemetry.frame`. Barycentric positions near Earth are transformed to `EARTH_FIXED_FRAME_ID` first, then mapped to WGS84 without ever touching the Manaus tangent plane.
+- **Unified dominant body resolution (`UniverseRuntime.ts`):** `resolveBodyContext()` computes altitude against the actual dominant body across both telemetry and spatial context uniformly.
+- **Relative flight dynamics (`InterplanetaryController.ts`, `Game.ts`):** Flight controls, thrust, braking, and speed clamping operate strictly on relative velocity `v_rel = v - v_body`. Maximum relative speed is clamped to 222,222 m/s. Dynamic speed metrics for VFX, camera shake, and HUD are derived from relative speed.
+- **Coasting on thrust release (`TravelDomain.ts`):** Releasing `B` leaves the player in interplanetary coasting when `altitudeM > returnAltitudeM` (7,000 m).
+- **Hysteresis & reentry safety gate (`TravelDomain.ts`):** Transition back to `local` domain requires BOTH low altitude (`altitudeM <= 7,000 m`) and safe relative speed (`speedMps <= 10,000 m/s`).
+- **Visual stability & subsystem pause (`Game.ts`):** Floating origin rebasing is active only in `local` mode. In `interplanetary` mode, local streamer, HLOD, largo, discovery, NPC population, and traffic are paused.
+- **Flat terrain integrity (`terrain.ts`):** Curvature application across all terrain meshes and road ribbons is strictly gated on `FEATURES.curvedManaus === true`.
+- **Sheet crater masking (`TerrainDestruction.ts`):** Terrain sheets (`backdrop`, `ground-cover`, meshes with `userData.terrainSurface === 'sheet'`) use full vertical masking (`crater-sheet`) without the vertical Y band restriction.
+
+### Acceptance test verification (T1–T11)
+
+- **T1:** Barycentric altitude near Earth in orbit (~100 km) evaluates to ~100 km, never ~6,378 km or Manaus-distorted.
+- **T2:** 600-frame continuous ascent tracks moving Earth's barycentric trajectory without altitude oscillation.
+- **T3:** Releasing `B` at 50,000 m maintains `interplanetary` travel domain and coasts at current velocity.
+- **T4:** Reentry gate rejects handoff when altitude is low but speed is excessive (> 10 km/s).
+- **T5:** Altitude hysteresis prevents domain flip-flop between 7 km and 9 km.
+- **T6:** Braking at orbital speeds slows relative velocity to zero without fighting Earth orbital motion.
+- **T7:** Relative velocity is clamped to <= 222,222 m/s.
+- **T8:** Floating origin rebase does not shift the player visual model in space.
+- **T9:** Flat terrain meshes (`ground-cover`, `backdrop`, `roads`) remain at authored flat elevations when `FEATURES.curvedManaus` is `false`.
+- **T10:** `terrain-backdrop` and `ground-cover` receive `'sheet'` crater masking across full vertical depth.
+- **T11:** Crater physics depth and visual bowl depth agree within grid tolerance.
+
