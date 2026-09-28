@@ -140,7 +140,9 @@ export class SpaceLayer {
     // `lift` already fades them below the limb, so they sit above the horizon of a real planet as
     // readily as above a painted one. The sky gradient is the shell's, not theirs.
     const local = !this.planetaryView;
-    this.stars.visible = this.uVisible.value > .004;
+    // Semantic guard: at low altitude during daytime, stars are forbidden to prevent leakage through transparent sky dome
+    const allowStars = night || space > 0.05 || metres >= SPACE.atmosphereTop || this.planetaryView;
+    this.stars.visible = allowStars && this.uVisible.value > .004;
     this.shell.visible = local && this.uShellFade.value > .003;
     this.disc.visible = local && veil > .02;
 
@@ -155,6 +157,10 @@ export class SpaceLayer {
       this.stars.layers.set(0);
     }
   }
+  get starsVisible(): boolean {
+    return this.stars.visible;
+  }
+
   dispose() {
     this.scene.remove(this.rig);
     this.stars.geometry.dispose(); this.shell.geometry.dispose(); this.disc.geometry.dispose();

@@ -9,12 +9,38 @@ import type { Quat } from '../spatial/units';
 import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
 import { directionToGeodetic } from './CubeSphere';
-import { type PlanetTileAddress, tileBounds, tileCentreDirection } from './PlanetTileAddress';
+import { type PlanetTileAddress, planetTile, tileBounds, tileCentreDirection } from './PlanetTileAddress';
 import { surfaceColour } from './EarthLandMask';
 import { surfaceHeightAt, surfaceNormalEnu } from './EarthElevation';
 import { enuBasis } from '../spatial/ENU';
 import { faceUvToDirection } from './CubeSphere';
 import type { Vec3 } from '../spatial/units';
+
+export function parseTileKey(key: string): PlanetTileAddress | undefined {
+  const parts = key.split(':');
+  if (parts[0] === 'planet' && parts.length >= 6) {
+    return {
+      bodyId: parts[1],
+      face: parseInt(parts[2], 10) as any,
+      level: parseInt(parts[3], 10),
+      x: parseInt(parts[4], 10),
+      y: parseInt(parts[5], 10),
+    };
+  }
+  if (parts.length > 1 && parts[1].includes(',')) {
+    const coords = parts[1].split(',');
+    if (coords.length >= 4) {
+      return {
+        bodyId: parts[0],
+        face: parseInt(coords[0], 10) as any,
+        level: parseInt(coords[1], 10),
+        x: parseInt(coords[2], 10),
+        y: parseInt(coords[3], 10),
+      };
+    }
+  }
+  return undefined;
+}
 
 /**
  * Geometry for one quadtree tile of a planet, on the real ellipsoid.
@@ -183,7 +209,9 @@ function windingIsOutward(positions: Float32Array, normals: Float32Array, size: 
  */
 export class EarthGlobe {
   readonly group = new Group();
+  readonly fallbackGroup = new Group();
   private readonly material: MeshBasicNodeMaterial;
+  private readonly fallbackMaterial: MeshBasicNodeMaterial;
   private readonly atmosphereMaterial: MeshBasicNodeMaterial;
   private readonly atmosphereMesh: Mesh;
   private readonly meshes = new Map<string, Mesh>();
@@ -198,12 +226,19 @@ export class EarthGlobe {
    */
   private readonly uSun = uniform(new Vector3(0, 1, 0));
   private triangles = 0;
+  private fallbackTriangles = 0;
 
   constructor(parent: Object3D) {
     this.group.name = 'earth-globe';
     this.group.visible = false;
     parent.add(this.group);
-    this.material = this.buildMaterial();
+    this.material = this.buildMaterial(false);
+    this.fallbackMaterial = this.buildMaterial(true);
+    this.fallbackGroup.name = 'earth-coarse-fallback';
+    this.fallbackGroup.layers.set(PLANET_LAYER);
+    this.group.add(this.fallbackGroup);
+    this.initCoarseFallback();
+
     this.atmosphereMaterial = this.buildAtmosphereMaterial();
     this.atmosphereMesh = new Mesh(new SphereGeometry(6378137 + 60000, 64, 64), this.atmosphereMaterial);
     this.atmosphereMesh.layers.set(PLANET_LAYER);
@@ -211,8 +246,26 @@ export class EarthGlobe {
     this.group.add(this.atmosphereMesh);
   }
 
-  setCenterM(positionM: Vec3): void {
+  private initCoarseFallback(): void {
+    for (let face = 0; face < 6; face++) {
+      const tileAddr = planetTile('earth', face as any, 0, 0, 0);
+      const mesh = buildTileMesh(tileAddr);
+      const obj = new Mesh(mesh.geometry, this.fallbackMaterial);
+      obj.name = `earth-fallback-face-${face}`;
+      obj.position.set(mesh.centre.xM, mesh.centre.yM, mesh.centre.zM);
+      obj.frustumCulled = false;
+      obj.layers.set(PLANET_LAYER);
+      this.fallbackGroup.add(obj);
+      this.fallbackTriangles += mesh.triangles;
+    }
+  }
+
+  setCenterM(positionM: Vec3, orientation?: Quat): void {
     this.atmosphereMesh.position.set(positionM[0], positionM[1], positionM[2]);
+    this.fallbackGroup.position.set(positionM[0], positionM[1], positionM[2]);
+    if (orientation) {
+      this.fallbackGroup.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
+    }
   }
 
   /**
@@ -222,7 +275,7 @@ export class EarthGlobe {
    * light list -- and then lit explicitly against `uSun`. That is the point: see `uSun` for why
    * the scene's lights must not reach the planet.
    */
-  private buildMaterial(): MeshBasicNodeMaterial {
+  private buildMaterial(isFallback = false): MeshBasicNodeMaterial {
     const material = new MeshBasicNodeMaterial({
       /**
        * No fog, ever.
@@ -244,6 +297,9 @@ export class EarthGlobe {
        * and the far side of the planet stops being rasterised at all.
        */
       side: FrontSide,
+      polygonOffset: isFallback,
+      polygonOffsetFactor: isFallback ? 2 : 0,
+      polygonOffsetUnits: isFallback ? 2 : 0,
     });
 
     // The surface colour comes from the vertex attribute the land mask wrote. Read by name rather
@@ -300,23 +356,30 @@ export class EarthGlobe {
     return material;
   }
 
-  get stats(): { tiles: number; triangles: number; visible: boolean } {
-    return { tiles: this.meshes.size, triangles: this.triangles, visible: this.group.visible };
+  get stats(): { tiles: number; triangles: number; visible: boolean; coarseFallback: boolean } {
+    return {
+      tiles: this.meshes.size,
+      triangles: this.triangles,
+      visible: this.group.visible,
+      coarseFallback: this.fallbackGroup.children.length === 6,
+    };
   }
 
   hasLevel(requiredLod: number): boolean {
+    if (requiredLod <= 0) return true; // Level 0 is guaranteed by the coarse base tiles
     for (const key of this.meshes.keys()) {
-      // Key format: 'earth:0,1,0,0' -> 'bodyId:face,level,x,y'
-      const parts = key.split(':');
-      if (parts.length > 1) {
-        const coords = parts[1].split(',');
-        if (coords.length > 1) {
-          const level = parseInt(coords[1], 10);
-          if (level >= requiredLod) return true;
-        }
-      }
+      const addr = parseTileKey(key);
+      if (addr && addr.level >= requiredLod) return true;
     }
     return false;
+  }
+
+  hasTile(key: string): boolean {
+    return this.meshes.has(key);
+  }
+
+  getActiveKeys(): readonly string[] {
+    return [...this.meshes.keys()];
   }
 
   set visible(visible: boolean) { this.group.visible = visible; }
@@ -377,8 +440,16 @@ export class EarthGlobe {
 
   dispose(): void {
     for (const key of [...this.meshes.keys()]) this.remove(key);
+    for (const child of [...this.fallbackGroup.children]) {
+      if ((child as Mesh).geometry) (child as Mesh).geometry.dispose();
+    }
+    this.fallbackGroup.clear();
+    this.fallbackMaterial.dispose();
     this.material.dispose();
+    this.atmosphereMaterial.dispose();
+    this.atmosphereMesh.geometry.dispose();
     this.group.removeFromParent();
     this.triangles = 0;
+    this.fallbackTriangles = 0;
   }
 }

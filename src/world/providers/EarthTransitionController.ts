@@ -1,60 +1,84 @@
 import { EarthProvider } from './EarthProvider';
+import { type EarthCoverageReadiness, createDefaultReadiness } from './EarthCoverageReadiness';
+
+export type EarthTransitionPhase =
+  | 'LOCAL_ONLY'
+  | 'REQUESTING_PLANET'
+  | 'OVERLAP_SAFE'
+  | 'PLANET_DOMINANT'
+  | 'PLANET_ONLY'
+  | 'RETURNING_LOCAL';
 
 export interface EarthTransitionState {
-  localWeight: number;
-  regionalWeight: number;
-  planetWeight: number;
-  atmosphereWeight: number;
-  targetCoverageReady: boolean;
+  readonly localWeight: number;
+  readonly regionalWeight: number;
+  readonly planetWeight: number;
+  readonly atmosphereWeight: number;
+  readonly targetCoverageReady: boolean;
+  readonly readiness: EarthCoverageReadiness;
+  readonly phase: EarthTransitionPhase;
 }
 
 export class EarthTransitionController {
-  update(altitudeM: number, earth: EarthProvider): EarthTransitionState {
+  private lastAltitudeM = 0;
+
+  update(altitudeM: number, earth?: EarthProvider): EarthTransitionState {
+    const alt = Number.isFinite(altitudeM) ? Math.max(0, altitudeM) : 0;
+    const isAscending = alt >= this.lastAltitudeM;
+    this.lastAltitudeM = alt;
+
     let localWeight = 1;
     let regionalWeight = 0;
     let planetWeight = 0;
+    let phase: EarthTransitionPhase = 'LOCAL_ONLY';
 
-    // As specified in 04-EARTH-ALTITUDE-TRANSITION.md
-    if (altitudeM < 8000) {
+    if (alt < 8000) {
       localWeight = 1;
-    } else if (altitudeM < 20000) {
-      const t = (altitudeM - 8000) / 12000;
+      regionalWeight = 0;
+      planetWeight = 0;
+      phase = 'LOCAL_ONLY';
+    } else if (alt < 20000) {
+      const t = (alt - 8000) / 12000;
       localWeight = 1 - t;
       regionalWeight = t;
-    } else if (altitudeM < 60000) {
-      const t = (altitudeM - 20000) / 40000;
+      planetWeight = 0;
+      phase = isAscending ? 'REQUESTING_PLANET' : 'RETURNING_LOCAL';
+    } else if (alt < 60000) {
+      const t = (alt - 20000) / 40000;
+      localWeight = 0;
       regionalWeight = 1 - t;
       planetWeight = t;
+      phase = t > 0.5 ? 'PLANET_DOMINANT' : 'OVERLAP_SAFE';
     } else {
       planetWeight = 1;
       localWeight = 0;
       regionalWeight = 0;
+      phase = 'PLANET_ONLY';
     }
 
-    // Wait until the Earth has loaded at least the coarse tiles
-    // If we are high enough, require lower LOD, if lower require higher LOD
-    // But since cityOwnsGround skips level >= 8, max required is 7.
     let requiredLod = 0;
-    if (altitudeM < 60000) requiredLod = 4;
-    if (altitudeM < 20000) requiredLod = 6;
-    
-    const targetCoverageReady = earth.isCoverageReady(requiredLod);
+    if (alt < 60000) requiredLod = 4;
+    if (alt < 20000) requiredLod = 6;
 
-    // "Nunca desligar representação atual e depois esperar a nova carregar"
-    // "O blend não avança além do peso seguro se os tiles target não estiverem ativos."
-    if (!targetCoverageReady) {
-      // If the target representation is not ready, we hold onto the local representation
+    const readiness = earth ? earth.readiness(requiredLod) : createDefaultReadiness(requiredLod);
+    const targetCoverageReady = readiness.viewCoverageReady;
+
+    // Invariant: Never retire local representation until target representation is ready
+    if (!targetCoverageReady && alt >= 8000 && alt < 60000) {
       localWeight = Math.max(localWeight, 1);
       regionalWeight = 0;
       planetWeight = 0;
+      phase = isAscending ? 'REQUESTING_PLANET' : 'RETURNING_LOCAL';
     }
 
     return {
       localWeight,
       regionalWeight,
       planetWeight,
-      atmosphereWeight: 1, // Atmosphere fades are handled separately or later
+      atmosphereWeight: 1,
       targetCoverageReady,
+      readiness,
+      phase,
     };
   }
 }

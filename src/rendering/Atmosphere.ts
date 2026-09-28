@@ -49,10 +49,11 @@ export class Atmosphere {
   constructor(private scene: Scene) {
     const skyMaterial = new MeshBasicNodeMaterial({ side: BackSide, depthWrite: false, fog: false });
     const direction = positionLocal.normalize();
-    const dome = mix(mix(this.horizon, this.top, smoothstep(-.07, .5, direction.y).pow(.85)), this.zenith, smoothstep(.32, 1, direction.y));
+    // Confine horizon tint to a narrow band so mid-sky and zenith remain blue
+    const dome = mix(mix(this.horizon, this.top, smoothstep(-.02, .18, direction.y).pow(.85)), this.zenith, smoothstep(.18, .75, direction.y));
     // Golden hour is a narrow band around the sun, not a tint across the whole dome.
-    const band = float(1).sub(smoothstep(0, .36, direction.y.add(.03).abs()));
-    const warm = mix(dome, this.glow, direction.dot(this.sunAxis).max(0).pow(2.6).mul(band).mul(this.warmth));
+    const band = float(1).sub(smoothstep(0, .20, direction.y.add(.02).abs()));
+    const warm = mix(dome, this.glow, direction.dot(this.sunAxis).max(0).pow(3.0).mul(band).mul(this.warmth));
     // Air is what makes a sky bright; above it this dome has to get out of SpaceLayer's way.
     skyMaterial.colorNode = mix(warm, this.zenith, this.space.mul(.6)).mul(float(1).sub(this.space.mul(.7)));
     this.sky = new Mesh(new SphereGeometry(44000, 32, 20), skyMaterial);
@@ -102,7 +103,7 @@ export class Atmosphere {
     this.temp.copy(this.sunDirection).multiplyScalar(620);
     this.sun.position.copy(playerLocal).add(this.temp); this.sun.target.position.copy(playerLocal);
     this.clouds.position.set(playerLocal.x, 0, playerLocal.z);
-    this.clouds.visible = !this.planetaryView && this.altitude < SPACE.karman;
+    this.clouds.visible = !this.planetaryView && this.altitude < SPACE.karman && this.weather !== 'clear';
     // The dome is drawn around the player, so from orbit it paints straight over the planet the
     // far pass just drew. It stands down with the flat ground it belongs to.
     this.sky.visible = !this.planetaryView;

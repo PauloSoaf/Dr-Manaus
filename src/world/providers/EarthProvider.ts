@@ -19,6 +19,7 @@ import {
   type CoverageClaim, type SpatialContext, type StreamingContext, type WorldProvider,
   regionContains,
 } from './WorldProvider';
+import { type EarthCoverageReadiness, createDefaultReadiness } from './EarthCoverageReadiness';
 
 /**
  * How far Manaus reaches. Derived from the compiled tile grid — 645 tiles of 1 024 m, roughly
@@ -123,17 +124,78 @@ export class EarthProvider implements WorldProvider {
 
   covers(context: SpatialContext): boolean {
     this.playerFrameId = context.frame.id;
-    let local = context.player.position;
-    if (context.frame.id !== MANAUS_FRAME_ID) {
-      local = this.frames.convertPosition(context.frame.id, MANAUS_FRAME_ID, local);
+    if (context.altitudeM !== undefined && Number.isFinite(context.altitudeM)) {
+      this.altitudeM = context.altitudeM;
+    } else {
+      let local = context.player.position;
+      if (context.frame.id !== MANAUS_FRAME_ID) {
+        local = this.frames.convertPosition(context.frame.id, MANAUS_FRAME_ID, local);
+      }
+      const geodetic = legacyLocalToGeodetic(local[0], local[1], local[2]);
+      this.altitudeM = geodetic.heightM;
     }
-    const geodetic = legacyLocalToGeodetic(local[0], local[1], local[2]);
-    this.altitudeM = geodetic.heightM;
     const above = this.altitudeM - this.options.minAltitudeM;
     this.opacity = Math.min(1, Math.max(0, above / this.options.fadeM));
     this.globe.visible = this.opacity > 0.01;
-    this.globe.setCenterM(this.toSceneMetres({ xM: 0, yM: 0, zM: 0 }));
+    this.globe.setCenterM(this.toSceneMetres({ xM: 0, yM: 0, zM: 0 }), this.bodyToScene());
     return this.globe.visible;
+  }
+
+  /**
+   * Computes structured readiness for the current view and target LOD.
+   * Checks if required tiles are actually active in the globe or if coarse fallback is ready.
+   */
+  readiness(targetLod = 0): EarthCoverageReadiness {
+    const cached = this.cachedPlan;
+    const coarseFallbackReady = this.globe.stats.coarseFallback;
+    if (!cached || cached.demands.length === 0) {
+      return {
+        requestedKeys: [],
+        requiredKeys: [],
+        activeRequiredKeys: [],
+        missingRequiredKeys: [],
+        coverageRatio: coarseFallbackReady ? 1 : 0,
+        coarseFallbackReady,
+        viewCoverageReady: coarseFallbackReady,
+        targetLod,
+      };
+    }
+
+    const requestedKeys = cached.demands.map(d => tileKeyToString(d.key));
+    const requiredDemands = targetLod <= 0
+      ? cached.demands.slice(0, 16)
+      : cached.demands.filter(d => (d.key as any).level >= targetLod).slice(0, 16);
+    const requiredKeys = requiredDemands.length > 0
+      ? requiredDemands.map(d => tileKeyToString(d.key))
+      : cached.demands.slice(0, 8).map(d => tileKeyToString(d.key));
+
+    const activeRequiredKeys: string[] = [];
+    const missingRequiredKeys: string[] = [];
+
+    for (const key of requiredKeys) {
+      if (this.globe.hasTile(key)) {
+        activeRequiredKeys.push(key);
+      } else {
+        missingRequiredKeys.push(key);
+      }
+    }
+
+    const coverageRatio = requiredKeys.length > 0
+      ? activeRequiredKeys.length / requiredKeys.length
+      : (coarseFallbackReady ? 1 : 0);
+
+    const viewCoverageReady = coarseFallbackReady || coverageRatio >= 0.7;
+
+    return {
+      requestedKeys,
+      requiredKeys,
+      activeRequiredKeys,
+      missingRequiredKeys,
+      coverageRatio,
+      coarseFallbackReady,
+      viewCoverageReady,
+      targetLod,
+    };
   }
 
   /**
@@ -141,10 +203,7 @@ export class EarthProvider implements WorldProvider {
    * A crossfader uses this to wait before retiring the local representation.
    */
   isCoverageReady(requiredLod: number): boolean {
-    // If the quadtree hasn't produced tiles at the required level, or they are not in the globe:
-    // Actually, checking if there's any tile of `level >= requiredLod` in `this.globe.stats.tiles`.
-    // We can iterate the meshes keys. But we need access to the keys.
-    return this.globe.hasLevel(requiredLod);
+    return this.readiness(requiredLod).viewCoverageReady;
   }
 
   /**
