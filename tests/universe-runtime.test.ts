@@ -86,3 +86,90 @@ test('a teleport cancels whatever was being streamed for somewhere else', () => 
   runtime.prepare();
   assert.ok(runtime.telemetry.streaming.generation > before, 'the generation must advance');
 });
+
+test('T1: Earth altitude in barycentric frame is ~100 km and dominantBody is earth', () => {
+  const runtime = new UniverseRuntime({ streaming: false, epochS: 0 });
+  const earthPos = runtime.solarSystem.positionOf('earth')!;
+  // Position player 100 km radially outside Earth along Y
+  // Earth equatorial radius is 6_378_137. Place player at Earth + [0, 6_378_137 + 100_000, 0]
+  const playerBarycentric: [number, number, number] = [
+    earthPos[0],
+    earthPos[1] + 6_378_137 + 100_000,
+    earthPos[2],
+  ];
+
+  runtime.updateSystemPose(playerBarycentric, [0, 0, 0], 1 / 60);
+
+  const telemetry = runtime.telemetry;
+  assert.equal(telemetry.dominantBody, 'earth');
+  // Altitude must be approximately 100 km (within 500 m)
+  assert.ok(
+    Math.abs(telemetry.altitudeM - 100_000) < 500,
+    `expected altitude ~100,000 m but got ${telemetry.altitudeM.toFixed(1)} m`,
+  );
+
+  // Spatial context must agree exactly with telemetry
+  const resolved = runtime.resolveBodyContext();
+  assert.equal(resolved.dominantBody, 'earth');
+  assert.ok(Math.abs(resolved.altitudeM - telemetry.altitudeM) < 1e-6);
+});
+
+test('T2: Altitude remains continuous over 600 frames leaving Earth', () => {
+  const runtime = new UniverseRuntime({ streaming: false, epochS: 0 });
+
+  let prevAlt = 0;
+  for (let frame = 0; frame < 600; frame++) {
+    // Earth moves dynamically in orbit, so measure relative to current Earth position
+    const earthPos = runtime.solarSystem.positionOf('earth')!;
+    const altitude = 10_000 + frame * 1_000;
+    const playerBarycentric: [number, number, number] = [
+      earthPos[0],
+      earthPos[1] + 6_378_137 + altitude,
+      earthPos[2],
+    ];
+
+    runtime.updateSystemPose(playerBarycentric, [0, 1000, 0], 1 / 60);
+
+    const telemetry = runtime.telemetry;
+    assert.ok(Number.isFinite(telemetry.altitudeM), `altitude must be finite at frame ${frame}`);
+    assert.equal(telemetry.dominantBody, 'earth');
+    if (frame > 0) {
+      assert.ok(
+        telemetry.altitudeM > prevAlt,
+        `altitude must monotonically increase (prev=${prevAlt}, curr=${telemetry.altitudeM})`,
+      );
+      assert.ok(
+        Math.abs(telemetry.altitudeM - prevAlt - 1_000) < 50,
+        `altitude step must match 1000 m (diff=${telemetry.altitudeM - prevAlt})`,
+      );
+    }
+    prevAlt = telemetry.altitudeM;
+  }
+});
+
+test('T8: consecutive floating origin rebases do not cause visual proxy shifts', () => {
+  const runtime = new UniverseRuntime({ streaming: false, epochS: 0 });
+  const earthPos = runtime.solarSystem.positionOf('earth')!;
+
+  // Initial state at 100 km
+  runtime.updateSystemPose(
+    [earthPos[0], earthPos[1] + 6_378_137 + 100_000, earthPos[2]],
+    [0, 0, 0],
+    1 / 60,
+  );
+  const initialRebases = runtime.telemetry.rebases;
+
+  // Move across several 1024m grid thresholds in barycentric
+  for (let step = 1; step <= 10; step++) {
+    runtime.updateSystemPose(
+      [earthPos[0] + step * 2048, earthPos[1] + 6_378_137 + 100_000, earthPos[2]],
+      [2048, 0, 0],
+      1 / 60,
+    );
+  }
+
+  // Rebases occurred
+  assert.ok(runtime.telemetry.rebases > initialRebases);
+  // Render local distance remains bounded by floating origin grid threshold (2048m)
+  assert.ok(runtime.telemetry.renderLocalM <= 2048 * Math.SQRT2 + 100);
+});

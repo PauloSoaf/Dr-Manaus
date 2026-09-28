@@ -54,24 +54,117 @@ test('local physics is off exactly while travelling, and on either side of it', 
   assert.equal(domain.localPhysicsActive, true);
   domain.update(context(), 1 / 60);
   assert.equal(domain.localPhysicsActive, false);
-  domain.update(context({ requested: false }), 1 / 60);
+  domain.update(context({ altitudeM: 5_000, speedMps: 5_000, requested: false }), 1 / 60);
   assert.equal(domain.localPhysicsActive, true);
 });
 
-test('releasing the request, slowing down or dropping in hands the player back', () => {
-  for (const [over, reason] of [
-    [{ requested: false }, 'released'],
-    [{ speedMps: 10 }, 'speed'],
-    [{ altitudeM: 100 }, 'altitude'],
-  ] as const) {
-    const domain = new TravelDomain();
-    domain.update(context(), 1 / 60);
+test('T3: releasing boost does not return to local in space (coasting)', () => {
+  const domain = new TravelDomain();
+  domain.update(context({ altitudeM: 100_000, speedMps: 222_222, requested: true }), 1 / 60);
+  assert.equal(domain.kind, 'interplanetary');
+
+  // Release requested
+  const transition = domain.update(context({ altitudeM: 100_000, speedMps: 222_222, requested: false }), 1 / 60);
+  assert.deepEqual(transition, { kind: 'none' });
+  assert.equal(domain.kind, 'interplanetary');
+  assert.equal(domain.localPhysicsActive, false);
+  assert.ok(domain.state, 'coasting keeps travel state');
+});
+
+test('T4: reentry requires both low altitude and safe relative speed', () => {
+  // Case 1: altitude 5 km, relative speed 100 km/s -> continues interplanetary
+  const domain1 = new TravelDomain();
+  domain1.update(context({ altitudeM: 100_000, requested: true }), 1 / 60);
+  assert.equal(domain1.kind, 'interplanetary');
+  const t1 = domain1.update(context({ altitudeM: 5_000, speedMps: 100_000, requested: false }), 1 / 60);
+  assert.deepEqual(t1, { kind: 'none' });
+  assert.equal(domain1.kind, 'interplanetary');
+
+  // Case 2: altitude 100 km, relative speed 2 km/s -> continues interplanetary
+  const domain2 = new TravelDomain();
+  domain2.update(context({ altitudeM: 100_000, requested: true }), 1 / 60);
+  assert.equal(domain2.kind, 'interplanetary');
+  const t2 = domain2.update(context({ altitudeM: 100_000, speedMps: 2_000, requested: false }), 1 / 60);
+  assert.deepEqual(t2, { kind: 'none' });
+  assert.equal(domain2.kind, 'interplanetary');
+
+  // Case 3: altitude 5 km, relative speed 8 km/s -> returned
+  const domain3 = new TravelDomain();
+  domain3.update(context({ altitudeM: 100_000, requested: true }), 1 / 60);
+  assert.equal(domain3.kind, 'interplanetary');
+  const t3 = domain3.update(context({ altitudeM: 5_000, speedMps: 8_000, requested: false }), 1 / 60);
+  assert.deepEqual(t3, { kind: 'returned', reason: 'altitude' });
+  assert.equal(domain3.kind, 'local');
+  assert.equal(domain3.state, undefined);
+});
+
+test('T5: altitude hysteresis prevents ping-pong between 8.8 km and 9.2 km', () => {
+  const domain = new TravelDomain();
+  // Enter at 9.2 km
+  const dep = domain.update(context({ altitudeM: 9_200, requested: true }), 1 / 60);
+  assert.deepEqual(dep, { kind: 'departed', reason: 'requested' });
+  assert.equal(domain.kind, 'interplanetary');
+
+  // Oscillate altitude 20 times between 8.8 km and 9.2 km
+  for (let i = 0; i < 20; i++) {
+    const alt = i % 2 === 0 ? 8_800 : 9_200;
+    const trans = domain.update(context({ altitudeM: alt, speedMps: 5_000, requested: true }), 1 / 60);
+    assert.deepEqual(trans, { kind: 'none' }, `failed hysteresis at cycle ${i} with alt ${alt}`);
     assert.equal(domain.kind, 'interplanetary');
-    const transition = domain.update(context(over), 1 / 60);
-    assert.deepEqual(transition, { kind: 'returned', reason });
-    assert.equal(domain.kind, 'local');
-    assert.equal(domain.state, undefined, 'the travel state goes with the domain');
   }
+});
+
+test('T6: brake in InterplanetaryController is relative to dominant body', () => {
+  const controller = new InterplanetaryController();
+  const earthVelocity: [number, number, number] = [0, 29_780, 0]; // Earth orbital speed ~30 km/s
+  let state = {
+    systemId: 'sol',
+    positionM: [0, EARTH_R + 100_000, 0] as [number, number, number],
+    velocityMps: [0, 29_780, 0] as [number, number, number], // exactly matching Earth
+    referenceBodyId: 'earth',
+  };
+
+  // Player velocity equals Earth velocity -> relative velocity is 0
+  // Apply brake for 60 frames
+  for (let i = 0; i < 60; i++) {
+    state = controller.update(
+      state,
+      1 / 60,
+      new Vector3(),
+      true, // brake
+      context({ altitudeM: 100_000, bodyVelocityMps: earthVelocity }),
+    );
+  }
+
+  // Relative velocity must remain 0, and barycentric velocity continues following Earth
+  assert.ok(Math.abs(state.velocityMps[0]) < 1e-3);
+  assert.ok(Math.abs(state.velocityMps[1] - 29_780) < 1e-3);
+  assert.ok(Math.abs(state.velocityMps[2]) < 1e-3);
+});
+
+test('T7: InterplanetaryController clamps relative speed to maximum', () => {
+  const controller = new InterplanetaryController();
+  let state = {
+    systemId: 'sol',
+    positionM: [0, EARTH_R + 100_000_000, 0] as [number, number, number],
+    velocityMps: [0, 0, 0] as [number, number, number],
+    referenceBodyId: 'sun',
+  };
+
+  // Thrust forward continuously for 1000 frames
+  for (let i = 0; i < 1000; i++) {
+    state = controller.update(
+      state,
+      1 / 60,
+      new Vector3(0, 1, 0), // thrust up
+      false,
+      context({ altitudeM: 100_000_000, maxRelativeSpeedMps: 222_222 }),
+    );
+  }
+
+  const speed = Math.hypot(...state.velocityMps);
+  assert.ok(speed <= 222_222 + 1e-3, `speed ${speed} exceeded max 222,222`);
+  assert.ok(speed >= 222_221, `speed ${speed} reached max`);
 });
 
 test('travel integrates in metres, not in whatever the renderer can hold', () => {
