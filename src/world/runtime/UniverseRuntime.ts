@@ -129,6 +129,32 @@ export class UniverseRuntime {
     }));
   }
 
+  get navigationState(): UniverseAddress {
+    if (this.playerPose.frame === 'solar-system/barycentric') {
+      return {
+        galaxyId: 'milky-way',
+        sector: sectorIndex(0n, 0n, 0n),
+        systemId: 'sol',
+      };
+    }
+    
+    // In local frame, we are on a body in the sol system
+    let bodyId = 'earth';
+    if (this.playerPose.frame.startsWith('moon')) {
+      bodyId = 'moon';
+    } else if (this.playerPose.frame.startsWith('mars')) {
+      bodyId = 'mars';
+    }
+
+    return {
+      galaxyId: 'milky-way',
+      sector: sectorIndex(0n, 0n, 0n),
+      systemId: 'sol',
+      bodyId,
+      childFrame: this.playerPose.frame,
+    };
+  }
+
   get time(): number { return this.timeS; }
   get streamingEnabled(): boolean { return this.options.streaming; }
   set streamingEnabled(enabled: boolean) { this.options.streaming = enabled; }
@@ -203,10 +229,55 @@ export class UniverseRuntime {
     if (this.activeSystem !== this.solarSystem) {
       this.activeSystem.update(this.timeS);
     }
+
+    if (!this.options.streaming) { this.planetTiles = 0; return; }
+
+    const speed = Math.hypot(this.velocity[0], this.velocity[1], this.velocity[2]);
+    const context: StreamingContext = {
+      spatial: this.spatialContext(),
+      camera: {
+        fovRad: this.options.sse.fovRad,
+        viewportHeightPx: this.options.sse.viewportHeightPx,
+        forward: this.viewForward,
+      },
+      quality: { sseTargetPx: this.options.sse.targetPx, detailFactor: this.options.sse.detailFactor },
+      budget: budgetForSpeed(DEFAULT_STREAMING_BUDGET, speed),
+    };
+    this.scheduler.update(context, dt);
+    this.planetTiles = this.earthQuadtree.select(this.playerEcef(), this.options.sse).length;
   }
 
   private spatialContext(): SpatialContext {
     const frame = this.frames.has(this.playerPose.frame) ? this.frames.get(this.playerPose.frame) : undefined;
+    
+    let bodyId = 'earth';
+    let altitudeM = 0;
+
+    if (this.playerPose.frame === 'solar-system/barycentric') {
+      const pos = this.playerPose.position;
+      let nearest = 'earth';
+      let minD = Infinity;
+      for (const b of this.solarSystem.bodies) {
+        const bp = this.solarSystem.positionOf(b.id) ?? [0,0,0];
+        const d = Math.hypot(pos[0]-bp[0], pos[1]-bp[1], pos[2]-bp[2]);
+        if (d < minD) { minD = d; nearest = b.id; }
+      }
+      bodyId = nearest;
+      const bDef = this.solarSystem.bodies.find(b => b.id === bodyId);
+      altitudeM = minD - (bDef?.equatorialRadiusM ?? 6378137);
+    } else {
+      if (this.playerPose.frame.startsWith('moon')) {
+        bodyId = 'moon';
+        altitudeM = Math.hypot(...this.playerPose.position) - 1737400;
+      } else if (this.playerPose.frame.startsWith('mars')) {
+        bodyId = 'mars';
+        altitudeM = Math.hypot(...this.playerPose.position) - 3389500;
+      } else {
+        bodyId = 'earth';
+        altitudeM = this.playerGeodetic().heightM;
+      }
+    }
+
     return {
       timeS: this.timeS,
       player: this.playerPose,
@@ -214,13 +285,9 @@ export class UniverseRuntime {
         ? activeFrame(frame, this.floatingOrigin.logicalOrigin)
         : activeFrame(referenceFrame({ id: this.playerPose.frame, kind: 'render-local' }), this.floatingOrigin.logicalOrigin),
       localVelocityMps: this.velocity,
-      // Height above the ellipsoid, which the interface has always promised and nothing was
-      // filling in. Every provider that read it got undefined and therefore zero, so any gate of
-      // the form "only above N metres" was permanently shut -- which is why the Moon and the
-      // galaxy never appeared however far the player flew. EarthProvider did not notice because
-      // it recomputes the altitude itself; that is now a duplicate rather than a workaround.
-      altitudeM: this.playerGeodetic().heightM,
-      bodyId: 'earth',
+      altitudeM,
+      bodyId,
+      address: this.navigationState,
     };
   }
 

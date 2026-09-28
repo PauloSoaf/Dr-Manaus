@@ -46,11 +46,20 @@ export class InterplanetaryController {
 
     // Envelope collision
     const floor = (Number.isFinite(context.bodyRadiusM) ? context.bodyRadiusM : 0) + 14000; // envelopeMarginM
-    const radius = Math.hypot(positionM[0], positionM[1], positionM[2]);
+    const bx = context.bodyPositionM ? context.bodyPositionM[0] : 0;
+    const by = context.bodyPositionM ? context.bodyPositionM[1] : 0;
+    const bz = context.bodyPositionM ? context.bodyPositionM[2] : 0;
+    const dx = positionM[0] - bx;
+    const dy = positionM[1] - by;
+    const dz = positionM[2] - bz;
+    const radius = Math.hypot(dx, dy, dz);
+    
     if (floor > 0 && radius > 0 && radius < floor) {
       const scale = floor / radius;
-      positionM[0] *= scale; positionM[1] *= scale; positionM[2] *= scale;
-      const nx = positionM[0] / floor, ny = positionM[1] / floor, nz = positionM[2] / floor;
+      positionM[0] = bx + dx * scale;
+      positionM[1] = by + dy * scale;
+      positionM[2] = bz + dz * scale;
+      const nx = dx / radius, ny = dy / radius, nz = dz / radius;
       const into = velocityMps[0] * nx + velocityMps[1] * ny + velocityMps[2] * nz;
       if (into < 0) {
         velocityMps[0] -= into * nx;

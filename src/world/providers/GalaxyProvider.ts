@@ -11,7 +11,7 @@ export interface GalaxyProviderOptions {
 
 const GALAXY_METRES_PER_UNIT = 4e15; // Same as StarSectorProvider to avoid precision issues
 
-export class GalaxyProvider implements WorldProvider {
+export class GalaxyProvider {
   readonly id: string;
   readonly priority = 2; // Above StarSectors but below local bodies
 
@@ -43,11 +43,17 @@ export class GalaxyProvider implements WorldProvider {
     const radiusU = (this.options.galaxy.diameterLy / 2) * LY_TO_U;
     const thicknessU = this.options.galaxy.thicknessLy * LY_TO_U;
     
+    let seed = 123456789;
+    const random = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
+
     for (let i = 0; i < starCount; i++) {
       // Very crude exponential disc approximation for the impostor
-      const r = -radiusU * Math.log(1 - Math.random()) / 3;
-      const theta = Math.random() * Math.PI * 2;
-      const h = -thicknessU * Math.log(1 - Math.random()) * (Math.random() > 0.5 ? 1 : -1) / 3;
+      const r = -radiusU * Math.log(1 - random()) / 3;
+      const theta = random() * Math.PI * 2;
+      const h = -thicknessU * Math.log(1 - random()) * (random() > 0.5 ? 1 : -1) / 3;
       
       const x = r * Math.cos(theta);
       const y = h;
@@ -81,10 +87,6 @@ export class GalaxyProvider implements WorldProvider {
     this.mesh = new Points(geometry, this.material);
     this.group.add(this.mesh);
     
-    // Position and rotation
-    const pos = this.options.galaxy.positionM;
-    this.group.position.set(pos[0] / GALAXY_METRES_PER_UNIT, pos[1] / GALAXY_METRES_PER_UNIT, pos[2] / GALAXY_METRES_PER_UNIT);
-    
     if (this.options.galaxy.orientationEuler) {
       this.group.rotation.set(...this.options.galaxy.orientationEuler);
     }
@@ -96,22 +98,31 @@ export class GalaxyProvider implements WorldProvider {
     return { visible: this.group.visible };
   }
 
-  coverage(): readonly CoverageClaim[] { return []; }
+  update(address: import('../spatial/UniverseAddress').UniverseAddress, cameraPosM: import('../spatial/units').Vec3, altitudeM: number): void {
+    if (address.galaxyId === this.options.galaxy.id) {
+      this.group.visible = false; // We are inside it! StarSectorProvider handles inside.
+      return;
+    }
+    this.group.visible = altitudeM >= this.options.minAltitudeM;
+    if (!this.group.visible) return;
 
-  covers(context: SpatialContext): boolean {
-    this.altitudeM = finite(context.altitudeM);
-    // Draw it as long as we are high enough
-    this.group.visible = this.altitudeM >= this.options.minAltitudeM;
-    return this.group.visible;
+    // We are observing this galaxy from another galaxy or the cosmic web.
+    // Calculate relative distance carefully. For now, since we lack a full galactic coordinate system in `address`,
+    // we'll just position it relative to the Milky Way (sector 0) as an approximation.
+    const pos = this.options.galaxy.positionM;
+    
+    const SECTOR_SIZE_M = 100 * 9.4607304725808e15;
+    const cx = Number(address.sector.x) * SECTOR_SIZE_M + cameraPosM[0];
+    const cy = Number(address.sector.y) * SECTOR_SIZE_M + cameraPosM[1];
+    const cz = Number(address.sector.z) * SECTOR_SIZE_M + cameraPosM[2];
+
+    this.group.position.set(
+      (pos[0] - cx) / GALAXY_METRES_PER_UNIT, 
+      (pos[1] - cy) / GALAXY_METRES_PER_UNIT, 
+      (pos[2] - cz) / GALAXY_METRES_PER_UNIT
+    );
   }
 
-  plan(context: StreamingContext): import('../streaming/TileDemand').TileDemand[] { return []; }
-  load(): Promise<import('../streaming/TileDemand').TilePayload> { return Promise.reject(new Error('GalaxyProvider does not stream tiles.')); }
-  activate(payload: import('../streaming/TileDemand').TilePayload, frame: import('../spatial/ReferenceFrame').ActiveReferenceFrame): import('../streaming/TileDemand').ActiveTile {
-    throw new Error('GalaxyProvider does not use the scheduler.');
-  }
-  deactivate(tile: import('../streaming/TileDemand').ActiveTile) {}
-  
   dispose(): void {
     this.group.removeFromParent();
     this.mesh.geometry.dispose();

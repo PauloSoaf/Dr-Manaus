@@ -218,7 +218,7 @@ export class DestructionSystem {
     // Rubble erupts from the lower third: the mass that falls is the mass that was load-bearing.
     this.debris.spawn(box.x, box.y - box.height * .28, box.z, count, this.rubbleColour(box.id ?? ''), energy);
     const base = box.y - box.height * .5;
-    if (base <= DESTRUCTION.scarMaxHeight) this.scars.spawn(box.x, box.z, Math.max(box.width, box.depth) * .58, .5);
+    if (base <= DESTRUCTION.scarMaxHeight) this.scars.spawn(box.x, base, box.z, Math.max(box.width, box.depth) * .58, .5);
   }
 
   /** FNV-1a over the collider id: the same building always leaves the same colour of rubble. */

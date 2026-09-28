@@ -6,6 +6,8 @@ import {
   attribute, cameraPosition, color, float, mix, normalWorld, positionLocal, positionWorld,
   sin, smoothstep, time,
 } from 'three/tsl';
+import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
+import { FEATURES } from '../core/config';
 
 /** The compiled river polygons, as `scripts/geodata/compile-real-city.mjs` writes them. */
 interface WaterPolygon {
@@ -121,8 +123,20 @@ function subdivide(out: Surface, field: ShoreField, stack: number[], silt: numbe
       const sx = bx, sz = bz, sd = db;
       bx = cx; bz = cz; db = dc; cx = sx; cz = sz; dc = sd;
     }
-    out.position.push(ax, RIVER_Y, az, bx, RIVER_Y, bz, cx, RIVER_Y, cz);
-    out.normal.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
+    if (FEATURES.curvedManaus) {
+      const surfaceService = new SurfaceFrameService('earth');
+      const pa = surfaceService.legacyPointToRenderLocal(ax, RIVER_Y, az);
+      const pb = surfaceService.legacyPointToRenderLocal(bx, RIVER_Y, bz);
+      const pc = surfaceService.legacyPointToRenderLocal(cx, RIVER_Y, cz);
+      const na = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, ax, RIVER_Y, az).normalize();
+      const nb = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, bx, RIVER_Y, bz).normalize();
+      const nc = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, cx, RIVER_Y, cz).normalize();
+      out.position.push(pa.x, pa.y, pa.z, pb.x, pb.y, pb.z, pc.x, pc.y, pc.z);
+      out.normal.push(na.x, na.y, na.z, nb.x, nb.y, nb.z, nc.x, nc.y, nc.z);
+    } else {
+      out.position.push(ax, RIVER_Y, az, bx, RIVER_Y, bz, cx, RIVER_Y, cz);
+      out.normal.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
+    }
     out.shore.push(da / SHORE_BAND, db / SHORE_BAND, dc / SHORE_BAND);
     out.muddy.push(silt, silt, silt);
     out.triangles++;

@@ -116,7 +116,6 @@ export class Game {
         if (galDef.id === 'milky_way') continue;
         const galProv = new GalaxyProvider(this.rendering.scene, { galaxy: galDef });
         this.localGroup.push(galProv);
-        this.universe.providers.register(galProv);
       }
       
       this.sgra = new BlackHoleProvider(this.rendering.scene, {
@@ -133,13 +132,18 @@ export class Game {
           }
         }
       });
-      this.universe.providers.register(this.sgra);
       
       this.cosmicWeb = new LargeScaleStructureProvider(this.rendering.scene);
-      this.universe.providers.register(this.cosmicWeb);
     }
     this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
-    this.input=new InputController(this.rendering.renderer.domElement);this.player=new PlayerController(this.worldRoot,this.input);this.camera=new CameraController(this.rendering.camera,this.input);
+    this.input=new InputController(this.rendering.renderer.domElement);
+    this.player=new PlayerController(this.worldRoot,this.input);
+    if (FEATURES.curvedManaus) {
+      const flat = this.player.position;
+      const curved = this.surfaceService.legacyPointToRenderLocal(flat.x, flat.y, flat.z);
+      this.player.teleport(curved);
+    }
+    this.camera=new CameraController(this.rendering.camera,this.input);
     this.population=new PopulationManager(this.worldRoot);
     this.missions=new MissionManager(this.worldRoot,this.save,message=>this.hud?.notify(message));
     this.destruction=new DestructionSystem(this.worldRoot,this.destructible);
@@ -147,8 +151,20 @@ export class Game {
     this.powers=new PowerSystem(this.worldRoot,this.player,this.rendering.camera,this.input,{
       targets:()=>[...this.population.targets,...this.missions.targets],
       hit:(id,force)=>{this.missions.hit(id,force)||this.population.hit(id,force);},
-      reconstruct:(position,radius)=>this.population.reconstruct(position,radius)+this.realCity.restore(position,radius)+this.streamer.restore(position,radius)+this.landmarks.restore(position,radius)+this.largo.restore(position,radius)+this.airport.restore(position,radius)+this.terrain.restoreAt(position,radius),
-      impulse:(position,radius,force)=>{this.population.impulse(position,radius,force);this.camera.shake(.45);},
+      reconstruct:(position,radius)=>{
+        let flat = position;
+        if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
+          flat = this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z);
+        }
+        return this.population.reconstruct(flat,radius)+this.realCity.restore(flat,radius)+this.streamer.restore(flat,radius)+this.landmarks.restore(flat,radius)+this.largo.restore(flat,radius)+this.airport.restore(flat,radius)+this.terrain.restoreAt(flat,radius);
+      },
+      impulse:(position,radius,force)=>{
+        let flat = position;
+        if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
+          flat = this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z);
+        }
+        this.population.impulse(flat,radius,force);this.camera.shake(.45);
+      },
       damage:(point,radius,amount,deform)=>this.destruction.damageAt(point,radius,amount,deform),prepare:destination=>this.streamer.prepare(destination),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.origin,getColliders:()=>this.curvedColliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
@@ -232,7 +248,18 @@ export class Game {
     this.mark=performance.now();
     this.updateTravelDomain(dt);
     const transition = this.travelDomain.transition;
-    if (transition.kind === 'returned') {
+    if (transition.kind === 'departed') {
+      // Initialize interplanetary barycentric state from the actual current pose.
+      const currentPosM = this.universe.player.position;
+      const currentVelMps = this.player.velocity;
+      this.travelDomain.setState({
+        systemId: 'sol',
+        positionM: [currentPosM[0], currentPosM[1], currentPosM[2]],
+        velocityMps: [currentVelMps.x, currentVelMps.y, currentVelMps.z],
+        referenceBodyId: this.universe.telemetry.dominantBody,
+      });
+      this.hud.notify(`Comando de voo · Interplanetário`);
+    } else if (transition.kind === 'returned') {
       const targetBody = this.universe.telemetry.dominantBody;
       if (this.universe.telemetry.frame !== 'moon/fixed' && targetBody === 'moon') {
         const newLocalPos = this.universe.handoffTo('moon');
@@ -245,7 +272,13 @@ export class Game {
       }
     }
     const local=this.travelDomain.localPhysicsActive;
-    this.realCity.update(this.player.position,this.player.velocity,dt);this.lap('realCity');
+    
+    // Uncurve position for RealCity legacy logic
+    let legacyPos = this.player.position;
+    if (FEATURES.curvedManaus && local) {
+      legacyPos = this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z);
+    }
+    this.realCity.update(legacyPos,this.player.velocity,dt);this.lap('realCity');
     // Out here a frame covers thirteen kilometres, so a collider is not something to hit, it is
     // something to pass through before it has been tested. See TravelDomain.
     if(local){
@@ -278,17 +311,20 @@ export class Game {
         if (this.camera.pitch) thrust.applyAxisAngle(new Vector3(1,0,0), this.camera.pitch);
         
         const t = this.universe.telemetry;
+        const bodyDef = this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody);
+        
         const ctx = {
           altitudeM: t.altitudeM,
-          speedMps: this.player.velocity.length(),
+          speedMps: Math.hypot(...this.travelDomain.state.velocityMps),
           requested: this.player.speedMode === 'interplanetary',
           nearestColliderM: Number.POSITIVE_INFINITY,
-          bodyRadiusM: this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody)?.equatorialRadiusM ?? 6378137,
+          bodyRadiusM: bodyDef?.equatorialRadiusM ?? 6378137,
+          bodyPositionM: this.universe.solarSystem.positionOf(t.dominantBody) ?? [0,0,0],
           bodyId: t.dominantBody,
           systemId: 'sol',
         };
         const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, brake, ctx);
-        this.travelDomain.setState?.(newState); // We'll add setState to TravelDomain next
+        this.travelDomain.setState(newState); 
         
         this.universe.updateSystemPose(newState.positionM, newState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
         
@@ -297,6 +333,16 @@ export class Game {
         const local = this.universe.floatingOrigin.toRenderLocal(this.universe.player.position);
         this.player.position.set(local[0], local[1], local[2]);
       }
+      
+      if (FEATURES.galaxyTravel) {
+        const address = this.universe.navigationState;
+        const altitude = this.universe.telemetry.altitudeM;
+        const cpos: [number, number, number] = [this.rendering.camera.position.x, this.rendering.camera.position.y, this.rendering.camera.position.z];
+        for (const gal of this.localGroup) gal.update(address, cpos, altitude);
+        this.sgra?.update(address, cpos, altitude);
+        this.cosmicWeb?.update(address, cpos, altitude);
+      }
+      
     }this.lap('universe');
     // One ground at a time. The flat backdrop and the curved planet cannot both be the surface,
     // and above the handover altitude the curvature is what the player is looking at.
@@ -426,14 +472,40 @@ export class Game {
   private readonly blastBoxes:Collider[]=[];
   readonly destructible={
     blastColliders:(point:Vector3,radius:number):readonly Collider[]=>{
-      if(radius<80)return this.colliders;
+      let flat = point;
+      if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
+        flat = this.surfaceService.renderLocalToLegacyPoint(point.x, point.y, point.z);
+      }
+      if(radius<80)return FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
       const out=this.blastBoxes;out.length=0;
-      for(const box of this.colliders)if(!box.id?.startsWith("real:")&&!box.id?.startsWith("landmark:")&&!box.id?.startsWith("largo:")&&!box.id?.startsWith("airport:"))out.push(box);
-      this.realCity.appendBlastColliders(out,point,radius);this.landmarks.appendBlastColliders(out,point,radius);this.largo.appendBlastColliders(out,point,radius);this.airport.appendColliders(out,point,radius);return out;
+      const srcBoxes = FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
+      for(const box of srcBoxes)if(!box.id?.startsWith("real:")&&!box.id?.startsWith("landmark:")&&!box.id?.startsWith("largo:")&&!box.id?.startsWith("airport:"))out.push(box);
+      
+      const legacyOut: Collider[] = [];
+      this.realCity.appendBlastColliders(legacyOut,flat,radius);
+      this.landmarks.appendBlastColliders(legacyOut,flat,radius);
+      this.largo.appendBlastColliders(legacyOut,flat,radius);
+      this.airport.appendColliders(legacyOut,flat,radius);
+      
+      if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
+        for (const box of legacyOut) {
+          out.push(this.surfaceService.legacyColliderToRenderLocal(box, { id: box.id, x: 0, y: 0, z: 0, width: 0, height: 0, depth: 0 }));
+        }
+      } else {
+        for (const box of legacyOut) out.push(box);
+      }
+      
+      return out;
     },
-    colliders:():readonly Collider[]=>this.colliders,
+    colliders:():readonly Collider[]=>FEATURES.curvedManaus ? this.curvedColliders : this.colliders,
     destroy:(id:string):boolean=>{id=id.replace(/^hlod:/,'');return !!this.traffic?.destroy(id)||this.realCity.destroy(id)||this.streamer.destroy(id)||this.landmarks.destroy(id)||this.largo.destroy(id)||this.airport.destroy(id);},
-    deform:(point:Vector3,radius:number,damage:number)=>this.terrain.damageAt(point,radius,damage),
+    deform:(point:Vector3,radius:number,damage:number)=>{
+      let flat = point;
+      if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
+        flat = this.surfaceService.renderLocalToLegacyPoint(point.x, point.y, point.z);
+      }
+      return this.terrain.damageAt(flat,radius,damage);
+    },
   };
   /** Register newly built surfaces once, including streamed roads and plaza LOD changes. */
   private readonly watchedGround=new WeakSet<import('three/webgpu').Object3D>();
@@ -486,9 +558,13 @@ export class Game {
       nearest=Math.min(nearest,Math.hypot(dx,dy,dz));
     }
     const t=this.universe.telemetry;
+    const logicalSpeed = this.travelDomain.state 
+      ? Math.hypot(...this.travelDomain.state.velocityMps) 
+      : this.player.velocity.length();
+      
     const transition = this.travelDomain.update({
       altitudeM:t.altitudeM,
-      speedMps:this.player.velocity.length(),
+      speedMps:logicalSpeed,
       requested:this.player.speedMode==='interplanetary',
       nearestColliderM:nearest,
       bodyRadiusM:this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody)?.equatorialRadiusM ?? WGS84.semiMajorAxisM,

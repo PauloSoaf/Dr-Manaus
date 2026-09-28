@@ -24,7 +24,7 @@ export interface BlackHoleProviderOptions {
 const G = 6.6743e-11;
 const C = 299792458;
 
-export class BlackHoleProvider implements WorldProvider {
+export class BlackHoleProvider {
   readonly id: string;
   readonly priority = 5;
 
@@ -48,8 +48,7 @@ export class BlackHoleProvider implements WorldProvider {
     const def = this.options.blackHole;
     const rs = (2 * G * def.massKg) / (C * C);
     
-    // Position it in the frame
-    this.group.position.set(def.positionM[0], def.positionM[1], def.positionM[2]);
+    // Position is updated in update()
 
     // Basic event horizon (pitch black sphere)
     const geometry = new SphereGeometry(rs, 64, 64);
@@ -83,21 +82,34 @@ export class BlackHoleProvider implements WorldProvider {
     return { visible: this.group.visible };
   }
 
-  coverage(): readonly CoverageClaim[] { return []; }
+  update(address: import('../spatial/UniverseAddress').UniverseAddress, cameraPosM: import('../spatial/units').Vec3, altitudeM: number): void {
+    // TODO: Do not call black holes functional until GravitySource/event horizon/lensing exist.
+    this.group.visible = altitudeM >= this.options.minAltitudeM;
+    if (!this.group.visible) return;
 
-  covers(context: SpatialContext): boolean {
-    this.altitudeM = finite(context.altitudeM);
-    // Draw it as long as we are high enough (or always if minAltitudeM is 0)
-    this.group.visible = this.altitudeM >= this.options.minAltitudeM;
-    return this.group.visible;
-  }
+    // We assume the black hole is in the Milky Way for now (Sgr A*).
+    if (address.galaxyId !== 'milky-way') {
+      this.group.visible = false;
+      return;
+    }
 
-  plan(context: StreamingContext): import('../streaming/TileDemand').TileDemand[] { return []; }
-  load(): Promise<import('../streaming/TileDemand').TilePayload> { return Promise.reject(new Error('BlackHoleProvider does not stream tiles.')); }
-  activate(payload: import('../streaming/TileDemand').TilePayload, frame: import('../spatial/ReferenceFrame').ActiveReferenceFrame): import('../streaming/TileDemand').ActiveTile {
-    throw new Error('BlackHoleProvider does not use the scheduler.');
+    const SECTOR_SIZE_M = 100 * 9.4607304725808e15;
+    const cx = Number(address.sector.x) * SECTOR_SIZE_M + cameraPosM[0];
+    const cy = Number(address.sector.y) * SECTOR_SIZE_M + cameraPosM[1];
+    const cz = Number(address.sector.z) * SECTOR_SIZE_M + cameraPosM[2];
+
+    const pos = this.options.blackHole.positionM;
+    // VERY IMPORTANT: Render locally relative to the camera!
+    // Using a METRES_PER_UNIT scaling for things this far if necessary, but Sgr A* might be approached.
+    // For now, scale down if it is too far to avoid depth issues, or just place it normally if we are close.
+    // Let's place it at its exact relative position. If it's 26000 ly away, we need scaling.
+    const GALAXY_METRES_PER_UNIT = 4e15;
+    this.group.position.set(
+      (pos[0] - cx) / GALAXY_METRES_PER_UNIT,
+      (pos[1] - cy) / GALAXY_METRES_PER_UNIT,
+      (pos[2] - cz) / GALAXY_METRES_PER_UNIT
+    );
   }
-  deactivate(tile: import('../streaming/TileDemand').ActiveTile) {}
   dispose(): void {
     this.group.removeFromParent();
     this.eventHorizon.geometry.dispose();

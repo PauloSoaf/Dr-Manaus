@@ -47,6 +47,7 @@ export interface TravelContext {
   readonly nearestColliderM: number;
   /** The reference body's radius toward the player, metres. */
   readonly bodyRadiusM: number;
+  readonly bodyPositionM?: Vec3;
   readonly bodyId?: string;
   readonly systemId?: string;
 }
@@ -73,7 +74,7 @@ const DEFAULTS: Required<TravelDomainOptions> = {
 /** Why the domain did or did not change, so a transition is never a mystery in a log. */
 export type TravelTransition =
   | { kind: 'none' }
-  | { kind: 'entered'; reason: 'requested' }
+  | { kind: 'departed'; reason: 'requested' }
   | { kind: 'refused'; reason: 'altitude' | 'collider' | 'speed' }
   | { kind: 'returned'; reason: 'altitude' | 'speed' | 'released' };
 
@@ -139,7 +140,7 @@ export class TravelDomain {
       velocityMps: [0, 0, 0],
       referenceBodyId: context.bodyId,
     };
-    return { kind: 'entered', reason: 'requested' };
+    return { kind: 'departed', reason: 'requested' };
   }
 
   private considerReturning(context: TravelContext): TravelTransition {

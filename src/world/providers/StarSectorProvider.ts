@@ -158,11 +158,11 @@ export class StarSectorProvider implements WorldProvider {
     this.remove(key);
     const mesh = new Points(geometry, this.material);
     mesh.name = `galaxy-${key}`;
-    // Where this sector sits relative to the one the player is in, in rendered units.
+    const centre = this.centreSector;
     mesh.position.set(
-      Number(content.sector.x) * SECTOR_SIZE_M / METRES_PER_UNIT,
-      Number(content.sector.y) * SECTOR_SIZE_M / METRES_PER_UNIT,
-      Number(content.sector.z) * SECTOR_SIZE_M / METRES_PER_UNIT,
+      Number(content.sector.x - centre.x) * SECTOR_SIZE_M / METRES_PER_UNIT,
+      Number(content.sector.y - centre.y) * SECTOR_SIZE_M / METRES_PER_UNIT,
+      Number(content.sector.z - centre.z) * SECTOR_SIZE_M / METRES_PER_UNIT,
     );
     mesh.frustumCulled = false;
     this.group.add(mesh);
@@ -207,16 +207,8 @@ export class StarSectorProvider implements WorldProvider {
     this.sectors.delete(key);
   }
 
-  /**
-   * The player's sector, from the cosmic address when there is one.
-   *
-   * There is not one yet -- nothing drives `UniverseAddress` from play -- so this falls back to
-   * the origin sector rather than inventing one from local metres. That is the honest answer: the
-   * galaxy is centred on the Sun because the player has not left it.
-   */
   private sectorOf(context: SpatialContext): SectorIndex {
-    const address = (context as { address?: { sector?: SectorIndex } }).address;
-    return address?.sector ?? sectorIndex(0, 0, 0);
+    return context.address.sector;
   }
 
   private keyFor(sector: SectorIndex): WorldTileKey {

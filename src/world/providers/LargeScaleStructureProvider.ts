@@ -29,7 +29,7 @@ const MPC_TO_M = 3.085677581e22;
 // We use a massive scale factor for the cosmological layer.
 const COSMIC_METRES_PER_UNIT = 1e21; 
 
-export class LargeScaleStructureProvider implements WorldProvider {
+export class LargeScaleStructureProvider {
   readonly id = 'cosmic/large-scale-structure';
   readonly priority = 1;
 
@@ -110,22 +110,23 @@ export class LargeScaleStructureProvider implements WorldProvider {
     return { visible: this.group.visible, clusters: KNOWN_COSMIC_ANCHORS.length };
   }
 
-  coverage(): readonly CoverageClaim[] { return []; }
+  update(address: import('../spatial/UniverseAddress').UniverseAddress, cameraPosM: import('../spatial/units').Vec3, altitudeM: number): void {
+    // If we are still in a galaxy, we don't draw the LSS.
+    // LSS is visible when altitude is very high. (Gpc scale)
+    // Here we can use altitudeM or address context.
+    // For now, if altitudeM > 9e21, we show it.
+    this.group.visible = altitudeM >= 9e21; 
+    if (!this.group.visible) return;
 
-  covers(context: SpatialContext): boolean {
-    this.altitudeM = finite(context.altitudeM);
-    // Draw it when we are in intergalactic space
-    // ~10 million light years altitude
-    this.group.visible = this.altitudeM >= 9e21; 
-    return this.group.visible;
+    // Center CMB on camera
+    if (this.cmbMesh) {
+       this.cmbMesh.position.set(
+          cameraPosM[0] / COSMIC_METRES_PER_UNIT,
+          cameraPosM[1] / COSMIC_METRES_PER_UNIT,
+          cameraPosM[2] / COSMIC_METRES_PER_UNIT
+       );
+    }
   }
-
-  plan(context: StreamingContext): import('../streaming/TileDemand').TileDemand[] { return []; }
-  load(): Promise<import('../streaming/TileDemand').TilePayload> { return Promise.reject(new Error('LargeScaleStructureProvider does not stream tiles.')); }
-  activate(payload: import('../streaming/TileDemand').TilePayload, frame: import('../spatial/ReferenceFrame').ActiveReferenceFrame): import('../streaming/TileDemand').ActiveTile {
-    throw new Error('LargeScaleStructureProvider does not use the scheduler.');
-  }
-  deactivate(tile: import('../streaming/TileDemand').ActiveTile) {}
   
   dispose(): void {
     this.group.removeFromParent();

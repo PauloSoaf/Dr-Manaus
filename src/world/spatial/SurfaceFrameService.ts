@@ -1,8 +1,7 @@
 import { Vector3, Matrix4 } from 'three/webgpu';
 import type { Collider } from '../../core/types';
 import { type SurfaceTileFrame, createSurfaceTileFrame } from './SurfaceTileFrame';
-import { ecefToTrueLocal, legacyLocalToEcef } from './ManausFrameAdapter';
-import { legacyLocalToGeodetic } from './ManausFrameAdapter';
+import { ecefToTrueLocal, legacyLocalToEcef, trueLocalToEcef, ecefToLegacyLocal, legacyLocalToGeodetic } from './ManausFrameAdapter';
 
 export class SurfaceFrameService {
   private readonly bodyId: string;
@@ -28,6 +27,15 @@ export class SurfaceFrameService {
     const ecef = legacyLocalToEcef(x, y, z);
     const local = ecefToTrueLocal(ecef);
     return new Vector3(local[0], local[1], local[2]);
+  }
+
+  /**
+   * Converts a point from the true rendering local frame back to legacy flat Manaus coordinates.
+   */
+  renderLocalToLegacyPoint(x: number, y: number, z: number): Vector3 {
+    const ecef = trueLocalToEcef([x, y, z]);
+    const legacy = ecefToLegacyLocal(ecef);
+    return new Vector3(legacy[0], legacy[1], legacy[2]);
   }
 
   /**

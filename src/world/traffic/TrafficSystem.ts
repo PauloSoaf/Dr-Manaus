@@ -1,9 +1,11 @@
-import { BoxGeometry, Color, Group, InstancedMesh, MeshStandardMaterial, Object3D, Vector3 } from 'three/webgpu';
+import { BoxGeometry, Color, Group, InstancedMesh, MeshStandardMaterial, Object3D, Vector3, Matrix4 } from 'three/webgpu';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import type { Collider } from '../../core/types';
 import type { RoadGraph, RoadSegment } from './RoadGraph';
 import { hash32, VehicleNavigator } from './VehicleNavigator';
 import { roadHeightOf } from '../realcity/roads';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+import { FEATURES } from '../../core/config';
 
 /** The pool is sized once; `setCount` only changes how much of it drives. */
 const CAPACITY = 256;
@@ -56,6 +58,7 @@ export class TrafficSystem {
   private readonly colour = new Color();
   private readonly position = new Vector3();
   private readonly tangent = new Vector3();
+  private readonly surfaceService = new SurfaceFrameService('earth');
   private deck: ((x: number, z: number) => number) | null = null;
   private count = 0;
   private cursor = 0;
@@ -196,12 +199,29 @@ export class TrafficSystem {
     return true;
   }
   private drawVehicle(i:number,vehicle:Vehicle,wreck:boolean):void{
-      this.dummy.position.set(vehicle.x, vehicle.y, vehicle.z);
-      this.dummy.rotation.set(vehicle.pitch, vehicle.yaw, wreck?.18:0);
       this.dummy.scale.set(1,wreck?.65:1,1);
-      this.dummy.updateMatrix();
+      if (FEATURES.curvedManaus) {
+        const pt = this.surfaceService.legacyPointToRenderLocal(vehicle.x, vehicle.y, vehicle.z);
+        // Vehicle direction is yaw (rotation around Y).
+        const fwdX = Math.sin(vehicle.yaw), fwdZ = Math.cos(vehicle.yaw);
+        // Pitch is rotation around local X.
+        const upX = 0, upY = 1, upZ = 0; // Simplified up, but let's just get the local normal
+        const up = this.surfaceService.legacyDirectionToRenderLocal(0, 1, 0, vehicle.x, vehicle.y, vehicle.z).normalize();
+        const fwd = this.surfaceService.legacyDirectionToRenderLocal(fwdX, 0, fwdZ, vehicle.x, vehicle.y, vehicle.z).normalize();
+        const right = new Vector3().crossVectors(up, fwd).normalize();
+        const realFwd = new Vector3().crossVectors(right, up).normalize();
+        this.dummy.position.copy(pt);
+        this.dummy.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(right, up, realFwd));
+        this.dummy.rotateX(vehicle.pitch);
+        if (wreck) this.dummy.rotateZ(.18);
+        this.dummy.updateMatrix();
+      } else {
+        this.dummy.position.set(vehicle.x, vehicle.y, vehicle.z);
+        this.dummy.rotation.set(vehicle.pitch, vehicle.yaw, wreck?.18:0);
+        this.dummy.updateMatrix();
+      }
       this.bodies.setMatrixAt(i, this.dummy.matrix);
-      this.dummy.position.y += GLASS_Y;
+      this.dummy.translateY(GLASS_Y);
       this.dummy.updateMatrix();
       this.glass.setMatrixAt(i, this.dummy.matrix);
       vehicle.shown = true;

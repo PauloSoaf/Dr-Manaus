@@ -3,6 +3,7 @@ import type { SpatialPose } from '../spatial/SpatialPose';
 import type { Vec3 } from '../spatial/units';
 import type { StreamingBudget } from '../streaming/StreamingBudget';
 import type { ActiveTile, TileDemand, TilePayload } from '../streaming/TileDemand';
+import type { UniverseAddress } from '../spatial/UniverseAddress';
 
 /** Where the player is and what they are doing, in logical terms. */
 export interface SpatialContext {
@@ -12,6 +13,7 @@ export interface SpatialContext {
   readonly localVelocityMps: Vec3;
   readonly altitudeM?: number;
   readonly bodyId?: string;
+  readonly address: UniverseAddress;
 }
 
 export interface StreamingContext {

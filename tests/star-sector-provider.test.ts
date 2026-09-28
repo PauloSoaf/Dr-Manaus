@@ -19,6 +19,7 @@ function context(altitudeM: number): StreamingContext {
       localVelocityMps: [0, 0, 0],
       altitudeM,
       bodyId: 'earth',
+      address: { galaxyId: 'milky_way', sector: sectorIndex(0, 0, 0) },
     },
     camera: { fovRad: 1, viewportHeightPx: 900, forward: [0, -1, 0] },
     quality: { sseTargetPx: 8, detailFactor: 1 },

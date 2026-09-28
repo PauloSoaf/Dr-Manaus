@@ -42,7 +42,7 @@ test('leaving the local domain needs altitude, clearance and a request', () => {
   assert.equal(domain.kind, 'local');
 
   // Clear.
-  assert.deepEqual(domain.update(context(), 1 / 60), { kind: 'entered', reason: 'requested' });
+  assert.deepEqual(domain.update(context(), 1 / 60), { kind: 'departed', reason: 'requested' });
   assert.equal(domain.kind, 'interplanetary');
   assert.equal(domain.localPhysicsActive, false, 'urban physics is off out here');
   assert.equal(domain.state?.systemId, 'sol');
