@@ -3,6 +3,7 @@ import { icon } from '../icons';
 import type { UniverseLocation } from '../../world/spatial/UniverseLocation';
 import type { Vector3 } from 'three/webgpu';
 import { SurfaceMapRenderer, PlanetMapRenderer, SystemMapRenderer, GalaxyMapRenderer, CosmologyMapRenderer } from './MapRenderers';
+import { UniverseCoordinates } from '../../world/spatial/UniverseCoordinates';
 
 export class UniversalMapPanel {
   private readonly root: HTMLElement;
@@ -16,6 +17,7 @@ export class UniversalMapPanel {
     cosmology: CosmologyMapRenderer;
   };
   private currentLevel: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology' = 'surface';
+  private selectedLevel?: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology';
 
   constructor(
     private readonly container: HTMLElement,
@@ -40,23 +42,43 @@ export class UniversalMapPanel {
     };
   }
 
+  setLevel(level: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology') {
+    this.selectedLevel = level;
+    this.currentLevel = level;
+    this.updateCard();
+    this.updateBreadcrumb();
+    const cityCanvas = this.root.querySelector('#city-map') as HTMLCanvasElement;
+    if (cityCanvas) cityCanvas.style.display = level === 'surface' ? 'block' : 'none';
+    if (this.currentLevel !== 'surface') {
+      this.renderers[this.currentLevel].draw(this.model.location, this.model.destination);
+    }
+  }
+
   update(location: UniverseLocation, position: Vector3, destination?: Vector3) {
     this.model.updateLocation(location);
     this.model.destination = destination;
-    this.updateCard();
-    this.updateBreadcrumb();
     
     const loc = this.model.location;
-    if (loc.frameId === 'solar-system/barycentric') {
+    if (this.selectedLevel) {
+      this.currentLevel = this.selectedLevel;
+    } else if (loc.cosmological || loc.address.galaxyId === 'cosmology' || loc.frameId.includes('cosmo')) {
+      this.currentLevel = 'cosmology';
+    } else if (loc.frameId.includes('galactic') || (!loc.address.systemId && !loc.systemPositionM)) {
+      this.currentLevel = 'galaxy';
+    } else if (loc.frameId === 'solar-system/barycentric') {
       this.currentLevel = 'system';
     } else if (loc.surface && loc.surface.altitudeM > 200000) {
       this.currentLevel = 'planet';
     } else {
-      this.currentLevel = 'surface'; // Should be replaced by CityMap from outside for manaus
+      this.currentLevel = 'surface';
     }
+
+    const cityCanvas = this.root.querySelector('#city-map') as HTMLCanvasElement;
+    if (cityCanvas) cityCanvas.style.display = this.currentLevel === 'surface' ? 'block' : 'none';
+
+    this.updateCard();
+    this.updateBreadcrumb();
     
-    // The renderers manage their own drawing onto the shared canvas
-    // (In reality HUD.ts might still draw CityMap over it if currentLevel === 'surface')
     if (this.currentLevel !== 'surface') {
       this.renderers[this.currentLevel].draw(loc, destination);
     }
@@ -64,10 +86,18 @@ export class UniversalMapPanel {
 
   private render() {
     this.root.innerHTML = `
-      <div class="map-sidebar" style="width: 320px; border-right: 1px solid #333; padding: 1rem;">
-        <div class="map-breadcrumb" id="map-breadcrumb" style="font-size: 11px; opacity: 0.7; margin-bottom: 2rem;"></div>
+      <div class="map-sidebar" style="width: 320px; border-right: 1px solid #333; padding: 1rem; overflow-y: auto;">
+        <div class="map-breadcrumb" id="map-breadcrumb" style="font-size: 11px; opacity: 0.85; margin-bottom: 2rem;"></div>
         <div class="where-am-i-card" id="where-am-i-card"></div>
-        <div class="map-destinations" style="margin-top: 2rem;">
+        <div class="map-coordinates-form" style="margin-top: 1.5rem; background: #0f172a; padding: 0.75rem; border-radius: 6px; border: 1px solid #1e293b;">
+          <span class="eyebrow" style="color: #94a3b8; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;">COORDENADAS UNIVERSAIS</span>
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+            <input type="text" id="coord-input" placeholder="drm:v1://?... ou marco/destino" style="flex: 1; padding: 0.4rem 0.5rem; background: #1e293b; border: 1px solid #334155; color: #f8fafc; border-radius: 4px; font-size: 11px;" />
+            <button id="btn-translocate" style="padding: 0.4rem 0.75rem; background: #2563eb; color: #fff; border: none; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: 600;">TRANSLOCAR</button>
+          </div>
+          <div id="coord-status" style="font-size: 10px; color: #94a3b8; margin-top: 0.25rem;"></div>
+        </div>
+        <div class="map-destinations" style="margin-top: 1.5rem;">
           <span class="eyebrow">PONTOS DE INTERESSE</span>
           <div id="landmark-list"></div>
         </div>
@@ -79,6 +109,28 @@ export class UniversalMapPanel {
         <span class="map-credit">Dados viários © OpenStreetMap contributors · Geografia estilizada</span>
       </div>
     `;
+
+    const btnTranslocate = this.root.querySelector('#btn-translocate') as HTMLButtonElement;
+    const coordInput = this.root.querySelector('#coord-input') as HTMLInputElement;
+    const coordStatus = this.root.querySelector('#coord-status') as HTMLElement;
+    if (btnTranslocate && coordInput) {
+      btnTranslocate.onclick = () => {
+        const val = coordInput.value.trim();
+        if (!val) return;
+        if (val.startsWith('drm:v1://?')) {
+          const target = UniverseCoordinates.parse(val);
+          if (!target) {
+            if (coordStatus) coordStatus.textContent = 'Erro: Coordenada inválida';
+            return;
+          }
+          if (coordStatus) coordStatus.textContent = `Destino: ${target.kind}`;
+          this.onTravel(val);
+        } else {
+          this.onTravel(val);
+        }
+      };
+    }
+
     this.updateCard();
     this.updateBreadcrumb();
   }
@@ -87,11 +139,33 @@ export class UniversalMapPanel {
     const b = this.root.querySelector('#map-breadcrumb');
     if (!b) return;
     const a = this.model.location.address;
-    const parts = ['UNIVERSE', 'LOCAL GROUP', a.galaxyId.replace('_', ' ').toUpperCase()];
-    if (a.systemId) parts.push(a.systemId.toUpperCase());
-    if (a.bodyId) parts.push(a.bodyId.toUpperCase());
-    if (a.childFrame && a.childFrame === 'manaus/compiled') parts.push('MANAUS');
-    b.innerHTML = parts.join(' / ');
+    const items: { label: string; level: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology' }[] = [
+      { label: 'COSMOS', level: 'cosmology' },
+      { label: a.galaxyId ? a.galaxyId.replace('_', ' ').toUpperCase() : 'MILKY WAY', level: 'galaxy' },
+    ];
+    if (a.systemId) items.push({ label: a.systemId.toUpperCase(), level: 'system' });
+    if (a.bodyId) items.push({ label: a.bodyId.toUpperCase(), level: 'planet' });
+    if (a.childFrame && (a.childFrame.includes('manaus') || a.childFrame.includes('surface') || a.childFrame.includes('legacy-enu'))) {
+      items.push({ label: 'MANAUS', level: 'surface' });
+    }
+    
+    b.innerHTML = items.map(item => `
+      <span class="breadcrumb-item ${this.currentLevel === item.level ? 'active' : ''}" 
+            data-level="${item.level}" 
+            style="cursor: pointer; text-decoration: ${this.currentLevel === item.level ? 'none' : 'underline'}; margin: 0 3px; ${this.currentLevel === item.level ? 'font-weight: 700; color: #38bdf8;' : 'color: #94a3b8;'}">
+        ${item.label}
+      </span>
+    `).join('<span style="color: #475569; margin: 0 2px;">/</span>');
+
+    b.querySelectorAll<HTMLElement>('.breadcrumb-item').forEach(el => {
+      el.onclick = (e) => {
+        e.stopPropagation();
+        const lvl = el.dataset.level as any;
+        if (lvl) {
+          this.setLevel(lvl);
+        }
+      };
+    });
   }
 
   private updateCard() {

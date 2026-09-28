@@ -43,7 +43,12 @@ export class GalaxyProvider {
     const radiusU = (this.options.galaxy.diameterLy / 2) * LY_TO_U;
     const thicknessU = this.options.galaxy.thicknessLy * LY_TO_U;
     
-    let seed = 123456789;
+    // Deterministic seed derived from galaxy.id
+    let seed = 2166136261;
+    for (let c = 0; c < this.options.galaxy.id.length; c++) {
+      seed = Math.imul(seed ^ this.options.galaxy.id.charCodeAt(c), 16777619) >>> 0;
+    }
+    if (seed === 0) seed = 123456789;
     const random = () => {
       seed = (seed * 1664525 + 1013904223) >>> 0;
       return seed / 4294967296;

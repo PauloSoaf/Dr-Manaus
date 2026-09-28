@@ -85,8 +85,9 @@ export class PlanetMapRenderer extends BaseMapRenderer {
       // Convert lat/lon to screen pos roughly
       const px = cx + (lonDeg / 180) * r;
       const py = cy - (latDeg / 90) * r;
-
-      if (px*px + py*py <= r*r*1.5) { // Check if roughly on front face
+      const dx = px - cx;
+      const dy = py - cy;
+      if (dx * dx + dy * dy <= r * r * 1.05) { // Check if on visible face of the planet sphere
         this.ctx.beginPath();
         this.ctx.arc(px, py, 4, 0, Math.PI * 2);
         this.ctx.fillStyle = '#ef4444';
@@ -107,19 +108,27 @@ export class PlanetMapRenderer extends BaseMapRenderer {
   }
 }
 
+import { SOLAR_SYSTEM_BODIES } from '../../world/celestial/CelestialBody';
+import { OfflineEphemeris } from '../../world/celestial/OfflineEphemeris';
+
+const AU_METRES = 1.495978707e11;
+
+const BODY_COLORS: Record<string, string> = {
+  sun: '#facc15',
+  mercury: '#94a3b8',
+  venus: '#fde047',
+  earth: '#38bdf8',
+  moon: '#cbd5e1',
+  mars: '#f87171',
+  jupiter: '#fdba74',
+  saturn: '#fef08a',
+  uranus: '#67e8f9',
+  neptune: '#2563eb',
+};
+
 export class SystemMapRenderer extends BaseMapRenderer {
-  private offset = 0;
-  private bodies = [
-    { id: 'sun', dist: 0, r: 12, color: '#facc15' },
-    { id: 'mercury', dist: 30, r: 2, color: '#94a3b8' },
-    { id: 'venus', dist: 50, r: 4, color: '#fde047' },
-    { id: 'earth', dist: 80, r: 4, color: '#38bdf8' },
-    { id: 'mars', dist: 110, r: 3, color: '#f87171' },
-    { id: 'jupiter', dist: 160, r: 8, color: '#fdba74' },
-    { id: 'saturn', dist: 210, r: 7, color: '#fef08a' },
-    { id: 'uranus', dist: 250, r: 5, color: '#67e8f9' },
-    { id: 'neptune', dist: 290, r: 5, color: '#2563eb' },
-  ];
+  private readonly ephemeris = new OfflineEphemeris();
+  private simTime = 0;
 
   draw(location: UniverseLocation, destination?: Vector3): void {
     this.clear('#020617');
@@ -127,8 +136,9 @@ export class SystemMapRenderer extends BaseMapRenderer {
     const h = this.canvas.height;
     const cx = w / 2;
     const cy = h / 2;
+    const maxR = Math.min(w, h) * 0.42;
 
-    this.offset += 0.002;
+    this.simTime += 86400 * 0.1; // advance time ~0.1 day per frame for visual orbital motion
 
     // System grid
     this.ctx.strokeStyle = 'rgba(51, 65, 85, 0.2)';
@@ -141,41 +151,62 @@ export class SystemMapRenderer extends BaseMapRenderer {
     }
     this.ctx.stroke();
 
-    for (const body of this.bodies) {
-      if (body.dist > 0) {
-        this.ctx.beginPath();
-        this.ctx.arc(cx, cy, body.dist, 0, Math.PI * 2);
-        this.ctx.strokeStyle = 'rgba(148, 163, 184, 0.1)';
-        this.ctx.stroke();
-      }
+    // Draw Sun at center
+    this.ctx.beginPath();
+    this.ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+    this.ctx.fillStyle = BODY_COLORS.sun;
+    this.ctx.fill();
 
-      const angle = this.offset * (300 / (body.dist || 1));
-      const bx = cx + Math.cos(angle) * body.dist;
-      const by = cy + Math.sin(angle) * body.dist;
+    // Iterate through physical major bodies in solar system
+    for (const body of SOLAR_SYSTEM_BODIES) {
+      if (body.id === 'sun' || body.parentId !== 'sun') continue;
+
+      const sample = this.ephemeris.sample(body.id, this.simTime);
+      if (!sample) continue;
+      const distM = Math.hypot(sample.positionM[0], sample.positionM[2]);
+      const distAu = distM / AU_METRES;
+      // Square root mapping so inner planets and outer planets are both readable on canvas
+      const screenDist = Math.sqrt(Math.max(0.01, distAu) / 32) * maxR;
+      const angle = Math.atan2(sample.positionM[2], sample.positionM[0]);
+
+      // Draw orbit circle
+      this.ctx.beginPath();
+      this.ctx.arc(cx, cy, screenDist, 0, Math.PI * 2);
+      this.ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
+      this.ctx.stroke();
+
+      const bx = cx + Math.cos(angle) * screenDist;
+      const by = cy + Math.sin(angle) * screenDist;
+
+      // Body radius scaled by physical size (clamped 2.5 to 8px)
+      const radiusPx = Math.max(2.5, Math.min(8, Math.log10(body.equatorialRadiusM / 1e6) * 3 + 3));
 
       this.ctx.beginPath();
-      this.ctx.arc(bx, by, body.r, 0, Math.PI * 2);
-      this.ctx.fillStyle = body.color;
+      this.ctx.arc(bx, by, radiusPx, 0, Math.PI * 2);
+      this.ctx.fillStyle = BODY_COLORS[body.id] || '#ffffff';
       this.ctx.fill();
 
+      // Highlight active body
       if (location.address.bodyId === body.id) {
         this.ctx.beginPath();
-        this.ctx.arc(bx, by, body.r + 6 + Math.sin(this.offset * 20) * 2, 0, Math.PI * 2);
+        this.ctx.arc(bx, by, radiusPx + 6, 0, Math.PI * 2);
         this.ctx.strokeStyle = '#ef4444';
+        this.ctx.lineWidth = 1.5;
         this.ctx.stroke();
       }
     }
 
     if (location.systemPositionM && !location.address.bodyId) {
-      // Very rough logarithmic mapping to draw interplanetary position
-      const dist = Math.log10(Math.max(1, Math.hypot(location.systemPositionM[0], location.systemPositionM[1], location.systemPositionM[2]))) * 10;
-      const angle = Math.atan2(location.systemPositionM[2], location.systemPositionM[0]);
-      
-      const px = cx + Math.cos(angle) * dist;
-      const py = cy + Math.sin(angle) * dist;
+      const pDistM = Math.hypot(location.systemPositionM[0], location.systemPositionM[2]);
+      const pDistAu = pDistM / AU_METRES;
+      const pScreenDist = Math.sqrt(Math.max(0.001, pDistAu) / 32) * maxR;
+      const pAngle = Math.atan2(location.systemPositionM[2], location.systemPositionM[0]);
+
+      const px = cx + Math.cos(pAngle) * pScreenDist;
+      const py = cy + Math.sin(pAngle) * pScreenDist;
 
       this.ctx.beginPath();
-      this.ctx.arc(px, py, 3, 0, Math.PI * 2);
+      this.ctx.arc(px, py, 4, 0, Math.PI * 2);
       this.ctx.fillStyle = '#ef4444';
       this.ctx.fill();
     }
@@ -183,7 +214,7 @@ export class SystemMapRenderer extends BaseMapRenderer {
     this.ctx.fillStyle = '#94a3b8';
     this.ctx.font = '16px "Inter", sans-serif';
     this.ctx.textAlign = 'center';
-    this.ctx.fillText(`SYSTEM: ${location.address.systemId || 'UNKNOWN'}`, cx, h - 40);
+    this.ctx.fillText(`SYSTEM: ${location.address.systemId ? location.address.systemId.toUpperCase() : 'SOL'}`, cx, h - 40);
   }
 }
 
@@ -228,11 +259,15 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
     this.ctx.ellipse(cx, cy, 60, 35, 0, 0, Math.PI * 2);
     this.ctx.fill();
 
-    // Player Sector
-    const sx = Number(location.address.sector.x);
-    const sy = Number(location.address.sector.y);
-    const px = cx + (sx * 2); // mockup scaling
-    const py = cy + (sy * 2);
+    // Player Sector: preserve BigInt precision by scaling via BigInt arithmetic
+    // 5000 sectors radius covers ~500,000 ly
+    const GALAXY_SECTOR_RADIUS = 5000n;
+    const scaleFactor = 10000n;
+    const normX = Number((location.address.sector.x * scaleFactor) / GALAXY_SECTOR_RADIUS) / Number(scaleFactor);
+    const normY = Number((location.address.sector.y * scaleFactor) / GALAXY_SECTOR_RADIUS) / Number(scaleFactor);
+
+    const px = cx + (normX * (w * 0.4));
+    const py = cy + (normY * (h * 0.4) * 0.6);
     
     this.ctx.beginPath();
     this.ctx.arc(px, py, 3, 0, Math.PI * 2);
@@ -247,20 +282,26 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
     this.ctx.fillStyle = '#94a3b8';
     this.ctx.font = '16px "Inter", sans-serif';
     this.ctx.textAlign = 'center';
-    this.ctx.fillText(`GALAXY: ${location.address.galaxyId || 'UNKNOWN'}`, cx, h - 40);
+    this.ctx.fillText(`GALAXY: ${location.address.galaxyId ? location.address.galaxyId.toUpperCase() : 'MILKY WAY'}`, cx, h - 40);
   }
 }
 
 export class CosmologyMapRenderer extends BaseMapRenderer {
-  private points: {x:number, y:number, z:number}[] = [];
+  private points: {x: number; y: number; z: number}[] = [];
   
   constructor(canvas: HTMLCanvasElement) {
     super(canvas);
+    // Deterministic seeded pseudo-random distribution
+    let seed = 42;
+    const lcg = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 4294967296;
+    };
     for (let i = 0; i < 200; i++) {
       this.points.push({
-        x: (Math.random() - 0.5) * canvas.width * 2,
-        y: (Math.random() - 0.5) * canvas.height * 2,
-        z: Math.random() * 1000
+        x: (lcg() - 0.5) * canvas.width * 2,
+        y: (lcg() - 0.5) * canvas.height * 2,
+        z: lcg() * 1000
       });
     }
   }

@@ -111,11 +111,15 @@ export class LargeScaleStructureProvider {
   }
 
   update(address: import('../spatial/UniverseAddress').UniverseAddress, cameraPosM: import('../spatial/units').Vec3, altitudeM: number): void {
-    // If we are still in a galaxy, we don't draw the LSS.
-    // LSS is visible when altitude is very high. (Gpc scale)
-    // Here we can use altitudeM or address context.
-    // For now, if altitudeM > 9e21, we show it.
-    this.group.visible = altitudeM >= 9e21; 
+    // Cosmological structure is visible when in cosmological/extragalactic domain,
+    // not when bounded to a planetary or stellar system.
+    const isCosmologicalDomain = Boolean(
+      (address as any).cosmological ||
+      address.galaxyId === 'cosmology' ||
+      address.galaxyId === 'intergalactic' ||
+      (!address.bodyId && !address.systemId && !address.galaxyId)
+    );
+    this.group.visible = isCosmologicalDomain;
     if (!this.group.visible) return;
 
     // Center CMB on camera

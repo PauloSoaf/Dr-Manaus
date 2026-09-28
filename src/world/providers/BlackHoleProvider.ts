@@ -23,6 +23,7 @@ export interface BlackHoleProviderOptions {
 
 const G = 6.6743e-11;
 const C = 299792458;
+const GALAXY_METRES_PER_UNIT = 4e15;
 
 export class BlackHoleProvider {
   readonly id: string;
@@ -46,9 +47,10 @@ export class BlackHoleProvider {
     this.group.visible = false;
     
     const def = this.options.blackHole;
-    const rs = (2 * G * def.massKg) / (C * C);
-    
-    // Position is updated in update()
+    const rsM = (2 * G * def.massKg) / (C * C);
+    // Convert Schwarzschild radius to galactic render units
+    // Provide a visible minimum radius for galactic scale rendering so it doesn't vanish below float precision
+    const rs = Math.max(rsM / GALAXY_METRES_PER_UNIT, 0.05);
 
     // Basic event horizon (pitch black sphere)
     const geometry = new SphereGeometry(rs, 64, 64);
@@ -88,7 +90,7 @@ export class BlackHoleProvider {
     if (!this.group.visible) return;
 
     // We assume the black hole is in the Milky Way for now (Sgr A*).
-    if (address.galaxyId !== 'milky-way') {
+    if (address.galaxyId !== 'milky_way' && address.galaxyId !== 'milky-way') {
       this.group.visible = false;
       return;
     }
@@ -99,11 +101,7 @@ export class BlackHoleProvider {
     const cz = Number(address.sector.z) * SECTOR_SIZE_M + cameraPosM[2];
 
     const pos = this.options.blackHole.positionM;
-    // VERY IMPORTANT: Render locally relative to the camera!
-    // Using a METRES_PER_UNIT scaling for things this far if necessary, but Sgr A* might be approached.
-    // For now, scale down if it is too far to avoid depth issues, or just place it normally if we are close.
-    // Let's place it at its exact relative position. If it's 26000 ly away, we need scaling.
-    const GALAXY_METRES_PER_UNIT = 4e15;
+    // Render locally relative to camera in galactic units
     this.group.position.set(
       (pos[0] - cx) / GALAXY_METRES_PER_UNIT,
       (pos[1] - cy) / GALAXY_METRES_PER_UNIT,
