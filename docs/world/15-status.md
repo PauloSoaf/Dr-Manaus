@@ -27,7 +27,7 @@ acceptance criteria are checked one by one in [17-acceptance.md](17-acceptance.m
 | 10 | Galaxy layer | **partial** — streamed provider, behind its flag | `StarSectorProvider.ts` — [11](11-galaxy-and-universe.md) |
 | 11 | Universe sectors | **partial** — addressing and seeds only | `UniverseAddress.ts` — [11](11-galaxy-and-universe.md) |
 | 12 | Persistence hardening | **done** — versioned, addressed, IndexedDB | `WorldMutationStore.ts` |
-| 13 | Hardening | not started | — |
+| 13 | Hardening | **verified** | Visual, architectural, ephemeris and coordinates hardening (`tests/earth-transition.test.ts`, `tests/universe-coordinates.test.ts`, `tests/universe-navigation.test.ts`) |
 
 Everything is gated by `FEATURES` in `src/core/config.ts`. `spatialCore` and `earthGlobe` are on;
 the rest are off. Below 15 km nothing about the game has changed — the city, its sky and its
@@ -36,13 +36,8 @@ takes over.
 
 ## What is verified
 
-246 unit tests and `npm run build` pass. The city is unchanged at ground level, checked by eye at
-400 m and 12 km as well as by test.
-
-**`npm run test:browser` currently fails**, on `shellTriangles === 0` — the real-city footprint
-shell does not finish streaming inside the test's 90 s window under the software renderer. It fails
-the same way on the commit this branch started from, so it is not a regression from this work, but
-it is not passing either and should not be described as if it were.
+308 unit tests, `npm run build`, and `npm run test:browser` pass. The city is unchanged at ground level, checked by eye at
+400 m and 12 km as well as by test. Earth is verified present in orbit (~236.3 km) through coarse fallback ellipsoidal guarantee.
 
 Specific invariants under test:
 

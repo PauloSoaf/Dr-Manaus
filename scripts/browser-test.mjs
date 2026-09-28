@@ -238,6 +238,83 @@ try {
   await page.screenshot({path:'artifacts/destruction-browser.png'});
   if(destructionCoverage.depth>=-3||destructionCoverage.surfaces<3||!destructionCoverage.removed||!destructionCoverage.restored)throw new Error(`Destruction coverage failed: ${JSON.stringify(destructionCoverage)}`);
   console.log(`  authored destruction + crater: ${JSON.stringify(destructionCoverage)}`);
+
+  // Visual validation: Scenario 1 - Ground Golden Hour (alt=100m, clear weather, horizon view)
+  const goldenHourTelemetry = await page.evaluate(() => {
+    const game = window.__DR_MANAUS__;
+    game.atmosphere.time = 'Golden Hour';
+    game.atmosphere.weather = 'clear';
+    game.player.position.set(0, 100, 0);
+    game.camera.camera.position.set(0, 100, 0);
+    game.camera.camera.lookAt(0, 100, -1000); // looking horizon
+    game.atmosphere.setAltitude(100);
+    game.atmosphere.update(0.016, game.player.position);
+    game.space.update(game.player.position.y, game.atmosphere.time === 'Night', 0.016, game.atmosphere.weather);
+    return {
+      altitudeM: 100,
+      time: game.atmosphere.time,
+      weather: game.atmosphere.weather,
+      cloudsVisible: game.atmosphere.clouds.visible,
+      starsVisible: game.space.starsVisible,
+      skyVisible: game.atmosphere.sky.visible,
+      cameraForward: [0, 0, -1],
+    };
+  });
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: 'artifacts/earth-100m-clear-golden-horizon.png' });
+  await import('node:fs/promises').then(fs => fs.writeFile(
+    'artifacts/earth-100m-clear-golden-horizon.json',
+    JSON.stringify(goldenHourTelemetry, null, 2)
+  ));
+  console.log(`  visual validation 100m GoldenHour: clouds=${goldenHourTelemetry.cloudsVisible}, stars=${goldenHourTelemetry.starsVisible}, sky=${goldenHourTelemetry.skyVisible}`);
+  if (goldenHourTelemetry.cloudsVisible) throw new Error('Clouds must be hidden in clear weather at 100m');
+  if (goldenHourTelemetry.starsVisible) throw new Error('Stars must not leak onto daytime sky at 100m');
+
+  // Visual validation: Scenario 2 - Orbit Noon Nadir (alt=236300m, clear weather, nadir view)
+  const orbitTelemetry = await page.evaluate(() => {
+    const game = window.__DR_MANAUS__;
+    game.atmosphere.time = 'Noon';
+    game.atmosphere.weather = 'clear';
+    game.player.position.set(0, 236300, 0);
+    game.camera.camera.position.set(0, 236300, 0);
+    game.camera.camera.lookAt(0, 0, 0); // looking nadir down at Earth
+    game.atmosphere.setAltitude(236300);
+    game.atmosphere.update(0.016, game.player.position);
+    game.space.update(game.player.position.y, false, 0.016, game.atmosphere.weather);
+    
+    // Trigger earth transition
+    if (game.earth) {
+      game.earth.covers({
+        timeS: game.universe.time,
+        player: { frame: 'earth/manaus/legacy-enu', position: [0, 236300, 0], orientation: [0, 0, 0, 1] },
+        frame: { id: 'earth/manaus/legacy-enu', kind: 'surface-enu', originInParent: [0, 0, 0], rotationToParent: [0, 0, 0, 1] },
+        localVelocityMps: [0, 0, 0],
+        altitudeM: 236300,
+      });
+    }
+
+    return {
+      altitudeM: 236300,
+      time: game.atmosphere.time,
+      weather: game.atmosphere.weather,
+      earthGlobeVisible: game.earth?.globe?.visible ?? false,
+      earthGlobeStats: game.earth?.globe?.stats ?? null,
+      coarseFallbackReady: game.earth?.globe?.stats?.coarseFallback ?? false,
+      cloudsVisible: game.atmosphere.clouds.visible,
+      starsVisible: game.space.starsVisible,
+      cameraForward: [0, -1, 0],
+    };
+  });
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: 'artifacts/earth-236km-clear-noon-nadir.png' });
+  await import('node:fs/promises').then(fs => fs.writeFile(
+    'artifacts/earth-236km-clear-noon-nadir.json',
+    JSON.stringify(orbitTelemetry, null, 2)
+  ));
+  console.log(`  visual validation 236km Orbit: earthVisible=${orbitTelemetry.earthGlobeVisible}, fallbackReady=${orbitTelemetry.coarseFallbackReady}`);
+  if (orbitTelemetry.earthGlobeVisible !== true) throw new Error('Earth globe must be visible in orbit at 236.3 km');
+  if (!orbitTelemetry.coarseFallbackReady) throw new Error('Earth coarse fallback must be ready in orbit');
+
   if (errors.length) throw new Error(`Erros no navegador:\n${errors.join('\n')}`);
   console.log(`DR Manaus browser smoke OK | ${boot.backend} | chunks=${boot.activeChunks} | ${boot.state} -> ${flightState}`);
   console.log(city.enabled
