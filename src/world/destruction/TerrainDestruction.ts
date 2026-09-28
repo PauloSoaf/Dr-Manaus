@@ -40,7 +40,8 @@ export class TerrainDestruction implements TerrainProvider {
   private readonly uOrigin = uniform(new Vector3());
   private readonly uMinimum = uniform(new Vector2(-TERRAIN_DAMAGE.span / 2, -TERRAIN_DAMAGE.span / 2));
   private readonly references = new Map<Material, number>();
-  private readonly replacements = new Map<Material, GroundMaterial>();
+  private readonly replacementsSheet = new Map<Material, GroundMaterial>();
+  private readonly replacementsBand = new Map<Material, GroundMaterial>();
   private readonly bindings = new Map<Mesh, Material | Material[]>();
   private readonly geometryDisposals = new Map<Mesh, () => void>();
   private readonly focus = new Vector3();
@@ -159,10 +160,11 @@ export class TerrainDestruction implements TerrainProvider {
   /** Register once when a ground/road/plaza mesh enters the scene; never traversed per frame. */
   registerSurface(mesh: Mesh): void {
     if (this.disposed || mesh.userData.terrainDestructionBowl || this.bindings.has(mesh)) return;
+    const mode: 'sheet' | 'band' = (mesh.userData.terrainSurface === 'sheet' || mesh.name === 'terrain-backdrop' || mesh.name === 'ground-cover') ? 'sheet' : 'band';
     const original = mesh.material;
     this.bindings.set(mesh, original);
     for(const material of Array.isArray(original)?original:[original])this.references.set(material,(this.references.get(material)??0)+1);
-    mesh.material = Array.isArray(original) ? original.map(material => this.convertMaterial(material)) : this.convertMaterial(original);
+    mesh.material = Array.isArray(original) ? original.map(material => this.convertMaterial(material, mode)) : this.convertMaterial(original, mode);
     const onGeometryDispose = () => this.unregisterSurface(mesh);
     this.geometryDisposals.set(mesh, onGeometryDispose); mesh.geometry.addEventListener('dispose', onGeometryDispose);
   }
@@ -172,7 +174,18 @@ export class TerrainDestruction implements TerrainProvider {
     const cleanup = this.geometryDisposals.get(mesh);
     if (cleanup) mesh.geometry.removeEventListener('dispose', cleanup);
     this.geometryDisposals.delete(mesh);
-    for(const material of Array.isArray(original)?original:[original]){const count=(this.references.get(material)??1)-1;if(count>0)this.references.set(material,count);else{this.references.delete(material);this.replacements.get(material)?.dispose();this.replacements.delete(material);}}
+    for(const material of Array.isArray(original)?original:[original]){
+      const count=(this.references.get(material)??1)-1;
+      if(count>0){
+        this.references.set(material,count);
+      } else {
+        this.references.delete(material);
+        const repSheet = this.replacementsSheet.get(material);
+        if (repSheet) { repSheet.dispose(); this.replacementsSheet.delete(material); }
+        const repBand = this.replacementsBand.get(material);
+        if (repBand) { repBand.dispose(); this.replacementsBand.delete(material); }
+      }
+    }
   }
   /** The caller selects a newly-added surface subtree. Mixed meshes are cut only in the ground band. */
   attach(object: Object3D): void {
@@ -180,22 +193,25 @@ export class TerrainDestruction implements TerrainProvider {
   }
   detach(object: Object3D): void { object.traverse(child => { if (child instanceof Mesh) this.unregisterSurface(child); }); }
 
-  private convertMaterial(original: Material): Material {
+  private convertMaterial(original: Material, mode: 'sheet' | 'band'): Material {
     if (!(original instanceof MeshStandardMaterial || original instanceof MeshStandardNodeMaterial || original instanceof MeshBasicMaterial || original instanceof MeshBasicNodeMaterial)) return original;
-    let material = this.replacements.get(original); if (material) return material;
+    const cache = mode === 'sheet' ? this.replacementsSheet : this.replacementsBand;
+    let material = cache.get(original); if (material) return material;
     material = original instanceof MeshBasicMaterial || original instanceof MeshBasicNodeMaterial ? new MeshBasicNodeMaterial() : new MeshStandardNodeMaterial();
-    material.copy(original); material.name = `${original.name || original.type}:crater-surface`;
+    material.copy(original); material.name = `${original.name || original.type}:crater-${mode}`;
     const global = positionWorld.add(this.uOrigin);
     const cell = global.xz.sub(this.uMinimum).div(this.uStep);
     const uv = cell.add(.5).div(GRID);
     const maskDepth = texture(this.mask, uv).r;
     const inside = cell.x.greaterThanEqual(0).and(cell.x.lessThanEqual(TERRAIN_DAMAGE.cells))
       .and(cell.y.greaterThanEqual(0)).and(cell.y.lessThanEqual(TERRAIN_DAMAGE.cells));
-    const groundBand = global.y.greaterThanEqual(TERRAIN_DAMAGE.surfaceMinY).and(global.y.lessThanEqual(TERRAIN_DAMAGE.surfaceMaxY));
-    const intact = inside.and(groundBand).and(maskDepth.greaterThan(.0001)).not();
+    const cutCondition = mode === 'sheet'
+      ? inside.and(maskDepth.greaterThan(.0001))
+      : inside.and(global.y.greaterThanEqual(TERRAIN_DAMAGE.surfaceMinY).and(global.y.lessThanEqual(TERRAIN_DAMAGE.surfaceMaxY))).and(maskDepth.greaterThan(.0001));
+    const intact = cutCondition.not();
     material.maskNode = material.maskNode ? bool(material.maskNode as Node<'bool'>).and(intact) : intact;
     material.maskShadowNode = material.maskShadowNode ? bool(material.maskShadowNode as Node<'bool'>).and(intact) : intact;
-    material.needsUpdate = true; this.replacements.set(original, material); return material;
+    material.needsUpdate = true; cache.set(original, material); return material;
   }
 
   private rebuild(): void {
@@ -311,7 +327,8 @@ export class TerrainDestruction implements TerrainProvider {
     if (this.disposed) return; this.disposed = true;
     this.unsubscribe?.(); this.unsubscribe = undefined;
     for (const mesh of this.bindings.keys()) this.unregisterSurface(mesh);
-    for (const material of this.replacements.values()) material.dispose(); this.replacements.clear();
+    for (const material of this.replacementsSheet.values()) material.dispose(); this.replacementsSheet.clear();
+    for (const material of this.replacementsBand.values()) material.dispose(); this.replacementsBand.clear();
     this.geometry.dispose(); this.earth.dispose(); this.mask.dispose(); this.group.removeFromParent();
     this.records.length = 0; this.active.length = 0;
   }
