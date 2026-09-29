@@ -1,4 +1,4 @@
-import type { Object3D } from 'three/webgpu';
+import { Group, type Object3D } from 'three/webgpu';
 import { EarthGlobe, buildTileMesh } from '../planet/EarthGlobe';
 import { EARTH } from '../planet/PlanetBody';
 import { PlanetQuadtree } from '../planet/PlanetQuadtree';
@@ -108,6 +108,10 @@ export class EarthProvider implements WorldProvider {
 
   get stats(): { tiles: number; triangles: number; visible: boolean; altitudeM: number } {
     return { ...this.globe.stats, altitudeM: this.altitudeM };
+  }
+
+  get manausSurfaceAnchor(): Group {
+    return this.globe.manausSurfaceAnchor;
   }
 
   /**

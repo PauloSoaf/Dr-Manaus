@@ -100,13 +100,20 @@ export class Game {
     this.actorRoot.name='Actors · player & dynamic entities';
     this.rendering.scene.add(this.celestialRoot);
     this.rendering.scene.add(this.planetaryRoot);
-    this.rendering.scene.add(this.localWorldRoot);
     this.rendering.scene.add(this.actorRoot);
     this.atmosphere=new Atmosphere(this.rendering.scene);
     // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
     this.space=new SpaceLayer(this.celestialRoot,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe});
-    if(FEATURES.earthGlobe){this.earth=new EarthProvider(this.planetRoot,this.universe.frames,{cityOwnsGround:!FEATURES.curvedManaus,renderSpace:this.universe.renderSpace});this.universe.providers.register(this.earth);}
+    if(FEATURES.earthGlobe){
+      this.earth=new EarthProvider(this.planetRoot,this.universe.frames,{cityOwnsGround:!FEATURES.curvedManaus,renderSpace:this.universe.renderSpace});
+      this.universe.providers.register(this.earth);
+      this.earth.manausSurfaceAnchor.add(this.localWorldRoot);
+      this.localWorldRoot.position.set(0, 0, 0);
+      this.localWorldRoot.quaternion.identity();
+    } else {
+      this.rendering.scene.add(this.localWorldRoot);
+    }
     // The Moon as a place rather than a point of light. Its own flag, because it is a
     // destination and the flight that reaches it is a different sprint from the one that draws
     // the Earth.
@@ -312,7 +319,9 @@ export class Game {
           Math.round(this.player.position.y / 1024) * 1024,
           Math.round(this.player.position.z / 1024) * 1024,
         );
-        this.localRoot.position.copy(this.origin).negate();
+        if (!this.earth) {
+          this.localRoot.position.copy(this.origin).negate();
+        }
         this.actorRoot.position.copy(this.origin).negate();
         this.camera.inSpace = false;
         this.hud.notify(`Reentrada · Terra`);
@@ -438,10 +447,12 @@ export class Game {
       // far pass just drew. A planet-aware shell replaces it; until then it stands down with the
       // flat ground it belongs to.
       const isEarth = this.universe.telemetry.dominantBody === 'earth';
-      const state = this.earthTransition.update(isEarth ? this.universe.telemetry.altitudeM : Number.POSITIVE_INFINITY, this.earth);
+      const altitudeM = isEarth ? this.universe.telemetry.altitudeM : Number.POSITIVE_INFINITY;
+      const state = this.earthTransition.update(altitudeM, this.earth);
       // Wait until target coverage is ready before hiding the local ground.
       // keepLocalFallback folds regionalWeight and guards until target representation is verified.
-      const localGround = state.keepLocalFallback && isEarth;
+      // Above 60 km (orbit), local world stands down cleanly.
+      const localGround = isEarth && altitudeM < 60_000 && (state.localWeight > 0.01 || !state.targetCoverageReady);
       this.flatTerrain.visible=localGround;
       this.localWorldRoot.visible=localGround;
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
@@ -477,7 +488,9 @@ export class Game {
         Math.round(this.player.position.y/1024)*1024,
         Math.round(this.player.position.z/1024)*1024,
       );
-      this.localRoot.position.copy(this.origin).negate();
+      if (!this.earth) {
+        this.localRoot.position.copy(this.origin).negate();
+      }
       this.actorRoot.position.copy(this.origin).negate();
     }
     if(local){

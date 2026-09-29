@@ -5,7 +5,8 @@ import {
 import {
   attribute, cameraPosition, float, normalWorld, positionWorld, smoothstep, uniform,
 } from 'three/tsl';
-import type { Quat } from '../spatial/units';
+import { scaleVec3, cloneVec3, quatFromBasis, type Quat, type Vec3 } from '../spatial/units';
+import { MANAUS_ANCHOR_ECEF, MANAUS_BASIS } from '../spatial/ManausFrameAdapter';
 import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
 import { directionToGeodetic } from './CubeSphere';
@@ -14,7 +15,6 @@ import { surfaceColour } from './EarthLandMask';
 import { surfaceHeightAt, surfaceNormalEnu } from './EarthElevation';
 import { enuBasis } from '../spatial/ENU';
 import { faceUvToDirection } from './CubeSphere';
-import type { Vec3 } from '../spatial/units';
 
 export function parseTileKey(key: string): PlanetTileAddress | undefined {
   const parts = key.split(':');
@@ -228,6 +228,8 @@ export class EarthGlobe {
   private triangles = 0;
   private fallbackTriangles = 0;
 
+  readonly manausSurfaceAnchor = new Group();
+
   constructor(parent: Object3D) {
     this.group.name = 'earth-globe';
     this.group.visible = false;
@@ -238,6 +240,14 @@ export class EarthGlobe {
     this.fallbackGroup.layers.set(PLANET_LAYER);
     this.group.add(this.fallbackGroup);
     this.initCoarseFallback();
+
+    // Geometric anchor permanently holding Manaus onto the WGS84 surface
+    const south = scaleVec3(cloneVec3(MANAUS_BASIS.north), -1, [0, 0, 0]);
+    const rot = quatFromBasis(cloneVec3(MANAUS_BASIS.east), cloneVec3(MANAUS_BASIS.up), south);
+    this.manausSurfaceAnchor.name = 'manaus-surface-anchor';
+    this.manausSurfaceAnchor.position.set(MANAUS_ANCHOR_ECEF.xM, MANAUS_ANCHOR_ECEF.yM, MANAUS_ANCHOR_ECEF.zM);
+    this.manausSurfaceAnchor.quaternion.set(rot[0], rot[1], rot[2], rot[3]);
+    this.group.add(this.manausSurfaceAnchor);
 
     this.atmosphereMaterial = this.buildAtmosphereMaterial();
     const atmoGeo = new SphereGeometry(6378137 + 60000, 64, 64);

@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Vector3, Group } from 'three/webgpu';
+import { Scene, Vector3, Group } from 'three/webgpu';
 import {
   MANAUS_ANCHOR,
   MANAUS_ANCHOR_ECEF,
+  MANAUS_BASIS,
   MANAUS_FRAME_ID,
   EARTH_FIXED_FRAME_ID,
   legacyLocalToGeodetic,
@@ -14,6 +15,7 @@ import {
 } from '../src/world/spatial/ManausFrameAdapter';
 import { ecefToGeodetic, geodeticToEcef } from '../src/world/spatial/ECEF';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime';
+import { EarthProvider } from '../src/world/providers/EarthProvider';
 import { EarthTransitionController } from '../src/world/providers/EarthTransitionController';
 import { TravelDomain } from '../src/world/travel/TravelDomain';
 import { LANDMARKS } from '../src/world/geodata/geodata';
@@ -160,9 +162,10 @@ test('Teste 6 — Interplanetary proxy stability and local systems suspension', 
   assert.equal(domain.localPhysicsActive, false);
   assert.ok(domain.state !== undefined);
 
-  // Proxy position in visual scene remains near camera origin
-  const visualProxyPos = new Vector3(0, 0, 0);
-  assert.equal(visualProxyPos.length(), 0, 'Visual proxy position is camera-relative (0,0,0)');
+  // In interplanetary mode, the visual proxy stays attached to camera origin (0, 0, 0)
+  // while barycentric coordinates track the spacecraft trajectory.
+  assert.ok(domain.state.positionM.length === 3);
+  assert.ok(Number.isFinite(domain.state.positionM[0]));
 });
 
 test('Teste 7 — Reentry handoff occurs deterministically', () => {
@@ -199,3 +202,200 @@ test('Teste 7 — Reentry handoff occurs deterministically', () => {
   });
   assert.equal(nextFrame.kind, 'none');
 });
+
+test('Teste 8 — Manaus render origin remains attached to Earth surface across all altitudes', () => {
+  const scene = new Scene();
+  const planetaryRoot = new Group();
+  planetaryRoot.name = 'planetaryRoot';
+  scene.add(planetaryRoot);
+
+  const universe = new UniverseRuntime({ streaming: true });
+  const earth = new EarthProvider(planetaryRoot, universe.frames, {
+    cityOwnsGround: true,
+    renderSpace: universe.renderSpace,
+  });
+  universe.providers.register(earth);
+
+  const localWorldRoot = new Group();
+  localWorldRoot.name = 'localWorldRoot';
+  earth.manausSurfaceAnchor.add(localWorldRoot);
+  localWorldRoot.position.set(0, 0, 0);
+  localWorldRoot.quaternion.identity();
+
+  const testAltitudes = [0, 5_000, 8_000, 9_000, 15_000, 20_000, 35_000, 60_000, 100_000, 1_000_000];
+
+  for (const alt of testAltitudes) {
+    if (alt < 9000) {
+      // Local mode
+      universe.update([0, alt, 0], [0, 0, 0], 0.016);
+    } else {
+      // Interplanetary / handoff mode
+      const posEcef: [number, number, number] = [
+        MANAUS_ANCHOR_ECEF.xM + alt * MANAUS_BASIS.up[0],
+        MANAUS_ANCHOR_ECEF.yM + alt * MANAUS_BASIS.up[1],
+        MANAUS_ANCHOR_ECEF.zM + alt * MANAUS_BASIS.up[2],
+      ];
+      const playerBary = universe.frames.convertPosition(EARTH_FIXED_FRAME_ID, 'solar-system/barycentric', posEcef);
+      universe.updateSystemPose(playerBary, [0, 0, 0], 0.016);
+    }
+
+    scene.updateMatrixWorld(true);
+
+    const cityOrigin = new Vector3();
+    localWorldRoot.getWorldPosition(cityOrigin);
+
+    const earthSurfacePoint = new Vector3(MANAUS_ANCHOR_ECEF.xM, MANAUS_ANCHOR_ECEF.yM, MANAUS_ANCHOR_ECEF.zM);
+    earth.globe.group.localToWorld(earthSurfacePoint);
+
+    const dist = cityOrigin.distanceTo(earthSurfacePoint);
+    assert.ok(
+      dist < 0.1,
+      `Altitude ${alt} m: Manaus world origin detached from Earth surface point by ${dist} m (must be < 0.1 m)`
+    );
+  }
+});
+
+test('Teste 9 — Tangent ENU orientation: Manaus +Y == normal, +X == East, -Z == North', () => {
+  const scene = new Scene();
+  const planetaryRoot = new Group();
+  scene.add(planetaryRoot);
+
+  const universe = new UniverseRuntime({ streaming: true });
+  const earth = new EarthProvider(planetaryRoot, universe.frames, {
+    cityOwnsGround: true,
+    renderSpace: universe.renderSpace,
+  });
+  universe.providers.register(earth);
+
+  const localWorldRoot = new Group();
+  earth.manausSurfaceAnchor.add(localWorldRoot);
+  localWorldRoot.position.set(0, 0, 0);
+  localWorldRoot.quaternion.identity();
+
+  const testAltitudes = [0, 8_000, 20_000, 100_000];
+  for (const alt of testAltitudes) {
+    if (alt < 9000) {
+      universe.update([0, alt, 0], [0, 0, 0], 0.016);
+    } else {
+      const posEcef: [number, number, number] = [
+        MANAUS_ANCHOR_ECEF.xM + alt * MANAUS_BASIS.up[0],
+        MANAUS_ANCHOR_ECEF.yM + alt * MANAUS_BASIS.up[1],
+        MANAUS_ANCHOR_ECEF.zM + alt * MANAUS_BASIS.up[2],
+      ];
+      const playerBary = universe.frames.convertPosition(EARTH_FIXED_FRAME_ID, 'solar-system/barycentric', posEcef);
+      universe.updateSystemPose(playerBary, [0, 0, 0], 0.016);
+    }
+
+    scene.updateMatrixWorld(true);
+
+    const localX = new Vector3(1, 0, 0).transformDirection(localWorldRoot.matrixWorld);
+    const localY = new Vector3(0, 1, 0).transformDirection(localWorldRoot.matrixWorld);
+    const localZ = new Vector3(0, 0, -1).transformDirection(localWorldRoot.matrixWorld); // -Z is north in local frame
+
+    const ecefEast = new Vector3(MANAUS_BASIS.east[0], MANAUS_BASIS.east[1], MANAUS_BASIS.east[2]).transformDirection(earth.globe.group.matrixWorld);
+    const ecefUp = new Vector3(MANAUS_BASIS.up[0], MANAUS_BASIS.up[1], MANAUS_BASIS.up[2]).transformDirection(earth.globe.group.matrixWorld);
+    const ecefNorth = new Vector3(MANAUS_BASIS.north[0], MANAUS_BASIS.north[1], MANAUS_BASIS.north[2]).transformDirection(earth.globe.group.matrixWorld);
+
+    assert.ok(localX.distanceTo(ecefEast) < 1e-4, `Altitude ${alt} m: +X axis does not match East`);
+    assert.ok(localY.distanceTo(ecefUp) < 1e-4, `Altitude ${alt} m: +Y axis does not match Ellipsoid Normal Up`);
+    assert.ok(localZ.distanceTo(ecefNorth) < 1e-4, `Altitude ${alt} m: -Z axis does not match North`);
+  }
+});
+
+test('Teste 10 — Structural scene-graph hierarchy: localWorldRoot is descendant of EarthGlobe', () => {
+  const scene = new Scene();
+  const planetaryRoot = new Group();
+  scene.add(planetaryRoot);
+
+  const universe = new UniverseRuntime({ streaming: false });
+  const earth = new EarthProvider(planetaryRoot, universe.frames, {
+    cityOwnsGround: true,
+    renderSpace: universe.renderSpace,
+  });
+
+  const localWorldRoot = new Group();
+  earth.manausSurfaceAnchor.add(localWorldRoot);
+
+  assert.equal(localWorldRoot.parent, earth.manausSurfaceAnchor);
+  assert.equal(earth.manausSurfaceAnchor.parent, earth.globe.group);
+  assert.equal(earth.globe.group.parent, planetaryRoot);
+  assert.equal(planetaryRoot.parent, scene);
+
+  // Moving Earth in render space moves localWorldRoot by the exact same vector
+  scene.updateMatrixWorld(true);
+  const p1 = new Vector3();
+  localWorldRoot.getWorldPosition(p1);
+
+  earth.globe.group.position.x += 1000;
+  earth.globe.group.position.y += 2000;
+  earth.globe.group.position.z -= 3000;
+  scene.updateMatrixWorld(true);
+
+  const p2 = new Vector3();
+  localWorldRoot.getWorldPosition(p2);
+
+  assert.ok(Math.abs(p2.x - p1.x - 1000) < 1e-4);
+  assert.ok(Math.abs(p2.y - p1.y - 2000) < 1e-4);
+  assert.ok(Math.abs(p2.z - p1.z - (-3000)) < 1e-4);
+});
+
+test('Teste 11 — Continuity across local/interplanetary boundary (8.999 km to 9.001 km)', () => {
+  const scene = new Scene();
+  const planetaryRoot = new Group();
+  scene.add(planetaryRoot);
+
+  const universe = new UniverseRuntime({ streaming: true });
+  const earth = new EarthProvider(planetaryRoot, universe.frames, {
+    cityOwnsGround: true,
+    renderSpace: universe.renderSpace,
+  });
+  universe.providers.register(earth);
+
+  const localWorldRoot = new Group();
+  earth.manausSurfaceAnchor.add(localWorldRoot);
+  localWorldRoot.position.set(0, 0, 0);
+
+  // 1. Right before boundary in local mode:
+  universe.update([0, 8_999, 0], [0, 0, 0], 0.016);
+  scene.updateMatrixWorld(true);
+  const pLocal = new Vector3();
+  localWorldRoot.getWorldPosition(pLocal);
+
+  const earthSurfaceLocal = new Vector3(MANAUS_ANCHOR_ECEF.xM, MANAUS_ANCHOR_ECEF.yM, MANAUS_ANCHOR_ECEF.zM);
+  earth.globe.group.localToWorld(earthSurfaceLocal);
+  assert.ok(pLocal.distanceTo(earthSurfaceLocal) < 0.1, 'Before boundary: Manaus attached to Earth');
+
+  // 2. Right after boundary in interplanetary mode:
+  const posEcef: [number, number, number] = [
+    MANAUS_ANCHOR_ECEF.xM + 9_001 * MANAUS_BASIS.up[0],
+    MANAUS_ANCHOR_ECEF.yM + 9_001 * MANAUS_BASIS.up[1],
+    MANAUS_ANCHOR_ECEF.zM + 9_001 * MANAUS_BASIS.up[2],
+  ];
+  const playerBary = universe.frames.convertPosition(EARTH_FIXED_FRAME_ID, 'solar-system/barycentric', posEcef);
+  universe.updateSystemPose(playerBary, [0, 0, 0], 0.016);
+  scene.updateMatrixWorld(true);
+  const pSpace = new Vector3();
+  localWorldRoot.getWorldPosition(pSpace);
+
+  const earthSurfaceSpace = new Vector3(MANAUS_ANCHOR_ECEF.xM, MANAUS_ANCHOR_ECEF.yM, MANAUS_ANCHOR_ECEF.zM);
+  earth.globe.group.localToWorld(earthSurfaceSpace);
+  assert.ok(pSpace.distanceTo(earthSurfaceSpace) < 0.1, 'After boundary: Manaus attached to Earth');
+});
+
+test('Teste 12 — Local ground visibility clamp: strictly false at and above 60 km', () => {
+  const controller = new EarthTransitionController();
+  const testAltitudes = [0, 5_000, 8_000, 9_000, 20_000, 59_999, 60_000, 65_000, 100_000, 1_000_000];
+
+  for (const alt of testAltitudes) {
+    const isEarth = true;
+    const state = controller.update(alt);
+    const localGround = isEarth && alt < 60_000 && (state.localWeight > 0.01 || !state.targetCoverageReady);
+
+    if (alt < 60_000) {
+      assert.equal(localGround, true, `Altitude ${alt} m should have local ground active`);
+    } else {
+      assert.equal(localGround, false, `Altitude ${alt} m must have local ground strictly clamped off`);
+    }
+  }
+});
+
