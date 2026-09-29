@@ -365,6 +365,36 @@ export class PlayerController {
   }
 
   /**
+   * Updates the visual proxy during interplanetary travel.
+   * The logical position moves through UniverseRuntime/TravelDomain, while the visual model
+   * stays at the camera-relative origin with flight animation alive and oriented by view/thrust.
+   */
+  updateTravelVisual(dt: number, speedMps: number, viewForward: Vector3, cameraYaw: number, cameraPitch: number, isBoosting = true): void {
+    this.model.position.set(0, 0, 0);
+    this.model.scale.setScalar(this.size);
+    this.forward.copy(viewForward).normalize();
+    this.facingYaw = cameraYaw;
+    this.speedMode = 'interplanetary';
+    this.state = 'Flight';
+    this.character.animate(
+      dt,
+      speedMps,
+      true,
+      isBoosting,
+      'interplanetary',
+      0,
+      0,
+      this.size,
+      undefined,
+      1,
+      'interplanetary',
+      viewForward,
+      cameraYaw,
+      { desiredSpeed: speedMps, grounded: false, dodge: undefined },
+    );
+  }
+
+  /**
    * One button, read against the situation: a roll with both feet down, a dash otherwise. The
    * direction comes from the movement keys relative to the camera, and from the facing when the
    * player is holding nothing — dodging on the spot should still go somewhere.

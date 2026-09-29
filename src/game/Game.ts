@@ -52,9 +52,16 @@ import { InterplanetaryController } from '../world/travel/InterplanetaryControll
 import { MANAUS_FRAME_ID } from '../world/spatial/ManausFrameAdapter';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
-  readonly save=new SaveManager();readonly assets=new AssetManager();readonly rendering:RendererManager;
-  readonly localRoot=new Group();readonly actorRoot=new Group();readonly planetRoot=new Group();
-  readonly worldRoot=this.localRoot;readonly origin=new Vector3();readonly player:PlayerController;readonly input:InputController;readonly camera:CameraController;
+  readonly save = new SaveManager(); readonly assets = new AssetManager(); readonly rendering: RendererManager;
+  readonly celestialRoot = new Group();
+  readonly planetaryRoot = new Group();
+  readonly localWorldRoot = new Group();
+  readonly actorRoot = new Group();
+  /** Backward-compatible aliases */
+  readonly localRoot = this.localWorldRoot;
+  readonly worldRoot = this.localWorldRoot;
+  readonly planetRoot = this.planetaryRoot;
+  readonly origin = new Vector3(); readonly player: PlayerController; readonly input: InputController; readonly camera: CameraController;
   readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
   readonly forest:ForestBackdrop;readonly terrain:TerrainDestruction;readonly airport=new AuthoredDestruction();
@@ -87,15 +94,17 @@ export class Game {
   private mark=0;private lastSpeed=0;private district='AMAZONAS';
   constructor(container:HTMLElement){
     this.rendering=new RendererManager(container);
-    this.localRoot.name='Manaus · local city/terrain';
+    this.celestialRoot.name='Celestial · stars & deep space visuals';
+    this.planetaryRoot.name='Planetary · camera-relative celestial bodies';
+    this.localWorldRoot.name='Manaus · local city/terrain';
     this.actorRoot.name='Actors · player & dynamic entities';
-    this.planetRoot.name='Planets · camera-relative celestial bodies';
-    this.rendering.scene.add(this.localRoot);
+    this.rendering.scene.add(this.celestialRoot);
+    this.rendering.scene.add(this.planetaryRoot);
+    this.rendering.scene.add(this.localWorldRoot);
     this.rendering.scene.add(this.actorRoot);
-    this.rendering.scene.add(this.planetRoot);
     this.atmosphere=new Atmosphere(this.rendering.scene);
-    // Lights belong to every domain: a light left on layer 0 alone would leave the planet black.
-    this.space=new SpaceLayer(this.rendering.scene,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
+    // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
+    this.space=new SpaceLayer(this.celestialRoot,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe});
     if(FEATURES.earthGlobe){this.earth=new EarthProvider(this.planetRoot,this.universe.frames,{cityOwnsGround:!FEATURES.curvedManaus,renderSpace:this.universe.renderSpace});this.universe.providers.register(this.earth);}
     // The Moon as a place rather than a point of light. Its own flag, because it is a
@@ -114,7 +123,7 @@ export class Game {
     // Behind its flag, and a provider rather than a renderer: the scheduler decides when a
     // sector loads, the budget applies, and a sector nobody wants is disposed.
     if(FEATURES.galaxyTravel){
-      this.galaxy=new StarSectorProvider(this.rendering.scene);
+      this.galaxy=new StarSectorProvider(this.celestialRoot);
       this.universe.providers.register(this.galaxy);
       
       const LY_TO_M = 9.4607304725808e15;
@@ -122,11 +131,11 @@ export class Game {
       // Instantiate Local Group galaxies (except Milky Way which is local)
       for (const galDef of LOCAL_GROUP_CATALOG) {
         if (galDef.id === 'milky_way') continue;
-        const galProv = new GalaxyProvider(this.rendering.scene, { galaxy: galDef });
+        const galProv = new GalaxyProvider(this.celestialRoot, { galaxy: galDef });
         this.localGroup.push(galProv);
       }
       
-      this.sgra = new BlackHoleProvider(this.rendering.scene, {
+      this.sgra = new BlackHoleProvider(this.celestialRoot, {
         blackHole: {
           id: 'sgra',
           massKg: 8.26e36,
@@ -141,7 +150,7 @@ export class Game {
         }
       });
       
-      this.cosmicWeb = new LargeScaleStructureProvider(this.rendering.scene);
+      this.cosmicWeb = new LargeScaleStructureProvider(this.celestialRoot);
     }
     this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
     this.input=new InputController(this.rendering.renderer.domElement);
@@ -335,23 +344,14 @@ export class Game {
     else if (local) this.player.update(dt,FEATURES.curvedManaus?this.curvedColliders:this.colliders,this.camera.yaw,this.camera.pitch);
     else {
       const simSpeed = this.currentGameplaySpeedMps();
-      this.player.character.animate(
+      this.player.updateTravelVisual(
         dt,
         simSpeed,
-        true,
-        true,
-        'interplanetary',
-        0,
-        0,
-        this.player.size,
-        undefined,
-        1,
-        'interplanetary',
         this.viewForward,
-        this.camera.yaw
+        this.camera.yaw,
+        this.camera.pitch,
+        this.input.held('KeyB')
       );
-      this.player.model.position.set(0, 0, 0);
-      this.player.model.scale.setScalar(this.player.size);
     }
     this.lap('player');
 
@@ -439,11 +439,11 @@ export class Game {
       // flat ground it belongs to.
       const isEarth = this.universe.telemetry.dominantBody === 'earth';
       const state = this.earthTransition.update(isEarth ? this.universe.telemetry.altitudeM : Number.POSITIVE_INFINITY, this.earth);
-      // Wait until target coverage is ready before hiding the local ground
-      // localWeight will be 1 until target is ready, but when ready it drops to 0 at high altitude.
-      const localGround = state.localWeight > 0.01 && isEarth;
+      // Wait until target coverage is ready before hiding the local ground.
+      // keepLocalFallback folds regionalWeight and guards until target representation is verified.
+      const localGround = state.keepLocalFallback && isEarth;
       this.flatTerrain.visible=localGround;
-      this.localRoot.visible=localGround;
+      this.localWorldRoot.visible=localGround;
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
       // later in the frame, so a `visible` flag written here is gone by the time anything is
       // drawn -- which is why the far pass drew the planet and the shell painted over it.

@@ -76,7 +76,7 @@ export class SpaceLayer {
   private nightBlend = 0;
   private axis = new Vector3(0, 1, 0);
   private facing = new Vector3(0, 0, -1);
-  constructor(private scene: Scene, private camera: PerspectiveCamera) {
+  constructor(private scene: Scene | Group, private camera: PerspectiveCamera) {
     this.stars = new Mesh(this.buildStars(), this.starMaterial);
     this.shell = new Mesh(new SphereGeometry(SHELL_RADIUS, 48, 28), this.shellMaterial);
     this.disc = new Mesh(new PlaneGeometry(SUN_QUAD, SUN_QUAD), this.discMaterial);

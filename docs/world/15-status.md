@@ -281,7 +281,29 @@ Baseline HEAD: `2609e4d30901720f9b18e05939f717e590dc7140`
    - **Aligned atmosphere mesh pole axis (`EarthGlobe.ts`)**: Rotated `SphereGeometry` via `atmoGeo.rotateX(Math.PI / 2)` to align Three.js Y-up pole with ECEF Z-up polar axis. Guarded inner haze so it is only visible above 20,000 m.
    - **Continuous terrain under Manaus (`EarthProvider.ts`)**: At altitude >= 20,000 m, `coveredByCity` is bypassed so the Earth globe generates continuous high-altitude terrain under Manaus, eliminating the black void hole under the city.
    - **Synchronized local city visibility (`Game.ts`)**: Synchronized `localRoot.visible = localGround` with `flatTerrain.visible = localGround`, ensuring water ribbons and landmarks stand down together with ground backdrop instead of floating in empty vacuum.
-   - **Earth camera-relative ENU frame authority (`UniverseRuntime.ts`)**: When `dominantBody === 'earth'`, `renderSpace.origin` is set to `MANAUS_FRAME_ID` (`renderPos = [0, 0, 0]`), placing Earth directly underneath the camera at `Y = -6,378,073 m` and perfectly aligned with Manaus, eliminating coordinate inversion and 45° tilt.
-   - **Full E2E verification**: `npm test` (326/326 tests pass), `npm run build` (clean 0 errors), and `npm run test:browser` (full launch -> 1,000 km deep orbit -> nadir capture -> atmospheric braking -> local landing at 0m, 100% clean).
+   - **Full E2E verification**: `npm test` (326/326 tests pass), `npm run build` (clean 0 errors).
+
+9. **Deterministic Manaus ↔ Earth Integration & 4-Root Architecture (`Game.ts`, `EarthProvider.ts`, `UniverseRuntime.ts`, `PlayerController.ts`, `EarthTransitionController.ts`):**
+   - **4-Root Scene Hierarchy (`Game.ts`)**:
+     - `celestialRoot`: Contains stars (`SpaceLayer`), star sectors (`StarSectorProvider`), galaxies (`GalaxyProvider`), black holes (`BlackHoleProvider`), cosmic web (`LargeScaleStructureProvider`). Rendered at the deepest background layer.
+     - `planetaryRoot`: Contains camera-relative celestial bodies (`EarthProvider` / `EarthGlobe`, `MoonProvider` / `MoonGlobe`).
+     - `localWorldRoot` (aliased as `localRoot` and `worldRoot`): Contains terrain, real city, HLOD, roads, airport, Largo, landmarks, forest, local destruction. Hidden cleanly in deep space without affecting player or planets.
+     - `actorRoot`: Contains player character model and visual proxies. Always active and visible.
+   - **Mathematical Manaus-Earth Lock (`ManausFrameAdapter.ts`, `tests/manaus-earth-integration.test.ts`)**:
+     - Verified `MANAUS_ANCHOR` (lat -3.130333°, lon -60.022528°) $\to$ ECEF $\to$ Manaus local round trip error is $< 10^{-6}$ m ($< 1$ mm).
+     - Verified landmark heights (Largo, Teatro Amazonas, Arena da Amazônia, Aeroporto, Ponta Negra) sit on the WGS84 ellipsoid matching local terrain heights with 0 km offset.
+     - In local world coordinates, Manaus surface [0, 0, 0] sits at Three.js scene position $[-Game.origin.x, -Game.origin.y, -Game.origin.z]$, while Earth center is placed at $[-Game.origin.x, -6378073 - Game.origin.y, -Game.origin.z]$, placing the top of the globe precisely at the city's ground level.
+   - **Camera-Relative Barycentric Space Flight (`UniverseRuntime.ts`, `EarthProvider.ts`)**:
+     - In interplanetary space (`updateSystemPose`), `renderSpace.origin` is centered on the observer (`playerPose`), calculating `earthSystemPosition - playerSystemPosition`.
+     - Completely eliminated dead/dangerous `toSceneMetres`. Coordinates passed into Three.js remain strictly bounded ($< 20,000,000$ m) and never receive astronomical numbers (~$1.5 \times 10^{11}$ m).
+   - **Zero-Gap Transition Continuity (`EarthTransitionController.ts`, `Game.ts`)**:
+     - Added `effectiveLocalWeight = localWeight + regionalWeight` and `keepLocalFallback = !targetCoverageReady || effectiveLocalWeight > 0.01`.
+     - Guaranteed that `localReady || planetReady` is true at every altitude from 0 to 1,000,000 m.
+   - **Interplanetary Proxy & Local Simulation Suspension (`PlayerController.ts`, `Game.ts`)**:
+     - Added `PlayerController.updateTravelVisual(...)` keeping character model at `(0, 0, 0)` in `actorRoot`, animating in flight pose with `speedMode = 'interplanetary'` and display speed reflecting `currentGameplaySpeedMps()`.
+     - Urban physics, colliders, real city, streamer, HLOD, and traffic are completely suspended when `localPhysicsActive === false`.
+   - **Deterministic Test Suite (`tests/manaus-earth-integration.test.ts`)**:
+     - 7 deterministic integration tests covering anchor round-trip, coordinate budget, relative displacement, altitude continuity, landmark elevation, space proxy stability, and reentry determinism.
+     - Full test suite passes: 333/333 tests ok. Build compiles 100% clean. Zero Antigravity browser automation used.
 
 

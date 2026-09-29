@@ -361,13 +361,6 @@ export class EarthProvider implements WorldProvider {
     return this.frames.convertPosition(EARTH_FIXED_FRAME_ID, this.playerFrameId, [0, 0, 0]);
   }
 
-  /** Earth-fixed metres into the scene's own metres, through the frame graph. */
-  private toSceneMetres(position: EcefPosition): Vec3 {
-    return this.frames.convertPosition(
-      EARTH_FIXED_FRAME_ID, this.playerFrameId, [position.xM, position.yM, position.zM],
-    );
-  }
-
   /**
    * The rotation carrying Earth-fixed axes into the scene's. Cached per active frame.
    */

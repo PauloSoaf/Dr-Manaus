@@ -17,6 +17,8 @@ export interface EarthTransitionState {
   readonly targetCoverageReady: boolean;
   readonly readiness: EarthCoverageReadiness;
   readonly phase: EarthTransitionPhase;
+  readonly effectiveLocalWeight: number;
+  readonly keepLocalFallback: boolean;
 }
 
 export class EarthTransitionController {
@@ -65,6 +67,10 @@ export class EarthTransitionController {
       phase = isAscending ? 'REQUESTING_PLANET' : 'RETURNING_LOCAL';
     }
 
+    // Fold regionalWeight into effectiveLocalWeight so no altitude band is left without coverage
+    const effectiveLocalWeight = localWeight + regionalWeight;
+    const keepLocalFallback = !targetCoverageReady || effectiveLocalWeight > 0.01;
+
     return {
       localWeight,
       regionalWeight,
@@ -73,6 +79,8 @@ export class EarthTransitionController {
       targetCoverageReady,
       readiness,
       phase,
+      effectiveLocalWeight,
+      keepLocalFallback,
     };
   }
 }
