@@ -311,14 +311,11 @@ export class Game {
         const newLocalPos = this.universe.handoffTo('moon');
         this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
         this.hud.notify(`Órbita de interceptação · Lua`);
-      } else if (this.universe.telemetry.frame !== 'earth/fixed' && this.universe.telemetry.frame !== 'manaus/legacy-local' && targetBody === 'earth') {
+      } else if (this.universe.telemetry.frame !== 'earth/fixed' && this.universe.telemetry.frame !== MANAUS_FRAME_ID && targetBody === 'earth') {
         const newLocalPos = this.universe.handoffTo('earth');
         this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
-        this.origin.set(
-          Math.round(this.player.position.x / 1024) * 1024,
-          Math.round(this.player.position.y / 1024) * 1024,
-          Math.round(this.player.position.z / 1024) * 1024,
-        );
+        const uOrigin = this.universe.floatingOrigin.logicalOrigin.position;
+        this.origin.set(uOrigin[0], uOrigin[1], uOrigin[2]);
         if (!this.earth) {
           this.localRoot.position.copy(this.origin).negate();
         }
@@ -478,20 +475,15 @@ export class Game {
       }
     }
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
-    if(local && this.player.position.distanceTo(this.origin)>WORLD.originThreshold){
-      // All three axes. Y used to be pinned to zero, which was harmless while the sky was a
-      // 140 km lid and is not now: at orbital altitude the character sits hundreds of kilometres
-      // from the render origin, bone matrices are float32, and the skin comes apart -- the higher
-      // you fly, the worse it gets. Rebasing Y keeps the body next to the origin at any altitude.
-      this.origin.set(
-        Math.round(this.player.position.x/1024)*1024,
-        Math.round(this.player.position.y/1024)*1024,
-        Math.round(this.player.position.z/1024)*1024,
-      );
-      if (!this.earth) {
-        this.localRoot.position.copy(this.origin).negate();
+    if(local){
+      const uOrigin = this.universe.floatingOrigin.logicalOrigin.position;
+      if (this.origin.x !== uOrigin[0] || this.origin.y !== uOrigin[1] || this.origin.z !== uOrigin[2]) {
+        this.origin.set(uOrigin[0], uOrigin[1], uOrigin[2]);
+        if (!this.earth) {
+          this.localRoot.position.copy(this.origin).negate();
+        }
+        this.actorRoot.position.copy(this.origin).negate();
       }
-      this.actorRoot.position.copy(this.origin).negate();
     }
     if(local){
       this.streamer.update(this.player.position,this.player.velocity,dt);this.lap('streamer');this.hlod.update(this.player.position,this.streamer.activeKeys);this.lap('hlod');

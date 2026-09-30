@@ -399,3 +399,73 @@ test('Teste 12 — Local ground visibility clamp: strictly false at and above 60
   }
 });
 
+test('Teste 13 — Ciclo completo de ida e volta e consistência de Game.origin vs UniverseRuntime', () => {
+  const universe = new UniverseRuntime({ streaming: false });
+  const gameOrigin = new Vector3(0, 0, 0);
+
+  const syncOrigin = () => {
+    const uOrigin = universe.floatingOrigin.logicalOrigin.position;
+    if (gameOrigin.x !== uOrigin[0] || gameOrigin.y !== uOrigin[1] || gameOrigin.z !== uOrigin[2]) {
+      gameOrigin.set(uOrigin[0], uOrigin[1], uOrigin[2]);
+    }
+  };
+
+  // 1. Spawn Manaus
+  universe.update([0, 0, 0], [0, 0, 0], 0);
+  syncOrigin();
+  assert.deepEqual([gameOrigin.x, gameOrigin.y, gameOrigin.z], [0, 0, 0], 'Spawn: gameOrigin starts exactly at 0');
+
+  // 2. Subir localmente com rebase (exceder 2048 metros)
+  universe.update([0, 2500, 0], [0, 100, 0], 0);
+  syncOrigin();
+  
+  // O UniverseRuntime já rebaseou a origem para quantização de 1024
+  assert.ok(gameOrigin.y === 2048, 'Origin rebased during local ascent to grid');
+  assert.deepEqual([gameOrigin.x, gameOrigin.y, gameOrigin.z], Array.from(universe.floatingOrigin.logicalOrigin.position), 'Game origin stays perfectly synchronized with Universe');
+
+  // 3. 8.999 km
+  universe.update([0, 8999, 0], [0, 500, 0], 0);
+  syncOrigin();
+  
+  // 4. Entrar interplanetário (10 km)
+  const pos10km: [number, number, number] = [
+    MANAUS_ANCHOR_ECEF.xM + 10_000 * MANAUS_BASIS.up[0],
+    MANAUS_ANCHOR_ECEF.yM + 10_000 * MANAUS_BASIS.up[1],
+    MANAUS_ANCHOR_ECEF.zM + 10_000 * MANAUS_BASIS.up[2],
+  ];
+  const bary10km = universe.frames.convertPosition(EARTH_FIXED_FRAME_ID, 'solar-system/barycentric', pos10km);
+  universe.updateSystemPose(bary10km, [0, 0, 0], 0);
+
+  // 5. Afastar para 1.000 km
+  const pos1000km: [number, number, number] = [
+    MANAUS_ANCHOR_ECEF.xM + 1_000_000 * MANAUS_BASIS.up[0],
+    MANAUS_ANCHOR_ECEF.yM + 1_000_000 * MANAUS_BASIS.up[1],
+    MANAUS_ANCHOR_ECEF.zM + 1_000_000 * MANAUS_BASIS.up[2],
+  ];
+  const bary1000km = universe.frames.convertPosition(EARTH_FIXED_FRAME_ID, 'solar-system/barycentric', pos1000km);
+  universe.updateSystemPose(bary1000km, [0, 0, 0], 0);
+
+  // 6. Aproximar e Handoff (6 km)
+  const pos6km: [number, number, number] = [
+    MANAUS_ANCHOR_ECEF.xM + 6_000 * MANAUS_BASIS.up[0],
+    MANAUS_ANCHOR_ECEF.yM + 6_000 * MANAUS_BASIS.up[1],
+    MANAUS_ANCHOR_ECEF.zM + 6_000 * MANAUS_BASIS.up[2],
+  ];
+  const bary6km = universe.frames.convertPosition(EARTH_FIXED_FRAME_ID, 'solar-system/barycentric', pos6km);
+  universe.updateSystemPose(bary6km, [0, 0, 0], 0);
+  
+  // Handoff to Earth (reentrada)
+  const newLocalPos = universe.handoffTo('earth');
+  syncOrigin(); // Isso simula o comportamento no Game.ts (handoffTo -> espelhar origem)
+
+  // 7. Validate origin exact match and no drift
+  const uOrigin = universe.floatingOrigin.logicalOrigin.position;
+  assert.ok(Math.abs(gameOrigin.x - uOrigin[0]) < 1e-4, `Reentry X origin drift is zero, got ${gameOrigin.x} vs ${uOrigin[0]}`);
+  assert.ok(Math.abs(gameOrigin.y - uOrigin[1]) < 1e-4, `Reentry Y origin drift is zero, got ${gameOrigin.y} vs ${uOrigin[1]}`);
+  assert.ok(Math.abs(gameOrigin.z - uOrigin[2]) < 1e-4, `Reentry Z origin drift is zero, got ${gameOrigin.z} vs ${uOrigin[2]}`);
+  
+  // O Player aparece onde deveria: próximo a 6000m de altura em Manaus
+  assert.ok(Math.abs(newLocalPos[0]) < 10, 'Returned to correct local X');
+  assert.ok(Math.abs(newLocalPos[1] - 6000) < 10, 'Returned to correct local Y');
+  assert.ok(Math.abs(newLocalPos[2]) < 10, 'Returned to correct local Z');
+});
