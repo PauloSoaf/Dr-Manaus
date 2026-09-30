@@ -17,6 +17,12 @@ import {
 } from '../streaming/TileDemand';
 import type { CoverageClaim, SpatialContext, StreamingContext, WorldProvider } from './WorldProvider';
 
+export interface MoonCoverageReadiness {
+  readonly activeTiles: number;
+  readonly coarseCoverageReady: boolean;
+  readonly surfaceCoverageReady: boolean;
+}
+
 /**
  * The Moon, as somewhere to go.
  *
@@ -52,7 +58,7 @@ export class MoonProvider implements WorldProvider {
   /** The Moon's centre in scene metres, refreshed from the ephemeris each frame. */
   private centreM: Vec3 = [0, 0, 0];
   private distanceM = Number.POSITIVE_INFINITY;
-  private presentationMode: 'celestial' | 'planet' | 'surface' = 'surface';
+  private streamingMode: 'off' | 'coarse' | 'surface' = 'off';
   private cachedPlan?: { demands: readonly TileDemand[]; observer: Vec3; radiusM: number; timeS: number };
 
   constructor(
@@ -81,6 +87,15 @@ export class MoonProvider implements WorldProvider {
     return { ...this.globe.stats, distanceM: this.distanceM };
   }
 
+  readiness(): MoonCoverageReadiness {
+    const tiles = this.globe.stats.tiles;
+    return {
+      activeTiles: tiles,
+      coarseCoverageReady: tiles >= 6,
+      surfaceCoverageReady: tiles >= 24,
+    };
+  }
+
   /** Claims nothing on Earth. Another body's ground is not this body's ground. */
   coverage(): readonly CoverageClaim[] { return []; }
 
@@ -106,14 +121,16 @@ export class MoonProvider implements WorldProvider {
       );
     }
 
-    // Only visible when representation is planet or surface
-    const active = this.presentationMode !== 'celestial';
-    this.globe.visible = active;
-    return active;
+    // Only active for streaming when streamingMode is not off
+    return this.streamingMode !== 'off';
   }
 
-  setPresentationMode(mode: 'celestial' | 'planet' | 'surface'): void {
-    this.presentationMode = mode;
+  setStreamingMode(mode: 'off' | 'coarse' | 'surface'): void {
+    this.streamingMode = mode;
+  }
+  
+  setVisible(visible: boolean): void {
+    this.globe.visible = visible;
   }
 
   /** Where the Moon is, from the ephemeris, in the scene's metres. Called by whoever has one. */

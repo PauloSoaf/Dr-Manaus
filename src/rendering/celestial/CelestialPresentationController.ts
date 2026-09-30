@@ -4,43 +4,39 @@ import type { EarthProvider } from '../../world/providers/EarthProvider';
 import type { MoonProvider } from '../../world/providers/MoonProvider';
 import { CelestialBodyVisualLayer } from './CelestialBodyVisualLayer';
 import type { CelestialRenderSample } from './types';
-import { EARTH_FIXED_FRAME_ID } from '../../world/spatial/ManausFrameAdapter';
+import { CELESTIAL_PROXY_DISTANCE_M, angularRadiusRad } from './math';
 
 export interface CelestialPresentationContext {
   universe: UniverseRuntime;
   earth?: EarthProvider;
   moon?: MoonProvider;
-  camera: PerspectiveCamera;
-  dt: number;
 }
 
-/**
- * Coordinates between the logical astronomical simulation (SolarSystem) and the visual presentation.
- * Calculates directions, angular sizes, and decides which representation (celestial disc, planet globe, surface)
- * should be active.
- */
+export interface CelestialRenderContext {
+  camera: PerspectiveCamera;
+}
+
 export class CelestialPresentationController {
   private readonly visualLayer: CelestialBodyVisualLayer;
+  private samples: CelestialRenderSample[] = [];
   
   constructor(visualLayer: CelestialBodyVisualLayer) {
     this.visualLayer = visualLayer;
   }
 
-  update(ctx: CelestialPresentationContext): void {
-    const { universe, earth, moon, camera } = ctx;
+  prepare(ctx: CelestialPresentationContext): void {
+    const { universe, earth, moon } = ctx;
     const system = universe.activeSystem;
     const telemetry = universe.telemetry;
     const observerFrame = universe.player.frame;
     const observerPos = universe.player.position;
 
-    // We need everything in a common astronomical frame (barycentric) to compute accurate directions and distances.
-    // However, since barycentric coordinates are large, we compute vectors locally when possible.
     const observerBary = universe.frames.convertPosition(observerFrame, 'solar-system/barycentric', observerPos);
     const earthBary = system.positionOf('earth');
     const sunBary = system.positionOf('sun');
     const moonBary = system.positionOf('moon');
 
-    const samples: CelestialRenderSample[] = [];
+    this.samples = [];
 
     // --- SUN ---
     if (sunBary) {
@@ -51,29 +47,26 @@ export class CelestialPresentationController {
         const dz = sunBary[2] - observerBary[2];
         const dist = Math.hypot(dx, dy, dz);
         
-        // Convert the direction into the render frame
         const sunDirRender = universe.frames.convertDirection(
           'solar-system/barycentric', 
           telemetry.frame, 
           [dx, dy, dz]
         );
         const sunDirRenderVec = new Vector3(sunDirRender[0], sunDirRender[1], sunDirRender[2]).normalize();
+        const angRad = angularRadiusRad(sunDef.equatorialRadiusM, dist);
 
-        const angularRadius = Math.asin(sunDef.equatorialRadiusM / dist);
-
-        samples.push({
+        this.samples.push({
           bodyId: 'sun',
           logicalDistanceM: dist,
           physicalRadiusM: sunDef.equatorialRadiusM,
-          angularRadiusRad: angularRadius,
+          angularRadiusRad: angRad,
           directionRender: [sunDirRenderVec.x, sunDirRenderVec.y, sunDirRenderVec.z],
-          proxyDistanceM: camera.far * 0.85,
-          proxyRadiusM: Math.tan(angularRadius) * (camera.far * 0.85),
-          mode: 'celestial',
-          blend: 1
+          proxyDistanceM: CELESTIAL_PROXY_DISTANCE_M,
+          proxyRadiusM: Math.tan(angRad) * CELESTIAL_PROXY_DISTANCE_M,
+          visible: true,
+          opacity: 1
         });
 
-        // Update lighting on Earth and Moon
         if (earth && earthBary) {
           earth.setSunDirection([sunBary[0] - earthBary[0], sunBary[1] - earthBary[1], sunBary[2] - earthBary[2]], 'solar-system/barycentric', telemetry.frame);
         }
@@ -99,36 +92,55 @@ export class CelestialPresentationController {
         );
         const moonDirRenderVec = new Vector3(moonDirRender[0], moonDirRender[1], moonDirRender[2]).normalize();
         
-        // Fix Moon center logic: it belongs in MOON_FIXED_FRAME_ID at [0,0,0], 
-        // we just translate it to the current render space.
-        const moonCentreRender = universe.renderSpace.logicalToRender('moon/fixed', [0,0,0]);
-        // But Game.ts was passing a vector to setCentre with 'earth/fixed' ? No, Game.ts used:
-        // moon.setCentre([moonAt - earthCentre], 'earth/fixed', telemetry.frame). 
-        // That was buggy because (moon - earth) barycentric is NOT earth/fixed!
-        // So we fix it: set the Moon's center directly in render space, or rely on its own tracking.
-        // The MoonGlobe already places itself at `this.universe.renderSpace.logicalToRender('moon/fixed', [0,0,0])` if we wire it right.
-        // Actually, MoonProvider expects `setCentre(pos, fromFrame, toFrame)`. 
-        // Let's pass the barycentric coordinate of the Moon directly.
         moon.setCentre(moonBary, 'solar-system/barycentric', telemetry.frame);
-
-        const angularRadius = Math.asin(moonDef.equatorialRadiusM / dist);
+        const angRad = angularRadiusRad(moonDef.equatorialRadiusM, dist);
         
-        // Handoff decision
-        let mode: 'celestial' | 'planet' | 'surface' = 'celestial';
-        let blend = 1;
+        let visible = true;
+        let opacity = 1;
+        let streamingMode: 'off' | 'coarse' | 'surface' = 'off';
 
-        // Use SolarSystem handoff logic if we want, but for Moon:
-        // angular radius > 0.05 rad (~3 deg, much closer than Earth's view) might switch to planet.
-        // Let's use simple angular rules to avoid popping.
-        if (angularRadius > 0.1) {
-          mode = 'surface';
-        } else if (angularRadius > 0.01) {
-          mode = 'planet';
+        const presentation = system.handoff('moon', observerBary);
+        if (presentation) {
+          const ready = moon.readiness();
+          const targetMode = presentation.mode;
+
+          // State machine mapping:
+          if (targetMode === 'celestial') {
+            streamingMode = 'off';
+            visible = true;
+            opacity = 1;
+            moon.setVisible(false);
+          } else if (targetMode === 'planet') {
+            streamingMode = 'coarse';
+            if (!ready.coarseCoverageReady) {
+              // REQUESTING_PLANET
+              visible = true;
+              opacity = 1;
+              moon.setVisible(false);
+            } else {
+              // CELESTIAL_PLANET_OVERLAP or PLANET_ONLY
+              visible = presentation.blend < 1; // still show if crossfading
+              opacity = 1 - presentation.blend;
+              moon.setVisible(true);
+            }
+          } else if (targetMode === 'surface') {
+            streamingMode = 'surface';
+            if (!ready.surfaceCoverageReady && !ready.coarseCoverageReady) {
+              // Fallback to celestial if completely unready
+              visible = true;
+              opacity = 1;
+              moon.setVisible(false);
+            } else {
+              // We have some physical representation
+              visible = false;
+              opacity = 0;
+              moon.setVisible(true);
+            }
+          }
         }
+        
+        moon.setStreamingMode(streamingMode);
 
-        moon.setPresentationMode(mode);
-
-        // Phase light direction: direction from Moon to Sun in render space
         let phaseLightDirRenderVec = undefined;
         if (sunBary) {
           const m2s_x = sunBary[0] - moonBary[0];
@@ -138,21 +150,23 @@ export class CelestialPresentationController {
           phaseLightDirRenderVec = new Vector3(m2sRender[0], m2sRender[1], m2sRender[2]).normalize();
         }
 
-        samples.push({
+        this.samples.push({
           bodyId: 'moon',
           logicalDistanceM: dist,
           physicalRadiusM: moonDef.equatorialRadiusM,
-          angularRadiusRad: angularRadius,
+          angularRadiusRad: presentation ? presentation.apparentAngularRadiusRad : angRad,
           directionRender: [moonDirRenderVec.x, moonDirRenderVec.y, moonDirRenderVec.z],
-          proxyDistanceM: camera.far * 0.80,
-          proxyRadiusM: Math.tan(angularRadius) * (camera.far * 0.80),
-          mode,
-          blend,
+          proxyDistanceM: CELESTIAL_PROXY_DISTANCE_M,
+          proxyRadiusM: Math.tan(presentation ? presentation.apparentAngularRadiusRad : angRad) * CELESTIAL_PROXY_DISTANCE_M,
+          visible,
+          opacity,
           phaseLightDirection: phaseLightDirRenderVec ? [phaseLightDirRenderVec.x, phaseLightDirRenderVec.y, phaseLightDirRenderVec.z] : undefined
         });
       }
     }
+  }
 
-    this.visualLayer.update(samples, camera);
+  render(ctx: CelestialRenderContext): void {
+    this.visualLayer.update(this.samples, ctx.camera);
   }
 }

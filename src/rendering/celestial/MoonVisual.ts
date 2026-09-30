@@ -28,13 +28,17 @@ export class MoonVisual {
     const rSq = x.mul(x).add(y.mul(y));
     const r = rSq.pow(0.5);
     
-    // We want the disc to be exactly r <= 0.9. Smooth edge for anti-aliasing.
-    const disc = float(1).sub(smoothstep(float(0.88), float(0.92), r));
+    // The physical edge of the sphere is at r=1 in local normalized coords.
+    const sx = x.div(0.9);
+    const sy = y.div(0.9);
+    const sphereR2 = sx.mul(sx).add(sy.mul(sy));
+    const normR = sphereR2.pow(0.5);
     
-    // Calculate a pseudo-normal for the sphere
-    // z = sqrt(1 - r^2)
-    const z = float(1).sub(rSq).max(0).pow(0.5);
-    const normal = vec3(x, y, z).normalize();
+    // We want the disc to be exactly normR <= 1.0. Smooth edge for anti-aliasing.
+    const disc = float(1).sub(smoothstep(float(0.98), float(1.0), normR));
+    
+    const z = float(1).sub(sphereR2).max(0).pow(0.5);
+    const normal = vec3(sx, sy, z).normalize();
     
     // Basic N.L diffuse lighting for phase
     // In local space, the camera looks down -Z. The moon is a billboard facing the camera, 
@@ -65,11 +69,8 @@ export class MoonVisual {
   }
 
   update(sample: CelestialRenderSample): void {
-    if (sample.mode !== 'celestial') {
-      this.group.visible = false;
-      return;
-    }
-    this.group.visible = true;
+    this.group.visible = sample.visible;
+    if (!this.group.visible) return;
 
     // Radius scaling. Our shader uses r=0.9 for the disc edge.
     // We want physical radius to be `proxyRadiusM`.

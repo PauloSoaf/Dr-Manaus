@@ -275,9 +275,12 @@ export class UniverseRuntime {
     if (this.activeSystem !== this.solarSystem) {
       this.activeSystem.update(this.timeS);
     }
+  }
 
+  updateStreaming(dtS: number): void {
     if (!this.options.streaming) { this.planetTiles = 0; return; }
-
+    
+    const dt = Math.max(0, Math.min(0.25, finite(dtS)));
     const speed = Math.hypot(this.velocity[0], this.velocity[1], this.velocity[2]);
     const context: StreamingContext = {
       spatial: this.spatialContext(),
@@ -322,22 +325,6 @@ export class UniverseRuntime {
       this.playerPose.orientation,
       this.timeS,
     ));
-
-    if (!this.options.streaming) { this.planetTiles = 0; return; }
-
-    const speed = Math.hypot(this.velocity[0], this.velocity[1], this.velocity[2]);
-    const context: StreamingContext = {
-      spatial: this.spatialContext(),
-      camera: {
-        fovRad: this.options.sse.fovRad,
-        viewportHeightPx: this.options.sse.viewportHeightPx,
-        forward: this.viewForward,
-      },
-      quality: { sseTargetPx: this.options.sse.targetPx, detailFactor: this.options.sse.detailFactor },
-      budget: budgetForSpeed(DEFAULT_STREAMING_BUDGET, speed),
-    };
-    this.scheduler.update(context, dt);
-    this.planetTiles = this.earthQuadtree.select(this.playerEcef(), this.options.sse).length;
   }
 
   public resolveBodyContext(): {

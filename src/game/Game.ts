@@ -441,6 +441,17 @@ export class Game {
       }
       
     }this.lap('universe');
+    
+    // Prepare celestial presentation state before streaming
+    this.celestialController.prepare({
+      universe: this.universe,
+      earth: this.earth,
+      moon: this.moon,
+    });
+    
+    // Process streaming based on updated presentation state
+    this.universe.updateStreaming(dt);
+
     // One ground at a time. The flat backdrop and the curved planet cannot both be the surface,
     // and above the handover altitude the curvature is what the player is looking at.
     if(this.earth){
@@ -464,17 +475,11 @@ export class Game {
       this.space.planetaryView=!localGround;
       // The far domain has to reach whatever the planet's distance is, or leaving orbit clips the
       // very thing the domain exists to show.
-      this.rendering.domains.setRange(this.universe.telemetry.altitudeM+6_378_137);
+      const dominantBodyId = this.universe.telemetry.dominantBody;
+      const dominantBodyDef = this.universe.activeSystem.bodies.find(b => b.id === dominantBodyId);
+      const dominantBodyRadius = dominantBodyDef ? dominantBodyDef.equatorialRadiusM : 6_378_137;
+      this.rendering.domains.setRange(this.universe.telemetry.altitudeM + dominantBodyRadius);
     }
-    
-    // Update celestial bodies visual presentation and illumination
-    this.celestialController.update({
-      universe: this.universe,
-      earth: this.earth,
-      moon: this.moon,
-      camera: this.rendering.camera,
-      dt: dt
-    });
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
     if(local){
       const uOrigin = this.universe.floatingOrigin.logicalOrigin.position;
@@ -507,6 +512,11 @@ export class Game {
     if(local){this.landmarks.update(this.player.position,worldDt);this.lap('landmarks');this.population.update(worldDt,this.player.position,this.player.size);this.lap('population');}this.missions.update(worldDt,this.player.position);
     this.camera.inSpace = !local;
     this.camera.update(this.player,this.origin,dt,local ? (FEATURES.curvedManaus?this.curvedColliders:this.colliders) : []);this.rendering.camera.updateMatrixWorld();
+    
+    // Render celestial presentation
+    this.celestialController.render({
+      camera: this.rendering.camera
+    });
     // After the camera settles: the portal skin samples in screen space, so a stale matrix would
     // stretch the galaxy by the viewport and leave it static as the player looks around.
     this.player.character.updateCosmicView(this.rendering.camera);

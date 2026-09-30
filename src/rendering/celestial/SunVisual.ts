@@ -46,11 +46,8 @@ export class SunVisual {
   }
 
   update(sample: CelestialRenderSample): void {
-    if (sample.mode !== 'celestial') {
-      this.group.visible = false;
-      return;
-    }
-    this.group.visible = true;
+    this.group.visible = sample.visible;
+    if (!this.group.visible) return;
 
     // The quad size needs to be larger than the physical proxy radius to fit the corona
     // The disc is drawn at r=0.5 in local quad space. So a quad of size S means r=0.5 is S/4.

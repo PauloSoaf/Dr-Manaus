@@ -12,8 +12,8 @@ export interface CelestialRenderSample {
   proxyDistanceM: number;
   proxyRadiusM: number;
 
-  mode: 'celestial' | 'planet' | 'surface';
-  blend: number;
+  visible: boolean;
+  opacity: number;
   
   // Phase light direction in render space, optional (used by moon)
   phaseLightDirection?: Vec3;

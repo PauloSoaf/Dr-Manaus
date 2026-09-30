@@ -41,7 +41,10 @@ test('the runtime tracks the world without touching it until streaming is switch
   const runtime = new UniverseRuntime();
   assert.equal(runtime.streamingEnabled, false, 'off by default, so nothing changes for the game');
 
-  for (let frame = 0; frame < 120; frame++) runtime.update([38, 2.2, 12], [0, 0, 0], 1 / 60);
+  for (let frame = 0; frame < 120; frame++) {
+    runtime.update([38, 2.2, 12], [0, 0, 0], 1 / 60);
+    runtime.updateStreaming(1 / 60);
+  }
   assert.equal(runtime.telemetry.streaming.tracked, 0, 'nothing was streamed');
   assert.equal(runtime.telemetry.planetTiles, 0, 'and no planet tiles were selected');
   // But the model is live: the clock advanced and the solar system moved with it.
@@ -49,6 +52,7 @@ test('the runtime tracks the world without touching it until streaming is switch
 
   runtime.streamingEnabled = true;
   runtime.update([38, 2.2, 12], [0, 0, 0], 1 / 60);
+  runtime.updateStreaming(1 / 60);
   assert.ok(runtime.telemetry.planetTiles > 0, 'switching it on selects planet tiles');
 });
 
@@ -82,6 +86,7 @@ test('the solar system is live inside the runtime, and Earth is where it should 
 test('a teleport cancels whatever was being streamed for somewhere else', () => {
   const runtime = new UniverseRuntime({ streaming: true });
   runtime.update([0, 0, 0], [0, 0, 0], 1 / 60);
+  runtime.updateStreaming(1 / 60);
   const before = runtime.telemetry.streaming.generation;
   runtime.prepare();
   assert.ok(runtime.telemetry.streaming.generation > before, 'the generation must advance');
