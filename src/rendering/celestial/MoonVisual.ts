@@ -10,6 +10,9 @@ export class MoonVisual {
   // Direction to the sun from the moon in render space (for phase calculation)
   private readonly uPhaseLightDir = uniform(new Vector3(1, 0, 0));
 
+  // Opacity uniform for crossfades
+  private readonly uOpacity = uniform(1);
+
   constructor() {
     this.group.name = 'MoonVisual';
     // 2x2 plane so local coords are [-1, 1]
@@ -58,8 +61,8 @@ export class MoonVisual {
     const earthshine = vec3(0.05, 0.08, 0.12).mul(float(1).sub(nDotL));
     
     const finalColor = lit.add(earthshine);
-    // Multiply alpha by disc shape to get the circle
-    const alpha = disc;
+    // Multiply alpha by disc shape and the uniform opacity to get the circle
+    const alpha = disc.mul(this.uOpacity);
 
     this.material.colorNode = vec4(finalColor, alpha);
 
@@ -68,8 +71,9 @@ export class MoonVisual {
     this.group.add(this.disc);
   }
 
-  update(sample: CelestialRenderSample): void {
+  update(sample: CelestialRenderSample, cameraPos: Vector3): void {
     this.group.visible = sample.visible;
+    this.uOpacity.value = Math.max(0, Math.min(1, sample.opacity));
     if (!this.group.visible) return;
 
     // Radius scaling. Our shader uses r=0.9 for the disc edge.
@@ -81,8 +85,8 @@ export class MoonVisual {
     const dir = sample.directionRender;
     this.group.position.set(dir[0], dir[1], dir[2]).multiplyScalar(sample.proxyDistanceM);
     
-    // Look at origin (camera). Local +Z points back at the camera.
-    this.group.lookAt(0, 0, 0);
+    // Look at camera in world space. Local +Z points back at the camera.
+    this.group.lookAt(cameraPos);
 
     // Update phase light dir. We must convert the world space light dir into the local space of the billboard.
     if (sample.phaseLightDirection) {

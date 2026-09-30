@@ -88,11 +88,25 @@ export class MoonProvider implements WorldProvider {
   }
 
   readiness(): MoonCoverageReadiness {
-    const tiles = this.globe.stats.tiles;
+    const activeTiles = this.globe.stats.tiles;
+    if (!this.cachedPlan || this.cachedPlan.demands.length === 0) {
+      return { activeTiles, coarseCoverageReady: false, surfaceCoverageReady: false };
+    }
+
+    let allRequiredReady = true;
+    for (const demand of this.cachedPlan.demands) {
+      if (!this.globe.has(tileKeyToString(demand.key))) {
+        allRequiredReady = false;
+        break;
+      }
+    }
+
+    // Coarse coverage means we have the minimum required tiles for the current coarse plan.
+    // Surface coverage means we have the required tiles for the surface plan.
     return {
-      activeTiles: tiles,
-      coarseCoverageReady: tiles >= 6,
-      surfaceCoverageReady: tiles >= 24,
+      activeTiles,
+      coarseCoverageReady: allRequiredReady,
+      surfaceCoverageReady: allRequiredReady && this.streamingMode === 'surface',
     };
   }
 
@@ -190,12 +204,15 @@ export class MoonProvider implements WorldProvider {
       return cached.demands;
     }
 
+    // In coarse mode, tolerate large screen space errors to force a shallow tree (e.g. root faces only).
+    const isCoarse = this.streamingMode === 'coarse';
+    
     const selection = this.quadtree.select(this.toMoonEcef(observer), {
       ...DEFAULT_SSE,
       fovRad: context.camera.fovRad,
       viewportHeightPx: context.camera.viewportHeightPx,
-      targetPx: context.quality.sseTargetPx,
-      detailFactor: context.quality.detailFactor,
+      targetPx: isCoarse ? 500 : context.quality.sseTargetPx,
+      detailFactor: isCoarse ? 0.1 : context.quality.detailFactor,
     });
 
     const demands: TileDemand[] = [];

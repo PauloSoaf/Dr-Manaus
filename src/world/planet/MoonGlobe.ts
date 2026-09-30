@@ -164,6 +164,10 @@ export class MoonGlobe {
   set visible(visible: boolean) { this.group.visible = visible; }
   get visible(): boolean { return this.group.visible; }
 
+  has(key: string): boolean {
+    return this.meshes.has(key);
+  }
+
   /** Where the Moon's centre sits, in the scene's own metres. */
   setCentre(positionM: Vec3): void {
     this.group.position.set(positionM[0], positionM[1], positionM[2]);
