@@ -178,3 +178,28 @@ test('T8: consecutive floating origin rebases do not cause visual proxy shifts',
   // Render local distance remains bounded by floating origin grid threshold (2048m)
   assert.ok(runtime.telemetry.renderLocalM <= 2048 * Math.SQRT2 + 100);
 });
+test('T_STREAMING_SPLIT: update does not execute scheduler, updateStreaming executes exactly once, time does not increase in streaming', () => {
+  const runtime = new UniverseRuntime({ streaming: true, epochS: 0 });
+  
+  const startTime = runtime.time;
+  runtime.update([0,0,0], [0,0,0], 0.1);
+  const updatedTime = runtime.time;
+  
+  assert.equal(updatedTime, startTime + 0.1, 'time increases after update()');
+  
+  let updates = 0;
+  const originalUpdate = runtime.scheduler.update.bind(runtime.scheduler);
+  runtime.scheduler.update = (ctx, dt) => {
+    updates++;
+    originalUpdate(ctx, dt);
+  };
+  
+  runtime.updateStreaming(0.1);
+  assert.equal(updates, 1, 'scheduler is updated exactly once per updateStreaming() call');
+  
+  runtime.updateStreaming(0.1);
+  assert.equal(updates, 2, 'scheduler executes again');
+  
+  const finalTime = runtime.time;
+  assert.equal(finalTime, updatedTime, 'time does NOT increase after updateStreaming()');
+});

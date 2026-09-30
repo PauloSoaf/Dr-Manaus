@@ -164,6 +164,84 @@ export class CelestialPresentationController {
         });
       }
     }
+
+    // --- EARTH ---
+    if (earth && earthBary) {
+      const earthDef = system.bodies.find(b => b.id === 'earth');
+      if (earthDef) {
+        const dx = earthBary[0] - observerBary[0];
+        const dy = earthBary[1] - observerBary[1];
+        const dz = earthBary[2] - observerBary[2];
+        const dist = Math.hypot(dx, dy, dz);
+
+        const earthDirRender = universe.frames.convertDirection(
+          'solar-system/barycentric',
+          telemetry.frame,
+          [dx, dy, dz]
+        );
+        const earthDirRenderVec = new Vector3(earthDirRender[0], earthDirRender[1], earthDirRender[2]).normalize();
+        
+        const angRad = angularRadiusRad(earthDef.equatorialRadiusM, dist);
+        
+        let visible = true;
+        let opacity = 1;
+        let streamingMode: 'off' | 'coarse' | 'surface' = 'off';
+
+        const presentation = system.handoff('earth', observerBary);
+        if (presentation) {
+          const ready = earth.readiness();
+          const targetMode = presentation.mode;
+
+          if (targetMode === 'celestial') {
+            streamingMode = 'off';
+            visible = true;
+            opacity = 1;
+          } else if (targetMode === 'planet') {
+            streamingMode = 'coarse';
+            if (!ready.viewCoverageReady) {
+              visible = true;
+              opacity = 1;
+            } else {
+              visible = presentation.blend < 1;
+              opacity = 1 - presentation.blend;
+            }
+          } else if (targetMode === 'surface') {
+            streamingMode = 'surface';
+            if (!ready.viewCoverageReady) {
+              visible = true;
+              opacity = 1;
+            } else {
+              visible = false;
+              opacity = 0;
+            }
+          }
+        }
+        
+        earth.setStreamingMode(streamingMode);
+
+        let phaseLightDirRenderVec = undefined;
+        if (sunBary) {
+          const e2s_x = sunBary[0] - earthBary[0];
+          const e2s_y = sunBary[1] - earthBary[1];
+          const e2s_z = sunBary[2] - earthBary[2];
+          const e2sRender = universe.frames.convertDirection('solar-system/barycentric', telemetry.frame, [e2s_x, e2s_y, e2s_z]);
+          phaseLightDirRenderVec = new Vector3(e2sRender[0], e2sRender[1], e2sRender[2]).normalize();
+        }
+
+        this.samples.push({
+          bodyId: 'earth',
+          logicalDistanceM: dist,
+          physicalRadiusM: earthDef.equatorialRadiusM,
+          angularRadiusRad: presentation ? presentation.apparentAngularRadiusRad : angRad,
+          directionRender: [earthDirRenderVec.x, earthDirRenderVec.y, earthDirRenderVec.z],
+          proxyDistanceM: CELESTIAL_PROXY_DISTANCE_M,
+          proxyRadiusM: Math.tan(presentation ? presentation.apparentAngularRadiusRad : angRad) * CELESTIAL_PROXY_DISTANCE_M,
+          visible,
+          opacity,
+          phaseLightDirection: phaseLightDirRenderVec ? [phaseLightDirRenderVec.x, phaseLightDirRenderVec.y, phaseLightDirRenderVec.z] : undefined
+        });
+      }
+    }
   }
 
   render(ctx: CelestialRenderContext): void {

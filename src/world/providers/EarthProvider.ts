@@ -85,6 +85,7 @@ export class EarthProvider implements WorldProvider {
   private readonly options: Required<Omit<EarthProviderOptions, 'renderSpace'>> & { renderSpace?: RenderSpaceService };
   private altitudeM = 0;
   private opacity = 0;
+  private streamingMode: 'off' | 'coarse' | 'surface' = 'surface';
 
   constructor(
     parent: Object3D,
@@ -129,6 +130,10 @@ export class EarthProvider implements WorldProvider {
     this.globe.setSunDirection(inScene);
   }
 
+  setStreamingMode(mode: 'off' | 'coarse' | 'surface'): void {
+    this.streamingMode = mode;
+  }
+
   covers(context: SpatialContext): boolean {
     this.playerFrameId = context.frame.id;
     if (context.altitudeM !== undefined && Number.isFinite(context.altitudeM)) {
@@ -145,6 +150,10 @@ export class EarthProvider implements WorldProvider {
     this.opacity = this.options.minAltitudeM > 0
       ? Math.min(1, Math.max(0, above / this.options.fadeM))
       : 1;
+    if (this.streamingMode === 'off') {
+      this.globe.visible = false;
+      return false;
+    }
     this.globe.visible = this.opacity > 0.01;
     this.globe.setCenterM(this.earthCenterRender(context), this.bodyToScene(), this.altitudeM);
     return this.globe.visible;
@@ -243,8 +252,8 @@ export class EarthProvider implements WorldProvider {
       ...DEFAULT_SSE,
       fovRad: context.camera.fovRad,
       viewportHeightPx: context.camera.viewportHeightPx,
-      targetPx: context.quality.sseTargetPx,
-      detailFactor: context.quality.detailFactor,
+      targetPx: this.streamingMode === 'coarse' ? 500 : context.quality.sseTargetPx,
+      detailFactor: this.streamingMode === 'coarse' ? 0.1 : context.quality.detailFactor,
     });
 
     const demands: TileDemand[] = [];

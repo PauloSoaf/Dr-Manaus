@@ -1,4 +1,4 @@
-import { AdditiveBlending, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicNodeMaterial, PlaneGeometry } from 'three/webgpu';
+import { AdditiveBlending, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicNodeMaterial, PlaneGeometry, Vector3 } from 'three/webgpu';
 import { color, float, mix, positionLocal, smoothstep, vec3, vec4 } from 'three/tsl';
 import type { CelestialRenderSample } from './types';
 
@@ -45,7 +45,7 @@ export class SunVisual {
     this.group.add(this.disc);
   }
 
-  update(sample: CelestialRenderSample): void {
+  update(sample: CelestialRenderSample, cameraPos: Vector3): void {
     this.group.visible = sample.visible;
     if (!this.group.visible) return;
 
@@ -65,8 +65,8 @@ export class SunVisual {
     const dir = sample.directionRender;
     this.group.position.set(dir[0], dir[1], dir[2]).multiplyScalar(sample.proxyDistanceM);
     
-    // Look at origin so it's a billboard
-    this.group.lookAt(0, 0, 0);
+    // Look at camera so it's a billboard
+    this.group.lookAt(cameraPos);
   }
 
   dispose(): void {
