@@ -50,6 +50,8 @@ import { WGS84 } from '../world/spatial/WGS84';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import { InterplanetaryController } from '../world/travel/InterplanetaryController';
 import { MANAUS_FRAME_ID } from '../world/spatial/ManausFrameAdapter';
+import { CelestialBodyVisualLayer } from '../rendering/celestial/CelestialBodyVisualLayer';
+import { CelestialPresentationController } from '../rendering/celestial/CelestialPresentationController';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   readonly save = new SaveManager(); readonly assets = new AssetManager(); readonly rendering: RendererManager;
@@ -82,6 +84,8 @@ export class Game {
   readonly earth?:EarthProvider;
   readonly moon?:MoonProvider;
   readonly earthTransition = new EarthTransitionController();
+  readonly celestialVisuals = new CelestialBodyVisualLayer();
+  readonly celestialController = new CelestialPresentationController(this.celestialVisuals);
   /** The generalized flat backdrop. It stands down once the globe becomes the ground. */
   private readonly flatTerrain:import('three/webgpu').Group;
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
@@ -104,6 +108,7 @@ export class Game {
     this.atmosphere=new Atmosphere(this.rendering.scene);
     // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
     this.space=new SpaceLayer(this.celestialRoot,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
+    this.celestialRoot.add(this.celestialVisuals.root);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe});
     if(FEATURES.earthGlobe){
       this.earth=new EarthProvider(this.planetRoot,this.universe.frames,{cityOwnsGround:!FEATURES.curvedManaus,renderSpace:this.universe.renderSpace});
@@ -460,20 +465,16 @@ export class Game {
       // The far domain has to reach whatever the planet's distance is, or leaving orbit clips the
       // very thing the domain exists to show.
       this.rendering.domains.setRange(this.universe.telemetry.altitudeM+6_378_137);
-      // The globe is lit from where the Sun actually is, not from the local sky's dusk.
-      const sun=this.universe.activeSystem.positionOf('sun') ?? [0,0,0],earthAt=this.universe.activeSystem.positionOf('earth') ?? [0,0,0];
-      if(sun&&earthAt)this.earth.setSunDirection([sun[0]-earthAt[0],sun[1]-earthAt[1],sun[2]-earthAt[2]],'solar-system/barycentric',this.universe.telemetry.frame);
     }
-    if(this.moon){
-      // Where the Moon actually is, from the ephemeris, relative to the Earth. Not a fixed point
-      // in the sky: the whole reason the solar system is modelled is that the Moon moves.
-      const system=this.universe.activeSystem;
-      const moonAt=system.positionOf('moon'),earthCentre=system.positionOf('earth'),sunAt=system.positionOf('sun');
-      if(moonAt&&earthCentre){
-        this.moon.setCentre([moonAt[0]-earthCentre[0],moonAt[1]-earthCentre[1],moonAt[2]-earthCentre[2]],'earth/fixed',this.universe.telemetry.frame);
-        if(sunAt)this.moon.setSunDirection([sunAt[0]-moonAt[0],sunAt[1]-moonAt[1],sunAt[2]-moonAt[2]],'solar-system/barycentric',this.universe.telemetry.frame);
-      }
-    }
+    
+    // Update celestial bodies visual presentation and illumination
+    this.celestialController.update({
+      universe: this.universe,
+      earth: this.earth,
+      moon: this.moon,
+      camera: this.rendering.camera,
+      dt: dt
+    });
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
     if(local){
       const uOrigin = this.universe.floatingOrigin.logicalOrigin.position;

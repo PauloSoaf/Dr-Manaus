@@ -102,6 +102,7 @@ test('the Moon is a light in the sky until the player is a long way from Earth',
   const moon = new MoonProvider(parent, runtime.frames, { minAltitudeM: 400_000, maxRangeM: 4_000_000 });
   try {
     moon.setCentre([0, 384_400_000, 0], 'earth/fixed', 'earth/manaus/legacy-enu');
+    moon.setPresentationMode('celestial');
     // On the ground: no surface, whatever the distance says.
     assert.equal(moon.covers(context([0, 100, 0], 100).spatial), false);
     // High above the Earth but still four hundred thousand kilometres from the Moon.
@@ -125,6 +126,7 @@ test('close to the Moon it becomes a surface, and the surface streams', async ()
     const player: Vec3 = [0, centre[1] - MOON_RADIUS_M - 100_000, 0];
     const ctx = context(player, 20_000_000);
 
+    moon.setPresentationMode('surface');
     assert.equal(moon.covers(ctx.spatial), true, 'this close it is a place');
     const demands = moon.plan(ctx);
     assert.ok(demands.length > 0, 'a visible Moon must want tiles');

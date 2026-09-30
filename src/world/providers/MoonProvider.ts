@@ -52,6 +52,7 @@ export class MoonProvider implements WorldProvider {
   /** The Moon's centre in scene metres, refreshed from the ephemeris each frame. */
   private centreM: Vec3 = [0, 0, 0];
   private distanceM = Number.POSITIVE_INFINITY;
+  private presentationMode: 'celestial' | 'planet' | 'surface' = 'surface';
   private cachedPlan?: { demands: readonly TileDemand[]; observer: Vec3; radiusM: number; timeS: number };
 
   constructor(
@@ -92,7 +93,6 @@ export class MoonProvider implements WorldProvider {
    */
   covers(context: SpatialContext): boolean {
     this.playerFrameId = context.frame.id;
-    const altitudeM = finite(context.altitudeM);
 
     if (this.options.renderSpace) {
       this.centreM = this.moonCenterRender(context);
@@ -106,9 +106,14 @@ export class MoonProvider implements WorldProvider {
       );
     }
 
-    const visible = altitudeM >= this.options.minAltitudeM && this.distanceM <= this.options.maxRangeM;
-    this.globe.visible = visible;
-    return visible;
+    // Only visible when representation is planet or surface
+    const active = this.presentationMode !== 'celestial';
+    this.globe.visible = active;
+    return active;
+  }
+
+  setPresentationMode(mode: 'celestial' | 'planet' | 'surface'): void {
+    this.presentationMode = mode;
   }
 
   /** Where the Moon is, from the ephemeris, in the scene's metres. Called by whoever has one. */
