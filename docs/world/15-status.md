@@ -305,5 +305,12 @@ Baseline HEAD: `2609e4d30901720f9b18e05939f717e590dc7140`
    - **Deterministic Test Suite (`tests/manaus-earth-integration.test.ts`)**:
      - 7 deterministic integration tests covering anchor round-trip, coordinate budget, relative displacement, altitude continuity, landmark elevation, space proxy stability, and reentry determinism.
      - Full test suite passes: 333/333 tests ok. Build compiles 100% clean. Zero Antigravity browser automation used.
+   - **Celestial Visual Pipeline Hardening & Handoff State Machine**:
+     - Handled Earth visual proxy representation from interplanetary distances (`EarthVisual.ts`) integrated into `CelestialBodyVisualLayer.ts`.
+     - Enforced safe rendering domains via `CelestialPresentationController.ts`, turning off full globe streaming when distant.
+     - Corrected `MoonVisual` world-space billboard orientation using `cameraPos` and enabled `uOpacity` blending for smooth crossfades.
+     - Hardened `MoonProvider` readiness checks to accurately query `globe.has(key)` rather than relying on abstract tile counts.
+     - Added test `T_STREAMING_SPLIT` to strictly prove `updateStreaming()` execution does not duplicate world time `timeS` advancement.
+     - Full test suite passes: 340/340 tests ok.
 
 
