@@ -96,3 +96,12 @@ export function marsNormalEnu(direction: Vec3, out: [number, number, number]): [
   out[2] = 1 / length;
   return out;
 }
+
+import type { PlanetSurfaceGenerator } from './PlanetSurface';
+
+export const MarsSurfaceGenerator: PlanetSurfaceGenerator = {
+  radiusM: MARS_RADIUS_M,
+  heightAt: marsHeightAt,
+  normalEnu: marsNormalEnu,
+  colourAt: marsColourAt,
+};

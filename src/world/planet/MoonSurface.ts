@@ -132,3 +132,12 @@ export function moonNormalEnu(direction: Vec3, out: [number, number, number]): [
   out[2] = 1 / length;
   return out;
 }
+
+import type { PlanetSurfaceGenerator } from './PlanetSurface';
+
+export const MoonSurfaceGenerator: PlanetSurfaceGenerator = {
+  radiusM: MOON_RADIUS_M,
+  heightAt: moonHeightAt,
+  normalEnu: moonNormalEnu,
+  colourAt: moonColourAt,
+};

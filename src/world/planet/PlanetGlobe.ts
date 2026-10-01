@@ -6,12 +6,12 @@ import { attribute, normalWorld, smoothstep, uniform } from 'three/tsl';
 import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { faceUvToDirection } from './CubeSphere';
 import { type PlanetTileAddress, tileBounds, tileCentreDirection } from './PlanetTileAddress';
-import { MARS_RADIUS_M, marsColourAt, marsHeightAt, marsNormalEnu } from './MarsSurface';
+import type { PlanetSurfaceGenerator } from './PlanetSurface';
 import type { Quat, Vec3 } from '../spatial/units';
 
-export const MARS_TILE_RESOLUTION = 17;
+export const PLANET_TILE_RESOLUTION = 17;
 
-export interface MarsTileMesh {
+export interface PlanetTileMesh {
   readonly geometry: BufferGeometry;
   readonly centre: Vec3;
   readonly triangles: number;
@@ -26,15 +26,15 @@ function windingIsOutward(positions: Float32Array, normals: Float32Array, size: 
   return nx * normals[a] + ny * normals[a + 1] + nz * normals[a + 2] >= 0;
 }
 
-export function buildMarsTileMesh(address: PlanetTileAddress, flat = false): MarsTileMesh {
-  const size = MARS_TILE_RESOLUTION;
+export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetSurfaceGenerator, flat = false): PlanetTileMesh {
+  const size = PLANET_TILE_RESOLUTION;
   const { minU, maxU, minV, maxV } = tileBounds(address);
   const centreDirection = tileCentreDirection(address, [0, 0, 0]);
-  const centreHeight = flat ? 0 : marsHeightAt(centreDirection);
+  const centreHeight = flat ? 0 : surface.heightAt(centreDirection);
   const centre: Vec3 = [
-    centreDirection[0] * (MARS_RADIUS_M + centreHeight),
-    centreDirection[1] * (MARS_RADIUS_M + centreHeight),
-    centreDirection[2] * (MARS_RADIUS_M + centreHeight),
+    centreDirection[0] * (surface.radiusM + centreHeight),
+    centreDirection[1] * (surface.radiusM + centreHeight),
+    centreDirection[2] * (surface.radiusM + centreHeight),
   ];
 
   const positions = new Float32Array(size * size * 3);
@@ -49,8 +49,8 @@ export function buildMarsTileMesh(address: PlanetTileAddress, flat = false): Mar
     for (let column = 0; column < size; column++) {
       const u = minU + (maxU - minU) * (column / (size - 1));
       faceUvToDirection(address.face, u, v, direction);
-      const height = flat ? 0 : marsHeightAt(direction);
-      const radius = MARS_RADIUS_M + height;
+      const height = flat ? 0 : surface.heightAt(direction);
+      const radius = surface.radiusM + height;
       const index = (row * size + column) * 3;
       positions[index] = direction[0] * radius - centre[0];
       positions[index + 1] = direction[1] * radius - centre[1];
@@ -61,7 +61,7 @@ export function buildMarsTileMesh(address: PlanetTileAddress, flat = false): Mar
         normals[index + 1] = direction[1];
         normals[index + 2] = direction[2];
       } else {
-        marsNormalEnu(direction, slope);
+        surface.normalEnu(direction, slope);
         const p = Math.hypot(direction[0], direction[1]);
         const ex = p > 1e-9 ? -direction[1] / p : 1, ey = p > 1e-9 ? direction[0] / p : 0;
         const nx = -direction[2] * ey, ny = direction[2] * ex, nz = p;
@@ -71,7 +71,7 @@ export function buildMarsTileMesh(address: PlanetTileAddress, flat = false): Mar
         normals[index + 2] = 0 * slope[0] + (nz / nl) * slope[1] + direction[2] * slope[2];
       }
 
-      marsColourAt(direction, colour);
+      surface.colourAt(direction, colour);
       colors[index] = colour[0];
       colors[index + 1] = colour[1];
       colors[index + 2] = colour[2];
@@ -103,83 +103,93 @@ export function buildMarsTileMesh(address: PlanetTileAddress, flat = false): Mar
   geometry.computeBoundingSphere();
 
   return {
-    geometry, centre, triangles: quads * 2,
+    geometry,
+    centre,
+    triangles: quads * 2,
     bytes: positions.byteLength + normals.byteLength + colors.byteLength + indices.byteLength,
   };
 }
 
-export class MarsGlobe {
-  readonly group = new Group();
+export class PlanetGlobe {
+  readonly root = new Group();
+  
   private readonly material: MeshBasicNodeMaterial;
-  private readonly meshes = new Map<string, Mesh>();
-  private readonly uSun = uniform(new Vector3(0, 1, 0));
-  private triangles = 0;
+  private readonly uSunDirectionRender = uniform(new Vector3(1, 0, 0));
+  private readonly uTileOpacity = uniform(0);
+  
+  private readonly tiles = new Map<string, Mesh>();
 
-  constructor(parent: Object3D) {
-    this.group.name = 'mars';
-    this.group.visible = false;
-    parent.add(this.group);
+  constructor(bodyId: string) {
+    this.root.name = `${bodyId}Globe`;
+    this.root.layers.set(PLANET_LAYER);
 
-    this.material = new MeshBasicNodeMaterial({ fog: false, side: FrontSide });
-    const surface = attribute('color', 'vec3');
-    const incidence = normalWorld.dot(this.uSun);
-    // Mars has a thin atmosphere, so the terminator is slightly softer than the Moon
-    const daylight = smoothstep(-0.05, 0.1, incidence).mul(incidence.max(0).add(0.08));
-    this.material.colorNode = surface.mul(daylight.mul(1.4).add(0.02));
+    this.material = new MeshBasicNodeMaterial({
+      vertexColors: true,
+      side: FrontSide,
+      transparent: true,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    });
+
+    const sunDotNormal = normalWorld.dot(this.uSunDirectionRender);
+    const terminator = smoothstep(-0.1, 0.1, sunDotNormal);
+    const lit = attribute('color', 'vec3').mul(terminator.mix(0.05, 1.0));
+    this.material.colorNode = lit;
   }
+
+  set visible(visible: boolean) { this.root.visible = visible; }
+  get visible(): boolean { return this.root.visible; }
 
   get stats(): { tiles: number; triangles: number; visible: boolean } {
-    return { tiles: this.meshes.size, triangles: this.triangles, visible: this.group.visible };
+    let triangles = 0;
+    for (const tile of this.tiles.values()) triangles += tile.geometry.index?.count ?? 0;
+    return { tiles: this.tiles.size, triangles: triangles / 3, visible: this.root.visible };
   }
-
-  set visible(visible: boolean) { this.group.visible = visible; }
-  get visible(): boolean { return this.group.visible; }
 
   has(key: string): boolean {
-    return this.meshes.has(key);
+    return this.tiles.has(key);
   }
 
-  setCentre(positionM: Vec3): void {
-    this.group.position.set(positionM[0], positionM[1], positionM[2]);
+  set opacity(opacity: number) {
+    this.uTileOpacity.value = opacity;
+    this.material.transparent = opacity < 1;
   }
 
-  setOrientation(orientation: Quat): void {
-    this.group.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
+  setCentre(centreRenderM: Vec3): void {
+    this.root.position.set(centreRenderM[0], centreRenderM[1], centreRenderM[2]);
   }
 
-  setSunDirection(direction: Vec3): void {
-    const length = Math.hypot(direction[0], direction[1], direction[2]);
-    if (!(length > 0)) return;
-    this.uSun.value.set(direction[0] / length, direction[1] / length, direction[2] / length);
+  setOrientation(orientationScene: Quat): void {
+    this.root.quaternion.set(orientationScene[0], orientationScene[1], orientationScene[2], orientationScene[3]);
   }
 
-  add(key: string, mesh: MarsTileMesh): Mesh {
-    this.remove(key);
-    const object = new Mesh(mesh.geometry, this.material);
-    object.name = `mars-${key}`;
-    object.position.set(mesh.centre[0], mesh.centre[1], mesh.centre[2]);
-    object.frustumCulled = false;
-    object.layers.set(PLANET_LAYER);
-    this.group.add(object);
-    this.meshes.set(key, object);
-    this.triangles += mesh.triangles;
-    return object;
+  setSunDirection(directionRender: Vec3): void {
+    this.uSunDirectionRender.value.set(directionRender[0], directionRender[1], directionRender[2]);
+  }
+
+  add(key: string, mesh: PlanetTileMesh): void {
+    if (this.tiles.has(key)) return;
+    const tileMesh = new Mesh(mesh.geometry, this.material);
+    tileMesh.layers.set(PLANET_LAYER);
+    tileMesh.position.set(mesh.centre[0], mesh.centre[1], mesh.centre[2]);
+    this.tiles.set(key, tileMesh);
+    this.root.add(tileMesh);
   }
 
   remove(key: string): void {
-    const existing = this.meshes.get(key);
-    if (!existing) return;
-    const index = existing.geometry.getIndex();
-    this.triangles -= index ? index.count / 3 : 0;
-    existing.removeFromParent();
-    existing.geometry.dispose();
-    this.meshes.delete(key);
+    const tile = this.tiles.get(key);
+    if (!tile) return;
+    this.tiles.delete(key);
+    this.root.remove(tile);
+    tile.geometry.dispose();
   }
 
   dispose(): void {
-    for (const key of [...this.meshes.keys()]) this.remove(key);
     this.material.dispose();
-    this.group.removeFromParent();
-    this.triangles = 0;
+    for (const tile of this.tiles.values()) {
+      tile.geometry.dispose();
+    }
+    this.tiles.clear();
   }
 }

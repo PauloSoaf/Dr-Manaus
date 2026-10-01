@@ -1,8 +1,7 @@
 import { Vector3, PerspectiveCamera } from 'three/webgpu';
 import type { UniverseRuntime } from '../../world/runtime/UniverseRuntime';
 import type { EarthProvider } from '../../world/providers/EarthProvider';
-import type { MoonProvider } from '../../world/providers/MoonProvider';
-import type { MarsProvider } from '../../world/providers/MarsProvider';
+import type { RockyPlanetProvider } from '../../world/providers/RockyPlanetProvider';
 import { CelestialBodyVisualLayer } from './CelestialBodyVisualLayer';
 import type { CelestialRenderSample } from './types';
 import { CELESTIAL_PROXY_DISTANCE_M, angularRadiusRad, celestialProxyGeometry, projectedDiameterPx } from './math';
@@ -10,8 +9,8 @@ import { CELESTIAL_PROXY_DISTANCE_M, angularRadiusRad, celestialProxyGeometry, p
 export interface CelestialPresentationContext {
   universe: UniverseRuntime;
   earth?: EarthProvider;
-  moon?: MoonProvider;
-  mars?: MarsProvider;
+  moon?: RockyPlanetProvider;
+  mars?: RockyPlanetProvider;
   fovRad: number;
   viewportHeightPx: number;
 }

@@ -45,8 +45,10 @@ import { LOCAL_GROUP_CATALOG } from '../world/celestial/GalaxyDefinition';
 import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 import { TravelDomain } from '../world/travel/TravelDomain';
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
-import { MoonProvider } from '../world/providers/MoonProvider';
-import { MarsProvider } from '../world/providers/MarsProvider';
+import { RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
+import { MOON, MARS } from '../world/planet/PlanetBody';
+import { MoonSurfaceGenerator } from '../world/planet/MoonSurface';
+import { MarsSurfaceGenerator } from '../world/planet/MarsSurface';
 import { WGS84 } from '../world/spatial/WGS84';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import { InterplanetaryController } from '../world/travel/InterplanetaryController';
@@ -83,8 +85,8 @@ export class Game {
   readonly interplanetary=new InterplanetaryController();
   /** Present only while `FEATURES.earthGlobe` is on. The runtime itself never touches the scene. */
   readonly earth?:EarthProvider;
-  readonly moon?:MoonProvider;
-  readonly mars?:MarsProvider;
+  readonly moon?:RockyPlanetProvider;
+  readonly mars?:RockyPlanetProvider;
   readonly earthTransition = new EarthTransitionController();
   readonly celestialVisuals = new CelestialBodyVisualLayer();
   readonly celestialController = new CelestialPresentationController(this.celestialVisuals);
@@ -125,10 +127,10 @@ export class Game {
     // destination and the flight that reaches it is a different sprint from the one that draws
     // the Earth.
     if(FEATURES.solarSystem){
-      this.moon=new MoonProvider(this.planetRoot,this.universe.frames,{renderSpace:this.universe.renderSpace});
+      this.moon=new RockyPlanetProvider(this.planetRoot,this.universe.frames, MOON, MoonSurfaceGenerator, {renderSpace:this.universe.renderSpace});
       this.universe.providers.register(this.moon);
       
-      this.mars=new MarsProvider(this.planetRoot,this.universe.frames,{renderSpace:this.universe.renderSpace});
+      this.mars=new RockyPlanetProvider(this.planetRoot,this.universe.frames, MARS, MarsSurfaceGenerator, {renderSpace:this.universe.renderSpace});
       this.universe.providers.register(this.mars);
     }
     // The far domain costs a longer depth range, so it is only opened when something needs it.
