@@ -203,3 +203,88 @@ test('T_STREAMING_SPLIT: update does not execute scheduler, updateStreaming exec
   const finalTime = runtime.time;
   assert.equal(finalTime, updatedTime, 'time does NOT increase after updateStreaming()');
 });
+
+// --- Task 008: Reentrada unica ------------------------------------------------------------------
+
+test('T8_REENTRY: handoff from earth is idempotent - calling twice does not change frame again', () => {
+  const runtime = new UniverseRuntime({ streaming: false, epochS: 0 });
+
+  // Start in Manaus frame (earth domain)
+  runtime.update([0, 0, 0], [0, 0, 0], 1 / 60);
+  assert.equal(runtime.player.frame, 'earth/manaus/legacy-enu', 'starts in Manaus frame');
+
+  // First handoffTo earth - should stay in Manaus (already on earth)
+  runtime.handoffTo('earth');
+  const afterFirst = runtime.player.frame;
+  assert.equal(afterFirst, 'earth/manaus/legacy-enu', 'handoffTo earth stays in Manaus');
+
+  // Second handoffTo earth - must be no-op
+  runtime.handoffTo('earth');
+  assert.equal(runtime.player.frame, afterFirst, 'second handoffTo is idempotent, no ping-pong');
+});
+
+test('T8_NO_PINGPONG: dominant body remains stable at fixed altitude with no velocity', () => {
+  const runtime = new UniverseRuntime({ streaming: false, epochS: 0 });
+  const earthPos = runtime.solarSystem.positionOf('earth')!;
+  const EARTH_R = 6_378_137;
+
+  let dominant = '';
+  let switches = 0;
+
+  for (let frame = 0; frame < 30; frame++) {
+    runtime.updateSystemPose(
+      [earthPos[0], earthPos[1] + EARTH_R + 400_000, earthPos[2]],
+      [0, 0, 0], 1 / 60,
+    );
+    const cur = runtime.resolveBodyContext().dominantBody;
+    if (cur !== dominant && frame > 0) switches++;
+    dominant = cur;
+  }
+  assert.equal(switches, 0, `dominant body switched ${switches} times at stable altitude`);
+});
+
+// --- Task 009: ENU de pouso -------------------------------------------------------------------
+
+test('T9_ENU_FRAME: handoffTo moon creates local-enu frame at correct altitude', () => {
+  const runtime = new UniverseRuntime({ streaming: false, epochS: 0 });
+  const moonPos = runtime.solarSystem.positionOf('moon')!;
+  const MOON_R = 1_737_400;
+
+  // Place player in barycentric at Moon surface + 10 km
+  runtime.updateSystemPose(
+    [moonPos[0], moonPos[1] + MOON_R + 10_000, moonPos[2]],
+    [0, 0, 0], 1 / 60,
+  );
+
+  runtime.handoffTo('moon');
+
+  // The ENU frame must exist
+  assert.ok(runtime.frames.has('moon/local-enu'), 'moon/local-enu frame must be registered');
+
+  // Player should be in the ENU frame
+  assert.equal(runtime.player.frame, 'moon/local-enu', 'player moves into moon/local-enu');
+
+  // y coordinate should be ~10 km (altitude)
+  const y = runtime.player.position[1];
+  assert.ok(Math.abs(y - 10_000) < 1000,
+    `y in ENU frame should be ~10,000 m, got ${y.toFixed(1)} m`);
+});
+
+test('T9_ENU_SURFACE: landing at surface (y=0) in ENU frame means alt = 0', () => {
+  const runtime = new UniverseRuntime({ streaming: false, epochS: 0 });
+  const moonPos = runtime.solarSystem.positionOf('moon')!;
+  const MOON_R = 1_737_400;
+
+  // Place player exactly on the Moon surface (altitude = 0)
+  runtime.updateSystemPose(
+    [moonPos[0], moonPos[1] + MOON_R, moonPos[2]],
+    [0, 0, 0], 1 / 60,
+  );
+
+  runtime.handoffTo('moon');
+
+  // y should be 0 (on the surface)
+  const y = runtime.player.position[1];
+  assert.ok(y < 1, `y in ENU frame at surface should be ~0, got ${y.toFixed(3)} m`);
+});
+

@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Group, type Mesh } from 'three/webgpu';
-import { buildMoonTileMesh, MOON_TILE_RESOLUTION } from '../src/world/planet/MoonGlobe.ts';
-import { MOON_RADIUS_M, MOON_RELIEF_M, moonColourAt, moonHeightAt } from '../src/world/planet/MoonSurface.ts';
-import { MoonProvider } from '../src/world/providers/MoonProvider.ts';
+import { buildPlanetTileMesh, PLANET_TILE_RESOLUTION } from '../src/world/planet/PlanetGlobe.ts';
+import { MOON_RADIUS_M, MOON_RELIEF_M, moonColourAt, moonHeightAt, MoonSurfaceGenerator } from '../src/world/planet/MoonSurface.ts';
+import { RockyPlanetProvider } from '../src/world/providers/RockyPlanetProvider.ts';
+import { MOON } from '../src/world/planet/PlanetBody.ts';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
 import { planetTile, tileChildren } from '../src/world/planet/PlanetTileAddress.ts';
 import { DEFAULT_STREAMING_BUDGET } from '../src/world/streaming/StreamingBudget.ts';
@@ -54,9 +55,9 @@ test('the Moon surface is deterministic, bounded, and grey', () => {
 });
 
 test('a Moon tile sits on the Moon, at the height the surface says', () => {
-  const mesh = buildMoonTileMesh(planetTile('moon', 1, 3, 2, 5));
+  const mesh = buildPlanetTileMesh(planetTile('moon', 1, 3, 2, 5), MoonSurfaceGenerator);
   const positions = mesh.geometry.getAttribute('position');
-  assert.equal(positions.count, MOON_TILE_RESOLUTION * MOON_TILE_RESOLUTION);
+  assert.equal(positions.count, PLANET_TILE_RESOLUTION * PLANET_TILE_RESOLUTION);
 
   for (let i = 0; i < positions.count; i += 13) {
     const x = positions.getX(i) + mesh.centre[0];
@@ -71,21 +72,21 @@ test('a Moon tile sits on the Moon, at the height the surface says', () => {
       `a vertex sits ${(radius - expected).toFixed(1)} m off the surface`,
     );
   }
-  assert.equal(mesh.triangles, (MOON_TILE_RESOLUTION - 1) ** 2 * 2);
+  assert.equal(mesh.triangles, (PLANET_TILE_RESOLUTION - 1) ** 2 * 2);
 });
 
 test('neighbouring Moon tiles agree on their shared edge', () => {
   const parent = planetTile('moon', 2, 2, 1, 1);
   const [a, b] = tileChildren(parent);
-  const left = buildMoonTileMesh(a);
-  const right = buildMoonTileMesh(b);
+  const left = buildPlanetTileMesh(a, MoonSurfaceGenerator);
+  const right = buildPlanetTileMesh(b, MoonSurfaceGenerator);
   const lp = left.geometry.getAttribute('position');
   const rp = right.geometry.getAttribute('position');
 
   let worst = 0;
-  for (let row = 0; row < MOON_TILE_RESOLUTION; row++) {
-    const i = row * MOON_TILE_RESOLUTION + (MOON_TILE_RESOLUTION - 1);
-    const j = row * MOON_TILE_RESOLUTION;
+  for (let row = 0; row < PLANET_TILE_RESOLUTION; row++) {
+    const i = row * PLANET_TILE_RESOLUTION + (PLANET_TILE_RESOLUTION - 1);
+    const j = row * PLANET_TILE_RESOLUTION;
     worst = Math.max(worst, Math.hypot(
       (lp.getX(i) + left.centre[0]) - (rp.getX(j) + right.centre[0]),
       (lp.getY(i) + left.centre[1]) - (rp.getY(j) + right.centre[1]),
@@ -99,69 +100,57 @@ test('neighbouring Moon tiles agree on their shared edge', () => {
 test('the Moon is a light in the sky until the player is a long way from Earth', () => {
   const runtime = new UniverseRuntime();
   const parent = new Group();
-  const moon = new MoonProvider(parent, runtime.frames, { minAltitudeM: 400_000, maxRangeM: 4_000_000 });
-  try {
-    moon.setCentre([0, 384_400_000, 0], 'earth/fixed', 'earth/manaus/legacy-enu');
-    moon.setStreamingMode('off');
-    // On the ground: no surface, whatever the distance says.
-    assert.equal(moon.covers(context([0, 100, 0], 100).spatial), false);
-    // High above the Earth but still four hundred thousand kilometres from the Moon.
-    assert.equal(moon.covers(context([0, 1_000_000, 0], 1_000_000).spatial), false);
-    assert.equal(moon.globe.visible, false);
-  } finally {
-    moon.dispose();
-  }
+  const moon = new RockyPlanetProvider(parent, runtime.frames, MOON, MoonSurfaceGenerator, { minAltitudeM: 400_000, maxRangeM: 4_000_000 });
+  moon.setCentre([0, 384_400_000, 0], 'earth/fixed', 'earth/manaus/legacy-enu');
+  moon.setStreamingMode('off');
+  // On the ground: no surface, whatever the distance says.
+  assert.equal(moon.covers(context([0, 100, 0], 100).spatial), false);
+  // High above the Earth but still four hundred thousand kilometres from the Moon.
+  assert.equal(moon.covers(context([0, 1_000_000, 0], 1_000_000).spatial), false);
+  assert.equal(moon.globe.visible, false);
 });
 
 test('close to the Moon it becomes a surface, and the surface streams', async () => {
   const runtime = new UniverseRuntime();
   const parent = new Group();
-  const moon = new MoonProvider(parent, runtime.frames, {
+  const moon = new RockyPlanetProvider(parent, runtime.frames, MOON, MoonSurfaceGenerator, {
     minAltitudeM: 0, maxRangeM: 10_000_000, maxTiles: 24, maxLevel: 5,
   });
-  try {
-    const centre: Vec3 = [0, 20_000_000, 0];
-    moon.setCentre(centre, 'earth/manaus/legacy-enu', 'earth/manaus/legacy-enu');
-    // A hundred kilometres above the surface, on the near side.
-    const player: Vec3 = [0, centre[1] - MOON_RADIUS_M - 100_000, 0];
-    const ctx = context(player, 20_000_000);
+  const centre: Vec3 = [0, 20_000_000, 0];
+  moon.setCentre(centre, 'earth/manaus/legacy-enu', 'earth/manaus/legacy-enu');
+  // A hundred kilometres above the surface, on the near side.
+  const player: Vec3 = [0, centre[1] - MOON_RADIUS_M - 100_000, 0];
+  const ctx = context(player, 20_000_000);
 
-    moon.setStreamingMode('surface');
-    assert.equal(moon.covers(ctx.spatial), true, 'this close it is a place');
-    const demands = moon.plan(ctx);
-    assert.ok(demands.length > 0, 'a visible Moon must want tiles');
-    for (const demand of demands) {
-      assert.equal(demand.key.kind, 'planet');
-      if (demand.key.kind === 'planet') assert.equal(demand.key.bodyId, 'moon');
-    }
-
-    const payload = await moon.load(demands[0]);
-    const tile = moon.activate(payload);
-    assert.equal(moon.stats.tiles, 1);
-    const mesh = parent.children[0].children.find(child => child.name.startsWith('moon-')) as Mesh;
-    assert.ok(mesh?.isMesh, 'the tile must be in the scene');
-
-    moon.deactivate(tile);
-    assert.equal(moon.stats.tiles, 0, 'and disposed when nobody wants it');
-  } finally {
-    moon.dispose();
+  moon.setStreamingMode('surface');
+  assert.equal(moon.covers(ctx.spatial), true, 'this close it is a place');
+  const demands = moon.plan(ctx);
+  assert.ok(demands.length > 0, 'a visible Moon must want tiles');
+  for (const demand of demands) {
+    assert.equal(demand.key.kind, 'planet');
+    if (demand.key.kind === 'planet') assert.equal(demand.key.bodyId, 'moon');
   }
+
+  const payload = await moon.load(demands[0]);
+  const tile = moon.activate(payload);
+  assert.equal(moon.stats.tiles, 1);
+  const mesh = parent.children[0].children.find(child => (child as any).isMesh) as Mesh;
+  assert.ok(mesh?.isMesh, 'the tile must be in the scene');
+
+  moon.deactivate(tile);
+  assert.equal(moon.stats.tiles, 0, 'and disposed when nobody wants it');
 });
 
 test('a Moon key is never an Earth key', async () => {
   const runtime = new UniverseRuntime();
   const parent = new Group();
-  const moon = new MoonProvider(parent, runtime.frames, { minAltitudeM: 0, maxRangeM: 1e12 });
-  try {
-    await assert.rejects(
-      () => moon.load({
-        key: { kind: 'planet', bodyId: 'earth', face: 0, level: 1, x: 0, y: 0 },
-        providerId: 'moon/surface', priority: 0, geometricErrorM: 1, screenSpaceError: 1,
-        distanceM: 1, timeToContactS: Infinity, gameplayCritical: false, representation: 'planet',
-      }),
-      /not a Moon tile/,
-    );
-  } finally {
-    moon.dispose();
-  }
+  const moon = new RockyPlanetProvider(parent, runtime.frames, MOON, MoonSurfaceGenerator, { minAltitudeM: 0, maxRangeM: 1e12 });
+  await assert.rejects(
+    () => moon.load({
+      key: { kind: 'planet', bodyId: 'earth', face: 0, level: 1, x: 0, y: 0 },
+      providerId: 'moon/surface', priority: 0, geometricErrorM: 1, screenSpaceError: 1,
+      distanceM: 1, timeToContactS: Infinity, gameplayCritical: false, representation: 'planet',
+    }),
+    /not a moon tile/i,
+  );
 });

@@ -109,7 +109,12 @@ export class RockyPlanetProvider implements WorldProvider {
       );
     }
 
-    return this.streamingMode !== 'off';
+    if (this.streamingMode === 'off') {
+      this.globe.visible = false;
+      return false;
+    }
+
+    return true;
   }
 
   setStreamingMode(mode: 'off' | 'coarse' | 'surface'): void {
