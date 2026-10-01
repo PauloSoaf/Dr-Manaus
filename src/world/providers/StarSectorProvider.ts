@@ -94,7 +94,8 @@ export class StarSectorProvider implements WorldProvider {
 
   covers(context: SpatialContext): boolean {
     this.altitudeM = finite(context.altitudeM);
-    this.group.visible = this.altitudeM >= this.options.minAltitudeM;
+    const insideSolarSystem = context.address.systemId === 'sol';
+    this.group.visible = !insideSolarSystem && this.altitudeM >= this.options.minAltitudeM;
     return this.group.visible;
   }
 

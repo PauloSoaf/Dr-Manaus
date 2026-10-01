@@ -3,7 +3,7 @@ import {
   type Object3D, Vector3, SphereGeometry, DoubleSide, AdditiveBlending
 } from 'three/webgpu';
 import {
-  attribute, cameraPosition, float, normalWorld, positionWorld, smoothstep, uniform,
+  attribute, cameraPosition, float, normalWorld, positionWorld, smoothstep, uniform, vec3,
 } from 'three/tsl';
 import { scaleVec3, cloneVec3, quatFromBasis, type Quat, type Vec3 } from '../spatial/units';
 import { MANAUS_ANCHOR_ECEF, MANAUS_BASIS } from '../spatial/ManausFrameAdapter';
@@ -56,11 +56,9 @@ export const TILE_RESOLUTION = 17;
 
 /** How hard the Sun drives the surface, against a tone mapper set for a city at golden hour. */
 const SUN_GAIN = 1.45;
-/** Airglow, moonlight and cities: what the night side is instead of a hole. */
-const NIGHT_FLOOR = 0.035;
 /** Rayleigh blue, near enough. The limb of the Earth from orbit is this colour. */
 const ATMOSPHERE = uniform(new Color(0.29, 0.53, 0.93));
-const LIMB_GAIN = 0.85;
+const LIMB_GAIN = 0.25;
 
 export interface TileMesh {
   readonly geometry: BufferGeometry;
@@ -333,8 +331,9 @@ export class EarthGlobe {
      * reads as a shading bug, so the lambert term is faded across a few degrees either side.
      */
     const daylight = smoothstep(-0.10, 0.25, incidence).mul(incidence.max(0).add(0.12));
-    // Not black at night: airglow, moonlight and cities. Small, but zero looks like a hole.
-    const lit = surface.mul(daylight.mul(SUN_GAIN).add(NIGHT_FLOOR));
+    // Not black at night: very subtle blue ambient to maintain readability without looking like a hole.
+    const nightAmbient = vec3(0.004, 0.008, 0.018);
+    const lit = surface.mul(daylight.mul(SUN_GAIN)).add(nightAmbient);
 
     /**
      * The atmosphere, seen edge on.
@@ -356,8 +355,9 @@ export class EarthGlobe {
   private buildAtmosphereMaterial(): MeshBasicNodeMaterial {
     const material = new MeshBasicNodeMaterial({
       fog: false,
-      side: DoubleSide,
+      side: FrontSide,
       transparent: true,
+      depthTest: true,
       depthWrite: false,
       blending: AdditiveBlending,
     });
@@ -365,12 +365,13 @@ export class EarthGlobe {
     const incidence = normalWorld.dot(this.uSun);
     const daylight = smoothstep(-0.25, 0.15, incidence);
     const toCamera = cameraPosition.sub(positionWorld).normalize();
-    const grazing = float(1).sub(normalWorld.dot(toCamera).abs());
+    const grazing = float(1).sub(normalWorld.dot(toCamera).max(0));
     
-    // density peaks at the horizon (grazing = 1), falls off at zenith (grazing = 0)
-    const density = grazing.pow(4.0).mul(2.5).add(grazing.pow(1.0).mul(0.2));
+    // density peaks at the horizon, falls off at zenith
+    const density = smoothstep(float(0.65), float(1.0), grazing);
     
-    material.colorNode = ATMOSPHERE.mul(density).mul(daylight);
+    material.colorNode = ATMOSPHERE;
+    material.opacityNode = density.pow(2.5).mul(daylight).mul(0.10);
     return material;
   }
 

@@ -134,6 +134,7 @@ export class PlanetGlobe {
     const terminator = smoothstep(-0.1, 0.1, sunDotNormal);
     const lit = attribute('color', 'vec3').mul(terminator.mix(0.05, 1.0));
     this.material.colorNode = lit;
+    this.material.opacityNode = this.uTileOpacity;
   }
 
   set visible(visible: boolean) { this.root.visible = visible; }
