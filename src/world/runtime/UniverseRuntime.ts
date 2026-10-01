@@ -470,7 +470,6 @@ export class UniverseRuntime {
   handoffTo(bodyId: string): Vec3 {
     let targetFrame = MANAUS_FRAME_ID;
     if (bodyId === 'moon') {
-      // Create a moon frame if it doesn't exist
       const MOON_FIXED_FRAME_ID = 'moon/fixed';
       if (!this.frames.has(MOON_FIXED_FRAME_ID)) {
         const moonBody = this.solarSystem.bodies.find(b => b.id === 'moon');
@@ -484,6 +483,20 @@ export class UniverseRuntime {
         }
       }
       targetFrame = MOON_FIXED_FRAME_ID;
+    } else if (bodyId === 'mars') {
+      const MARS_FIXED_FRAME_ID = 'mars/fixed';
+      if (!this.frames.has(MARS_FIXED_FRAME_ID)) {
+        const marsBody = this.solarSystem.bodies.find(b => b.id === 'mars');
+        if (marsBody) {
+          this.frames.register(referenceFrame({
+            id: MARS_FIXED_FRAME_ID,
+            parentId: marsBody.frameId ?? SOLAR_SYSTEM_FRAME,
+            kind: 'body-fixed',
+            label: 'Marte (fixo)',
+          }));
+        }
+      }
+      targetFrame = MARS_FIXED_FRAME_ID;
     } else if (bodyId === 'earth') {
       targetFrame = MANAUS_FRAME_ID; // Fall back to Manaus for now
     }

@@ -1,17 +1,22 @@
 import { Group, Mesh, MeshBasicNodeMaterial, NormalBlending, PlaneGeometry, Vector3 } from 'three/webgpu';
-import { color, float, max, mix, positionLocal, smoothstep, uniform, vec3, vec4 } from 'three/tsl';
+import { float, max, positionLocal, smoothstep, uniform, vec3, vec4 } from 'three/tsl';
 import type { CelestialRenderSample } from './types';
 
-export class EarthVisual {
+export class PlanetVisual {
   readonly group = new Group();
   private readonly disc: Mesh;
   private readonly material: MeshBasicNodeMaterial;
   
   private readonly uPhaseLightDir = uniform(new Vector3(1, 0, 0));
   private readonly uOpacity = uniform(1);
+  private readonly uAlbedo = uniform(new Vector3(0.5, 0.5, 0.5));
+  private readonly uAmbient = uniform(new Vector3(0.02, 0.02, 0.02));
 
-  constructor() {
-    this.group.name = 'EarthVisual';
+  constructor(albedoRGB: [number, number, number], ambientRGB: [number, number, number] = [0.02, 0.02, 0.02]) {
+    this.group.name = 'PlanetVisual';
+    this.uAlbedo.value.set(albedoRGB[0], albedoRGB[1], albedoRGB[2]);
+    this.uAmbient.value.set(ambientRGB[0], ambientRGB[1], ambientRGB[2]);
+
     const geometry = new PlaneGeometry(2, 2);
     
     this.material = new MeshBasicNodeMaterial({
@@ -25,7 +30,6 @@ export class EarthVisual {
     const x = positionLocal.x;
     const y = positionLocal.y;
     const rSq = x.mul(x).add(y.mul(y));
-    const r = rSq.pow(0.5);
     
     const sx = x.div(0.9);
     const sy = y.div(0.9);
@@ -38,11 +42,9 @@ export class EarthVisual {
     
     const nDotL = max(0, normal.dot(this.uPhaseLightDir));
     
-    // Albedo for Earth (blue with some atmosphere scattering look)
-    const albedo = vec3(0.1, 0.3, 0.8);
-    const lit = albedo.mul(nDotL.pow(0.8)); 
+    const lit = this.uAlbedo.mul(nDotL.pow(0.8)); 
     
-    const earthshine = vec3(0.02, 0.02, 0.05).mul(float(1).sub(nDotL));
+    const earthshine = this.uAmbient.mul(float(1).sub(nDotL));
     const finalColor = lit.add(earthshine);
     const alpha = disc.mul(this.uOpacity);
 

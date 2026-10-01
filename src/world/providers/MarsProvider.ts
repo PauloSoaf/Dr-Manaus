@@ -158,25 +158,38 @@ export class MarsProvider implements WorldProvider {
   }
 
   plan(context: StreamingContext): readonly TileDemand[] {
-    const observer: Vec3 = this.options.renderSpace
-      ? [-this.centreM[0], -this.centreM[1], -this.centreM[2]]
-      : [
-          context.spatial.player.position[0] - this.centreM[0],
-          context.spatial.player.position[1] - this.centreM[1],
-          context.spatial.player.position[2] - this.centreM[2],
-        ];
+    let observerMarsFixed: Vec3;
+    const marsFrame = this.frames.has('mars/fixed') ? 'mars/fixed' : (this.frames.has('solar-system/mars-fixed') ? 'solar-system/mars-fixed' : null);
+    
+    if (marsFrame) {
+      observerMarsFixed = this.frames.convertPosition(
+        context.spatial.player.frame,
+        marsFrame,
+        context.spatial.player.position
+      );
+    } else {
+      const observer: Vec3 = this.options.renderSpace
+        ? [-this.centreM[0], -this.centreM[1], -this.centreM[2]]
+        : [
+            context.spatial.player.position[0] - this.centreM[0],
+            context.spatial.player.position[1] - this.centreM[1],
+            context.spatial.player.position[2] - this.centreM[2],
+          ];
+      observerMarsFixed = this.toMarsEcef(observer);
+    }
+
     const cached = this.cachedPlan;
     if (cached
       && context.spatial.timeS - cached.timeS < this.options.replanIntervalS
       && Math.hypot(
-        observer[0] - cached.observer[0], observer[1] - cached.observer[1], observer[2] - cached.observer[2],
+        observerMarsFixed[0] - cached.observer[0], observerMarsFixed[1] - cached.observer[1], observerMarsFixed[2] - cached.observer[2],
       ) < cached.radiusM) {
       return cached.demands;
     }
 
     const isCoarse = this.streamingMode === 'coarse';
     
-    const selection = this.quadtree.select(this.toMarsEcef(observer), {
+    const selection = this.quadtree.select(observerMarsFixed, {
       ...DEFAULT_SSE,
       fovRad: context.camera.fovRad,
       viewportHeightPx: context.camera.viewportHeightPx,
@@ -203,7 +216,7 @@ export class MarsProvider implements WorldProvider {
 
     this.cachedPlan = {
       demands,
-      observer,
+      observer: observerMarsFixed,
       radiusM: Number.isFinite(finestM) ? Math.max(25, finestM * 0.25) : 25,
       timeS: context.spatial.timeS,
     };

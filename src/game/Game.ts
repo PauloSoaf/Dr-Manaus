@@ -324,6 +324,10 @@ export class Game {
         const newLocalPos = this.universe.handoffTo('moon');
         this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
         this.hud.notify(`Órbita de interceptação · Lua`);
+      } else if (this.universe.telemetry.frame !== 'mars/fixed' && targetBody === 'mars') {
+        const newLocalPos = this.universe.handoffTo('mars');
+        this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
+        this.hud.notify(`Órbita de interceptação · Marte`);
       } else if (this.universe.telemetry.frame !== 'earth/fixed' && this.universe.telemetry.frame !== MANAUS_FRAME_ID && targetBody === 'earth') {
         const newLocalPos = this.universe.handoffTo('earth');
         this.player.teleport(new Vector3(newLocalPos[0], newLocalPos[1], newLocalPos[2]));
@@ -337,8 +341,8 @@ export class Game {
         this.hud.notify(`Reentrada · Terra`);
       }
     }
-    const local=this.travelDomain.localPhysicsActive;
-    this.localRoot.visible = local;
+    const local = this.travelDomain.localPhysicsActive;
+    this.localRoot.visible = local && this.universe.telemetry.dominantBody === 'earth';
     
     // Uncurve position for RealCity legacy logic
     let legacyPos = this.player.position;
@@ -477,7 +481,7 @@ export class Game {
       // Wait until target coverage is ready before hiding the local ground.
       // keepLocalFallback folds regionalWeight and guards until target representation is verified.
       // Above 60 km (orbit), local world stands down cleanly.
-      const localGround = isEarth && altitudeM < 60_000 && (state.localWeight > 0.01 || !state.targetCoverageReady);
+      const localGround = local && isEarth && altitudeM < 60_000 && (state.localWeight > 0.01 || !state.targetCoverageReady);
       this.flatTerrain.visible=localGround;
       this.localWorldRoot.visible=localGround;
       // Told, not overwritten. Both layers set their own visibility inside an update that runs

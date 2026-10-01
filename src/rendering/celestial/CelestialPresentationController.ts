@@ -98,7 +98,7 @@ export class CelestialPresentationController {
         );
         const marsDirRenderVec = new Vector3(marsDirRender[0], marsDirRender[1], marsDirRender[2]).normalize();
         
-        ctx.mars.globe.setCentre(universe.frames.convertPosition('solar-system/barycentric', telemetry.frame, marsBary));
+        ctx.mars.setCentre(marsBary, 'solar-system/barycentric', telemetry.frame, observerBary);
         const angRad = angularRadiusRad(marsDef.equatorialRadiusM, dist);
         const presentation = system.handoff('mars', observerBary);
         const apparentAngRad = presentation ? presentation.apparentAngularRadiusRad : angRad;
