@@ -468,57 +468,125 @@ export class UniverseRuntime {
    * Returns the new local coordinates so the PlayerController can be teleported there.
    */
   handoffTo(bodyId: string): Vec3 {
-    let targetFrame = MANAUS_FRAME_ID;
-    if (bodyId === 'moon') {
-      const MOON_FIXED_FRAME_ID = 'moon/fixed';
-      if (!this.frames.has(MOON_FIXED_FRAME_ID)) {
-        const moonBody = this.solarSystem.bodies.find(b => b.id === 'moon');
-        if (moonBody) {
-          this.frames.register(referenceFrame({
-            id: MOON_FIXED_FRAME_ID,
-            parentId: moonBody.frameId ?? SOLAR_SYSTEM_FRAME,
-            kind: 'body-fixed',
-            label: 'Lua (fixo)',
-          }));
-        }
+    if (bodyId === 'earth') {
+      // Return to Manaus frame
+      const targetFrame = MANAUS_FRAME_ID;
+      if (this.playerPose.frame !== targetFrame && this.frames.has(targetFrame)) {
+        const newPos = this.frames.convertPosition(this.playerPose.frame, targetFrame, this.playerPose.position);
+        this.playerPose.frame = targetFrame;
+        this.playerPose.position[0] = newPos[0];
+        this.playerPose.position[1] = newPos[1];
+        this.playerPose.position[2] = newPos[2];
+        this.floatingOrigin.reset(this.playerPose);
+        this.renderSpace.setOrigin(createRenderOrigin(targetFrame, this.playerPose.position, this.playerPose.orientation, this.timeS));
+        this.scheduler.invalidate();
       }
-      targetFrame = MOON_FIXED_FRAME_ID;
-    } else if (bodyId === 'mars') {
-      const MARS_FIXED_FRAME_ID = 'mars/fixed';
-      if (!this.frames.has(MARS_FIXED_FRAME_ID)) {
-        const marsBody = this.solarSystem.bodies.find(b => b.id === 'mars');
-        if (marsBody) {
-          this.frames.register(referenceFrame({
-            id: MARS_FIXED_FRAME_ID,
-            parentId: marsBody.frameId ?? SOLAR_SYSTEM_FRAME,
-            kind: 'body-fixed',
-            label: 'Marte (fixo)',
-          }));
-        }
-      }
-      targetFrame = MARS_FIXED_FRAME_ID;
-    } else if (bodyId === 'earth') {
-      targetFrame = MANAUS_FRAME_ID; // Fall back to Manaus for now
+      return [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
     }
 
-    if (this.playerPose.frame !== targetFrame && this.frames.has(targetFrame)) {
-      const newPos = this.frames.convertPosition(this.playerPose.frame, targetFrame, this.playerPose.position);
-      this.playerPose.frame = targetFrame;
-      this.playerPose.position[0] = newPos[0];
-      this.playerPose.position[1] = newPos[1];
-      this.playerPose.position[2] = newPos[2];
-      
-      this.floatingOrigin.reset(this.playerPose);
-      this.renderSpace.setOrigin(createRenderOrigin(
-        targetFrame,
-        this.playerPose.position,
-        this.playerPose.orientation,
-        this.timeS,
-      ));
-      this.scheduler.invalidate();
+    // For Moon/Mars: ensure the body-fixed frame exists first
+    const bodyFixedFrameId = `${bodyId}/fixed`;
+    if (!this.frames.has(bodyFixedFrameId)) {
+      const body = this.solarSystem.bodies.find(b => b.id === bodyId);
+      if (body) {
+        this.frames.register(referenceFrame({
+          id: bodyFixedFrameId,
+          parentId: body.frameId ?? SOLAR_SYSTEM_FRAME,
+          kind: 'body-fixed',
+          label: `${bodyId} (fixo)`,
+        }));
+      }
     }
-    
-    return [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
+
+    if (!this.frames.has(bodyFixedFrameId)) {
+      // Could not register frame — stay where we are
+      return [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
+    }
+
+    // Convert current player position into the body-fixed frame to find landing point
+    const posInBodyFixed = this.frames.has(this.playerPose.frame)
+      ? this.frames.convertPosition(this.playerPose.frame, bodyFixedFrameId, this.playerPose.position)
+      : [0, 0, 0] as Vec3;
+
+    // Build a tangent ENU frame at the landing site so that local physics has:
+    //   +X = East,  +Y = Up (radial outward),  +Z = -North (South)
+    // This matches the Manaus convention and means the flat-plane physics engine
+    // sees y=0 as the surface and gravity as -Y.
+    const landingEnuFrameId = `${bodyId}/local-enu`;
+    const bodyRadius = this.solarSystem.bodies.find(b => b.id === bodyId)?.equatorialRadiusM ?? 1_737_400;
+
+    const up = posInBodyFixed;
+    const upLen = Math.hypot(up[0], up[1], up[2]) || bodyRadius;
+    const upNorm: Vec3 = [up[0] / upLen, up[1] / upLen, up[2] / upLen];
+
+    // Anchor on the surface (remove altitude, so y=0 in ENU frame is the surface)
+    const anchorInBodyFixed: Vec3 = [
+      upNorm[0] * bodyRadius,
+      upNorm[1] * bodyRadius,
+      upNorm[2] * bodyRadius,
+    ];
+
+    // East = normalize(up × north_pole). At poles, use a fallback.
+    const northPole: Vec3 = [0, 1, 0];
+    const pLen = Math.hypot(upNorm[0], upNorm[2]);
+    let east: Vec3;
+    if (pLen < 1e-9) {
+      // At a pole: east is just +X
+      east = [1, 0, 0];
+    } else {
+      // east = normalize(upNorm × northPole)
+      const ex = upNorm[1] * northPole[2] - upNorm[2] * northPole[1];
+      const ey = upNorm[2] * northPole[0] - upNorm[0] * northPole[2];
+      const ez = upNorm[0] * northPole[1] - upNorm[1] * northPole[0];
+      const el = Math.hypot(ex, ey, ez) || 1;
+      east = [ex / el, ey / el, ez / el];
+    }
+
+    // North = up × east (recomputed to ensure orthogonality)
+    const nx = upNorm[1] * east[2] - upNorm[2] * east[1];
+    const ny = upNorm[2] * east[0] - upNorm[0] * east[2];
+    const nz = upNorm[0] * east[1] - upNorm[1] * east[0];
+    const north: Vec3 = [nx, ny, nz];
+
+    // South = -North (to match Manaus Z convention: +Z = South)
+    const south: Vec3 = [-north[0], -north[1], -north[2]];
+
+    // quatFromBasis: columns = local +X, +Y, +Z in parent frame
+    const rotationToParent = quatFromBasis(east, upNorm, south);
+
+    // Re-register (or update) the local ENU frame
+    if (this.frames.has(landingEnuFrameId)) {
+      this.frames.remove(landingEnuFrameId);
+    }
+    this.frames.register(referenceFrame({
+      id: landingEnuFrameId,
+      parentId: bodyFixedFrameId,
+      kind: 'surface-enu',
+      originInParent: anchorInBodyFixed,
+      rotationToParent,
+      label: `${bodyId} (ENU pouso)`,
+    }));
+
+    // Move the player into this ENU frame. Altitude above the surface = original altitude.
+    const altitudeM = Math.max(0, upLen - bodyRadius);
+    // In the ENU frame: player stands at (0, altitudeM, 0) — directly above the anchor.
+    const posInEnu: Vec3 = [0, altitudeM, 0];
+
+    this.playerPose.frame = landingEnuFrameId;
+    this.playerPose.position[0] = posInEnu[0];
+    this.playerPose.position[1] = posInEnu[1];
+    this.playerPose.position[2] = posInEnu[2];
+
+    this.floatingOrigin.reset(this.playerPose);
+    this.renderSpace.setOrigin(createRenderOrigin(
+      landingEnuFrameId,
+      this.playerPose.position,
+      this.playerPose.orientation,
+      this.timeS,
+    ));
+    this.scheduler.invalidate();
+
+    return [posInEnu[0], posInEnu[1], posInEnu[2]];
   }
 
   get telemetry(): UniverseTelemetry {
