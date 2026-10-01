@@ -140,7 +140,10 @@ export class MoonProvider implements WorldProvider {
   }
 
   setStreamingMode(mode: 'off' | 'coarse' | 'surface'): void {
-    this.streamingMode = mode;
+    if (this.streamingMode !== mode) {
+      this.streamingMode = mode;
+      this.cachedPlan = undefined;
+    }
   }
   
   setVisible(visible: boolean): void {

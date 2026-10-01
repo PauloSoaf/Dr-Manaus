@@ -131,7 +131,10 @@ export class EarthProvider implements WorldProvider {
   }
 
   setStreamingMode(mode: 'off' | 'coarse' | 'surface'): void {
-    this.streamingMode = mode;
+    if (this.streamingMode !== mode) {
+      this.streamingMode = mode;
+      this.cachedPlan = undefined;
+    }
   }
 
   covers(context: SpatialContext): boolean {

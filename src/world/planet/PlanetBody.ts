@@ -45,6 +45,15 @@ export const MOON: PlanetBody = {
   gravitationalParameter: 4.902_800e12,
 };
 
+export const MARS: PlanetBody = {
+  id: 'mars',
+  semiMajorAxisM: 3_396_200,
+  flattening: 1 / 169.81,
+  rotationPeriodS: 88_642.663,
+  parentFrame: 'solar-system/sun-inertial',
+  gravitationalParameter: 4.282_837e13,
+};
+
 export const polarRadiusM = (body: PlanetBody): number =>
   body.semiMajorAxisM * (1 - finite(body.flattening));
 

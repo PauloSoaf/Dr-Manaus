@@ -314,3 +314,14 @@ Baseline HEAD: `2609e4d30901720f9b18e05939f717e590dc7140`
      - Full test suite passes: 340/340 tests ok.
 
 
+
+
+## Hotfix v2 — Mars & Coordinate Authority (eat/universe-map)
+
+Status: **verified** (tests passing, build clean).
+
+### Changes implemented
+
+- **Resolved Coordinate Authority (Task 005):** Eliminated Game.origin duplicate authority over scene positioning. The Game.ts origin is now strictly synced from UniverseRuntime.renderSpace.currentOrigin.position, dropping any direct reads from FloatingOrigin3D in space. This prevents jitter and visual instability during coordinate rebases.
+- **Culled Ghost City in Space (Task 006):** In interplanetary travel mode, the local city streamer is fully suspended and localRoot.visible = local; forces the high-detail city meshes to disappear. This prevents floating urban garbage and z-fighting in the orbital view.
+- **Planetary Models (Mars):** Completed Mars implementation (MarsProvider, MarsGlobe, MarsSurface) using identical pipeline architecture as Moon, wired into CelestialPresentationController.ts.

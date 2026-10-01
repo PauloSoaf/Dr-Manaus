@@ -2,14 +2,18 @@ import { Vector3, PerspectiveCamera } from 'three/webgpu';
 import type { UniverseRuntime } from '../../world/runtime/UniverseRuntime';
 import type { EarthProvider } from '../../world/providers/EarthProvider';
 import type { MoonProvider } from '../../world/providers/MoonProvider';
+import type { MarsProvider } from '../../world/providers/MarsProvider';
 import { CelestialBodyVisualLayer } from './CelestialBodyVisualLayer';
 import type { CelestialRenderSample } from './types';
-import { CELESTIAL_PROXY_DISTANCE_M, angularRadiusRad } from './math';
+import { CELESTIAL_PROXY_DISTANCE_M, angularRadiusRad, celestialProxyGeometry, projectedDiameterPx } from './math';
 
 export interface CelestialPresentationContext {
   universe: UniverseRuntime;
   earth?: EarthProvider;
   moon?: MoonProvider;
+  mars?: MarsProvider;
+  fovRad: number;
+  viewportHeightPx: number;
 }
 
 export interface CelestialRenderContext {
@@ -54,6 +58,7 @@ export class CelestialPresentationController {
         );
         const sunDirRenderVec = new Vector3(sunDirRender[0], sunDirRender[1], sunDirRender[2]).normalize();
         const angRad = angularRadiusRad(sunDef.equatorialRadiusM, dist);
+        const proxyGeo = celestialProxyGeometry(angRad);
 
         this.samples.push({
           bodyId: 'sun',
@@ -61,9 +66,9 @@ export class CelestialPresentationController {
           physicalRadiusM: sunDef.equatorialRadiusM,
           angularRadiusRad: angRad,
           directionRender: [sunDirRenderVec.x, sunDirRenderVec.y, sunDirRenderVec.z],
-          proxyDistanceM: CELESTIAL_PROXY_DISTANCE_M,
-          proxyRadiusM: Math.tan(angRad) * CELESTIAL_PROXY_DISTANCE_M,
-          visible: true,
+          proxyDistanceM: proxyGeo.distanceM,
+          proxyRadiusM: proxyGeo.radiusM,
+          visible: proxyGeo.safe,
           opacity: 1
         });
 
@@ -73,6 +78,101 @@ export class CelestialPresentationController {
         if (moon && moonBary) {
           moon.setSunDirection([sunBary[0] - moonBary[0], sunBary[1] - moonBary[1], sunBary[2] - moonBary[2]], 'solar-system/barycentric', telemetry.frame);
         }
+      }
+    }
+
+    // --- MARS ---
+    const marsBary = system.positionOf('mars');
+    if (ctx.mars && marsBary) {
+      const marsDef = system.bodies.find(b => b.id === 'mars');
+      if (marsDef) {
+        const dx = marsBary[0] - observerBary[0];
+        const dy = marsBary[1] - observerBary[1];
+        const dz = marsBary[2] - observerBary[2];
+        const dist = Math.hypot(dx, dy, dz);
+
+        const marsDirRender = universe.frames.convertDirection(
+          'solar-system/barycentric',
+          telemetry.frame,
+          [dx, dy, dz]
+        );
+        const marsDirRenderVec = new Vector3(marsDirRender[0], marsDirRender[1], marsDirRender[2]).normalize();
+        
+        ctx.mars.globe.setCentre(universe.frames.convertPosition('solar-system/barycentric', telemetry.frame, marsBary));
+        const angRad = angularRadiusRad(marsDef.equatorialRadiusM, dist);
+        const presentation = system.handoff('mars', observerBary);
+        const apparentAngRad = presentation ? presentation.apparentAngularRadiusRad : angRad;
+        const proxyGeo = celestialProxyGeometry(apparentAngRad);
+        const projectedPx = projectedDiameterPx(apparentAngRad, ctx.fovRad, ctx.viewportHeightPx);
+        
+        let visible = proxyGeo.safe;
+        let opacity = 1;
+        let streamingMode: 'off' | 'coarse' | 'surface' = 'off';
+
+        if (presentation) {
+          const ready = ctx.mars.readiness();
+          const targetMode = presentation.mode;
+
+          if (targetMode === 'celestial') {
+            streamingMode = 'off';
+            visible = proxyGeo.safe;
+            opacity = 1;
+            ctx.mars.globe.visible = false;
+          } else if (targetMode === 'planet') {
+            if (projectedPx < 64) {
+              streamingMode = 'off';
+              visible = proxyGeo.safe;
+              opacity = 1;
+              ctx.mars.globe.visible = false;
+            } else {
+              streamingMode = 'coarse';
+              if (!ready.coarseCoverageReady) {
+                visible = proxyGeo.safe;
+                opacity = 1;
+                ctx.mars.globe.visible = false;
+              } else {
+                visible = proxyGeo.safe && presentation.blend < 1;
+                opacity = 1 - presentation.blend;
+                ctx.mars.globe.visible = true;
+              }
+            }
+          } else if (targetMode === 'surface') {
+            streamingMode = 'surface';
+            if (!ready.surfaceCoverageReady && !ready.coarseCoverageReady) {
+              visible = proxyGeo.safe;
+              opacity = 1;
+              ctx.mars.globe.visible = false;
+            } else {
+              visible = false;
+              opacity = 0;
+              ctx.mars.globe.visible = true;
+            }
+          }
+        }
+        
+        ctx.mars.setStreamingMode(streamingMode);
+
+        let phaseLightDirRenderVec = undefined;
+        if (sunBary) {
+          const m2s_x = sunBary[0] - marsBary[0];
+          const m2s_y = sunBary[1] - marsBary[1];
+          const m2s_z = sunBary[2] - marsBary[2];
+          const m2sRender = universe.frames.convertDirection('solar-system/barycentric', telemetry.frame, [m2s_x, m2s_y, m2s_z]);
+          phaseLightDirRenderVec = new Vector3(m2sRender[0], m2sRender[1], m2sRender[2]).normalize();
+        }
+
+        this.samples.push({
+          bodyId: 'mars',
+          logicalDistanceM: dist,
+          physicalRadiusM: marsDef.equatorialRadiusM,
+          angularRadiusRad: apparentAngRad,
+          directionRender: [marsDirRenderVec.x, marsDirRenderVec.y, marsDirRenderVec.z],
+          proxyDistanceM: proxyGeo.distanceM,
+          proxyRadiusM: proxyGeo.radiusM,
+          visible,
+          opacity,
+          phaseLightDirection: phaseLightDirRenderVec ? [phaseLightDirRenderVec.x, phaseLightDirRenderVec.y, phaseLightDirRenderVec.z] : undefined
+        });
       }
     }
 
@@ -94,12 +194,15 @@ export class CelestialPresentationController {
         
         moon.setCentre(moonBary, 'solar-system/barycentric', telemetry.frame);
         const angRad = angularRadiusRad(moonDef.equatorialRadiusM, dist);
+        const presentation = system.handoff('moon', observerBary);
+        const apparentAngRad = presentation ? presentation.apparentAngularRadiusRad : angRad;
+        const proxyGeo = celestialProxyGeometry(apparentAngRad);
+        const projectedPx = projectedDiameterPx(apparentAngRad, ctx.fovRad, ctx.viewportHeightPx);
         
-        let visible = true;
+        let visible = proxyGeo.safe;
         let opacity = 1;
         let streamingMode: 'off' | 'coarse' | 'surface' = 'off';
 
-        const presentation = system.handoff('moon', observerBary);
         if (presentation) {
           const ready = moon.readiness();
           const targetMode = presentation.mode;
@@ -107,27 +210,34 @@ export class CelestialPresentationController {
           // State machine mapping:
           if (targetMode === 'celestial') {
             streamingMode = 'off';
-            visible = true;
+            visible = proxyGeo.safe;
             opacity = 1;
             moon.setVisible(false);
           } else if (targetMode === 'planet') {
-            streamingMode = 'coarse';
-            if (!ready.coarseCoverageReady) {
-              // REQUESTING_PLANET
-              visible = true;
+            if (projectedPx < 64) {
+              streamingMode = 'off';
+              visible = proxyGeo.safe;
               opacity = 1;
               moon.setVisible(false);
             } else {
-              // CELESTIAL_PLANET_OVERLAP or PLANET_ONLY
-              visible = presentation.blend < 1; // still show if crossfading
-              opacity = 1 - presentation.blend;
-              moon.setVisible(true);
+              streamingMode = 'coarse';
+              if (!ready.coarseCoverageReady) {
+                // REQUESTING_PLANET
+                visible = proxyGeo.safe;
+                opacity = 1;
+                moon.setVisible(false);
+              } else {
+                // CELESTIAL_PLANET_OVERLAP or PLANET_ONLY
+                visible = proxyGeo.safe && presentation.blend < 1; // still show if crossfading
+                opacity = 1 - presentation.blend;
+                moon.setVisible(true);
+              }
             }
           } else if (targetMode === 'surface') {
             streamingMode = 'surface';
             if (!ready.surfaceCoverageReady && !ready.coarseCoverageReady) {
               // Fallback to celestial if completely unready
-              visible = true;
+              visible = proxyGeo.safe;
               opacity = 1;
               moon.setVisible(false);
             } else {
@@ -154,10 +264,10 @@ export class CelestialPresentationController {
           bodyId: 'moon',
           logicalDistanceM: dist,
           physicalRadiusM: moonDef.equatorialRadiusM,
-          angularRadiusRad: presentation ? presentation.apparentAngularRadiusRad : angRad,
+          angularRadiusRad: apparentAngRad,
           directionRender: [moonDirRenderVec.x, moonDirRenderVec.y, moonDirRenderVec.z],
-          proxyDistanceM: CELESTIAL_PROXY_DISTANCE_M,
-          proxyRadiusM: Math.tan(presentation ? presentation.apparentAngularRadiusRad : angRad) * CELESTIAL_PROXY_DISTANCE_M,
+          proxyDistanceM: proxyGeo.distanceM,
+          proxyRadiusM: proxyGeo.radiusM,
           visible,
           opacity,
           phaseLightDirection: phaseLightDirRenderVec ? [phaseLightDirRenderVec.x, phaseLightDirRenderVec.y, phaseLightDirRenderVec.z] : undefined
@@ -182,33 +292,42 @@ export class CelestialPresentationController {
         const earthDirRenderVec = new Vector3(earthDirRender[0], earthDirRender[1], earthDirRender[2]).normalize();
         
         const angRad = angularRadiusRad(earthDef.equatorialRadiusM, dist);
+        const presentation = system.handoff('earth', observerBary);
+        const apparentAngRad = presentation ? presentation.apparentAngularRadiusRad : angRad;
+        const proxyGeo = celestialProxyGeometry(apparentAngRad);
+        const projectedPx = projectedDiameterPx(apparentAngRad, ctx.fovRad, ctx.viewportHeightPx);
         
-        let visible = true;
+        let visible = proxyGeo.safe;
         let opacity = 1;
         let streamingMode: 'off' | 'coarse' | 'surface' = 'off';
 
-        const presentation = system.handoff('earth', observerBary);
         if (presentation) {
           const ready = earth.readiness();
           const targetMode = presentation.mode;
 
           if (targetMode === 'celestial') {
             streamingMode = 'off';
-            visible = true;
+            visible = proxyGeo.safe;
             opacity = 1;
           } else if (targetMode === 'planet') {
-            streamingMode = 'coarse';
-            if (!ready.viewCoverageReady) {
-              visible = true;
+            if (projectedPx < 64) {
+              streamingMode = 'off';
+              visible = proxyGeo.safe;
               opacity = 1;
             } else {
-              visible = presentation.blend < 1;
-              opacity = 1 - presentation.blend;
+              streamingMode = 'coarse';
+              if (!ready.viewCoverageReady) {
+                visible = proxyGeo.safe;
+                opacity = 1;
+              } else {
+                visible = proxyGeo.safe && presentation.blend < 1;
+                opacity = 1 - presentation.blend;
+              }
             }
           } else if (targetMode === 'surface') {
             streamingMode = 'surface';
             if (!ready.viewCoverageReady) {
-              visible = true;
+              visible = proxyGeo.safe;
               opacity = 1;
             } else {
               visible = false;
@@ -232,10 +351,10 @@ export class CelestialPresentationController {
           bodyId: 'earth',
           logicalDistanceM: dist,
           physicalRadiusM: earthDef.equatorialRadiusM,
-          angularRadiusRad: presentation ? presentation.apparentAngularRadiusRad : angRad,
+          angularRadiusRad: apparentAngRad,
           directionRender: [earthDirRenderVec.x, earthDirRenderVec.y, earthDirRenderVec.z],
-          proxyDistanceM: CELESTIAL_PROXY_DISTANCE_M,
-          proxyRadiusM: Math.tan(presentation ? presentation.apparentAngularRadiusRad : angRad) * CELESTIAL_PROXY_DISTANCE_M,
+          proxyDistanceM: proxyGeo.distanceM,
+          proxyRadiusM: proxyGeo.radiusM,
           visible,
           opacity,
           phaseLightDirection: phaseLightDirRenderVec ? [phaseLightDirRenderVec.x, phaseLightDirRenderVec.y, phaseLightDirRenderVec.z] : undefined
