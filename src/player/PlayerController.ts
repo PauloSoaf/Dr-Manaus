@@ -8,7 +8,8 @@ import { FLIGHT, type FlightSpeedMode } from './flightConfig';
 
 /** What the arm key has selected. Each tier unlocks the one below it as well. */
 export type ArmedTier = 'none' | 'mega' | 'interplanetary';
-import { getDoubleJumpDuration, getJumpHeight, getJumpVelocity, getGravity } from './physics/JumpPhysics';
+import { getDoubleJumpDuration, getJumpVelocity, getGravity, JUMP_CONFIG } from './physics/JumpPhysics';
+import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { TitanGroundSupport } from './physics/TitanGroundSupport';
 import type { FlipDirection } from './animations/types';
 import { DodgeSystem, type DodgeKind } from './movement/DodgeSystem';
@@ -67,6 +68,7 @@ export class PlayerController {
   private pendingImpact: ImpactResult | null = null;
   private slamTimer = 0;
   private desiredSpeed = 0;
+  private bodyGravityMps2 = surfaceGravityMps2(EARTH);
 
   constructor(root: Group, input: InputController) {
     this.input = input;
@@ -76,6 +78,15 @@ export class PlayerController {
 
   get jumpCount(): number { return this.jumps; }
   get isGrounded(): boolean { return this.grounded; }
+  /** Physical gravity of the current body, before the existing Earth gameplay calibration. */
+  get surfaceGravityMps2(): number { return this.bodyGravityMps2; }
+  get gravityMps2(): number {
+    return getGravity(this.size, JUMP_CONFIG.baseGravity * this.bodyGravityMps2 / surfaceGravityMps2(EARTH));
+  }
+  setSurfaceGravity(gravityMps2: number): void {
+    if (!Number.isFinite(gravityMps2) || gravityMps2 < 0) throw new RangeError('Surface gravity must be finite and non-negative');
+    this.bodyGravityMps2 = gravityMps2;
+  }
   /** The speed the player is currently asking for; flight rights the body against it. */
   get requestedSpeed(): number { return this.desiredSpeed; }
   get isSlamming(): boolean { return this.slamTimer > 0; }
@@ -234,7 +245,8 @@ export class PlayerController {
 
       if (this.input.consume('Space') && this.jumps < 2) {
         if (this.grounded || this.jumps === 0) {
-          // First jump: standard jump scaled by v = sqrt(2 * g * h)
+          // Keep the same muscular impulse on each body: lower gravity gives a higher,
+          // longer jump, while Earth's established movement remains exactly as before.
           this.jumps = 1;
           this.velocity.y = getJumpVelocity(this.size);
           this.grounded = false;
@@ -250,7 +262,7 @@ export class PlayerController {
               start.y = this.position.y + 2.2 * this.size;
               const ceiling = PhysicsWorld.raycast(start, new Vector3(0, 1, 0), colliders, Math.max(0, rise), 0.32 * this.size);
               if (rise > 0.55 * this.size && rise < 2.5 * this.size && !ceiling) {
-                this.velocity.y = Math.sqrt(2 * getGravity(this.size) * (rise + 0.5 * this.size));
+                this.velocity.y = Math.max(this.velocity.y, Math.sqrt(2 * this.gravityMps2 * (rise + 0.5 * this.size)));
                 this.powerPose('vault', 0.55);
               }
             }
@@ -278,7 +290,7 @@ export class PlayerController {
           this.powerPose('flip', getDoubleJumpDuration(this.size));
         }
       }
-      this.velocity.y -= getGravity(this.size) * dt;
+      this.velocity.y -= this.gravityMps2 * dt;
     }
 
     this.size = MathUtils.lerp(this.size, this.targetSize, 1 - Math.exp(-dt * 4));
@@ -477,7 +489,7 @@ export class PlayerController {
     this.position.copy(position);
     this.velocity.set(0, 0, 0);
     this.model.position.copy(position);
-    this.state = position.y > 1 ? 'Hover' : 'Grounded';
+    this.state = position.y > PhysicsWorld.terrainHeight(position.x, position.z, 0.32 * this.size) + 1 ? 'Hover' : 'Grounded';
     this.grounded = false;
     this.jumps = 0;
     this.slamTimer = 0;

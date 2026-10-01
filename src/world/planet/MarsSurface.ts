@@ -1,12 +1,11 @@
 import type { Vec3 } from '../spatial/units';
-import { bodyById } from '../celestial/CelestialBody';
+import { MARS } from './PlanetBody';
 
 /**
  * Mars surface: red, cratered, and generated rather than measured.
  */
 
-const MARS = bodyById('mars')!;
-export const MARS_RADIUS_M = MARS.equatorialRadiusM;
+export const MARS_RADIUS_M = MARS.semiMajorAxisM;
 export const MARS_RELIEF_M = 21_000; // Olympus Mons scale
 const SLOPE_EXAGGERATION = 6;
 
@@ -100,6 +99,7 @@ export function marsNormalEnu(direction: Vec3, out: [number, number, number]): [
 import type { PlanetSurfaceGenerator } from './PlanetSurface';
 
 export const MarsSurfaceGenerator: PlanetSurfaceGenerator = {
+  body: MARS,
   radiusM: MARS_RADIUS_M,
   heightAt: marsHeightAt,
   normalEnu: marsNormalEnu,

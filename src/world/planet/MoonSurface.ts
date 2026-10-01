@@ -1,4 +1,5 @@
 import type { Vec3 } from '../spatial/units';
+import { MOON } from './PlanetBody';
 
 /**
  * The Moon's surface: grey, cratered, and generated rather than measured.
@@ -17,8 +18,8 @@ import type { Vec3 } from '../spatial/units';
 /** Metres of relief between the floor of a mare and the top of the highlands. */
 export const MOON_RELIEF_M = 4_200;
 
-/** The Moon is a sphere here. See `MoonProvider` for why that is not a shortcut. */
-export const MOON_RADIUS_M = 1_738_100;
+/** Equatorial reference radius; vertices and collision use the body's full ellipsoid. */
+export const MOON_RADIUS_M = MOON.semiMajorAxisM;
 
 /** Slope exaggeration for shading, for the reason the Earth's has one: relief is invisible. */
 const SLOPE_EXAGGERATION = 9;
@@ -136,6 +137,7 @@ export function moonNormalEnu(direction: Vec3, out: [number, number, number]): [
 import type { PlanetSurfaceGenerator } from './PlanetSurface';
 
 export const MoonSurfaceGenerator: PlanetSurfaceGenerator = {
+  body: MOON,
   radiusM: MOON_RADIUS_M,
   heightAt: moonHeightAt,
   normalEnu: moonNormalEnu,

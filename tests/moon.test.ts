@@ -5,6 +5,7 @@ import { buildPlanetTileMesh, PLANET_TILE_RESOLUTION } from '../src/world/planet
 import { MOON_RADIUS_M, MOON_RELIEF_M, moonColourAt, moonHeightAt, MoonSurfaceGenerator } from '../src/world/planet/MoonSurface.ts';
 import { RockyPlanetProvider } from '../src/world/providers/RockyPlanetProvider.ts';
 import { MOON } from '../src/world/planet/PlanetBody.ts';
+import { planetSurfaceRadius } from '../src/world/planet/PlanetSurface.ts';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
 import { planetTile, tileChildren } from '../src/world/planet/PlanetTileAddress.ts';
 import { DEFAULT_STREAMING_BUDGET } from '../src/world/streaming/StreamingBudget.ts';
@@ -65,10 +66,10 @@ test('a Moon tile sits on the Moon, at the height the surface says', () => {
     const z = positions.getZ(i) + mesh.centre[2];
     const radius = Math.hypot(x, y, z);
     const direction: Vec3 = [x / radius, y / radius, z / radius];
-    const expected = MOON_RADIUS_M + moonHeightAt(direction);
+    const expected = planetSurfaceRadius(MoonSurfaceGenerator, direction);
     // Float32 storage of offsets from the tile centre is the entire budget, as on Earth.
     assert.ok(
-      Math.abs(radius - expected) < 30,
+      Math.abs(radius - expected) < 0.03,
       `a vertex sits ${(radius - expected).toFixed(1)} m off the surface`,
     );
   }

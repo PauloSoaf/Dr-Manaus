@@ -2,7 +2,7 @@ import { Vector3 } from 'three/webgpu';
 import type { Collider } from '../core/types';
 
 export interface RayHit { distance: number; collider: Collider | null; point: Vector3 }
-/** Global coordinates. The optional raycast must match the provider's actual terrain topology. */
+/** Active physics frame coordinates. The raycast must match the provider's terrain topology. */
 export interface TerrainProvider {
   heightAt(x: number, z: number): number;
   raycast?(origin: Vector3, direction: Vector3, maxDistance: number): number | null;
@@ -19,7 +19,7 @@ export class PhysicsWorld {
   static terrainHeight(x: number, z: number, radius = 0): number {
     const terrain = this.terrain; if (!terrain) return 0;
     const center = terrain.heightAt(x, z);
-    let floor = Number.isFinite(center) ? center : 0;
+    let floor = Number.isFinite(center) || center === Number.NEGATIVE_INFINITY ? center : 0;
     if (radius > 0) {
       for (const [dx, dz] of [[radius, 0], [-radius, 0], [0, radius], [0, -radius]] as const) {
         const sampled = terrain.heightAt(x + dx, z + dz);

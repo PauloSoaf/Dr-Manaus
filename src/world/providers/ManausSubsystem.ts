@@ -2,7 +2,7 @@ import type { RealCityLayer } from '../realcity/RealCityLayer';
 import type { StreamingContext } from './WorldProvider';
 import type { ManagedDemand, ManagedStats, ManagedSubsystem } from '../streaming/ManagedSubsystem';
 import { regionContains, type SpatialRegion } from './WorldProvider';
-import { legacyLocalToGeodetic } from '../spatial/ManausFrameAdapter';
+import { legacyLocalToGeodetic, MANAUS_FRAME_ID } from '../spatial/ManausFrameAdapter';
 import { radToDeg } from '../spatial/units';
 
 /**
@@ -36,6 +36,7 @@ export class ManausSubsystem implements ManagedSubsystem {
   constructor(private readonly city: RealCityLayer) {}
 
   covers(context: StreamingContext): boolean {
+    if (context.spatial.bodyId !== 'earth' || context.spatial.player.frame !== MANAUS_FRAME_ID) return false;
     const local = context.spatial.player.position;
     const geodetic = legacyLocalToGeodetic(local[0], local[1], local[2]);
     if (geodetic.heightM > CEILING_M) return false;

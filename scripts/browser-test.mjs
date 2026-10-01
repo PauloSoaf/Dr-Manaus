@@ -1,47 +1,63 @@
-import { spawn } from 'node:child_process';
 import { chromium } from '@playwright/test';
-import { fileURLToPath } from 'node:url';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { createServer } from 'vite';
 
 const host = '127.0.0.1';
 const port = Number(process.env.DR_MANAUS_TEST_PORT ?? 4173);
 const url = `http://${host}:${port}`;
-const viteBin = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url));
-
-const server = spawn(process.execPath, [viteBin, '--host', host, '--port', String(port), '--strictPort'], {
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
-
 let serverOutput = '';
-server.stdout.on('data', chunk => { serverOutput += chunk.toString(); });
-server.stderr.on('data', chunk => { serverOutput += chunk.toString(); });
-
 const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const checkpoints = {};
+const errors = [];
+const startedAt = new Date().toISOString();
+let stage = 'boot';
+let status = 'failed';
+let failure;
+await mkdir('artifacts', { recursive: true });
+const saveJson = (name, value) => writeFile(`artifacts/${name}.json`, JSON.stringify(value, (_, item) => typeof item === 'bigint' ? item.toString() : item, 2));
 
-async function waitForServer() {
-  const deadline = Date.now() + 15_000;
-  while (Date.now() < deadline) {
-    if (server.exitCode !== null) throw new Error(`Vite encerrou antes do teste.\n${serverOutput}`);
-    try {
-      const response = await fetch(url);
-      if (response.ok) return;
-    } catch {
-      // The server may still be binding to the port.
-    }
-    await sleep(150);
-  }
-  throw new Error(`Vite não respondeu em ${url}.\n${serverOutput}`);
+async function snapshot(page) {
+  return page.evaluate(() => {
+    const game = window.__DR_MANAUS__;
+    if (!game) return { ready: false };
+    return {
+      ready: game.ready, universe: game.universe.telemetry,
+      domain: game.travelDomain.kind, surface: game.surfacePhysicsState,
+      position: game.player.position.toArray(), velocity: game.player.velocity.toArray(),
+      state: game.player.state, localRootVisible: game.localRoot.visible,
+      cameraInSpace: game.camera.inSpace,
+      cityUpdates: window.__DR_BROWSER_TELEMETRY__?.cityUpdates ?? 0,
+      transitions: window.__DR_BROWSER_TELEMETRY__?.transitions ?? [],
+      city: game.realCity.stats, streaming: game.streamer.stats,
+    };
+  });
 }
 
+let server;
 let browser;
+let context;
+let page;
 try {
-  await waitForServer();
+  server = await createServer({
+    // A test run must not reload halfway through while another developer edits the workspace.
+    server: { host, port, strictPort: true, hmr: false, watch: null },
+    customLogger: {
+      info: message => { serverOutput += `${message}\n`; },
+      warn: message => { serverOutput += `${message}\n`; },
+      warnOnce: message => { serverOutput += `${message}\n`; },
+      error: message => { serverOutput += `${message}\n`; },
+      clearScreen() {}, hasErrorLogged: () => false, hasWarned: false,
+    },
+  });
+  await server.listen();
   browser = await chromium.launch({
     headless: true,
     args: [...(process.env.DR_BROWSER_GPU?[]:['--use-angle=swiftshader']), '--ignore-gpu-blocklist', '--enable-webgl'],
   });
 
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  const errors = [];
+  context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+  await context.tracing.start({ screenshots: true, snapshots: true });
+  page = await context.newPage();
 
   page.on('pageerror', error => {errors.push(`pageerror: ${error.message}`);console.error(error.message);});
   page.on('crash', () => errors.push('crash: a aba do navegador caiu'));
@@ -51,6 +67,21 @@ try {
 
   await page.goto(`${url}/?webgl=1`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__DR_MANAUS__?.ready === true, null, { timeout: 25_000 });
+
+  await page.evaluate(() => {
+    const game = window.__DR_MANAUS__;
+    const samples = window.__DR_BROWSER_TELEMETRY__ = { transitions: [], cityUpdates: 0 };
+    const update = game.travelDomain.update.bind(game.travelDomain);
+    game.travelDomain.update = (travelContext, dt) => {
+      const transition = update(travelContext, dt);
+      if (transition.kind === 'departed' || transition.kind === 'returned') {
+        samples.transitions.push({ ...transition, body: travelContext.bodyId, altitudeM: travelContext.altitudeM, speedMps: travelContext.speedMps, frame: game.universe.telemetry.frame });
+      }
+      return transition;
+    };
+    const cityUpdate = game.realCity.update.bind(game.realCity);
+    game.realCity.update = (...args) => { samples.cityUpdates++; return cityUpdate(...args); };
+  });
 
   const fatal = await page.locator('.fatal').count();
   if (fatal) throw new Error(`A tela fatal apareceu: ${await page.locator('.fatal').innerText()}`);
@@ -68,6 +99,8 @@ try {
   if (!boot.ready) throw new Error('Game.ready permaneceu false após o boot.');
   if (boot.activeChunks < 9) throw new Error(`Streaming iniciou com apenas ${boot.activeChunks} chunks ativos.`);
   if (![boot.x, boot.y, boot.z].every(Number.isFinite)) throw new Error('Posição inicial do jogador contém valor inválido.');
+  checkpoints.boot = boot;
+  stage = 'city-and-input';
 
   // The compiled city streams asynchronously; give it a moment before measuring the real tiers.
   // Software rasterisation runs at a few frames a second, and the geometry budget is per frame,
@@ -169,6 +202,7 @@ try {
     if (!traffic.active) throw new Error('A malha viaria carregou mas nenhum carro apareceu.');
     if (traffic.offCount) throw new Error(`${traffic.offCount} de ${traffic.checked} carros fora da faixa: ${traffic.offenders.join(', ')} m.`);
   }
+  checkpoints.city = city;
 
   // The pause menu has to open on Esc, stop the world taking input, and actually apply a change.
   await page.keyboard.press('Escape');
@@ -220,6 +254,7 @@ try {
   if (resumed.open || !resumed.inputEnabled) throw new Error('Esc nao retomou o jogo.');
 
   await page.keyboard.press('f');
+  stage = 'takeoff-and-destruction';
   // Generous: the showcase square builds during the first frames, and software rasterisation
   // runs at a few frames a second, so a keypress can take a moment to be consumed.
   await page.waitForFunction(() => window.__DR_MANAUS__.player.state !== 'Grounded', null, { timeout: 20_000 });
@@ -238,6 +273,7 @@ try {
   await page.screenshot({path:'artifacts/destruction-browser.png'});
   if(destructionCoverage.depth>=-3||destructionCoverage.surfaces<3||!destructionCoverage.removed||!destructionCoverage.restored)throw new Error(`Destruction coverage failed: ${JSON.stringify(destructionCoverage)}`);
   console.log(`  authored destruction + crater: ${JSON.stringify(destructionCoverage)}`);
+  checkpoints.destruction = destructionCoverage;
 
   // Visual validation: Scenario 1 - Ground Golden Hour (climb to ~100m, clear weather, horizon view)
   console.log('  taking off and climbing to 100m for Golden Hour visual validation...');
@@ -268,27 +304,25 @@ try {
   });
   await page.waitForTimeout(600);
   await page.screenshot({ path: 'artifacts/earth-100m-clear-golden-horizon.png' });
-  await import('node:fs/promises').then(fs => fs.writeFile(
-    'artifacts/earth-100m-clear-golden-horizon.json',
-    JSON.stringify(goldenHourTelemetry, null, 2)
-  ));
+  await saveJson('earth-100m-clear-golden-horizon', goldenHourTelemetry);
   console.log(`  visual validation 100m GoldenHour: clouds=${goldenHourTelemetry.cloudsVisible}, stars=${goldenHourTelemetry.starsVisible}, sky=${goldenHourTelemetry.skyVisible}`);
   if (goldenHourTelemetry.cloudsVisible) throw new Error('Clouds must be hidden in clear weather at 100m');
   if (goldenHourTelemetry.starsVisible) throw new Error('Stars must not leak onto daytime sky at 100m');
 
   // Scenario 2: Authentic interplanetary flight pipeline from Manaus to deep space and reentry
   console.log('  starting authentic interplanetary flight scenario...');
+  stage = 'authentic-ascent';
 
   // Step 1: Ensure clean input state before arming
   await page.keyboard.up('b');
   await page.keyboard.up('Space');
   await sleep(150);
 
-  // Arm interplanetary speed mode
-  await page.evaluate(() => {
-    const p = window.__DR_MANAUS__.player;
-    p.armed = 'interplanetary';
-  });
+  // Two distinct consumed key edges exercise the same arming path as a player.
+  await page.keyboard.press('v');
+  await page.waitForFunction(() => window.__DR_MANAUS__.player.armed === 'mega', null, { timeout: 15_000 });
+  await page.keyboard.press('v');
+  await page.waitForFunction(() => window.__DR_MANAUS__.player.armed === 'interplanetary', null, { timeout: 15_000 });
 
   // Step 2: Pitch camera up to zenith
   await page.evaluate(() => {
@@ -357,10 +391,12 @@ try {
   if (alt1000k < 1_000_000) throw new Error(`Timeout reaching 1,000 km orbit: currently at ${(alt1000k / 1000).toFixed(1)} km`);
   console.log(`  reached 1,000 km deep orbit: altitude = ${(alt1000k / 1000).toFixed(1)} km`);
 
-  // Step 6: Release boost and coast for 1 second
+  // Step 6: Release boost and coast for ten seconds; every domain transition is recorded.
   await page.keyboard.up('b');
   await page.keyboard.up('Space');
-  await sleep(1000);
+  stage = 'coasting';
+  const coastStarted = await snapshot(page);
+  await sleep(10_000);
 
   // Verify coasting stability: no domain oscillation
   const coastTelemetry = await page.evaluate(() => ({
@@ -371,6 +407,11 @@ try {
     frame: window.__DR_MANAUS__.universe.telemetry.frame,
   }));
   if (coastTelemetry.localPhysicsActive !== false) throw new Error('Domain oscillated back to local during space coasting');
+  const coastEnded = await snapshot(page);
+  if (coastEnded.transitions.length !== coastStarted.transitions.length) throw new Error(`Domain changed during coasting: ${JSON.stringify(coastEnded.transitions)}`);
+  if (coastEnded.localRootVisible) throw new Error('Manaus remained visible while coasting in space');
+  if (coastEnded.cityUpdates !== coastStarted.cityUpdates) throw new Error('RealCity simulation advanced outside Earth local space');
+  checkpoints.coasting = { started: coastStarted, ended: coastEnded, durationMs: 10_000 };
 
   // Step 7: Camera rotate to nadir (looking down at Earth)
   await page.evaluate(() => {
@@ -417,11 +458,9 @@ try {
     };
   });
 
-  await page.screenshot({ path: 'artifacts/earth-236km-clear-noon-nadir.png' });
-  await import('node:fs/promises').then(fs => fs.writeFile(
-    'artifacts/earth-236km-clear-noon-nadir.json',
-    JSON.stringify(orbitTelemetry, null, 2)
-  ));
+  await page.screenshot({ path: 'artifacts/earth-orbit-nadir.png' });
+  await saveJson('earth-orbit-nadir', orbitTelemetry);
+  checkpoints.orbit = orbitTelemetry;
   console.log(`  visual validation Orbit: earthVisible=${orbitTelemetry.earthGlobeVisible}, fallbackReady=${orbitTelemetry.coarseFallbackReady}, maxRenderCoord=${orbitTelemetry.maxRenderCoord.toFixed(0)}m, renderSafe=${orbitTelemetry.renderSafe}`);
   if (orbitTelemetry.earthGlobeVisible !== true) throw new Error('Earth globe must be visible in orbit');
   if (!orbitTelemetry.coarseFallbackReady) throw new Error('Earth coarse fallback must be ready in orbit');
@@ -430,6 +469,7 @@ try {
 
   // Step 9: Reentry flight: thrust downwards toward Earth
   console.log('  initiating reentry descent...');
+  stage = 'authentic-reentry';
   await page.keyboard.down('b');
   const descentStart = Date.now();
   while (Date.now() - descentStart < 60_000) {
@@ -474,12 +514,15 @@ try {
   });
 
   await page.screenshot({ path: 'artifacts/earth-reentry.png' });
-  await import('node:fs/promises').then(fs => fs.writeFile(
-    'artifacts/earth-reentry.json',
-    JSON.stringify(reentryTelemetry, null, 2)
-  ));
+  await saveJson('earth-reentry', reentryTelemetry);
   console.log(`  reentry complete: localPhysicsActive=${reentryTelemetry.localPhysicsActive}, altitude=${reentryTelemetry.altitudeM.toFixed(0)}m, streamerChunks=${reentryTelemetry.activeChunks}`);
   if (!reentryTelemetry.localPhysicsActive) throw new Error('Failed to handoff back to local domain on reentry');
+  await sleep(2000);
+  const earthReturned = await snapshot(page);
+  const earthTransitions = earthReturned.transitions.map(transition => transition.kind);
+  if (earthTransitions.join(',') !== 'departed,returned') throw new Error(`Expected one departure and one return: ${JSON.stringify(earthReturned.transitions)}`);
+  if (!earthReturned.localRootVisible || !earthReturned.surface.manausSimulationActive) throw new Error('Manaus simulation did not resume after Earth reentry');
+  checkpoints.reentry = earthReturned;
 
   if (errors.length) throw new Error(`Erros no navegador:\n${errors.join('\n')}`);
   console.log(`DR Manaus browser smoke OK | ${boot.backend} | chunks=${boot.activeChunks} | ${boot.state} -> ${flightState}`);
@@ -498,7 +541,18 @@ try {
   console.log(demolition.attempted
     ? `  destruicao: predio real derrubado e removido do mundo (${demolition.destroyed} registrado)`
     : '  destruicao: nenhum predio real ao alcance para testar');
+  status = 'passed';
+} catch (error) {
+  failure = error instanceof Error ? error.stack : String(error);
+  if (page && !page.isClosed()) {
+    checkpoints.failure = await snapshot(page).catch(error => ({ captureError: String(error) }));
+    await page.screenshot({ path: 'artifacts/browser-failure.png', timeout: 5000 }).catch(() => undefined);
+  }
+  throw error;
 } finally {
+  await saveJson('browser-summary', { status, stage, startedAt, finishedAt: new Date().toISOString(), failure, errors, checkpoints });
+  await writeFile('artifacts/browser-server.log', serverOutput);
+  await context?.tracing.stop({ path: 'artifacts/browser-trace.zip' }).catch(() => undefined);
   await browser?.close();
-  if (server.exitCode === null) server.kill();
+  await server?.close();
 }

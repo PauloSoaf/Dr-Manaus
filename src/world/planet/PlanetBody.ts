@@ -1,4 +1,4 @@
-import { geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
+import { ecefToGeodetic, geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
 import { geodetic, type GeodeticPosition } from '../spatial/Geodetic';
 import { WGS84 } from '../spatial/WGS84';
 import { finite, type Vec3 } from '../spatial/units';
@@ -94,6 +94,32 @@ export function bodyGeodeticToFixed(body: PlanetBody, position: GeodeticPosition
     yM: radial * Math.sin(position.lonRad),
     zM: ((1 - e2) * n + position.heightM) * sinLat,
   };
+}
+
+/** Inverse of bodyGeodeticToFixed, with +Z as the pole for every body's terrain. */
+export function bodyFixedToGeodetic(body: PlanetBody, position: EcefPosition): GeodeticPosition {
+  if (body.id === 'earth') return ecefToGeodetic(position);
+  const x = finite(position.xM), y = finite(position.yM), z = finite(position.zM);
+  const p = Math.hypot(x, y);
+  const lon = p > 0 ? Math.atan2(y, x) : 0;
+  const a = body.semiMajorAxisM, b = polarRadiusM(body);
+  if (p < 1e-9) return geodetic(z >= 0 ? Math.PI / 2 : -Math.PI / 2, lon, Math.abs(z) - b);
+
+  const e2 = eccentricitySquared(body);
+  const ep2 = (a * a - b * b) / (b * b);
+  const theta = Math.atan2(z * a, p * b);
+  let lat = Math.atan2(z + ep2 * b * Math.sin(theta) ** 3, p - e2 * a * Math.cos(theta) ** 3);
+  for (let iteration = 0; iteration < 6; iteration++) {
+    const sinLat = Math.sin(lat);
+    const n = a / Math.sqrt(1 - e2 * sinLat * sinLat);
+    lat = Math.atan2(z + e2 * n * sinLat, p);
+  }
+  const sinLat = Math.sin(lat);
+  const n = a / Math.sqrt(1 - e2 * sinLat * sinLat);
+  const height = Math.abs(sinLat) > 0.5
+    ? z / sinLat - (1 - e2) * n
+    : p / Math.cos(lat) - n;
+  return geodetic(lat, lon, height);
 }
 
 /**

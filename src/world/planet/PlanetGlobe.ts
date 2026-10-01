@@ -6,7 +6,8 @@ import { attribute, normalWorld, smoothstep, uniform } from 'three/tsl';
 import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { faceUvToDirection } from './CubeSphere';
 import { type PlanetTileAddress, tileBounds, tileCentreDirection } from './PlanetTileAddress';
-import type { PlanetSurfaceGenerator } from './PlanetSurface';
+import { planetSurfaceRadius, type PlanetSurfaceGenerator } from './PlanetSurface';
+import { polarRadiusM } from './PlanetBody';
 import type { Quat, Vec3 } from '../spatial/units';
 
 export const PLANET_TILE_RESOLUTION = 17;
@@ -30,11 +31,11 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
   const size = PLANET_TILE_RESOLUTION;
   const { minU, maxU, minV, maxV } = tileBounds(address);
   const centreDirection = tileCentreDirection(address, [0, 0, 0]);
-  const centreHeight = flat ? 0 : surface.heightAt(centreDirection);
+  const centreRadius = planetSurfaceRadius(surface, centreDirection, flat);
   const centre: Vec3 = [
-    centreDirection[0] * (surface.radiusM + centreHeight),
-    centreDirection[1] * (surface.radiusM + centreHeight),
-    centreDirection[2] * (surface.radiusM + centreHeight),
+    centreDirection[0] * centreRadius,
+    centreDirection[1] * centreRadius,
+    centreDirection[2] * centreRadius,
   ];
 
   const positions = new Float32Array(size * size * 3);
@@ -43,33 +44,30 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
   const direction: Vec3 = [0, 0, 0];
   const colour: [number, number, number] = [0, 0, 0];
   const slope: [number, number, number] = [0, 0, 1];
+  const equatorSquared = surface.body.semiMajorAxisM ** 2;
+  const poleSquared = polarRadiusM(surface.body) ** 2;
 
   for (let row = 0; row < size; row++) {
     const v = minV + (maxV - minV) * (row / (size - 1));
     for (let column = 0; column < size; column++) {
       const u = minU + (maxU - minU) * (column / (size - 1));
       faceUvToDirection(address.face, u, v, direction);
-      const height = flat ? 0 : surface.heightAt(direction);
-      const radius = surface.radiusM + height;
+      const radius = planetSurfaceRadius(surface, direction, flat);
       const index = (row * size + column) * 3;
       positions[index] = direction[0] * radius - centre[0];
       positions[index + 1] = direction[1] * radius - centre[1];
       positions[index + 2] = direction[2] * radius - centre[2];
 
-      if (flat) {
-        normals[index] = direction[0];
-        normals[index + 1] = direction[1];
-        normals[index + 2] = direction[2];
-      } else {
-        surface.normalEnu(direction, slope);
-        const p = Math.hypot(direction[0], direction[1]);
-        const ex = p > 1e-9 ? -direction[1] / p : 1, ey = p > 1e-9 ? direction[0] / p : 0;
-        const nx = -direction[2] * ey, ny = direction[2] * ex, nz = p;
-        const nl = Math.hypot(nx, ny, nz) || 1;
-        normals[index] = ex * slope[0] + (nx / nl) * slope[1] + direction[0] * slope[2];
-        normals[index + 1] = ey * slope[0] + (ny / nl) * slope[1] + direction[1] * slope[2];
-        normals[index + 2] = 0 * slope[0] + (nz / nl) * slope[1] + direction[2] * slope[2];
-      }
+      const ux = direction[0] / equatorSquared, uy = direction[1] / equatorSquared, uz = direction[2] / poleSquared;
+      const upLength = Math.hypot(ux, uy, uz);
+      const upX = ux / upLength, upY = uy / upLength, upZ = uz / upLength;
+      if (flat) { slope[0] = 0; slope[1] = 0; slope[2] = 1; }
+      else surface.normalEnu(direction, slope);
+      const p = Math.hypot(direction[0], direction[1]);
+      const ex = p > 1e-9 ? -direction[1] / p : 1, ey = p > 1e-9 ? direction[0] / p : 0;
+      normals[index] = ex * slope[0] - upZ * ey * slope[1] + upX * slope[2];
+      normals[index + 1] = ey * slope[0] + upZ * ex * slope[1] + upY * slope[2];
+      normals[index + 2] = (upX * ey - upY * ex) * slope[1] + upZ * slope[2];
 
       surface.colourAt(direction, colour);
       colors[index] = colour[0];

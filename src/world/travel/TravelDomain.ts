@@ -53,6 +53,8 @@ export interface TravelContext {
   readonly systemId?: string;
   readonly envelopeMarginM?: number;
   readonly maxRelativeSpeedMps?: number;
+  /** A supported ground provider must cover the landing site before local physics can resume. */
+  readonly surfaceReady?: boolean;
 }
 
 export interface TravelDomainOptions {
@@ -164,6 +166,8 @@ export class TravelDomain {
     // Returning to local only occurs when the player approaches a body and reaches safe altitude AND safe relative speed.
     const alt = finite(context.altitudeM);
     const speed = finite(context.speedMps);
+
+    if (context.surfaceReady === false) return { kind: 'none' };
 
     if (alt <= this.options.returnAltitudeM && speed <= this.options.maxLocalReturnSpeedMps) {
       this.toLocal();

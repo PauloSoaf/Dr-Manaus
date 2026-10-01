@@ -22,7 +22,7 @@ export function getJumpHeight(size: number, baseHeight = JUMP_CONFIG.baseHeight)
   return Math.min(JUMP_CONFIG.maxJumpHeight, baseHeight * scaling);
 }
 
-export function getGravity(size: number, baseGravity = JUMP_CONFIG.baseGravity): number {
+export function getGravity(size: number, baseGravity: number = JUMP_CONFIG.baseGravity): number {
   // Gravity can also be slightly higher for giant mass feeling
   return baseGravity * Math.pow(Math.max(1, size), 0.1);
 }

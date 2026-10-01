@@ -1,16 +1,17 @@
 import { SolarSystem, SOLAR_SYSTEM_FRAME } from '../celestial/SolarSystem';
-import { EARTH } from '../planet/PlanetBody';
+import { bodyFixedToGeodetic, bodyGeodeticToFixed, EARTH, MARS, MOON, type PlanetBody } from '../planet/PlanetBody';
 import { PlanetQuadtree } from '../planet/PlanetQuadtree';
 import { DEFAULT_SSE, type ScreenSpaceErrorContext } from '../planet/ScreenSpaceError';
 import type { SpatialContext, StreamingContext } from '../providers/WorldProvider';
 import { ecefToGeodetic, geodeticToEcef } from '../spatial/ECEF';
+import { enuBasis } from '../spatial/ENU';
 import { FloatingOrigin3D } from '../spatial/FloatingOrigin3D';
 import {
   EARTH_FIXED_FRAME_ID, MANAUS_BASIS, MANAUS_FRAME_ID, legacyLocalToEcef, legacyLocalToGeodetic,
 } from '../spatial/ManausFrameAdapter';
 import { activeFrame, referenceFrame } from '../spatial/ReferenceFrame';
 import { ReferenceFrameGraph } from '../spatial/ReferenceFrameGraph';
-import { pose, type SpatialPose } from '../spatial/SpatialPose';
+import { copyPose, pose, type SpatialPose } from '../spatial/SpatialPose';
 import { cloneVec3, finite, quatFromBasis, radToDeg, scaleVec3, type Vec3 } from '../spatial/units';
 import { GlobalStreamingScheduler } from '../streaming/GlobalStreamingScheduler';
 import { budgetForSpeed, DEFAULT_STREAMING_BUDGET } from '../streaming/StreamingBudget';
@@ -23,6 +24,10 @@ import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { RenderSpaceService } from '../spatial/RenderSpaceService';
 import { createRenderOrigin } from '../spatial/RenderOrigin';
+
+/** Observer-centred axes captured from the surface frame at departure. */
+export const TRAVEL_VIEW_FRAME = 'travel/view';
+const SURFACE_BODIES: readonly PlanetBody[] = [EARTH, MOON, MARS];
 export interface UniverseRuntimeOptions {
   /**
    * When false the runtime tracks the world and reports on it but streams nothing and touches no
@@ -117,6 +122,7 @@ export class UniverseRuntime {
     this.playerPose.position[0] = finite(position[0]);
     this.playerPose.position[1] = finite(position[1]);
     this.playerPose.position[2] = finite(position[2]);
+    this.syncNavigationAddress();
   }
 
   /**
@@ -163,7 +169,7 @@ export class UniverseRuntime {
   }
 
   get navigationState(): UniverseAddress {
-    if (this.playerPose.frame === 'solar-system/barycentric') {
+    if (this.playerPose.frame === SOLAR_SYSTEM_FRAME) {
       return {
         galaxyId: this.address.galaxyId,
         sector: this.address.sector,
@@ -171,22 +177,11 @@ export class UniverseRuntime {
       };
     }
     
-    let bodyId = this.address.bodyId;
-    if (!bodyId) {
-      if (this.playerPose.frame.startsWith('moon') || this.playerPose.frame === 'solar-system/moon-fixed') {
-        bodyId = 'moon';
-      } else if (this.playerPose.frame.startsWith('mars') || this.playerPose.frame === 'solar-system/mars-fixed') {
-        bodyId = 'mars';
-      } else if (this.playerPose.frame.startsWith('earth') || this.playerPose.frame === 'solar-system/earth-fixed') {
-        bodyId = 'earth';
-      }
-    }
-
     return {
       galaxyId: this.address.galaxyId,
       sector: this.address.sector,
       systemId: this.address.systemId,
-      bodyId,
+      bodyId: this.address.bodyId ?? this.bodyIdForFrame(this.playerPose.frame),
       childFrame: this.playerPose.frame,
     };
   }
@@ -198,33 +193,13 @@ export class UniverseRuntime {
       frameId: this.playerPose.frame
     };
     
-    if (this.playerPose.frame === 'solar-system/barycentric') {
-      loc.systemPositionM = [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
-    } else if (this.playerPose.frame.startsWith('moon') || this.playerPose.frame === 'solar-system/moon-fixed') {
-      const radius = Math.hypot(...this.playerPose.position);
-      const altitudeM = radius - 1737400;
-      const latRad = radius > 0 ? Math.asin(Math.max(-1, Math.min(1, this.playerPose.position[1] / radius))) : 0;
-      const lonRad = Math.atan2(this.playerPose.position[0], this.playerPose.position[2]);
-      loc.surface = {
-        latDeg: (latRad * 180) / Math.PI,
-        lonDeg: (lonRad * 180) / Math.PI,
-        altitudeM,
-      };
-    } else if (this.playerPose.frame.startsWith('mars') || this.playerPose.frame === 'solar-system/mars-fixed') {
-      const radius = Math.hypot(...this.playerPose.position);
-      const altitudeM = radius - 3389500;
-      const latRad = radius > 0 ? Math.asin(Math.max(-1, Math.min(1, this.playerPose.position[1] / radius))) : 0;
-      const lonRad = Math.atan2(this.playerPose.position[0], this.playerPose.position[2]);
-      loc.surface = {
-        latDeg: (latRad * 180) / Math.PI,
-        lonDeg: (lonRad * 180) / Math.PI,
-        altitudeM,
-      };
+    if (this.playerPose.frame === SOLAR_SYSTEM_FRAME) {
+      loc.systemPositionM = cloneVec3(this.playerPose.position);
     } else {
-      const geo = this.playerGeodetic();
-      loc.surface = {
-        latDeg: (geo.latRad * 180) / Math.PI,
-        lonDeg: (geo.lonRad * 180) / Math.PI,
+      const geo = this.surfaceCoordinates(this.bodyIdForFrame(this.playerPose.frame));
+      if (geo) loc.surface = {
+        latDeg: radToDeg(geo.latRad),
+        lonDeg: radToDeg(geo.lonRad),
         altitudeM: geo.heightM,
       };
     }
@@ -238,11 +213,45 @@ export class UniverseRuntime {
   /** The player's logical pose. Read-only to callers; `update` is what moves it. */
   get player(): SpatialPose { return this.playerPose; }
 
+  /** Velocity relative to the current frame's body, in that frame's axes. */
+  get localVelocityMps(): Vec3 { return cloneVec3(this.velocity); }
+
+  /** Includes the parent body's orbital velocity; directions alone never include it. */
+  systemVelocityMps(localVelocity: Vec3 = this.velocity): Vec3 {
+    const rotated = this.frames.convertDirection(this.playerPose.frame, SOLAR_SYSTEM_FRAME, localVelocity);
+    const bodyId = this.bodyIdForFrame(this.playerPose.frame);
+    const orbital = bodyId ? this.activeSystem.stateOf(bodyId)?.velocityMps : undefined;
+    return [rotated[0] + (orbital?.[0] ?? 0), rotated[1] + (orbital?.[1] ?? 0), rotated[2] + (orbital?.[2] ?? 0)];
+  }
+
+  private bodyIdForFrame(frameId: string): string | undefined {
+    if (!this.frames.has(frameId)) return undefined;
+    const ancestors = new Set(this.frames.chainToRoot(frameId).map(frame => frame.id));
+    return this.activeSystem.bodies.find(body => ancestors.has(body.frameId))?.id;
+  }
+
+  private syncNavigationAddress(): void {
+    const { bodyId: previousBody, childFrame: previousFrame, ...systemAddress } = this.address;
+    const bodyId = this.bodyIdForFrame(this.playerPose.frame);
+    this.address = this.playerPose.frame === SOLAR_SYSTEM_FRAME
+      ? systemAddress
+      : { ...systemAddress, bodyId, childFrame: this.playerPose.frame };
+  }
+
+  private surfaceCoordinates(bodyId: string | undefined) {
+    if (bodyId === 'earth' && this.playerPose.frame === MANAUS_FRAME_ID) return this.playerGeodetic();
+    const model = SURFACE_BODIES.find(body => body.id === bodyId);
+    const bodyFrame = this.activeSystem.bodies.find(body => body.id === bodyId)?.frameId;
+    if (!model || !bodyFrame || !this.frames.has(this.playerPose.frame) || !this.frames.has(bodyFrame)) return undefined;
+    const fixed = this.frames.convertPosition(this.playerPose.frame, bodyFrame, this.playerPose.position);
+    return bodyFixedToGeodetic(model, { xM: fixed[0], yM: fixed[1], zM: fixed[2] });
+  }
+
   /**
    * One frame.
    *
-   * `localPosition` is the game's existing world position in Manaus metres — the same numbers the
-   * city has always used. Nothing about this call asks the rest of the game to change coordinates.
+   * `localPosition` and `localVelocity` use the current local frame: Manaus or the landing ENU.
+   * An ordinary update never changes the body's frame after a handoff.
    *
    * One frame of the model.
    *
@@ -300,29 +309,47 @@ export class UniverseRuntime {
     const dt = Math.max(0, Math.min(0.25, finite(dtS)));
     this.timeS += dt;
 
-    this.playerPose.frame = 'solar-system/barycentric';
+    // Capture the outgoing surface axes once. A Moon/Mars departure must not snap the camera
+    // back to Manaus axes, and no astronomical transform is sent to a render object.
+    const sourceFrame = this.playerPose.frame;
+    if (sourceFrame !== SOLAR_SYSTEM_FRAME || !this.frames.has(TRAVEL_VIEW_FRAME)) {
+      const rotationToParent = this.frames.convertOrientation(sourceFrame, SOLAR_SYSTEM_FRAME, [0, 0, 0, 1]);
+      this.frames.register(referenceFrame({
+        id: TRAVEL_VIEW_FRAME,
+        parentId: SOLAR_SYSTEM_FRAME,
+        kind: 'render-local',
+        rotationToParent,
+      }));
+      this.playerPose.orientation = this.frames.convertOrientation(sourceFrame, SOLAR_SYSTEM_FRAME, this.playerPose.orientation);
+    }
+    this.playerPose.frame = SOLAR_SYSTEM_FRAME;
     this.playerPose.position[0] = finite(systemPosition[0]);
     this.playerPose.position[1] = finite(systemPosition[1]);
     this.playerPose.position[2] = finite(systemPosition[2]);
     this.velocity[0] = finite(systemVelocity[0]);
     this.velocity[1] = finite(systemVelocity[1]);
     this.velocity[2] = finite(systemVelocity[2]);
-    this.setViewForward(viewForward);
+    this.syncNavigationAddress();
+    this.setViewForward(viewForward
+      ? this.frames.convertDirection(TRAVEL_VIEW_FRAME, SOLAR_SYSTEM_FRAME, viewForward)
+      : undefined);
 
     this.solarSystem.update(this.timeS);
     if (this.activeSystem !== this.solarSystem) {
       this.activeSystem.update(this.timeS);
     }
 
-    const resolved = this.resolveBodyContext();
     this.floatingOrigin.update(this.playerPose);
 
-    // In interplanetary space, the render origin is centered on the observer (player),
-    // ensuring camera-relative rendering: earthSystemPosition - playerSystemPosition.
+    const travelView = this.frames.get(TRAVEL_VIEW_FRAME);
+    travelView.originInParent[0] = this.playerPose.position[0];
+    travelView.originInParent[1] = this.playerPose.position[1];
+    travelView.originInParent[2] = this.playerPose.position[2];
+    // The render frame itself follows the observer; render origin coordinates stay exactly zero.
     this.renderSpace.setOrigin(createRenderOrigin(
-      this.playerPose.frame,
-      cloneVec3(this.playerPose.position),
-      this.playerPose.orientation,
+      TRAVEL_VIEW_FRAME,
+      [0, 0, 0],
+      [0, 0, 0, 1],
       this.timeS,
     ));
   }
@@ -350,25 +377,12 @@ export class UniverseRuntime {
     const bodyPos: Vec3 = bodyState ? cloneVec3(bodyState.positionM) : (this.activeSystem.positionOf(dominantId) ?? [0, 0, 0]);
     const bodyVel: Vec3 = bodyState ? cloneVec3(bodyState.velocityMps) : [0, 0, 0];
 
-    let altitudeM = 0;
-    if (this.playerPose.frame === MANAUS_FRAME_ID) {
-      altitudeM = this.playerGeodetic().heightM;
-    } else if (dominantId === 'earth') {
-      const ecef = this.playerEcef();
-      const distEcef = Math.hypot(ecef.xM, ecef.yM, ecef.zM);
-      if (distEcef < 20_000_000) {
-        altitudeM = ecefToGeodetic(ecef).heightM;
-      } else {
-        altitudeM = distEcef - dominant.equatorialRadiusM;
-      }
-    } else {
-      const dist = Math.hypot(
+    const surface = this.surfaceCoordinates(dominantId);
+    const altitudeM = surface?.heightM ?? Math.hypot(
         systemPos[0] - bodyPos[0],
         systemPos[1] - bodyPos[1],
         systemPos[2] - bodyPos[2],
-      );
-      altitudeM = dist - dominant.equatorialRadiusM;
-    }
+      ) - dominant.equatorialRadiusM;
 
     return {
       systemPositionM: systemPos,
@@ -468,136 +482,86 @@ export class UniverseRuntime {
    * Returns the new local coordinates so the PlayerController can be teleported there.
    */
   handoffTo(bodyId: string): Vec3 {
-    if (bodyId === 'earth') {
-      // Return to Manaus frame
-      const targetFrame = MANAUS_FRAME_ID;
-      if (this.playerPose.frame !== targetFrame && this.frames.has(targetFrame)) {
-        const newPos = this.frames.convertPosition(this.playerPose.frame, targetFrame, this.playerPose.position);
-        this.playerPose.frame = targetFrame;
-        this.playerPose.position[0] = newPos[0];
-        this.playerPose.position[1] = newPos[1];
-        this.playerPose.position[2] = newPos[2];
-        this.floatingOrigin.reset(this.playerPose);
-        this.renderSpace.setOrigin(createRenderOrigin(targetFrame, this.playerPose.position, this.playerPose.orientation, this.timeS));
-        this.scheduler.invalidate();
-      }
-      return [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
+    const targetFrame = bodyId === 'earth' ? MANAUS_FRAME_ID : `${bodyId}/local-enu`;
+    if (this.playerPose.frame === targetFrame) {
+      this.syncNavigationAddress();
+      return cloneVec3(this.playerPose.position);
+    }
+    const model = SURFACE_BODIES.find(body => body.id === bodyId);
+    const body = this.activeSystem.bodies.find(candidate => candidate.id === bodyId);
+    if (!model || !body || !this.frames.has(body.frameId) || !this.frames.has(this.playerPose.frame)) {
+      return cloneVec3(this.playerPose.position);
     }
 
-    // For Moon/Mars: ensure the body-fixed frame exists first
-    const bodyFixedFrameId = `${bodyId}/fixed`;
-    if (!this.frames.has(bodyFixedFrameId)) {
-      const body = this.solarSystem.bodies.find(b => b.id === bodyId);
-      if (body) {
-        this.frames.register(referenceFrame({
-          id: bodyFixedFrameId,
-          parentId: body.frameId ?? SOLAR_SYSTEM_FRAME,
-          kind: 'body-fixed',
-          label: `${bodyId} (fixo)`,
-        }));
-      }
-    }
-
-    if (!this.frames.has(bodyFixedFrameId)) {
-      // Could not register frame — stay where we are
-      return [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
-    }
-
-    // Convert current player position into the body-fixed frame to find landing point
-    const posInBodyFixed = this.frames.has(this.playerPose.frame)
-      ? this.frames.convertPosition(this.playerPose.frame, bodyFixedFrameId, this.playerPose.position)
-      : [0, 0, 0] as Vec3;
-
-    // Build a tangent ENU frame at the landing site so that local physics has:
-    //   +X = East,  +Y = Up (radial outward),  +Z = -North (South)
-    // This matches the Manaus convention and means the flat-plane physics engine
-    // sees y=0 as the surface and gravity as -Y.
-    const landingEnuFrameId = `${bodyId}/local-enu`;
-    const bodyRadius = this.solarSystem.bodies.find(b => b.id === bodyId)?.equatorialRadiusM ?? 1_737_400;
-
-    const up = posInBodyFixed;
-    const upLen = Math.hypot(up[0], up[1], up[2]) || bodyRadius;
-    const upNorm: Vec3 = [up[0] / upLen, up[1] / upLen, up[2] / upLen];
-
-    // Anchor on the surface (remove altitude, so y=0 in ENU frame is the surface)
-    const anchorInBodyFixed: Vec3 = [
-      upNorm[0] * bodyRadius,
-      upNorm[1] * bodyRadius,
-      upNorm[2] * bodyRadius,
-    ];
-
-    // East = normalize(up × north_pole). At poles, use a fallback.
-    const northPole: Vec3 = [0, 1, 0];
-    const pLen = Math.hypot(upNorm[0], upNorm[2]);
-    let east: Vec3;
-    if (pLen < 1e-9) {
-      // At a pole: east is just +X
-      east = [1, 0, 0];
-    } else {
-      // east = normalize(upNorm × northPole)
-      const ex = upNorm[1] * northPole[2] - upNorm[2] * northPole[1];
-      const ey = upNorm[2] * northPole[0] - upNorm[0] * northPole[2];
-      const ez = upNorm[0] * northPole[1] - upNorm[1] * northPole[0];
-      const el = Math.hypot(ex, ey, ez) || 1;
-      east = [ex / el, ey / el, ez / el];
-    }
-
-    // North = up × east (recomputed to ensure orthogonality)
-    const nx = upNorm[1] * east[2] - upNorm[2] * east[1];
-    const ny = upNorm[2] * east[0] - upNorm[0] * east[2];
-    const nz = upNorm[0] * east[1] - upNorm[1] * east[0];
-    const north: Vec3 = [nx, ny, nz];
-
-    // South = -North (to match Manaus Z convention: +Z = South)
-    const south: Vec3 = [-north[0], -north[1], -north[2]];
-
-    // quatFromBasis: columns = local +X, +Y, +Z in parent frame
-    const rotationToParent = quatFromBasis(east, upNorm, south);
-
-    // Re-register (or update) the local ENU frame
-    if (this.frames.has(landingEnuFrameId)) {
-      this.frames.remove(landingEnuFrameId);
-    }
-    this.frames.register(referenceFrame({
-      id: landingEnuFrameId,
-      parentId: bodyFixedFrameId,
-      kind: 'surface-enu',
-      originInParent: anchorInBodyFixed,
-      rotationToParent,
-      label: `${bodyId} (ENU pouso)`,
+    // Read the outgoing state before replacing a previously used landing frame. A direction
+    // transform rotates velocity but does not account for the body's orbital translation.
+    const systemVelocity = this.systemVelocityMps();
+    const sourceFrame = this.playerPose.frame;
+    const fixedFrameId = `${bodyId}/fixed`;
+    const previousTarget = this.frames.has(targetFrame) ? this.frames.get(targetFrame) : undefined;
+    const addedFixedFrame = !this.frames.has(fixedFrameId);
+    if (addedFixedFrame) this.frames.register(referenceFrame({
+      id: fixedFrameId, parentId: body.frameId, kind: 'body-fixed', label: `${bodyId} (fixo)`,
     }));
 
-    // Move the player into this ENU frame. Altitude above the surface = original altitude.
-    const altitudeM = Math.max(0, upLen - bodyRadius);
-    // In the ENU frame: player stands at (0, altitudeM, 0) — directly above the anchor.
-    const posInEnu: Vec3 = [0, altitudeM, 0];
+    let nextPose: SpatialPose;
+    let nextVelocity: Vec3;
+    let nextForward: Vec3;
+    try {
+      if (bodyId !== 'earth') {
+        const fixed = this.frames.convertPosition(sourceFrame, fixedFrameId, this.playerPose.position);
+        const surface = bodyFixedToGeodetic(model, { xM: fixed[0], yM: fixed[1], zM: fixed[2] });
+        const anchor = { ...surface, heightM: 0 };
+        const anchorFixed = bodyGeodeticToFixed(model, anchor);
+        const basis = enuBasis(anchor);
+        const south = scaleVec3(cloneVec3(basis.north), -1, [0, 0, 0]);
+        this.frames.register(referenceFrame({
+          id: targetFrame,
+          parentId: fixedFrameId,
+          kind: 'surface-enu',
+          originInParent: [anchorFixed.xM, anchorFixed.yM, anchorFixed.zM],
+          rotationToParent: quatFromBasis(cloneVec3(basis.east), cloneVec3(basis.up), south),
+          label: `${bodyId} (ENU pouso)`,
+        }));
+      }
+      // Preserve the actual position, including negative heights. Clamping here concealed
+      // mismatched radii by silently teleporting an underground point onto a different surface.
+      nextPose = this.frames.convertPose(this.playerPose, targetFrame);
+      const orbital = this.activeSystem.stateOf(bodyId)?.velocityMps ?? [0, 0, 0];
+      nextVelocity = this.frames.convertDirection(SOLAR_SYSTEM_FRAME, targetFrame, [
+        systemVelocity[0] - orbital[0],
+        systemVelocity[1] - orbital[1],
+        systemVelocity[2] - orbital[2],
+      ]);
+      nextForward = this.frames.convertDirection(sourceFrame, targetFrame, this.viewForward);
+    } catch (error) {
+      if (previousTarget) this.frames.register(previousTarget);
+      else this.frames.remove(targetFrame);
+      if (addedFixedFrame) this.frames.remove(fixedFrameId);
+      throw error;
+    }
 
-    this.playerPose.frame = landingEnuFrameId;
-    this.playerPose.position[0] = posInEnu[0];
-    this.playerPose.position[1] = posInEnu[1];
-    this.playerPose.position[2] = posInEnu[2];
-
+    copyPose(this.playerPose, nextPose);
+    this.velocity[0] = nextVelocity[0];
+    this.velocity[1] = nextVelocity[1];
+    this.velocity[2] = nextVelocity[2];
+    this.setViewForward(nextForward);
+    this.syncNavigationAddress();
     this.floatingOrigin.reset(this.playerPose);
-    this.renderSpace.setOrigin(createRenderOrigin(
-      landingEnuFrameId,
-      this.playerPose.position,
-      this.playerPose.orientation,
-      this.timeS,
-    ));
+    this.renderSpace.setOrigin(createRenderOrigin(targetFrame, this.playerPose.position, this.playerPose.orientation, this.timeS));
     this.scheduler.invalidate();
-
-    return [posInEnu[0], posInEnu[1], posInEnu[2]];
+    return cloneVec3(this.playerPose.position);
   }
 
   get telemetry(): UniverseTelemetry {
-    const geodetic = this.playerGeodetic();
     const local = this.floatingOrigin.localDistance(this.playerPose.position);
     const resolved = this.resolveBodyContext();
+    const geodetic = this.surfaceCoordinates(resolved.dominantBody);
 
     return {
       frame: this.playerPose.frame,
-      latDeg: radToDeg(geodetic.latRad),
-      lonDeg: radToDeg(geodetic.lonRad),
+      latDeg: radToDeg(geodetic?.latRad ?? 0),
+      lonDeg: radToDeg(geodetic?.lonRad ?? 0),
       altitudeM: resolved.altitudeM,
       renderLocalM: local,
       rebases: this.floatingOrigin.rebaseCount,
