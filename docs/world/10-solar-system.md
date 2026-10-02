@@ -61,7 +61,25 @@ later eclipses. No eclipse geometry is implemented. Labels show Portuguese names
 unselected satellites in a nearby/selected parent system at useful apparent sizes. Selected
 labels reserve screen space first; colliding lower-priority labels are hidden.
 
-## SPACE-HARDENING-1 runtime contract
+### Map and navigation
+
+The old System map instantiated an epoch-zero `OfflineEphemeris`, making missing live HUD data
+look like a second simulation. That fallback was removed. No live bodies means no orbital
+markers. Overview shows Sun/planets and an explicitly selected satellite; each planet with
+moons offers **Focar luas**. Focus recentres on its live parent position, uses a linear metric
+scale sized from real orbital extents, and projects in the parent system's orbital plane so
+Uranus' moons do not collapse edge-on. Mean ellipse outlines are presentation guides calculated
+once from catalog elements, not a second clock; current markers always come from live HUDBody
+positions. Earth's precessing Moon outline remains an approximate J2000 mean ellipse.
+
+Focus includes parent, child orbits/names and selected target, a parent breadcrumb, km scale and
+**Sistema Solar** return. The sidebar keeps all 19 targets available. Canvas and list selection
+update highlighting immediately and call the existing identity-only navigation hook; no player
+pose is changed. Game supplies `parentId` with its live body rows. Cruise resolves body positions
+every update, existing safe-arrival policies and live sweeps automatically cover all 19 bodies,
+and new moons cannot initiate a local terrain handoff.
+
+## Historical SPACE-HARDENING-1 runtime contract
 
 Baseline: `f8f451250e564958ffad20d26b72df3fe4c9e6de`, branch `feat/universe-map`.
 The user's latest hardening request takes precedence over feature expansion in the older roadmap.

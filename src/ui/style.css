@@ -25,3 +25,10 @@
 .map-layout .map-credit{pointer-events:none}
 .map-sidebar .card-table{width:100%;font-size:11px;table-layout:fixed;overflow-wrap:anywhere}
 @media(max-width:800px){.map-panel{width:96vw;left:2vw;height:92vh;top:4vh;padding:12px}.map-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(180px,1fr) minmax(0,.6fr);grid-template-areas:"levels" "visual" "sidebar"}.map-levels{align-items:flex-start;flex-direction:column}.map-level-buttons button{padding:6px 8px}}
+
+/* Planet-system focus and immediate navigation selection. */
+.map-body-target{background:#152a32;border:1px solid #314852;border-radius:4px;color:#dce6ed;cursor:pointer;font-size:11px;line-height:1.4;padding:4px 6px;text-align:left}
+.map-body-target:hover{background:#24414e}
+.map-body-target[aria-pressed="true"]{color:#facc15;border-color:#facc15}
+.map-body-target[data-system-focus]{display:block;background:transparent;color:#72c9ed;font-size:10px;margin:3px 0 7px}
+.map-body-target[data-system-overview]{margin:10px 0}

@@ -32,6 +32,7 @@ export interface HUDNearbyBody {
 export interface HUDBody {
   readonly id: string;
   readonly name: string;
+  readonly parentId?: string;
   /** Live barycentric metres. */
   readonly systemPositionM: readonly [number, number, number];
   readonly distanceFromPlayerM: number;

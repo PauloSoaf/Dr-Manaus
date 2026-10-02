@@ -124,8 +124,10 @@ export class PlanetMapRenderer extends BaseMapRenderer {
   }
 }
 
-import { SOLAR_SYSTEM_BODIES } from '../../world/celestial/CelestialBody';
-import { OfflineEphemeris } from '../../world/celestial/OfflineEphemeris';
+import { bodyById } from '../../world/celestial/CelestialBody';
+import { bodyProfile } from '../../world/celestial/CelestialBodyProfile';
+import { positionFromElements } from '../../world/celestial/EphemerisProvider';
+import { rotateVec3, rotateVec3Inverse, type Quat, type Vec3 } from '../../world/spatial/units';
 
 const AU_METRES = 1.495978707e11;
 
@@ -143,12 +145,23 @@ const BODY_COLORS: Record<string, string> = {
 };
 
 export class SystemMapRenderer extends BaseMapRenderer {
-  private readonly ephemeris = new OfflineEphemeris();
   private bodies: readonly HUDBody[] = [];
+  private focusBodyId?: string;
+  private focusExtentM = 1;
+  private readonly outlines = new Map<string, Vec3[]>();
   zoom = 1;
   readonly markers: { id: string; name: string; x: number; y: number; selected: boolean }[] = [];
 
   setBodies(bodies: readonly HUDBody[]): void { this.bodies = bodies; }
+  get focusedBodyId(): string | undefined { return this.focusBodyId; }
+  parentOf(body: HUDBody): string | undefined { return body.parentId ?? bodyById(body.id)?.parentId; }
+  setFocus(bodyId?: string): void {
+    const valid = bodyId && this.bodies.some(body => body.id === bodyId && !!this.parentOf(body))
+      && this.bodies.some(body => this.parentOf(body) === bodyId);
+    const focus = valid ? bodyId : undefined;
+    if (this.focusBodyId !== focus) this.zoom = 1;
+    this.focusBodyId = focus;
+  }
   changeZoom(delta: number): void {
     if (Number.isFinite(delta)) this.zoom = Math.max(0.5, Math.min(16, this.zoom * Math.exp(-Math.max(-1000, Math.min(1000, delta)) * 0.001)));
   }
@@ -156,19 +169,32 @@ export class SystemMapRenderer extends BaseMapRenderer {
     return [...this.markers].sort((a, b) => Math.hypot(a.x-x, a.y-y)-Math.hypot(b.x-x, b.y-y))
       .find(marker => Math.hypot(marker.x-x, marker.y-y) <= 14)?.id;
   }
-  get scaleText(): string { return `${(32 / (this.zoom * this.zoom)).toFixed(1)} AU · escala radial comprimida · ${this.zoom.toFixed(1)}×`; }
+  get scaleText(): string { return this.focusBodyId
+    ? `${Math.round(this.focusExtentM / this.zoom / 1000).toLocaleString('pt-BR')} km · órbitas relativas ao planeta · ${this.zoom.toFixed(1)}×`
+    : `${(32 / (this.zoom * this.zoom)).toFixed(1)} AU · escala radial comprimida · ${this.zoom.toFixed(1)}×`; }
 
   draw(location: UniverseLocation): void {
     this.clear('#020617');
     const w = this.width, h = this.height, cx = w/2, cy = h/2;
     const maxR = Math.max(1, Math.min(w, h) * 0.39);
-    const bodies = this.bodies.length ? this.bodies : SOLAR_SYSTEM_BODIES.map(body => ({
-      id: body.id, name: body.name, selected: false, distanceFromPlayerM: 0,
-      systemPositionM: this.ephemeris.sample(body.id, 0)?.positionM ?? [0, 0, 0],
-    }));
-    const sun = bodies.find(body => body.id === 'sun')?.systemPositionM ?? [0, 0, 0];
+    // No fallback clock: orbital positions come exclusively from the active runtime/HUD.
+    const focus = this.bodies.find(body => body.id === this.focusBodyId);
+    const children = focus ? this.bodies.filter(body => this.parentOf(body) === focus.id) : [];
+    const bodies = focus ? [focus, ...children] : this.bodies.filter(body =>
+      !this.parentOf(body) || this.parentOf(body) === 'sun' || body.selected);
+    const origin = focus?.systemPositionM ?? this.bodies.find(body => !this.parentOf(body))?.systemPositionM ?? [0, 0, 0];
+    const plane: Quat = (children.length && bodyById(children[0].id)?.satelliteOrbit?.referenceToEcliptic) || [0, 0, 0, 1];
+    this.focusExtentM = Math.max(1, ...children.map(body => {
+      const orbit = bodyById(body.id)?.satelliteOrbit;
+      const p = body.systemPositionM;
+      return Math.max(Math.hypot(p[0]-origin[0], p[1]-origin[1], p[2]-origin[2]),
+        orbit ? orbit.elements.semiMajorAxisM * (1 + orbit.elements.eccentricity) : 0);
+    })) * 1.15;
     const project = (p: readonly number[]) => {
-      const x = p[0]-sun[0], y = p[1]-sun[1]; // J2000 ecliptic XY, Z is the orbital pole.
+      const relative: Vec3 = [p[0]-origin[0], p[1]-origin[1], p[2]-origin[2]];
+      const [x, y] = focus ? rotateVec3Inverse(plane, relative) : relative;
+      if (focus) return { x: cx+x/this.focusExtentM*maxR*this.zoom,
+        y: cy-y/this.focusExtentM*maxR*this.zoom, radius: Math.hypot(x,y)/this.focusExtentM*maxR*this.zoom };
       const radius = Math.sqrt(Math.hypot(x,y)/AU_METRES/32)*maxR*this.zoom;
       const angle = Math.atan2(y,x);
       return { x: cx+Math.cos(angle)*radius, y: cy-Math.sin(angle)*radius, radius };
@@ -177,16 +203,32 @@ export class SystemMapRenderer extends BaseMapRenderer {
     const labels: { x: number; y: number; width: number }[] = [];
     this.ctx.font = '12px "Inter", sans-serif';
     this.ctx.textAlign = 'left';
-    for (const body of bodies) {
+    for (const body of [...bodies].sort((a,b) => Number(b.selected)-Number(a.selected))) {
       const p = project(body.systemPositionM);
-      if (body.id !== 'sun' && body.id !== 'moon') {
+      const orbit = focus && body.id !== focus.id ? bodyById(body.id)?.satelliteOrbit : undefined;
+      if (orbit) {
+        let outline = this.outlines.get(body.id);
+        if (!outline) {
+          outline = Array.from({ length: 97 }, (_, i) => rotateVec3(orbit.referenceToEcliptic,
+            positionFromElements({ ...orbit.elements, meanLongitudeRad: orbit.elements.longitudeOfPerihelionRad + i/96*Math.PI*2 }, 0)));
+          this.outlines.set(body.id, outline);
+        }
+        this.ctx.beginPath();
+        outline.forEach((r,i) => {
+          const s = project([r[0]+origin[0],r[1]+origin[1],r[2]+origin[2]]);
+          if (i === 0) this.ctx.moveTo(s.x,s.y); else this.ctx.lineTo(s.x,s.y);
+        });
+        this.ctx.strokeStyle='rgba(148,163,184,0.3)'; this.ctx.lineWidth=1; this.ctx.stroke();
+      } else if (!focus && this.parentOf(body) === 'sun') {
         this.ctx.beginPath(); this.ctx.arc(cx,cy,p.radius,0,Math.PI*2);
         this.ctx.strokeStyle='rgba(148,163,184,0.18)'; this.ctx.lineWidth=1; this.ctx.stroke();
       }
       const selected = body.selected;
       this.markers.push({ id: body.id, name: body.name, x: p.x, y: p.y, selected });
       this.ctx.beginPath(); this.ctx.arc(p.x,p.y,body.id === 'sun' ? 8 : 4,0,Math.PI*2);
-      this.ctx.fillStyle=BODY_COLORS[body.id] ?? '#fff'; this.ctx.fill();
+      const catalogBody = bodyById(body.id);
+      this.ctx.fillStyle=BODY_COLORS[body.id] ?? (catalogBody
+        ? `rgb(${bodyProfile(catalogBody).visual.albedo.map(v=>Math.round(v*255)).join(',')})` : '#fff'); this.ctx.fill();
       if (selected) {
         this.ctx.beginPath(); this.ctx.arc(p.x,p.y,12,0,Math.PI*2);
         this.ctx.strokeStyle='#facc15'; this.ctx.lineWidth=2; this.ctx.stroke();

@@ -56,11 +56,15 @@ export class UniversalMapPanel {
       if (this.currentLevel !== 'system') return;
       const rect = canvas.getBoundingClientRect();
       const id = this.renderers.system.hitTest(event.clientX - rect.left, event.clientY - rect.top);
-      if (id) this.onSelectTarget(id);
+      if (id) this.selectTarget(id);
     });
   }
 
   setLevel(level: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology') {
+    if (level === 'system') {
+      this.model.systemFocusBodyId = undefined;
+      this.renderers.system.setFocus();
+    }
     this.selectedLevel = level;
     this.currentLevel = level;
     this.updateCard();
@@ -70,6 +74,20 @@ export class UniversalMapPanel {
       this.drawMap();
     }
     this.updateScale();
+  }
+
+  focusSystem(bodyId?: string): void {
+    this.currentLevel = this.selectedLevel = 'system';
+    this.renderers.system.setFocus(bodyId);
+    this.model.systemFocusBodyId = this.renderers.system.focusedBodyId;
+    this.updateCard(); this.updateBreadcrumb(); this.updateCanvasVisibility(); this.drawMap();
+  }
+
+  private selectTarget(id: string): void {
+    this.onSelectTarget(id);
+    this.bodies = this.bodies.map(body => ({ ...body, selected: body.id === id }));
+    this.renderers.system.setBodies(this.bodies);
+    this.updateCard(); this.drawMap();
   }
 
   update(
@@ -125,6 +143,8 @@ export class UniversalMapPanel {
     const universalCanvas = this.root.querySelector('#universal-canvas') as HTMLCanvasElement;
     if (cityCanvas) cityCanvas.style.display = city ? 'block' : 'none';
     if (universalCanvas) universalCanvas.style.display = city ? 'none' : 'block';
+    const credit = this.root.querySelector<HTMLElement>('.map-credit');
+    if (credit) credit.style.display = city ? 'block' : 'none';
   }
 
   private updateScale(): void {
@@ -201,8 +221,10 @@ export class UniversalMapPanel {
       { label: a.galaxyId ? a.galaxyId.replace('_', ' ').toUpperCase() : 'MILKY WAY', level: 'galaxy' },
     ];
     if (a.systemId) items.push({ label: a.systemId.toUpperCase(), level: 'system' });
-    if (a.bodyId) items.push({ label: a.bodyId.toUpperCase(), level: 'planet' });
-    if (a.childFrame && (a.childFrame.includes('manaus') || a.childFrame.includes('surface') || a.childFrame.includes('legacy-enu'))) {
+    const focus = this.bodies.find(body => body.id === this.model.systemFocusBodyId);
+    if (this.currentLevel === 'system' && focus) items.push({ label: focus.name.toUpperCase(), level: 'system' });
+    else if (a.bodyId && this.currentLevel !== 'system') items.push({ label: a.bodyId.toUpperCase(), level: 'planet' });
+    if (this.currentLevel === 'surface' && a.childFrame && (a.childFrame.includes('manaus') || a.childFrame.includes('surface') || a.childFrame.includes('legacy-enu'))) {
       items.push({ label: 'MANAUS', level: 'surface' });
     }
     
@@ -219,6 +241,7 @@ export class UniversalMapPanel {
         e.stopPropagation();
         const lvl = el.dataset.level as any;
         if (lvl) {
+          if (this.currentLevel === 'system' && focus && el.textContent?.trim() === focus.name.toUpperCase()) return;
           this.setLevel(lvl);
         }
       };
@@ -282,11 +305,15 @@ export class UniversalMapPanel {
     // Every body the system knows about, with the coordinates that make the list navigable.
     // Dynamic from `activeSystem.bodies`: nothing here is a hard-coded planet.
     if (this.bodies.length) {
+      if (this.model.systemFocusBodyId) html += `<button class="map-body-target" data-system-overview>← Sistema Solar</button>`;
       html += `<h3>CORPOS DO SISTEMA</h3><table class="card-table body-table">`;
       html += `<tr><th>Corpo</th><th>Distância</th></tr>`;
       for (const body of this.bodies) {
+        const parent = body.parentId ?? this.renderers?.system.parentOf(body);
+        const hasMoons = !!parent && this.bodies.some(child => (child.parentId ?? this.renderers?.system.parentOf(child)) === body.id);
         html += `<tr class="${body.selected ? 'selected-body' : ''}">`
-          + `<td><button class="map-body-target" data-body-target="${body.id}" aria-pressed="${body.selected}">${body.selected ? '▸ ' : ''}${body.name}</button></td>`
+          + `<td><button class="map-body-target" data-body-target="${body.id}" style="margin-left:${parent && parent !== 'sun' ? 12 : 0}px" aria-pressed="${body.selected}">${body.selected ? '▸ ' : ''}${body.name}</button>`
+          + (hasMoons ? `<button class="map-body-target" data-system-focus="${body.id}" aria-label="Focar sistema de ${body.name}">Focar luas</button>` : '') + `</td>`
           + `<td>${formatDistance(body.distanceFromPlayerM)}</td></tr>`;
       }
       html += `</table>`;
@@ -294,7 +321,12 @@ export class UniversalMapPanel {
 
     c.innerHTML = html;
     c.querySelectorAll<HTMLButtonElement>('[data-body-target]').forEach(button => {
-      button.onclick = () => this.onSelectTarget(button.dataset.bodyTarget!);
+      button.onclick = () => this.selectTarget(button.dataset.bodyTarget!);
     });
+    c.querySelectorAll<HTMLButtonElement>('[data-system-focus]').forEach(button => {
+      button.onclick = () => this.focusSystem(button.dataset.systemFocus);
+    });
+    const overview = c.querySelector<HTMLButtonElement>('[data-system-overview]');
+    if (overview) overview.onclick = () => this.focusSystem();
   }
 }

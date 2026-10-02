@@ -41,9 +41,47 @@ try {
   await page.locator('[data-map-level="system"]').click();
   assert.equal(await page.locator('#city-map').isVisible(),false);
   assert.equal(await page.locator('#universal-canvas').isVisible(),true);
+  const lunarSystems={jupiter:['io','europa','ganymede','callisto'],saturn:['titan','enceladus'],
+    uranus:['titania','oberon'],neptune:['triton']};
+  results.majorMoonSystems={};
+  assert.equal(await page.locator('[data-system-focus="sun"]').count(),0);
+  for(const [parent,moons] of Object.entries(lunarSystems)) {
+    await page.locator(`[data-system-focus="${parent}"]`).click();
+    const focused=await page.evaluate(()=>{
+      const g=window.__DR_MANAUS__,r=g.hud.universalMap.renderers.system;
+      return {focus:r.focusedBodyId,markers:r.markers.map(m=>({...m})),scale:r.scaleText,
+        breadcrumb:document.querySelector('#map-breadcrumb').textContent};
+    });
+    assert.equal(focused.focus,parent);
+    assert.deepEqual(new Set(focused.markers.map(m=>m.id)),new Set([parent,...moons]));
+    assert.match(focused.scale,/km/);
+    assert.ok(!focused.breadcrumb.includes('MANAUS'),'planet-system breadcrumb is independent of player surface');
+    for(const moon of moons) assert.ok(focused.markers.find(m=>m.id===moon));
+    // Exercise the actual canvas listener and HUD target callback synchronously, without a game tick.
+    const picks=[];
+    for(const moon of moons) {
+    const picked=await page.evaluate(id=>{
+      const g=window.__DR_MANAUS__,r=g.hud.universalMap.renderers.system;
+      const marker=r.markers.find(m=>m.id===id),canvas=document.querySelector('#universal-canvas');
+      const rect=canvas.getBoundingClientRect(),before=g.universe.playerSystemPositionM();
+      canvas.dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:rect.left+marker.x,clientY:rect.top+marker.y}));
+      return {target:g.navigationTarget?.bodyId,before,after:g.universe.playerSystemPositionM(),
+        highlighted:r.markers.find(m=>m.id===id)?.selected};
+    },moon);
+    assert.equal(picked.target,moon);assert.equal(picked.highlighted,true);
+    assert.deepEqual(picked.after,picked.before,'map selection must not teleport');picks.push(picked);
+    }
+    if(parent==='jupiter') await page.screenshot({path:'artifacts/solar12-jupiter-map.png',timeout:90_000});
+    results.majorMoonSystems[parent]={...focused,picks};
+    await page.locator('[data-system-overview]').click();
+    assert.match(await page.locator('.map-scale').textContent(),/AU/);
+  }
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.universe.activeSystem.bodies.length),19);
+  assert.deepEqual(await page.evaluate(()=>[...window.__DR_MANAUS__.planetProviders.keys()]),['mercury','venus','moon','mars']);
   await page.locator('#map-panel .close-panel').click();
   results.desktopMap=map;
   console.log('Desktop map layout, canvas and DPR passed.');
+  console.log('SOLAR-12 live map focus, all nine moon targets, canvas selection and unchanged provider count passed.');
 
   // A distant system pose exercises automatic level choice and real quaternion input.
   await page.evaluate(()=>{
@@ -74,6 +112,38 @@ try {
   assert.ok(camera.turned>2 && camera.finite && Math.abs(camera.rightDotUp)<1e-10 && Math.abs(camera.forwardDotRight)<1e-10);
   results.spaceCamera=camera;
   console.log('Space quaternion input and automatic System level passed.');
+
+  results.majorMoonApproaches={};
+  for(const id of ['europa','titan','triton']) {
+    await page.evaluate(id=>{
+      const g=window.__DR_MANAUS__,u=g.universe,b=u.activeSystem.bodies.find(b=>b.id===id);
+      const p=u.activeSystem.positionOf(id),velocity=u.activeSystem.stateOf(id).velocityMps;
+      const position=[p[0]+b.equatorialRadiusM*8,p[1],p[2]];
+      g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:velocity,referenceBodyId:id});
+      u.updateSystemPose(position,velocity,0);g.navigationTarget={bodyId:id,arrivalMarginM:50000};
+      const direction=u.frames.convertDirection('solar-system/barycentric',u.renderSpace.currentOrigin.frame,
+        [p[0]-position[0],p[1]-position[1],p[2]-position[2]]);
+      const V=g.rendering.camera.position.constructor;
+      g.camera.spaceOrientation.setFromUnitVectors(new V(0,0,-1),new V(...direction).normalize());
+      Object.assign(g.input.mouseDelta,{x:0,y:0});g.camera.prepareLook();
+    },id);
+    await page.waitForFunction(id=>{
+      const g=window.__DR_MANAUS__,s=g.celestialController.renderSamples.find(s=>s.bodyId===id);
+      return s?.visible && s.physicalProjectedDiameterPx>50 && g.celestialVisuals.root.getObjectByName(`${id}-proxy`).visible;
+    },id,{timeout:15000});
+    const approach=await page.evaluate(id=>{
+      const g=window.__DR_MANAUS__,s=g.celestialController.renderSamples.find(s=>s.bodyId===id);
+      const objects=[];g.celestialVisuals.root.traverse(o=>objects.push({position:o.position.toArray(),scale:o.scale.toArray()}));
+      return {sample:s,physical:g.celestialController.physicalBodyId,providers:g.planetProviders.size,
+        domain:g.travelDomain.kind,bounded:objects.every(o=>[...o.position,...o.scale].every(Number.isFinite)
+          && Math.max(...o.position.map(Math.abs),...o.scale.map(Math.abs))<=10000000)};
+    },id);
+    assert.equal(approach.providers,4);assert.equal(approach.domain,'interplanetary');assert.ok(approach.bounded);
+    assert.notEqual(approach.physical,id);assert.equal(approach.sample.profile.canLand,false);
+    if(id==='titan') await page.screenshot({path:'artifacts/solar12-titan-proxy.png',timeout:90000});
+    results.majorMoonApproaches[id]=approach;
+  }
+  console.log('SOLAR-12 Europa/Titan/Triton production-render approaches remained bounded without terrain providers.');
 
   await page.evaluate(()=>{
     const g=window.__DR_MANAUS__,u=g.universe,m=g.moon;

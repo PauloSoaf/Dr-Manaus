@@ -1,6 +1,20 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — SPACE-HARDENING-1 (2026-10-02)
+## Checkpoint atual — SOLAR-12 / Task 012 (2026-10-02)
+
+O usuário confirmou os testes manuais de SPACE-HARDENING-1 no HEAD
+`e0d4e8a460981232678eb067718fddb47fa2b522` e autorizou avançar à Task 012.
+SOLAR-12 adiciona nove luas por dados no catálogo existente (19 corpos), órbitas hierárquicas,
+orientação síncrona, fases solares, perfis visuais leves, labels com prioridade e foco de luas no
+mapa. O mapa consome posições vivas do jogo; seleção e navegação não teleportam.
+As novas luas são sólidas e não pousáveis, sem novos providers de terreno. A Lua da Terra
+preserva dados NASA, pouso, caminhada/salto/decolagem e seu pipeline existente.
+
+Contrato e fontes: [docs/world/10-solar-system.md](../docs/world/10-solar-system.md).
+Validações automáticas e matriz manual pendente: [docs/world/15-status.md](../docs/world/15-status.md).
+Encerrar no SOLAR-12. Não iniciar Task 013, volume Phase 2, planetas anões ou superfícies novas.
+
+## Checkpoint anterior — SPACE-HARDENING-1 (aceito manualmente pelo usuário)
 
 Os pedidos mais recentes do usuário delimitam este checkpoint de estabilização, incluindo Lua
 pisável como P0 e mapa universal como P1. Baseline real: `f8f451250e564958ffad20d26b72df3fe4c9e6de`,
@@ -9,14 +23,14 @@ branch `feat/universe-map`. A baseline congelada do pacote abaixo é histórica.
 Implementado e verificado: câmera espacial sem clamp local, áudio por meio/densidade, Terra
 geográfica, cobertura lunar completa e exclusiva, dados NASA offline, retorno real ao terreno
 lunar com caminhada/salto/decolagem e mapa ampliado com canvas responsivo/zoom/labels.
-Resultado: 491 testes unitários e 110 focados passando; typecheck/build/diff check e smoke
-`npm run test:browser:space` passando. A matriz manual completa ainda requer validação do usuário.
+Resultado histórico: 491 testes unitários e 110 focados passando; typecheck/build/diff check e smoke
+`npm run test:browser:space` passando. O usuário posteriormente confirmou os testes manuais.
 
 Estado e limitações: [docs/world/15-status.md](../docs/world/15-status.md).
 Contrato/causas/arquivos: [docs/world/10-solar-system.md](../docs/world/10-solar-system.md).
 Dados e licença: [docs/world/06-geodata-pipeline.md](../docs/world/06-geodata-pipeline.md).
 
-Encerrar neste checkpoint. Não iniciar Task 012, volume Phase 2 ou outras luas.
+O bloqueio anterior da Task 012 foi superado pela validação manual e pelo pedido SOLAR-12 acima.
 
 Baseline congelada deste pacote:
 

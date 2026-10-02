@@ -1,6 +1,61 @@
 # Planetary architecture — implementation status
 
-## SPACE-HARDENING-1 — 2026-10-02
+## SOLAR-12 / Task 012 — 2026-10-02
+
+Baseline: `e0d4e8a460981232678eb067718fddb47fa2b522`, `feat/universe-map`.
+The user accepted the previous checkpoint's manual tests and authorized this major-moon set.
+Catalog: 19 bodies, adding Io/Europa/Ganymede/Callisto → Jupiter, Titan/Enceladus → Saturn,
+Titania/Oberon → Uranus, Triton → Neptune. Earth's Moon remains landable.
+
+The existing SolarSystem remains the hierarchy/state authority. Satellite mean Kepler elements
+are catalog-owned and evaluated parent-relative offline; recursive resolution adds both parent
+position and velocity. Physical synchronous orientation is independent of the observer. Triton's
+157.3° inclination retains retrograde motion. Sources, reference-plane conversion, frozen-ellipse
+accuracy limits and preservation of the original lunar ellipse are documented in
+[10-solar-system.md](10-solar-system.md).
+
+New moons have shared icy/volcanic/atmospheric profiles, phase light from the live Sun and a
+bounded pixel floor. Titan's warm haze uses its existing quad. Selected labels win collisions.
+All new moons are solid, non-landable proxies with no terrain/volume provider. The registry
+still contains four rocky provider shells (Mercury, Venus, Earth's Moon, Mars), with Earth
+specialized separately. The celestial layer grows from 13 to 22 meshes: exactly nine extra quads.
+No astronomical positions are written to render objects. Dominant gravity and Warp sweeps stay
+generic, as do target selection, live target resolution and arrival clearances.
+
+Map overview shows Sun/planets, with an explicit selected satellite if needed. **Focar luas**
+shows the parent and its children in live relative positions, mean orbital paths, names, km
+scale, selection and a parent breadcrumb. **Sistema Solar** returns to overview. Focus uses
+the orbital reference plane, including Uranus; no second map ephemeris is instantiated.
+
+Validation: **531/531 full unit tests**, **160/160 focused tests**, typecheck and production
+build passed. Forty additional test cases cover catalog completeness, parents, physical values,
+hierarchical positions/velocities, motion, Triton, synchronous orientation, capabilities/provider
+count, generic navigation/Cruise, all nine Warp exclusions, Ganymede/Titan dominant gravity,
+render finiteness/bounds/phases, Titan haze, label collision and five parent-map focuses.
+Existing Moon/Manaus regressions pass. The lunar NASA payload SHA-256 is unchanged:
+`1696df0382263ac9aabc183d0f15e506099d982a66e9ad994852371e6910f628`.
+
+**`npm run test:browser:space` passed against the final production build** using the existing
+Playwright/Chromium: all four new planetary focuses, all nine canvas target selections with
+immediate highlighting and unchanged player pose, overview return, unchanged four-provider
+registry, bounded rendered approaches to Europa/Titan/Triton, and the complete automated
+Earth Moon streaming return, ground contact, keyboard walking/jump/takeoff regression.
+Captured page/console errors: zero. Screenshots and JSON remain ignored validation artifacts.
+**`npm run test:browser` was also run and failed at its existing stale `game.origin` reference**
+in `scripts/browser-test.mjs:263` (`TerrainDestruction.update` receives undefined). This older
+suite's arming/origin assumptions were already recorded at the baseline; it is not claimed
+as passing and was not replaced or bypassed. No browser dependency was installed.
+
+**REQUIRES USER MANUAL VALIDATION for SOLAR-12:** start in Manaus, leave Earth, open M;
+focus Jupiter and select/travel toward Europa; inspect parent scale/direction and visual stability;
+focus Saturn and inspect Titan's orange haze and Enceladus; focus Uranus for Titania/Oberon;
+focus Neptune, approach Triton and inspect high-speed exclusion/jitter; return to Earth's Moon,
+land, walk/jump and take off. Automated near-arrival fixtures do not replace this complete trip.
+
+Stop here. Task 013, destruction volume Phase 2, dwarf planets and new moon surfaces are not
+part of this checkpoint. Existing untracked iteration documents are not included in the commits.
+
+## Historical SPACE-HARDENING-1 — 2026-10-02 (user manual acceptance received)
 
 Implemented from baseline `f8f451250e564958ffad20d26b72df3fe4c9e6de` on
 `feat/universe-map`, including the user's P0 walkable Moon and P1 universal-map additions.

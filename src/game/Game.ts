@@ -927,6 +927,7 @@ export class Game {
       rows.push({
         id:body.id,
         name:body.name,
+        parentId:body.parentId,
         systemPositionM:position as readonly [number,number,number],
         distanceFromPlayerM:Math.hypot(position[0]-player[0],position[1]-player[1],position[2]-player[2]),
         selected:this.navigationTarget?.bodyId===body.id,

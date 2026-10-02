@@ -8,13 +8,13 @@ import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
 const location:UniverseLocation={address:{galaxyId:'milky_way',sector:sectorIndex(0n,0n,0n),systemId:'sol',bodyId:'earth'},frameId:'solar-system/barycentric'};
 function fixture(width=1000,height=650) {
   const labels:string[]=[],circles:number[][]=[];
-  const context={clearRect(){},fillRect(){},setTransform(){},beginPath(){},stroke(){},fill(){},
+  const context={clearRect(){},fillRect(){},setTransform(){},beginPath(){},stroke(){},fill(){},moveTo(){},lineTo(){},
     arc(...args:number[]){circles.push(args);},fillText(label:string){labels.push(label);},measureText:(label:string)=>({width:label.length*7})};
   const canvas={width:300,height:150,style:{},getContext:()=>context,getBoundingClientRect:()=>({width,height})} as unknown as HTMLCanvasElement;
   const renderer=new SystemMapRenderer(canvas);
   const u=new UniverseRuntime({epochS:0});
   renderer.setBodies(u.activeSystem.bodies.map(body=>({id:body.id,name:body.name,
-    systemPositionM:u.activeSystem.positionOf(body.id)!,selected:body.id==='neptune',distanceFromPlayerM:0})));
+    parentId:body.parentId,systemPositionM:u.activeSystem.positionOf(body.id)!,selected:body.id==='neptune',distanceFromPlayerM:0})));
   return {canvas,renderer,labels,circles,dispose:()=>u.dispose()};
 }
 test('T_SYSTEM_MAP_CANVAS_RESIZES_TO_DISPLAY_SIZE',()=>{
@@ -30,7 +30,7 @@ test('T_SYSTEM_MAP_NEPTUNE_FITS_VIEW',()=>{
     assert.ok(n.x>=20&&n.x<=980&&n.y>=20&&n.y<=630);}finally{f.dispose();}
 });
 test('T_SYSTEM_MAP_BODY_LABELS_PRESENT',()=>{
-  const f=fixture();try{f.renderer.draw(location);assert.equal(f.labels.length,10);
+  const f=fixture();try{f.renderer.draw(location);assert.equal(f.labels.length,9);
     for(const m of f.renderer.markers)assert.ok(f.labels.some(label=>label.startsWith(m.name)));}finally{f.dispose();}
 });
 test('T_SYSTEM_MAP_SELECTED_TARGET_HIGHLIGHT',()=>{
