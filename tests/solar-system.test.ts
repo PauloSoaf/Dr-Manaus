@@ -18,7 +18,7 @@ const DAY = 86_400;
 const YEAR = 365.25 * DAY;
 
 test('the bodies carry published physics, not numbers picked to render nicely', () => {
-  assert.equal(SOLAR_SYSTEM_BODIES.length, 10, 'Sun, eight planets and the Moon');
+  assert.equal(SOLAR_SYSTEM_BODIES.length, 19, 'Sun, eight planets and ten major moons');
   const earth = bodyById('earth')!;
   assert.equal(earth.equatorialRadiusM, 6_378_137, 'Earth is the WGS84 ellipsoid');
   assert.ok(Math.abs(surfaceGravityMps2(earth) - 9.798) < 0.02, `${surfaceGravityMps2(earth)}`);

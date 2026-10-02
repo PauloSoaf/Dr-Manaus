@@ -1,5 +1,53 @@
 # The solar system
 
+## SOLAR-12: major moons (2026-10-02)
+
+SPACE-HARDENING-1 at `e0d4e8a460981232678eb067718fddb47fa2b522` was manually accepted
+by the user. Task 012 adds Io, Europa, Ganymede and Callisto around Jupiter; Titan and Enceladus
+around Saturn; Titania and Oberon around Uranus; Triton around Neptune. Total: 19 catalog bodies.
+Stable ASCII IDs are retained; the interface uses Portuguese names. New moons are solid but
+`canLand=false`, `surfaceKind=none`: provider shells remain Mercury, Venus, Earth's Moon and Mars.
+
+### Orbital and physical provenance
+
+Constants are pinned offline in the existing `CelestialBody` catalog, inspected 2026-10-02:
+
+- [JPL satellite mean elements](https://ssd.jpl.nasa.gov/sats/elem/): a, e, inclination, node,
+  argument of periapsis, mean anomaly and period at 2000-01-01.5 TDB. Jupiter uses JUP365,
+  Saturn SAT441, Uranus URA182, Triton NEP097. These are **mean ellipse parameters**, not
+  Horizons/SPICE state vectors. Their published periods are mean/anomalistic approximations;
+  they are not exact sidereal spin measurements. The model freezes each ellipse and advances
+  mean anomaly uniformly with that period, omitting perturbations, precession and resonances.
+- [JPL satellite physical parameters](https://ssd.jpl.nasa.gov/sats/phys_par/): masses are
+  computed from published GM (km³/s² converted to SI) divided by the catalog's G.
+- [NAIF pck00011](https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/pck00011.tpc): shape
+  axes, using the average of the two equatorial axes and the published polar axis for the
+  catalog's axisymmetric approximation. Bodies with only a mean radius use a sphere.
+  Uranus' rotation pole is the opposite of its IAU north pole: RA 77.311°, Dec 15.175°.
+
+Laplace/equatorial reference planes are rotated through their pole RA/Dec in J2000 equatorial
+coordinates, then through the J2000 obliquity into the ecliptic. This keeps Uranian moon orbits
+tilted with Uranus. Triton's 157.3° inclination to its JPL Laplace plane is retained, so its
+angular momentum opposes that plane's pole. Positive mean-anomaly rate does not turn it prograde.
+All distances are real SI values; these deterministic trajectories are gameplay approximations,
+not spacecraft navigation predictions. No runtime downloads or SPICE dependency are introduced.
+
+`OfflineEphemeris.sample` retains the parent-relative contract used by procedural systems and
+the original Earth Moon. `SolarSystem.resolve` recursively adds parent position **and velocity**
+to return barycentric states. The old lunar ellipse and secular rates are unchanged and are now
+catalog-owned. Synchronous fixed frames put +X toward the parent and +Z along orbital angular
+momentum, independent of the observer; configured spin periods match their approximate model
+periods. Earth's fixed frame stays compatible with Manaus. Lunar geography uses its physical
+fixed frame; landing fixtures now specify positions in that frame, preserving tile-boundary,
+clearance, ENU and continuity assertions. NASA lunar elevation/albedo payloads are unchanged.
+
+The pre-edit audit found no satellite-specific cruise or sweep implementation necessary:
+navigation resolves identity against live system positions, exclusions enumerate every body,
+and local handoff already checks `canLand`. Dominant-body selection remains gravitational.
+Ganymede/Titan neighbourhoods are stable under small perturbations; no hysteresis was needed.
+Enceladus may still report Saturn as dominant because Saturn's absolute acceleration wins;
+the global gravity model was not changed.
+
 ## SPACE-HARDENING-1 runtime contract
 
 Baseline: `f8f451250e564958ffad20d26b72df3fe4c9e6de`, branch `feat/universe-map`.

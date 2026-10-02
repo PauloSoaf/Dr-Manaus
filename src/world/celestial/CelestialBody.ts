@@ -1,4 +1,5 @@
 import { finite } from '../spatial/units';
+import { satelliteOrbit, type SatelliteOrbit } from './SatelliteOrbit';
 
 /**
  * A body in the solar system, described by its physics rather than by how it will be drawn.
@@ -37,6 +38,8 @@ export interface CelestialBody {
    * nothing to do with each other.
    */
   readonly orbit?: OrbitElements;
+  /** Measured parent-relative mean elements. Procedural circular orbits above are separate. */
+  readonly satelliteOrbit?: SatelliteOrbit;
 }
 
 /**
@@ -76,6 +79,23 @@ export function circularOrbitRateRadS(radiusM: number, parentMassKg: number): nu
 
 const DEG = Math.PI / 180;
 
+// GM: JPL SSD physical parameters. Radii: NAIF pck00011; triaxial equatorial axes averaged.
+function satellite(id: string, name: string, parentId: string, equatorialKm: number, polarKm: number,
+  gmKm3S2: number, orbit: SatelliteOrbit): CelestialBody {
+  return { id, name, parentId, equatorialRadiusM: equatorialKm * 1000, polarRadiusM: polarKm * 1000,
+    massKg: gmKm3S2 * 1e9 / GRAVITATIONAL_CONSTANT_SI, rotationPeriodS: orbit.periodS,
+    frameId: `solar-system/${id}-fixed`, satelliteOrbit: orbit };
+}
+
+// Preserve the established lunar ellipse and secular rates exactly, now catalog-owned.
+const EARTH_MOON_ORBIT: SatelliteOrbit = {
+  ...satelliteOrbit(384400, 0.0549, 5.145, 125.0445, 83.353 - 125.0445, 218.316 - 83.353, 2360591.5 / 86400),
+  elements: { ...satelliteOrbit(384400, 0.0549, 5.145, 125.0445, 83.353 - 125.0445, 218.316 - 83.353, 2360591.5 / 86400).elements,
+    meanLongitudeRateRadPerCentury: 481267.881 * DEG,
+    longitudeOfPerihelionRateRadPerCentury: 4069.0134 * DEG,
+    longitudeOfAscendingNodeRateRadPerCentury: -1934.1362 * DEG },
+};
+
 /**
  * The bodies the specification asks for, with published values.
  *
@@ -108,6 +128,7 @@ export const SOLAR_SYSTEM_BODIES: readonly CelestialBody[] = [
     id: 'moon', name: 'Lua', parentId: 'earth',
     equatorialRadiusM: 1_738_100, polarRadiusM: 1_736_000, massKg: 7.346e22,
     rotationPeriodS: 2_360_591.5, axialTiltRad: 6.68 * DEG, frameId: 'solar-system/moon-fixed',
+    satelliteOrbit: EARTH_MOON_ORBIT,
   },
   {
     id: 'mars', name: 'Marte', parentId: 'sun',
@@ -134,6 +155,25 @@ export const SOLAR_SYSTEM_BODIES: readonly CelestialBody[] = [
     equatorialRadiusM: 24_764_000, polarRadiusM: 24_341_000, massKg: 4.813_4e25,
     rotationPeriodS: 57_996, axialTiltRad: 28.32 * DEG, frameId: 'solar-system/neptune-fixed',
   },
+  satellite('io', 'Io', 'jupiter', 1824.4, 1815.7, 5959.91547,
+    satelliteOrbit(421800, .004, 0, 0, 49.1, 330.9, 1.762732, [268.1, 64.5])),
+  satellite('europa', 'Europa', 'jupiter', 1561.45, 1559.5, 3202.71210,
+    satelliteOrbit(671100, .009, .5, 184, 45, 345.4, 3.525463, [268.1, 64.5])),
+  satellite('ganymede', 'Ganimedes', 'jupiter', 2631.2, 2631.2, 9887.83275,
+    satelliteOrbit(1070400, .001, .2, 58.5, 198.3, 324.8, 7.155588, [268.2, 64.6])),
+  satellite('callisto', 'Calisto', 'jupiter', 2410.3, 2410.3, 7179.28340,
+    satelliteOrbit(1882700, .007, .3, 309.1, 43.8, 87.4, 16.690440, [268.7, 64.8])),
+  satellite('titan', 'Titã', 'saturn', 2574.965, 2574.47, 8978.13710,
+    satelliteOrbit(1221900, .029, .3, 78.6, 78.3, 11.7, 15.945448, [36.4, 84])),
+  satellite('enceladus', 'Encélado', 'saturn', 254, 248.3, 7.21037,
+    satelliteOrbit(238400, .005, 0, 0, 119.5, 57, 1.370218, [40.6, 83.5])),
+  // Uranian satellites follow the rotation pole (opposite the IAU north pole), RA/Dec from PCK.
+  satellite('titania', 'Titânia', 'uranus', 788.9, 788.9, 226.9,
+    satelliteOrbit(436298, .002, .1, 29.5, 184, 68.1, 8.705869, [77.311, 15.175])),
+  satellite('oberon', 'Oberon', 'uranus', 761.4, 761.4, 205.3,
+    satelliteOrbit(583511, .002, .1, 76.8, 132.2, 143.6, 13.463237, [77.311, 15.175])),
+  satellite('triton', 'Tritão', 'neptune', 1352.6, 1352.6, 1428.49546,
+    satelliteOrbit(354800, 0, 157.3, 178.1, 0, 63, 5.876994, [299.8, 43.1])),
 ];
 
 export const GRAVITATIONAL_CONSTANT = 6.674_30e-11;

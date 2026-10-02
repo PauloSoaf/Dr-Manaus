@@ -32,7 +32,7 @@ async function fixture(direction?:Vec3,clearanceM=4000) {
   const centre=universe.activeSystem.positionOf('moon')!,orbital=universe.activeSystem.stateOf('moon')!.velocityMps;
   const before:Vec3=direction?universe.frames.convertPosition('moon/fixed','solar-system/barycentric',
     direction.map(v=>v*(planetSurfaceRadius(MoonSurfaceGenerator,direction)+clearanceM)) as Vec3)
-    :[centre[0]+MOON.semiMajorAxisM+5000,centre[1],centre[2]];
+    :universe.frames.convertPosition('moon/fixed','solar-system/barycentric', [MOON.semiMajorAxisM+5000,0,0]);
   universe.updateSystemPose(before,orbital,0);
   travelDomain.update({altitudeM:10_000,speedMps:0,requested:true,nearestColliderM:Infinity,
     bodyId:'moon',bodyRadiusM:MOON.semiMajorAxisM,entryPositionM:before,entryVelocityMps:orbital},0);

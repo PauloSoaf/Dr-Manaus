@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Vector3 } from 'three/webgpu';
 import { SolarSystem } from '../src/world/celestial/SolarSystem.ts';
-import { SOLAR_SYSTEM_BODIES } from '../src/world/celestial/CelestialBody.ts';
+import { SOLAR_SYSTEM_BODIES, gravitationalParameter } from '../src/world/celestial/CelestialBody.ts';
 import { bodyArrivalPolicy, bodyProfile } from '../src/world/celestial/CelestialBodyProfile.ts';
 import { bodyExclusionEnvelopes, resolveBodyDestination, selectBodyDestination } from '../src/world/travel/BodyNavigation.ts';
 import { CosmicCruiseController, type CosmicCruiseContext } from '../src/world/travel/CosmicFlight.ts';
@@ -11,7 +11,7 @@ import { TravelDomain } from '../src/world/travel/TravelDomain.ts';
 test('T_DESTINATION_ALL_PLANETS / T_LIVE_EPHEMERIS_ALL_PLANETS: identity selection resolves live positions', () => {
   const system = new SolarSystem({ epochS: 0 });
   const targets = system.bodies.map(body => selectBodyDestination(system, body.id)!);
-  assert.equal(targets.length, 10);
+  assert.equal(targets.length, 19);
   const before = targets.map(target => [...resolveBodyDestination(system, target)!.positionM]);
   system.update(86_400 * 30);
   for (let i = 0; i < targets.length; i++) {
@@ -75,7 +75,15 @@ test('arrival clearances scale by capabilities and dominant-body telemetry remai
     if (bodyProfile(body).hasSolidSurface) assert.ok(policy.arrivalMarginM >= 50_000);
     else assert.ok(policy.arrivalMarginM >= body.equatorialRadiusM * 0.25);
     const near: [number, number, number] = [position[0], position[1] + body.equatorialRadiusM * 1.5, position[2]];
-    assert.equal(system.dominantBody(near).id, body.id);
+    // Small close-in moons can have less absolute acceleration than their parent (Enceladus).
+    const strongest = [...system.bodies].sort((a, b) => {
+      const score = (id: string, mu: number) => {
+        const p = system.positionOf(id)!;
+        return mu / Math.max(1, Math.hypot(...p.map((v, i) => v - near[i]))) ** 2;
+      };
+      return score(b.id, gravitationalParameter(b)) - score(a.id, gravitationalParameter(a));
+    })[0];
+    assert.equal(system.dominantBody(near).id, strongest.id);
   }
 });
 

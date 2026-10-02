@@ -10,8 +10,8 @@ import { PlanetVolumeField } from '../src/world/planet/volume/PlanetVolumeField.
 import { createPlanetProviders } from '../src/world/providers/PlanetProviderRegistry.ts';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
 
-test('T_BODY_PROFILE_COMPLETE / T_BODY_PHYSICS_NOT_DUPLICATED: all ten profiles contain capabilities only', () => {
-  assert.equal(SOLAR_SYSTEM_BODIES.length, 10);
+test('T_BODY_PROFILE_COMPLETE / T_BODY_PHYSICS_NOT_DUPLICATED: all nineteen profiles contain capabilities only', () => {
+  assert.equal(SOLAR_SYSTEM_BODIES.length, 19);
   for (const body of SOLAR_SYSTEM_BODIES) {
     assert.ok(Object.hasOwn(SOLAR_BODY_PROFILES, body.id));
     const profile = bodyProfile(body);
@@ -20,7 +20,7 @@ test('T_BODY_PROFILE_COMPLETE / T_BODY_PHYSICS_NOT_DUPLICATED: all ten profiles 
     for (const field of ['radiusM', 'massKg', 'rotationPeriodS', 'frameId', 'positionM', 'orbit']) {
       assert.ok(!(field in profile), `${body.id} duplicates ${field}`);
     }
-    assert.equal(profile.supportsVolumeDestruction, profile.hasSolidSurface);
+    assert.equal(profile.supportsVolumeDestruction, profile.hasSolidSurface && profile.canLand);
   }
 });
 
@@ -82,7 +82,7 @@ for (const bodyId of ['mercury', 'venus', 'moon', 'mars']) {
     const universe = new UniverseRuntime({ epochS: 0 });
     const body = universe.activeSystem.bodies.find(body => body.id === bodyId)!;
     const position = universe.activeSystem.positionOf(bodyId)!;
-    const before: [number, number, number] = [position[0] + body.equatorialRadiusM + 1500, position[1], position[2]];
+    const before = universe.frames.convertPosition(body.frameId, 'solar-system/barycentric', [body.equatorialRadiusM + 1500, 0, 0]);
     universe.updateSystemPose(before, universe.activeSystem.stateOf(bodyId)!.velocityMps, 0);
     const local = universe.handoffTo(bodyId);
     assert.equal(universe.player.frame, `${bodyId}/local-enu`);

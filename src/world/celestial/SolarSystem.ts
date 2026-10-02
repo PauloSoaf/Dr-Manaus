@@ -1,6 +1,7 @@
 import { referenceFrame } from '../spatial/ReferenceFrame';
 import type { ReferenceFrameGraph } from '../spatial/ReferenceFrameGraph';
-import { addVec3, cloneVec3, finite, lengthVec3, type Vec3 } from '../spatial/units';
+import { addVec3, cloneVec3, crossVec3, finite, lengthVec3, normalizeVec3, quatFromBasis,
+  rotateVec3Inverse, subVec3, type Quat, type Vec3 } from '../spatial/units';
 import {
   type CelestialBody, SOLAR_SYSTEM_BODIES, bodyById, gravitationalParameter,
 } from './CelestialBody';
@@ -79,6 +80,8 @@ export class SolarSystem implements CelestialSystemRuntime {
           (frame.originInParent as number[])[0] = state.positionM[0];
           (frame.originInParent as number[])[1] = state.positionM[1];
           (frame.originInParent as number[])[2] = state.positionM[2];
+          const rotation = this.fixedOrientationOf(body.id);
+          for (let i = 0; i < 4; i++) frame.rotationToParent[i] = rotation[i];
         }
       }
     }
@@ -96,7 +99,7 @@ export class SolarSystem implements CelestialSystemRuntime {
     const local: Vec3 = sample ? cloneVec3(sample.positionM) : [0, 0, 0];
     const velocity: Vec3 = sample ? cloneVec3(sample.velocityMps) : [0, 0, 0];
 
-    if (body.parentId && body.parentId !== 'sun') {
+    if (body.parentId) {
       const parent = this.dynamicBodies.find(b => b.id === body.parentId);
       if (parent) {
         const parentState = this.resolve(parent);
@@ -112,6 +115,18 @@ export class SolarSystem implements CelestialSystemRuntime {
   stateOf(bodyId: string): BodyState | undefined { return this.states.get(bodyId); }
 
   positionOf(bodyId: string): Vec3 | undefined { return this.states.get(bodyId)?.positionM; }
+
+  /** Synchronous +X faces the parent, +Z follows orbital angular momentum, never the observer. */
+  fixedOrientationOf(bodyId: string): Quat {
+    const state = this.states.get(bodyId);
+    const parent = state?.body.parentId && this.states.get(state.body.parentId);
+    if (!state?.body.satelliteOrbit?.synchronousRotation || !parent) return [0, 0, 0, 1];
+    const relative = subVec3(state.positionM, parent.positionM);
+    const velocity = subVec3(state.velocityMps, parent.velocityMps);
+    const x = normalizeVec3([-relative[0], -relative[1], -relative[2]]);
+    const z = normalizeVec3(crossVec3(relative, velocity));
+    return quatFromBasis(x, normalizeVec3(crossVec3(z, x)), z);
+  }
 
   /** Distance between two bodies right now, metres. */
   distanceBetween(a: string, b: string): number {
@@ -164,7 +179,8 @@ export class SolarSystem implements CelestialSystemRuntime {
     // The ellipsoid radius in the observer's own direction, not the mean. On Earth those differ
     // by 7 km at the equator, which would report someone standing on the ground as being in the
     // stratosphere.
-    const radius = directionalRadiusM(state.body, dz / distance);
+    const fixedDirection = rotateVec3Inverse(this.fixedOrientationOf(bodyId), [dx, dy, dz]);
+    const radius = directionalRadiusM(state.body, fixedDirection[2] / distance);
     const angularRadius = distance <= radius ? Math.PI / 2 : Math.asin(Math.min(1, radius / distance));
     const surfaceDistance = distance - radius;
 
@@ -196,13 +212,14 @@ export class SolarSystem implements CelestialSystemRuntime {
     if (!graph.has(SOLAR_SYSTEM_FRAME)) {
       graph.register(referenceFrame({ id: SOLAR_SYSTEM_FRAME, kind: 'system', label: 'Sistema Solar' }));
     }
-    for (const body of SOLAR_SYSTEM_BODIES) {
+    for (const body of this.dynamicBodies) {
       const state = this.states.get(body.id);
       graph.register(referenceFrame({
         id: body.frameId,
         parentId: SOLAR_SYSTEM_FRAME,
         kind: 'body-fixed',
         originInParent: state ? cloneVec3(state.positionM) : [0, 0, 0],
+        rotationToParent: this.fixedOrientationOf(body.id),
         label: body.name,
       }));
     }

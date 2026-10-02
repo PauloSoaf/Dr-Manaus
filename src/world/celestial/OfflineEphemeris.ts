@@ -1,4 +1,6 @@
 import { degToRad, type Vec3 } from '../spatial/units';
+import { rotateVec3 } from '../spatial/units';
+import { SOLAR_SYSTEM_BODIES, bodyById } from './CelestialBody';
 import {
   type EphemerisProvider, type EphemerisSample, type OrbitalElements,
   auToM, positionFromElements, velocityFromElements,
@@ -83,20 +85,6 @@ const ROWS: Readonly<Record<string, ElementRow>> = {
   },
 };
 
-/**
- * The Moon, about Earth. Mean elements only: the real lunar orbit is perturbed strongly enough
- * that a Keplerian ellipse is worth a few tenths of a degree, which is visible against the stars
- * but entirely adequate for flying there and landing on it.
- */
-const MOON_ROW: ElementRow = {
-  a: [384_400_000 / 149_597_870_700, 0], e: [0.054_900, 0],
-  i: [5.145, 0],
-  // A sidereal month is 27.321 582 days, so the mean longitude advances 360 degrees in that time.
-  meanLongitude: [218.316, 481_267.881],
-  longitudeOfPerihelion: [83.353, 4_069.013_4],
-  longitudeOfAscendingNode: [125.044_5, -1_934.136_2],
-};
-
 function toElements(row: ElementRow): OrbitalElements {
   return {
     semiMajorAxisM: auToM(row.a[0]),
@@ -116,7 +104,7 @@ function toElements(row: ElementRow): OrbitalElements {
 
 const ELEMENTS: ReadonlyMap<string, OrbitalElements> = new Map([
   ...Object.entries(ROWS).map(([id, row]) => [id, toElements(row)] as const),
-  ['moon', toElements(MOON_ROW)] as const,
+  ...SOLAR_SYSTEM_BODIES.flatMap(body => body.satelliteOrbit ? [[body.id, body.satelliteOrbit.elements] as const] : []),
 ]);
 
 export class OfflineEphemeris implements EphemerisProvider {
@@ -132,10 +120,11 @@ export class OfflineEphemeris implements EphemerisProvider {
     }
     const elements = ELEMENTS.get(bodyId);
     if (!elements) return undefined;
+    const plane = bodyById(bodyId)?.satelliteOrbit?.referenceToEcliptic ?? [0, 0, 0, 1];
     return {
       epochS,
-      positionM: positionFromElements(elements, epochS),
-      velocityMps: velocityFromElements(elements, epochS),
+      positionM: rotateVec3(plane, positionFromElements(elements, epochS)),
+      velocityMps: rotateVec3(plane, velocityFromElements(elements, epochS)),
     };
   }
 }
