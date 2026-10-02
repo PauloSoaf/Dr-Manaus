@@ -1,6 +1,101 @@
 # Planetary architecture — implementation status
 
-## PLANET-VOLUME-2 / Phase 2 — 2026-10-02
+## PLANET-VOLUME-3 / Phase 3 — 2026-10-02
+
+Initial HEAD: `a752f7ceb24811ece5c0ceafdc275fd217d7b272`, `feat/universe-map`.
+The latest request accepts Phase 2 **by static inspection** and directs Marching Cubes next.
+Manual gameplay acceptance is still pending. Implementation checkpoints were documented and
+pushed: `4804016` (pure indexed extraction/table/tests), `c5a8845` (bounded mesh runtime and
+isolated visual inspector/tests/browser). This integration commit records benchmarks, final
+validation, a deterministic scheduler-test correction and the updated authoritative prompt.
+
+**Implemented:** real iso=0 geometry from ready MIXED scalar chunks; chunk-local Float32
+positions/normals, Uint32 indices, separate body-fixed Float64 origin/key/revision; canonical edge
+reuse, exact-zero welding, degenerate removal and inward cut-wall/outward solid-surface normals.
+The classic 256-case table is MIT-licensed three.js r186 data with its complete notice retained.
+The pure mesher has no renderer, DOM, field/BVH query or gameplay dependencies. EMPTY/SOLID grids
+yield zero geometry. Ambiguous cell-face occurrences are observable; MC33 certification,
+cross-chunk ghost-gradient normals and different-LOD transitions are not claimed.
+
+`setDebugMeshing(true)` independently opts in after demand. One existing `planet/volume` scheduler
+grant serves both stages, nearest-first, with one live job total and at most one scalar plus one
+mesh completion per frame. Batches adapt by measured EWMA cost: 1–128 samples / 1–64 mesher units,
+targeting up to 0.35 ms or half the remaining grant. Deadline enforcement remains cooperative.
+Default gameplay allocates zero resident grids/meshes/jobs. Existing shell visuals, single-surface
+physics, powers, flight, ephemerides and navigation remain unchanged.
+
+Mesh cache: **8 payloads / 8 MiB** actual typed-array caps. Worst-case capacity admission prevents
+small-budget eviction/remeshing loops. Source identity/revision must match the current ready scalar
+chunk; edits immediately hide stale meshes, and changed/evicted chunks, body changes, lost demand
+and disable dispose derived residency. Unrelated edits preserve valid old source revisions.
+N=17 theoretical output limit: **578,688 bytes/chunk**; count cap therefore bounds retained default
+output to **4,629,504 bytes (4.415 MiB)**. A mesher job has a **2 MiB live-array cap**, including
+scratch and compact-copy peak; the N=17 worst-case bound is **1,295,036 bytes**. Larger mixed-grid
+configurations exceeding it are rejected/skipped without scratch allocation. Counters describe
+typed arrays, not total JS heap or GPU driver memory. Persistence remains logical schema-1 edits.
+
+**Visual entry: `/?volumeLab=1`.** The lazy inspector uses real UniverseRuntime/surface factories,
+global streaming and extraction, showing one nearest L0 chunk for Earth/Moon/Mars. Controls:
+Intacto/Esfera/Cápsula, orbit/zoom, external/internal camera, wireframe and chunk bounds. `Game`
+is not instantiated on this route; no PlanetGlobe ownership or terrain collision is replaced.
+Geometry/controls/helper/renderer/cache resources are disposed on replacement/exit. This is actual
+extracted geometry in a diagnostic view, not planet destruction gameplay. Screenshots of the
+crater and internal tunnel were inspected; the internal view looks along the tunnel opening.
+
+**Measured pure meshing, median / p95 ms**, 5 warmups / 21 repetitions on this workstation:
+
+| Case | Earth | Moon | Mars |
+| --- | --- | --- | --- |
+| Intact | 1.567 / 2.061 | 0.989 / 2.046 | 1.444 / 1.832 |
+| Sphere cut | 1.442 / 1.956 | 1.408 / 1.817 | 1.432 / 2.224 |
+| Capsule cut | 1.602 / 2.501 | 1.411 / 1.852 | 1.728 / 2.044 |
+
+Meshes in these cases: 289–588 vertices, 512–1,092 triangles, **13,080–27,120 bytes**;
+observed working arrays before final compact copies: 180,668–229,388 bytes. All nine cases have
+zero ambiguous faces. `npm run benchmark:volume` separates sampling and meshing, reports geometry
+counts/bytes and through-Earth allocation, and writes stdout only. No wall-time thresholds gate CI.
+The one-capsule through-Earth fixture still starts at **1 edit / 1 BVH node / 0 chunks**; each
+entry/centre/exit stage retains 32 scalar chunks (628,864 bytes) plus at most 8 mesh payloads
+(94,992 / 85,632 / 94,992 bytes). Previous distant data is retired; no diameter-sized grid is made.
+
+**Automatically verified:** **594/594 full tests**, **274/274 focused regressions**, typecheck,
+production build and diff check passed. Twenty-three additional deterministic cases cover lookup
+cases, interpolation, winding/normals, welding/degenerates, closed-sphere manifold/Euler topology,
+cut spheres/capsules, shared faces, stale/invalid grids, resumability/source revision, memory
+limits, source invalidation, opt-in, scheduling, LRU/bytes, movement/body retirement and adapter
+locality/disposal. The existing scheduler-volume test now injects the same simulated clock into
+the ledger and runtime; its prior mixed real/fake clocks could starve the test under CPU load.
+Both complete and focused suites passed after that correction. Lunar NASA SHA-256 is unchanged:
+`1696df0382263ac9aabc183d0f15e506099d982a66e9ad994852371e6910f628`.
+
+**`npm run test:browser:volume` passed** against the production build with the already installed
+Chromium: all nine real body/scenario renders, finite local attributes, count/byte budgets,
+changed cut topology, internal/wireframe/mobile controls and zero arrays/canvas after disposal.
+**`npm run test:browser:space` passed** on the same build: SOLAR-12 map/focus/all nine targets,
+bounded Europa/Titan/Triton approaches, exclusive lunar globe, actual Game return/ground contact,
+keyboard walking/jump/takeoff, and optional scalar-demand release. Both captured zero page/console
+errors. No browser dependencies or CI publishing were added; ignored validation artifacts remain
+outside commits. The existing bundle-size advisory remains informational.
+
+**`npm run test:browser` was rerun and reproduced the baseline failure** at
+`scripts/browser-test.mjs:263`: the stale `game.origin` argument is undefined in
+`TerrainDestruction.update`, causing `Vector3.copy` to read undefined `x`. This legacy suite is
+explicitly not passing; it was not bypassed or changed in this extraction checkpoint. The two
+production smoke suites above passed independently.
+
+**REQUIRES USER MANUAL VALIDATION:** open `/?volumeLab=1`, inspect intact/sphere/capsule on each
+body, orbit/zoom and toggle internal/wireframe views; confirm actual cavity/tunnel walls and
+bounded queues/memory; return to normal Manaus, fly/travel/open the System map, inspect major moons,
+return to Earth's Moon and walk/jump/take off with zero default volume mesh residency. Automated
+near-arrival fixtures do not establish a complete manual trip.
+
+Contract, case-by-case geometry/memory table and ordered roadmap:
+[planetary-handoff-and-volume-phase1.md](planetary-handoff-and-volume-phase1.md);
+API/usage/source attribution: [volume README](../../src/world/planet/volume/README.md).
+Stop at Phase 3. No Transvoxel, world coverage handoff, volume colliders, planet-power wiring or
+through-body gameplay. External untracked iteration documents remain untouched.
+
+## Historical PLANET-VOLUME-2 / Phase 2 — 2026-10-02
 
 Initial HEAD: `2f5d8200f6003e8d9a1fb205d154192792c6b00e`, `feat/universe-map`.
 The latest request accepts SOLAR-12 and authorizes sparse resident volume chunks. Implementation

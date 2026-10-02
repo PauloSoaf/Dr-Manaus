@@ -1,6 +1,21 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — PLANET-VOLUME-2 / Phase 2 (2026-10-02)
+## Checkpoint atual — PLANET-VOLUME-3 / Phase 3 (2026-10-02)
+
+O anexo mais recente aprova Phase 2 por inspeção estática no HEAD
+`a752f7ceb24811ece5c0ceafdc275fd217d7b272` e pede o próximo patch: Marching Cubes.
+Implementado: mesher puro/resumível para chunks MIXED, posições locais/normais/índices,
+cache de malhas limitado, jobs/batches adaptativos no scheduler existente e laboratório visual
+isolado em `/?volumeLab=1`, com Terra/Lua/Marte intactos ou com corte sphere/capsule.
+O jogo padrão continua sem demanda/malhas volumétricas, com terreno e colisão existentes.
+
+Contrato e medidas: [planetary-handoff-and-volume-phase1.md](../docs/world/planetary-handoff-and-volume-phase1.md).
+Validações: [15-status.md](../docs/world/15-status.md).
+Manter documentação, commit e push em cada checkpoint conforme autorização persistente.
+Encerrar na Phase 3. Não iniciar Transvoxel, cobertura do PlanetGlobe, colisão volumétrica,
+poderes planetários, travessia jogável ou Task 013. Aprovação estática não substitui teste manual.
+
+## Checkpoint anterior — PLANET-VOLUME-2 / Phase 2 (aceito por inspeção estática)
 
 Pedido mais recente aceita SOLAR-12 e autoriza chunks volumétricos residentes esparsos a partir
 de `2f5d8200f6003e8d9a1fb205d154192792c6b00e`, branch `feat/universe-map`.
@@ -12,7 +27,8 @@ padrão; edits lógicos sozinhos alocam zero chunks. Terra/Lua/Marte usam o mesm
 Contrato, medidas e roadmap: [planetary-handoff-and-volume-phase1.md](../docs/world/planetary-handoff-and-volume-phase1.md).
 Resultados e validação manual: [15-status.md](../docs/world/15-status.md).
 Documentar, commit e push em cada checkpoint, conforme autorização persistente do usuário.
-Encerrar na Phase 2. Não iniciar Marching Cubes, Transvoxel, cavernas, colisores, poderes ou Task 013.
+O bloqueio histórico de Marching Cubes foi superado pelo pedido Phase 3 acima.
+Transvoxel, integração ao terreno, colisores, poderes e Task 013 continuam fora do escopo atual.
 
 ## Checkpoint anterior — SOLAR-12 / Task 012 (aceito no pedido PLANET-VOLUME-2)
 

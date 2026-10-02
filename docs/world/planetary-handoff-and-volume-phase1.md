@@ -1,6 +1,6 @@
-# Planetary handoff and sparse volume field — phases 0–2
+# Planetary handoff and sparse volume field — phases 0–3
 
-This note records the historical Phase 0/1 implementation and the current Phase 2 checkpoint on
+This note records the historical Phase 0/1/2 implementation and the current Phase 3 checkpoint on
 `feat/universe-map`. The historical implementation baseline observed before Phase 0/1 was
 `c941b17`. The audit that motivated the work described a white horizon band, the visible end of
 the Manaus ground patch, a local HUD in planetary views, and the longer-term requirement that a
@@ -13,7 +13,105 @@ The historical first two phases had different scopes:
 - **Phase 1** establishes the mathematical authority for sparse volumetric destruction. It does
 not yet render or collide with caves and tunnels.
 
-## Phase 2 — sparse resident sampled chunks (PLANET-VOLUME-2, 2026-10-02)
+## Phase 3 — indexed Marching Cubes (PLANET-VOLUME-3, 2026-10-02)
+
+Initial HEAD: `a752f7ceb24811ece5c0ceafdc275fd217d7b272`, `feat/universe-map`.
+The latest request accepts Phase 2 by static inspection and directs the next step: turn ready
+MIXED scalar chunks into real surface geometry. Existing manual gameplay validation is still
+pending; static acceptance is not being recorded as a manual trip. This checkpoint stops before
+Phase 4 transitions, Phase 5 terrain coverage, Phase 6 collision and Phase 7 power wiring.
+
+### Mesher contract
+
+`PlanetVolumeMeshingJob` consumes only a ready scalar grid at iso=0. EMPTY/SOLID grids yield no
+geometry. MIXED work advances through sample validation/gradient estimation, cell counting and
+indexed emission. No Three.js, DOM, field/BVH query or observer state enters the pure mesher.
+Output keeps its immutable key, source revision and separate Float64 body-fixed origin, with
+chunk-local Float32 positions/normals and Uint32 indices. Canonical grid edges reuse vertices;
+zero endpoints are welded across edges, and degenerate triangles are dropped. Winding and normals
+point from negative solid toward positive empty, including internal sphere/capsule cut walls.
+
+The classic 256-case table comes from the installed three.js r186 implementation, with its full
+MIT license retained in `MarchingCubesTable.ts`:
+[upstream source](https://github.com/mrdoob/three.js/blob/r186/examples/jsm/objects/MarchingCubes.js).
+Ambiguous cell-face occurrences are counted, not claimed as MC33-certified topology. Same-LOD
+boundary vertices are tested exactly; boundary normals use one-sided differences without ghost
+samples and are not guaranteed to match neighbouring chunks. Different LODs have no transition
+cells. These are explicit extraction limits, not finished world-terrain coverage.
+
+N=17 has at most 13,872 edge vertices and 20,480 triangles: **578,688 output bytes**. A meshing job
+reserves a worst-case live-array bound including gradient/edge/zero caches, corner scratch and
+compact output copies: **1,295,036 bytes** for N=17, below the **2 MiB job cap**. Larger MIXED
+configurations that exceed this bound are rejected before scratch allocation; the runtime skips
+unsupported meshing configurations, while scalar sampling keeps the Phase 2 contract.
+
+### Runtime, budgets and visual inspection
+
+`setDebugMeshing(true)` independently enables extraction after debug demand. Ordinary gameplay
+remains dormant. The same `planet/volume` subsystem shares the existing scheduler grant between
+sampling and meshing: one live job total, at most one scalar and one mesh completion per frame,
+nearest mesh before farther scalar requests. EWMA cost estimates adapt sampling batches to 1–128
+samples and extraction to 1–64 work units, targeting up to 0.35 ms or half the remaining grant.
+Deadlines remain cooperative; allocation/final copies and the current unit finish before yielding.
+
+`PlanetVolumeMeshCache` holds at most **8 payloads / 8 MiB** of typed arrays, reserving worst-case
+per-grid capacity for admission. At the default grid, the count cap bounds output to 4,629,504
+bytes (4.415 MiB). Tiny byte caps do not trigger regeneration loops. Entry validity requires scalar
+source identity and source revision, preserving valid old revisions after unrelated edits.
+Stale/replaced/evicted scalars, changed body/lost demand and disabled modes release geometry.
+The public mesh accessor hides stale geometry immediately after edits. F3 includes mesh counts,
+queue, vertices/triangles, actual array/job bytes, completion/time and ambiguous-face occurrences.
+Persistence remains schema 1, logical edits only. No mesh is authoritative or saved.
+
+**`/?volumeLab=1`** is a lazy isolated inspector using the real `UniverseRuntime`, surface factory,
+global scheduler, resident chunks and mesher. It previews one nearest L0 chunk of Earth/Moon/Mars
+with Intacto/Esfera/Cápsula scenarios, orbit/zoom, external/internal views, wireframe and chunk
+bounds. Sphere/capsule fixtures keep at most one logical edit. The thin `VolumeMeshGeometry`
+adapter binds local attributes without adding astronomical origins. Replacements/exit dispose
+geometry, controls, helper, renderer and all derived arrays. `Game` is not instantiated in this
+route; normal terrain, physics, camera, powers and navigation are unchanged. A visible isolated
+tunnel is not yet a traversable tunnel in the planet.
+
+### Validation and measured geometry
+
+Twenty-three new deterministic test cases cover all 256 lookup configurations, homogeneous skips,
+interpolation, exact-zero welding/degenerates, outward winding/normals, closed-sphere Euler=2 and
+two-triangles-per-edge topology, sphere-cut inward walls, open capsule/chunk faces, shared boundary
+vertices, deterministic/resumable output, invalid/stale grids, job memory bounds, Earth/Moon/Mars,
+observable ambiguities, source invalidation, local coordinate/disposal adapter, runtime ordering,
+jobs, opt-in, LRU/byte caps and movement/body retirement. A pre-existing scheduler-volume test now
+shares one deterministic ledger/runtime clock; its mixed real/simulated clocks could fail under
+CPU load despite passing the full run.
+
+`npm run benchmark:volume` separates generation and pure meshing CPU measurements (5 warmups,
+21 repetitions, median/p95; no timing thresholds). Typical outputs:
+
+| Body / scenario | Vertices | Triangles | Mesh bytes | Mesher median / p95 ms |
+| --- | --- | --- | --- | --- |
+| Earth intact | 289 | 512 | 13,080 | 1.567 / 2.061 |
+| Earth sphere | 557 | 1,048 | 25,944 | 1.442 / 1.956 |
+| Earth capsule | 532 | 972 | 24,432 | 1.602 / 2.501 |
+| Moon intact | 289 | 512 | 13,080 | 0.989 / 2.046 |
+| Moon sphere | 557 | 1,048 | 25,944 | 1.408 / 1.817 |
+| Moon capsule | 588 | 1,084 | 27,120 | 1.411 / 1.852 |
+| Mars intact | 289 | 512 | 13,080 | 1.444 / 1.832 |
+| Mars sphere | 584 | 1,092 | 27,120 | 1.432 / 2.224 |
+| Mars capsule | 476 | 860 | 21,744 | 1.728 / 2.044 |
+
+Observed working-array peaks before compact-copy finalization: 180,668–229,388 bytes across these
+cases. All nine have zero ambiguous face occurrences. The through-Earth capsule still has one
+edit/one BVH node and zero chunks before demand. Entry/centre/exit retain 32 scalar chunks
+(628,864 bytes) plus at most 8 meshes (94,992 / 85,632 / 94,992 bytes), retiring the prior stage.
+No whole-diameter grid/mesh residency is allocated.
+
+Production lab smoke exercises all nine cases, actual rendering, local attributes, byte/count caps,
+internal/wireframe/mobile controls and complete disposal. Captured images were inspected; the
+internal camera looks along the tunnel toward its opening. Full/focused/typecheck/build and
+existing gameplay-browser results are recorded in [15-status.md](15-status.md). The lunar NASA
+payload is unchanged. Manual validation: inspect the nine body/scenario views and controls, then
+normal Manaus/flight/map/Moon return with default zero volume mesh residency. **Stop at Phase 3.**
+
+## Historical Phase 2 — sparse resident sampled chunks (PLANET-VOLUME-2, 2026-10-02)
 
 Initial HEAD: `2f5d8200f6003e8d9a1fb205d154192792c6b00e`, branch `feat/universe-map`.
 SOLAR-12 is accepted by the latest user request. This checkpoint adds resident data and stops
@@ -299,10 +397,10 @@ Automated structural tests do not replace a manual horizon inspection; a real as
 should still confirm that no white band, local-ground strip, depth flicker, or local HUD survives in
 planetary/orbital presentation.
 
-## Deliberate limitations
+## Historical Phase 1 limitations
 
-Phase 1 does **not** make the rendered planet volumetrically destructible. The following systems do
-not exist yet:
+Phase 1 did **not** make the rendered planet volumetrically destructible. At that checkpoint,
+the following systems did not exist:
 
 - resident volume chunk keys, selection, sampling grids, budgets, or caches;
 - Marching Cubes geometry or transition cells between volume LODs;
@@ -318,11 +416,13 @@ the intact single-surface collision provider. Neither is being stretched into a 
 
 ## Roadmap
 
-The next phases retain the order from the volumetric-destruction audit:
+The phases retain the order from the volumetric-destruction audit. Phase 4 is next and requires
+a new request before work starts:
 
 1. **Phase 2 — sparse volume chunks (implemented above):** body-fixed keys, LOD-sized sampling
    grids, bounded demand/cache/invalidation and measurable memory/time budgets; no physics yet.
-2. **Phase 3 — Marching Cubes:** extract one chunk mesh and verify sphere cuts and tunnels.
+2. **Phase 3 — Marching Cubes (implemented above):** extract indexed local geometry and verify
+   sphere cuts/tunnel walls in an isolated inspector; world coverage/collision remain later phases.
 3. **Phase 4 — Transvoxel:** generate LOD transition cells and prove adjacent levels do not crack.
 4. **Phase 5 — `PlanetGlobe` integration:** hand coverage between shell and resident volume meshes
    without holes or depth fighting.

@@ -12,7 +12,7 @@ import { planetSurfaceRadius, type PlanetSurfaceGenerator } from '../src/world/p
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
 import { GlobalStreamingScheduler } from '../src/world/streaming/GlobalStreamingScheduler.ts';
 import { ProviderRegistry } from '../src/world/runtime/ProviderRegistry.ts';
-import { DEFAULT_STREAMING_BUDGET } from '../src/world/streaming/StreamingBudget.ts';
+import { DEFAULT_STREAMING_BUDGET, StreamingLedger } from '../src/world/streaming/StreamingBudget.ts';
 import { pose } from '../src/world/spatial/SpatialPose.ts';
 import { activeFrame, referenceFrame } from '../src/world/spatial/ReferenceFrame.ts';
 import { createRenderOrigin } from '../src/world/spatial/RenderOrigin.ts';
@@ -94,7 +94,8 @@ test('global scheduler grants volume work; zero grants allocate nothing and batc
   runtime.setDebugDemand(true);runtime.covers(context());runtime.advance(0);
   assert.equal(runtime.metrics.resident,0);assert.equal(runtime.metrics.pendingBytes,0);
   runtime.advance(.02);assert.equal(runtime.metrics.resident,0);assert.equal(runtime.metrics.pendingBytes,58956);
-  const scheduler=new GlobalStreamingScheduler(new ProviderRegistry());scheduler.registerSubsystem(runtime);
+  class TestLedger extends StreamingLedger {protected nowMs():number{return time;}}
+  const scheduler=new GlobalStreamingScheduler(new ProviderRegistry(),{ledger:new TestLedger()});scheduler.registerSubsystem(runtime);
   for(let i=0;i<20;i++) scheduler.update(context(),1/60);
   assert.ok(runtime.metrics.resident>0);assert.ok(runtime.metrics.generatedThisFrame<=1);
   assert.ok(runtime.metrics.grantedMs<=DEFAULT_STREAMING_BUDGET.mainThreadMs);
