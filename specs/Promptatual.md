@@ -1,6 +1,20 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — SOLAR-12 / Task 012 (2026-10-02)
+## Checkpoint atual — PLANET-VOLUME-2 / Phase 2 (2026-10-02)
+
+Pedido mais recente aceita SOLAR-12 e autoriza chunks volumétricos residentes esparsos a partir
+de `2f5d8200f6003e8d9a1fb205d154192792c6b00e`, branch `feat/universe-map`.
+Implementado: chaves body-fixed, grade diádica 17³, amostragem pura retomável, cache LRU limitado
+por chunks/bytes, invalidação add/remove por região conservadora, demanda local por distância/LOD
+e integração ao `GlobalStreamingScheduler` existente. Demanda é debug explícito, desligado por
+padrão; edits lógicos sozinhos alocam zero chunks. Terra/Lua/Marte usam o mesmo pipeline.
+
+Contrato, medidas e roadmap: [planetary-handoff-and-volume-phase1.md](../docs/world/planetary-handoff-and-volume-phase1.md).
+Resultados e validação manual: [15-status.md](../docs/world/15-status.md).
+Documentar, commit e push em cada checkpoint, conforme autorização persistente do usuário.
+Encerrar na Phase 2. Não iniciar Marching Cubes, Transvoxel, cavernas, colisores, poderes ou Task 013.
+
+## Checkpoint anterior — SOLAR-12 / Task 012 (aceito no pedido PLANET-VOLUME-2)
 
 O usuário confirmou os testes manuais de SPACE-HARDENING-1 no HEAD
 `e0d4e8a460981232678eb067718fddb47fa2b522` e autorizou avançar à Task 012.
@@ -12,7 +26,8 @@ preserva dados NASA, pouso, caminhada/salto/decolagem e seu pipeline existente.
 
 Contrato e fontes: [docs/world/10-solar-system.md](../docs/world/10-solar-system.md).
 Validações automáticas e matriz manual pendente: [docs/world/15-status.md](../docs/world/15-status.md).
-Encerrar no SOLAR-12. Não iniciar Task 013, volume Phase 2, planetas anões ou superfícies novas.
+O bloqueio histórico de Phase 2 foi superado pelo pedido PLANET-VOLUME-2 acima.
+Task 013, planetas anões e superfícies novas continuam fora do escopo.
 
 ## Checkpoint anterior — SPACE-HARDENING-1 (aceito manualmente pelo usuário)
 

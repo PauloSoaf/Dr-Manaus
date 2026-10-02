@@ -220,6 +220,16 @@ try {
   await page.waitForFunction(()=>['Hover','Flight'].includes(window.__DR_MANAUS__.player.state),null,{timeout:15_000});
   results.moonLanding=landed;results.walkJumpTakeoff=true;
   console.log('Moon ground contact, keyboard walking, jumping and takeoff passed.');
+  results.volumeInactive=await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.metrics);
+  assert.equal(results.volumeInactive.resident,0);assert.equal(results.volumeInactive.pendingBytes,0);
+  await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.setDebugDemand(true));
+  await page.waitForFunction(()=>window.__DR_MANAUS__.universe.volume.metrics.resident>0,null,{timeout:30_000});
+  results.volumeMoon=await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.metrics);
+  assert.equal(results.volumeMoon.bodyId,'moon');assert.ok(results.volumeMoon.resident<=64);
+  assert.ok(results.volumeMoon.bytes<=2*1024*1024);assert.ok(results.volumeMoon.generatedThisFrame<=1);
+  await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.setDebugDemand(false));
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.metrics.bytes),0);
+  console.log('Explicit Moon volume demand uses bounded resident data and releases it when disabled.');
   assert.equal(errors.length,0,errors.join('\n'));
   results.errors=errors;
   await writeFile('artifacts/space-hardening-browser.json',JSON.stringify(results,null,2));

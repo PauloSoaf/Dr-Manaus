@@ -1,17 +1,117 @@
-# Planetary handoff and sparse volume field — phases 0–1
+# Planetary handoff and sparse volume field — phases 0–2
 
-This note records the first two phases of the planetary-volume work on
-`feat/universe-map`. The implementation baseline observed before these changes was
+This note records the historical Phase 0/1 implementation and the current Phase 2 checkpoint on
+`feat/universe-map`. The historical implementation baseline observed before Phase 0/1 was
 `c941b17`. The audit that motivated the work described a white horizon band, the visible end of
 the Manaus ground patch, a local HUD in planetary views, and the longer-term requirement that a
 solid body be destructible without allocating a dense planet-sized voxel grid.
 
-The two phases have deliberately different scopes:
+The historical first two phases had different scopes:
 
 - **Phase 0** makes the current surface handoff explicit and exclusive. It addresses the visible
   seam with the existing shell/heightfield renderer.
 - **Phase 1** establishes the mathematical authority for sparse volumetric destruction. It does
-  not yet render or collide with caves and tunnels.
+not yet render or collide with caves and tunnels.
+
+## Phase 2 — sparse resident sampled chunks (PLANET-VOLUME-2, 2026-10-02)
+
+Initial HEAD: `2f5d8200f6003e8d9a1fb205d154192792c6b00e`, branch `feat/universe-map`.
+SOLAR-12 is accepted by the latest user request. This checkpoint adds resident data and stops
+before Phase 3. The Phase 0/1 sections below retain their historical scope and measurements.
+
+### Authority and addressing
+
+The logical edit store, its BVH and schema-1 persistence remain authoritative. Body-fixed Cartesian
+Float64 metre keys are immutable `(bodyId,lod,x,y,z)` values with canonical string/parse, bounds,
+and floor addressing for negative coordinates. Float32 is used only for derived distance arrays.
+The body-fixed lattice is independent of render rebases and globe screen-space LOD.
+
+| LOD | Physical chunk edge | Samples/cells per axis | Sample spacing | Distance array bytes |
+| --- | --- | --- | --- | --- |
+| 0 | 256 m | 17 / 16 | 16 m | 19,652 |
+| 1 | 512 m | 17 / 16 | 32 m | 19,652 |
+| 2 | 1,024 m | 17 / 16 | 64 m | 19,652 |
+| 3 | 2,048 m | 17 / 16 | 128 m | 19,652 |
+
+Each chunk has 4,913 samples, regular X-fastest storage, origin/bounds/spacing, source revision,
+constant intact-material metadata, ready/stale state, and EMPTY/SOLID/MIXED classification from
+every sampled sign (zeros are MIXED). This classification does not prove sub-cell topology.
+Fine/coarse common samples and adjacent same-LOD faces use the same global integer lattice.
+
+The generator is pure and resumable. It samples intact bases into a temporary Float64 array,
+queries the edit BVH once per chunk, then reuses those candidates and `PlanetVolumeField`'s CSG
+composition for every output sample. To preserve Phase 1 numerical distances, the query AABB
+includes a halo equal to the largest sampled intact depth. A cut can affect a negative distance
+before physically entering that chunk. Cache invalidation uses this same conservative region;
+it cannot safely use only the physical chunk bounds. At the centre the halo can be large, but it
+queries operations once and never allocates chunks across that region.
+
+Earth's ellipsoid/relief, lunar NASA surface and Mars relief still come from the existing
+`PlanetSurfaceGenerator`/`planetSurfaceRadius`. `PlanetGlobe` remains shell presentation;
+`PlanetTerrainProvider` remains intact single-surface physics. Neither consumes volume grids yet.
+No mesh, cave renderer, collider, gameplay power or save-lifecycle integration was added.
+
+### Residency, invalidation and scheduling
+
+The LRU cache is bounded by 64 chunks and 2,097,152 typed-array bytes (2 MiB). At the default grid,
+64 chunks contain 1,257,728 distance bytes (1.199 MiB); material-array bytes are zero. JS object,
+Map, key and edit-log heap overhead is not included or presented as measured heap. One resumable
+job holds 58,956 bytes including its Float32 output and temporary Float64 bases; there is at most
+one job and no retained scratch array after insertion.
+
+Add/remove edit notifications invalidate only intersecting resident query regions of the owning
+body. Edits do not allocate chunks. An unrelated cached chunk can retain an older source revision
+while remaining valid because the live listener observed and rejected intervening changes.
+Any owning-body revision change cancels a pending job before its replacement is generated.
+
+Demand selects at most 32 nonoverlapping dyadic leaves, with a 1,024 m observer radius, conservative
+±256 m radial band and 1,024-node visit cap. Distance to parent AABBs controls refinement (split
+inside half the finer edge); inherited fine children may be farther than a neighbouring coarse
+leaf. Work is ordered by distance, with the observer's own L0 chunk winning ties. Demand is clipped
+again to both cache limits to avoid regeneration thrash under small byte budgets. No edit AABB is
+enumerated into chunk keys. A 1,536 m retention margin and LRU keep recent chunks near demand edges;
+large observer moves and body changes release old samples.
+
+`PlanetVolumeRuntime` registers once as `planet/volume` in the existing global scheduler. Default
+demand is disabled; logical edits alone remain dormant. Explicit debug activation creates only the
+current supported body's field and resident data, within 2,048 m of its intact terrain. Gas/ice
+giants, the Sun, and the nine non-landable SOLAR-12 moons allocate zero volume chunks. Earth, Moon
+and Mars share the same implementation; Mercury/Venus remain compatible through existing profiles.
+Disabling demand or leaving the active surface releases resident and pending arrays.
+
+Generation receives the scheduler's remaining frame milliseconds, checks its deadline between
+128-sample batches and completes at most one chunk per scheduler frame. The deadline is cooperative:
+the current batch/BVH query finishes before yielding. There is no second scheduler, private timer,
+worker pool or unbounded promise fan-out. F3 reports body, resident/pending/stale, actual array MiB,
+pending-job bytes, cache hits/misses, LOD counts, source revision, nearest key/edit count and generation
+count/time. The API and manual diagnostic steps are in
+[the volume README](../../src/world/planet/volume/README.md).
+
+### Validation and measurements
+
+**571/571 full unit tests**, **221/221 focused regressions**, typecheck and production build pass.
+Forty new deterministic cases cover all 32 named checkpoint invariants plus numerical-halo
+invalidation, internal cavities with solid corners, resumable/cancelled jobs, scheduler grants,
+tiny byte budgets without thrash, inactive zero allocation, body switching and retention.
+Tests compare every grid value with `Math.fround` of the Phase 1 field, shared-face positions and
+distances, unchanged cached arrays across real render-origin rebases, and entry/centre/exit
+eviction. The NASA lunar payload hash remains
+`1696df0382263ac9aabc183d0f15e506099d982a66e9ad994852371e6910f628`.
+
+The through-Earth test/benchmark records one capsule, one BVH node and **zero chunks/bytes before
+demand**. Explicit interior diagnostic demand at entry, centre and exit each holds 32 chunks,
+628,864 distance bytes (0.600 MiB); previous distant chunks retire. This is sampled data, not a
+gameplay path through the body. Normal demand preserves the surface gate.
+
+`npm run benchmark:volume` prints deterministic cases (5 warmups, 21 repetitions, median/p95),
+actual chunk/cache/job bytes and through-Earth stages without creating reports. Wall-clock timings
+are observations, not CI pass/fail thresholds. Browser results and the measured timing table are
+recorded in [15-status.md](15-status.md).
+
+Manual validation remains: boot Manaus and inspect F3 at zero volume residency; exercise normal
+movement/flight/map and Moon return; explicitly activate demand near Earth/Moon/Mars, observe bounded
+queues/memory, move away and disable; inspect near a grid edge for repeated regeneration. Automated
+fixtures do not replace a complete manual trip. **Stop at Phase 2; do not start Marching Cubes.**
 
 ## Phase 0 — one visible ground authority
 
@@ -176,7 +276,7 @@ The focused Phase 1 run passed 9/9 tests. The handoff and travel-frame additions
 tests. Full-suite, typecheck, and production-build results belong in the integration commit report,
 because other Phase 0 files were still being integrated when this note was written.
 
-| Measurement | Current result |
+| Measurement | Historical Phase 1 result |
 | --- | --- |
 | Base-field directions | 2,048 per body; 6,144 total across Earth, Moon, and Mars |
 | Radial field assertions | 18,432: boundary, 100 m outside, and 100 m inside for every direction |
@@ -220,8 +320,8 @@ the intact single-surface collision provider. Neither is being stretched into a 
 
 The next phases retain the order from the volumetric-destruction audit:
 
-1. **Phase 2 — sparse volume chunks:** define body-fixed chunk keys, LOD-sized sampling grids,
-   demand selection, an active cache, and measurable memory/time budgets; no physics yet.
+1. **Phase 2 — sparse volume chunks (implemented above):** body-fixed keys, LOD-sized sampling
+   grids, bounded demand/cache/invalidation and measurable memory/time budgets; no physics yet.
 2. **Phase 3 — Marching Cubes:** extract one chunk mesh and verify sphere cuts and tunnels.
 3. **Phase 4 — Transvoxel:** generate LOD transition cells and prove adjacent levels do not crack.
 4. **Phase 5 — `PlanetGlobe` integration:** hand coverage between shell and resident volume meshes

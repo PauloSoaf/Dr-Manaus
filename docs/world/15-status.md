@@ -1,5 +1,93 @@
 # Planetary architecture — implementation status
 
+## PLANET-VOLUME-2 / Phase 2 — 2026-10-02
+
+Initial HEAD: `2f5d8200f6003e8d9a1fb205d154192792c6b00e`, `feat/universe-map`.
+The latest request accepts SOLAR-12 and authorizes sparse resident volume chunks. Implementation
+commits: `0b2cfc2` (keys/sampling/field contract/tests/docs), `b098af1` (bounded cache, demand,
+invalidation, scheduler runtime, telemetry/tests/docs). This integration checkpoint adds the
+deterministic benchmark, production-browser assertions and authoritative status/prompt updates.
+Each checkpoint is documented, committed and pushed as persistently requested by the user.
+
+**Implemented:** immutable body-fixed Cartesian keys; one dyadic lattice with L0–L3 edges
+256/512/1,024/2,048 m, 17³ samples and 16³ cells, spacing 16/32/64/128 m; pure resumable sampling;
+whole-grid EMPTY/SOLID/MIXED classification; source revision and conservative one-query CSG
+candidates; LRU with both chunk/byte limits; local distance/LOD demand; add/remove invalidation;
+one optional current-body manager in the existing global scheduler; F3 metrics.
+
+Resident grids hold 4,913 Float32 distances and **19,652 bytes each**. Material identity is constant
+metadata; material-array bytes are zero. Limits are **64 chunks and 2 MiB** of resident arrays;
+with the default grid the chunk limit wins at 1,257,728 bytes (**1.199 MiB**). One pending job holds
+58,956 typed-array bytes including the output and temporary Float64 bases; it is separately
+reported and released on completion/cancellation. JS/Map/edit-log heap is not claimed as measured.
+
+Normal demand selects at most 32 dyadic leaves within 1,024 m and a conservative ±256 m radial
+band, visiting at most 1,024 nodes; it is clipped to cache capacity, nearest-first, own L0 first
+on ties. Refinement follows distance to parent AABBs, not globe screen-space error. Retention
+uses a 1,536 m margin plus LRU; large moves/body changes retire old samples. Edits only mark
+intersecting resident conservative query regions stale and allocate no chunks. Numerical influence
+outside cut AABBs is preserved; unrelated ready chunks retain their prior source revision.
+Pending jobs restart on owning-body revision changes.
+
+Demand is an explicit debug opt-in, disabled by default. Earth/Moon/Mars share one pipeline;
+Mercury/Venus retain profile compatibility. Sun, gas/ice giants and nine non-landable moons are
+disabled. Default/inactive bodies consume zero resident/pending arrays. Near-surface mode requires
+intact-terrain clearance within 2,048 m; interior sampling has a separate explicit diagnostic flag.
+The existing scheduler grants remaining frame milliseconds; generation yields between 128-sample
+batches and completes at most one chunk per frame. The deadline is cooperative, not a preemptive
+wall-clock guarantee. No second scheduler, private timers or parallel generation fan-out exists.
+
+**Through-Earth allocation:** 1 subtract-capsule → 1 edit/1 BVH node → **0 chunks/0 bytes before
+demand**. The measured entry/centre/exit fixture holds 32 chunks and 628,864 bytes (**0.600 MiB**)
+at each stage and discards the previous distant stage. Entry/exit: L0 24, L1 4, L2 4; centre: L0 32.
+No planet-wide chunk enumeration occurs, including when the capsule spans the entire diameter.
+
+`npm run benchmark:volume` uses deterministic samples, 5 warmups and 21 repetitions. Measured
+CPU times below are **median / p95 milliseconds**, observed on this workstation, not CI thresholds:
+
+| Scenario | Earth | Moon | Mars |
+| --- | --- | --- | --- |
+| Intact surface (MIXED), 0 candidates | 1.655 / 2.346 | 4.160 / 5.591 | 3.185 / 4.226 |
+| Intact interior (SOLID), 0 candidates | 1.299 / 2.044 | 3.774 / 5.448 | 2.927 / 4.158 |
+| Outside (EMPTY), 0 candidates | 1.358 / 1.883 | 3.870 / 5.000 | 2.124 / 3.408 |
+| One sphere, 1 candidate | 1.644 / 3.204 | 4.059 / 6.037 | 2.648 / 4.060 |
+| Sixteen spheres, 16 candidates | 7.678 / 9.183 | 13.224 / 17.562 | 7.883 / 9.949 |
+
+**Automatically verified:** **40 new cases** cover all 32 named checkpoint invariants and
+additional halo, job, budget, retention and inactive-allocation regressions. **571/571 full tests**,
+**221/221 focused volume/streaming/Earth/Moon/Mars/render/Solar/Cruise/Warp regressions**, typecheck,
+production build and diff check pass. Every grid value matches the Phase 1 field at Float32
+precision; same-LOD faces match exactly; rebases preserve real cached arrays and keys.
+The lunar NASA payload SHA-256 remains unchanged:
+`1696df0382263ac9aabc183d0f15e506099d982a66e9ad994852371e6910f628`.
+
+**`npm run test:browser:space` passed** using the existing Chromium against the production build:
+SOLAR-12 map/focus/all nine targets and unchanged providers, bounded Europa/Titan/Triton approaches,
+exclusive lunar globe, actual Game lunar return/ground/walk/jump/takeoff, zero inactive volume
+arrays, explicit lunar demand and release on disable. The first resident lunar chunk reported
+19,652 bytes, 31 pending, 1 completion in the frame, 1.700 ms generation out of 3.100 ms granted.
+Captured page/console errors: zero. No browser tooling was installed; existing ignored smoke
+artifacts are not committed. The benchmark writes stdout only, with no generated report files.
+
+**`npm run test:browser` was rerun and failed at the same baseline defect** in
+`scripts/browser-test.mjs:263`: its stale `game.origin` argument is undefined when passed to
+`TerrainDestruction.update`, producing `Vector3.copy`'s undefined `x` error. This legacy suite
+is not claimed as passing, replaced, bypassed or repaired in this volume-only checkpoint.
+The production space/planetary smoke above remains passing.
+
+**REQUIRES USER MANUAL VALIDATION:** Manaus loading, ordinary Earth flight/travel, Moon loading
+and landing/walk/jump, System map and visible major moons, no new stutter with inactive demand;
+inspect F3 at zero resident chunks, activate debug demand near Earth/Moon/Mars, move several chunk
+widths and confirm bounded memory/retirement, then disable and confirm zero arrays. Check demand
+edges for repeated generation. API steps are in
+[the volume README](../../src/world/planet/volume/README.md).
+
+Contract, measured allocation and ordered roadmap:
+[planetary-handoff-and-volume-phase1.md](planetary-handoff-and-volume-phase1.md).
+Stop at Phase 2: no volume meshes, Marching Cubes/Transvoxel, cave collision, power wiring,
+through-body gameplay or changed planetary visuals. Existing shell rendering and single-surface
+terrain collision remain authoritative. External untracked iteration documents are untouched.
+
 ## SOLAR-12 / Task 012 — 2026-10-02
 
 Baseline: `e0d4e8a460981232678eb067718fddb47fa2b522`, `feat/universe-map`.
