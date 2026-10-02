@@ -51,6 +51,15 @@ export function parseTileKey(key: string): PlanetTileAddress | undefined {
  * the group's transform, where the renderer turns it camera-relative before it is ever uploaded.
  */
 
+/**
+ * How far from the render origin this globe can be placed, metres.
+ *
+ * Past it the position is an astronomical number in a float32 transform and the renderer cannot
+ * express it, so `setCenterM` refuses rather than drawing something wrong. Callers are expected to
+ * stand the globe down before reaching it -- see `EarthProvider.covers`.
+ */
+export const EARTH_GLOBE_RENDER_LIMIT_M = 20_000_000;
+
 /** Vertices per tile edge. 17 gives 512 triangles: fine enough to read as curved, cheap to build. */
 export const TILE_RESOLUTION = 17;
 
@@ -303,7 +312,7 @@ export class EarthGlobe {
   }
 
   setCenterM(positionM: Vec3, orientation?: Quat, altitudeM = 0): void {
-    const limit = 20_000_000;
+    const limit = EARTH_GLOBE_RENDER_LIMIT_M;
     if (Math.abs(positionM[0]) > limit || Math.abs(positionM[1]) > limit || Math.abs(positionM[2]) > limit) {
       throw new Error(`Invariant violation: Astronomical coordinate [${positionM.join(', ')}] reached EarthGlobe Mesh.position. Must use camera-relative rendering.`);
     }

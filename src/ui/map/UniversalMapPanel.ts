@@ -1,5 +1,7 @@
 import { MapNavigationModel } from './MapNavigationModel';
 import { icon } from '../icons';
+import { formatDistance, formatDuration, formatSpeed } from '../format';
+import type { HUDBody, HUDFlightTelemetry } from '../HUD';
 import type { UniverseLocation } from '../../world/spatial/UniverseLocation';
 import type { Vector3 } from 'three/webgpu';
 import { SurfaceMapRenderer, PlanetMapRenderer, SystemMapRenderer, GalaxyMapRenderer, CosmologyMapRenderer } from './MapRenderers';
@@ -18,6 +20,9 @@ export class UniversalMapPanel {
   };
   private currentLevel: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology' = 'surface';
   private selectedLevel?: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology';
+  /** Live bodies and cruise telemetry, fed by the HUD each refresh. */
+  private bodies: readonly HUDBody[] = [];
+  private flight?: HUDFlightTelemetry;
 
   constructor(
     private readonly container: HTMLElement,
@@ -54,7 +59,15 @@ export class UniversalMapPanel {
     }
   }
 
-  update(location: UniverseLocation, position: Vector3, destination?: Vector3) {
+  update(
+    location: UniverseLocation,
+    position: Vector3,
+    destination?: Vector3,
+    bodies: readonly HUDBody[] = [],
+    flight?: HUDFlightTelemetry,
+  ) {
+    this.bodies = bodies;
+    this.flight = flight;
     this.model.updateLocation(location);
     this.model.destination = destination;
     
@@ -168,40 +181,75 @@ export class UniversalMapPanel {
     });
   }
 
+  /**
+   * Where the player is, in terms that apply where they are.
+   *
+   * The previous version printed "unavailable" for latitude, longitude, altitude and place
+   * whenever the player was between planets -- four rows saying nothing, for four concepts that
+   * do not exist out there. A surface coordinate is not missing in interplanetary space; it is
+   * not a question. So the card asks a different one depending on the frame.
+   *
+   * `UniverseLocation.systemPositionM` is the coordinate authority throughout. Never the camera,
+   * never an `Object3D` position: those are render-space and rebase under the player's feet.
+   */
   private updateCard() {
     const c = this.root.querySelector('#where-am-i-card');
     if (!c) return;
     const loc = this.model.location;
     const a = loc.address;
-    
+    const interplanetary = loc.frameId === 'solar-system/barycentric';
+
     let html = `<h3>LOCALIZAÇÃO ATUAL</h3><table class="card-table">`;
     html += `<tr><td>Galaxy</td><td>${a.galaxyId}</td></tr>`;
     html += `<tr><td>Sector</td><td>${a.sector.x},${a.sector.y},${a.sector.z}</td></tr>`;
-    html += `<tr><td>System</td><td>${a.systemId || 'unavailable'}</td></tr>`;
-    html += `<tr><td>Body</td><td>${a.bodyId || 'unavailable'}</td></tr>`;
-    html += `<tr><td>Place</td><td>${a.childFrame?.includes('manaus') ? 'Manaus' : 'unavailable'}</td></tr>`;
-    
-    if (loc.surface) {
-      html += `<tr><td>Lat/Lon</td><td>${loc.surface.latDeg.toFixed(4)}, ${loc.surface.lonDeg.toFixed(4)}</td></tr>`;
-      html += `<tr><td>Altitude</td><td>${loc.surface.altitudeM > 1000 ? (loc.surface.altitudeM/1000).toFixed(1) + ' km' : Math.round(loc.surface.altitudeM) + ' m'}</td></tr>`;
-    } else {
-      html += `<tr><td>Lat/Lon</td><td>unavailable</td></tr>`;
-      html += `<tr><td>Altitude</td><td>unavailable</td></tr>`;
-    }
-    
-    if (loc.frameId === 'solar-system/barycentric') {
+    html += `<tr><td>System</td><td>${a.systemId || '—'}</td></tr>`;
+    html += `<tr><td>Frame</td><td>${loc.frameId}</td></tr>`;
+
+    if (interplanetary) {
+      const p = loc.systemPositionM ?? [0, 0, 0];
       html += `<tr><td>Domain</td><td>Interplanetary</td></tr>`;
-    } else if (a.bodyId) {
-      if (loc.surface && loc.surface.altitudeM > 150000) {
-        html += `<tr><td>Domain</td><td>Orbital</td></tr>`;
-      } else {
-        html += `<tr><td>Domain</td><td>Local surface</td></tr>`;
+      html += `<tr><td>Reference</td><td>${a.bodyId || 'barycentre'}</td></tr>`;
+      html += `<tr><td>X</td><td>${formatDistance(p[0])}</td></tr>`;
+      html += `<tr><td>Y</td><td>${formatDistance(p[1])}</td></tr>`;
+      html += `<tr><td>Z</td><td>${formatDistance(p[2])}</td></tr>`;
+      if (this.flight) {
+        const speed = formatSpeed(this.flight.speedMps);
+        html += `<tr><td>Speed</td><td>${speed.value} ${speed.unit}</td></tr>`;
+        html += `<tr><td>Destination</td><td>${this.flight.targetName ?? '—'}</td></tr>`;
+        html += `<tr><td>Distance</td><td>${this.flight.distanceToTargetM === undefined ? '—' : formatDistance(this.flight.distanceToTargetM)}</td></tr>`;
+        html += `<tr><td>ETA</td><td>${formatDuration(this.flight.timeToTargetS)}</td></tr>`;
       }
     } else {
-      html += `<tr><td>Domain</td><td>Interstellar</td></tr>`;
+      html += `<tr><td>Body</td><td>${a.bodyId || '—'}</td></tr>`;
+      html += `<tr><td>Place</td><td>${a.childFrame?.includes('manaus') ? 'Manaus' : '—'}</td></tr>`;
+      if (loc.surface) {
+        html += `<tr><td>Lat/Lon</td><td>${loc.surface.latDeg.toFixed(4)}, ${loc.surface.lonDeg.toFixed(4)}</td></tr>`;
+        html += `<tr><td>Altitude</td><td>${formatDistance(loc.surface.altitudeM)}</td></tr>`;
+      }
+      if (a.bodyId) {
+        html += `<tr><td>Domain</td><td>${loc.surface && loc.surface.altitudeM > 150000 ? 'Orbital' : 'Local surface'}</td></tr>`;
+      } else {
+        html += `<tr><td>Domain</td><td>Interstellar</td></tr>`;
+      }
     }
-    
+
     html += `</table>`;
+
+    // Every body the system knows about, with the coordinates that make the list navigable.
+    // Dynamic from `activeSystem.bodies`: nothing here is a hard-coded planet.
+    if (this.bodies.length) {
+      html += `<h3>CORPOS DO SISTEMA</h3><table class="card-table body-table">`;
+      html += `<tr><th>Corpo</th><th>X</th><th>Y</th><th>Z</th><th>Distância</th></tr>`;
+      for (const body of this.bodies) {
+        const [x, y, z] = body.systemPositionM;
+        html += `<tr class="${body.selected ? 'selected-body' : ''}">`
+          + `<td>${body.selected ? '▸ ' : ''}${body.name}</td>`
+          + `<td>${formatDistance(x)}</td><td>${formatDistance(y)}</td><td>${formatDistance(z)}</td>`
+          + `<td>${formatDistance(body.distanceFromPlayerM)}</td></tr>`;
+      }
+      html += `</table>`;
+    }
+
     c.innerHTML = html;
   }
 }

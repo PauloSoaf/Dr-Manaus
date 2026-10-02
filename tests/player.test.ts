@@ -67,9 +67,10 @@ test('flight accelerates smoothly into boost and colossal movement adjusts scale
   edges.add('KeyF'); held.add('Space');
   for (let i = 0; i < 60; i++) player.update(1 / 60, [], 0);
   assert.notEqual(player.state, 'Grounded'); assert.ok(player.position.y > 20);
-  held.delete('Space'); held.add('KeyB');
+  held.delete('Space'); held.add('ShiftLeft'); held.add('KeyW');
   player.update(1 / 60, [], 0); assert.ok(player.velocity.length() < 300, 'boost accelerates rather than setting velocity instantly');
-  for (let i = 0; i < 90; i++) player.update(1 / 60, [], 0);
+  // Long enough for the spool to climb past `super`. See FLIGHT.boostSpoolS.
+  for (let i = 0; i < 240; i++) player.update(1 / 60, [], 0);
   assert.ok(player.velocity.length() > 1500);
   player.setSize(22);
   for (let i = 0; i < 150; i++) player.update(1 / 60, [], 0);
@@ -93,45 +94,37 @@ test('normal, fast and super flight have separate stable speed limits', () => {
   for (let i = 0; i < 120; i++) player.update(1 / 60, [], 0);
   assert.equal(player.speedMode, 'normal'); assert.ok(Math.abs(player.velocity.length() - 120) < 0.01);
   held.add('ShiftLeft');
-  for (let i = 0; i < 120; i++) player.update(1 / 60, [], 0);
-  assert.equal(player.speedMode, 'fast'); assert.ok(Math.abs(player.velocity.length() - 500) < 0.01);
-  held.add('KeyB');
-  for (let i = 0; i < 180; i++) player.update(1 / 60, [], 0);
-  assert.equal(player.speedMode, 'super'); assert.ok(Math.abs(player.velocity.length() - 2000) < 0.01);
+  // Boost opens at `fast` and climbs while held, so each tier is sampled inside its own window.
+  // `fast` lasts until FLIGHT.boostSpoolS.super, which is 1.4 s; a tenth of that is well inside.
+  for (let i = 0; i < 8; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.speedMode, 'fast');
+  // Sampled at 2.9 s: inside the super window (1.4 s to 3.2 s) and long enough to have settled.
+  for (let i = 0; i < 167; i++) player.update(1 / 60, [], 0);
+  assert.equal(player.speedMode, 'super'); assert.ok(Math.abs(player.velocity.length() - 2000) < 5);
   assert.equal(player.megaMode, false);
 });
 
-test('mega mode requires explicit arming and a fresh boost after arming during super flight', () => {
-  const { input, held, edges } = controls();
-  const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 200, 0));
-  held.add('KeyB');
-  for (let i = 0; i < 90; i++) player.update(1 / 60, [], 0);
-  edges.add('KeyV'); held.add('KeyV');
-  for (let i = 0; i < 90; i++) player.update(1 / 60, [], 0);
-  assert.equal(player.megaMode, true); assert.equal(player.speedMode, 'super');
-  assert.ok(player.velocity.length() <= FLIGHT.speeds.super);
-  held.delete('KeyB'); player.update(1 / 60, [], 0);
-  held.add('KeyB');
-  for (let i = 0; i < 150; i++) player.update(1 / 60, [], 0);
-  assert.equal(player.speedMode, 'mega'); assert.ok(player.velocity.length() > 7800 && player.velocity.length() <= 8000);
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  assert.equal(player.megaMode, false); assert.equal(player.speedMode, 'super');
-});
 
 test('mega thrust ramps, follows pitch and yaw, and brakes progressively when released', () => {
   const { input, held, edges } = controls();
   const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 100, 0));
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  assert.equal(player.velocity.length(), 0, 'the arm toggle cannot propel the player');
-  held.add('KeyB');
+  // Boost alone is a modifier and must not propel anybody; the direction comes from W.
+  held.add('ShiftLeft'); player.update(1 / 60, [], 0);
+  assert.equal(player.velocity.length(), 0, 'the modifier cannot propel the player');
+  held.add('KeyW');
   const yaw = 0.65, pitch = -0.4;
   player.update(1 / 60, [], yaw, pitch);
   assert.ok(player.velocity.length() > 0 && player.velocity.length() < 300);
-  for (let i = 0; i < 150; i++) player.update(1 / 60, [], yaw, pitch);
+  // Long enough for the spool to reach mega, and short enough that the climb stays below
+  // FLIGHT.interplanetaryFloorM -- past it the ladder takes the next rung and the target speed
+  // is no longer mega's.
+  for (let i = 0; i < 330; i++) player.update(1 / 60, [], yaw, pitch);
+  assert.equal(player.speedMode, 'mega');
   const direction = new Vector3(-Math.sin(yaw) * Math.cos(pitch), -Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
   assert.ok(player.velocity.clone().normalize().dot(direction) > 0.99999);
   assert.ok(player.position.y > 1000 && player.velocity.length() > 7800);
-  held.delete('KeyB'); const before = player.velocity.length(); player.update(1 / 60, [], yaw, pitch);
+  held.delete('ShiftLeft'); held.delete('KeyW');
+  const before = player.velocity.length(); player.update(1 / 60, [], yaw, pitch);
   assert.ok(player.velocity.length() < before && player.velocity.length() > before * 0.8);
   for (let i = 0; i < 90; i++) player.update(1 / 60, [], yaw, pitch);
   assert.ok(player.velocity.length() < 1);
@@ -157,82 +150,13 @@ test('mega speed keeps swept collision for thin walls and the ground at long fra
   assert.equal(position.y, 0); assert.equal(velocity.y, 0);
 });
 
-test('the arm key tapped twice reaches interplanetary, and only above the atmosphere', () => {
-  const { input, held, edges } = controls();
-  const player = new PlayerController(new Group(), input);
-  player.teleport(new Vector3(0, 200, 0));
 
-  // One tap arms mega, as it always did.
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  assert.equal(player.armed, 'mega');
-  assert.equal(player.megaMode, true, 'interplanetary is mega and then some, so this stays true');
 
-  // A second tap straight away takes the next tier.
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  assert.equal(player.armed, 'interplanetary');
-  assert.equal(player.interplanetaryMode, true);
-
-  // Still only 200 m up, so boost gives mega: there is a city down here to fly through.
-  held.add('KeyB');
-  for (let i = 0; i < 30; i++) player.update(1 / 60, [], 0);
-  assert.equal(player.speedMode, 'mega', 'below the floor the tier falls back');
-
-  // Above the atmosphere it engages, and the speed is the one on the box: 200 000 km/h.
-  player.teleport(new Vector3(0, FLIGHT.interplanetaryFloorM + 1000, 0));
-  held.delete('KeyB'); player.update(1 / 60, [], 0);
-  held.add('KeyB');
-  for (let i = 0; i < 20; i++) player.update(1 / 60, [], 0);
-  assert.equal(player.speedMode, 'interplanetary');
-  assert.equal(Math.round(FLIGHT.speeds.interplanetary * 3.6 / 1000), 800, 'thousand km/h');
-
-  // A third tap disarms, whatever the timing.
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  assert.equal(player.armed, 'none');
-});
-
-test('stepping up a tier mid-flight keeps the boost instead of dropping to super', () => {
-  const { input, held, edges } = controls();
-  const player = new PlayerController(new Group(), input);
-  player.teleport(new Vector3(0, FLIGHT.interplanetaryFloorM + 5000, 0));
-
-  // Arm mega before touching boost, then fly on it.
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  held.add('KeyB');
-  for (let i = 0; i < 10; i++) player.update(1 / 60, [], 0);
-  assert.equal(player.speedMode, 'mega');
-
-  // Now ask for the next tier without letting go. Arming from cold while boosting costs a
-  // release; asking for more of what you already have must not.
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  assert.equal(player.armed, 'interplanetary');
-  assert.equal(player.speedMode, 'interplanetary', 'the upgrade takes effect at once');
-
-  // Arming from cold while boosting still costs a release, which is the safety it always was.
-  const cold = new PlayerController(new Group(), input);
-  cold.teleport(new Vector3(0, FLIGHT.interplanetaryFloorM + 5000, 0));
-  edges.add('KeyV'); cold.update(1 / 60, [], 0);
-  assert.equal(cold.speedMode, 'super', 'boost was already down when it was armed');
-});
-
-test('a slow second tap still means off, so the old single-key behaviour survives', () => {
-  const { input, edges } = controls();
-  const player = new PlayerController(new Group(), input);
-  player.teleport(new Vector3(0, 200, 0));
-
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  assert.equal(player.armed, 'mega');
-  // Let the double-tap window lapse.
-  for (let i = 0; i < 60; i++) player.update(1 / 60, [], 0);
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  assert.equal(player.armed, 'none');
-});
 
 test('climbing hard leaves the atmosphere instead of stopping at the old twelve-kilometre lid', () => {
   const { input, held, edges } = controls();
   const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 200, 0));
-  edges.add('KeyV'); player.update(1 / 60, [], 0);
-  assert.equal(player.megaMode, true);
-  held.add('KeyB');
+  held.add('ShiftLeft'); held.add('KeyW');
   // Boost with the camera at the zenith: the thrust vector follows pitch, so this climbs straight up.
   const zenith = -Math.PI / 2;
   for (let i = 0; i < 900; i++) player.update(1 / 60, [], 0, zenith);
@@ -246,7 +170,7 @@ test('climbing hard leaves the atmosphere instead of stopping at the old twelve-
   // Hover flight has no gravity, so coming home is an explicit descent input, not a release.
   // The player has immense upward inertia from the climb, and the artificial ceiling is gone.
   player.velocity.set(0, 0, 0);
-  held.delete('KeyB'); held.add('ControlLeft');
+  held.delete('ShiftLeft'); held.delete('KeyW'); held.add('ControlLeft');
   for (let i = 0; i < 600; i++) player.update(1 / 60, [], 0, 0);
   assert.equal(player.speedMode, 'normal');
   assert.ok(player.position.y < peakAltitude - 500, 'the player can come back down');

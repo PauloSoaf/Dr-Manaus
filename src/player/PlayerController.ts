@@ -50,11 +50,11 @@ export class PlayerController {
   beforeMove?: (position: Vector3, velocity: Vector3, dt: number) => readonly Collider[];
   readonly input: InputController;
   private jumps = 0;
-  private armedTier: ArmedTier = 'none';
-  private megaNeedsBoostRelease = false;
+  
+  
   /** Seconds since the controller started, used only to time the arm key's double tap. */
-  private armClockS = 0;
-  private lastArmTapS = Number.NEGATIVE_INFINITY;
+  
+  
   private targetSize = 1;
   private readonly desired = new Vector3();
   private readonly physics = new PhysicsWorld();
@@ -113,47 +113,35 @@ export class PlayerController {
     const dive = SLAM.entry * Math.sqrt(Math.max(1, this.size));
     this.velocity.y = Math.min(this.velocity.y, 0) - dive;
   }
-  /** Which tier the arm key has selected: none, mega, or interplanetary. */
-  get armed(): ArmedTier { return this.armedTier; }
-  set armed(tier: ArmedTier) {
-    if (tier === this.armedTier) return;
-    const wasArmed = this.armedTier !== 'none';
-    this.armedTier = tier;
-    // Arming from cold while boost is already down must not fling the player: the key has to be
-    // released and pressed again, so arming is never itself an acceleration.
-    //
-    // Stepping up a tier mid-flight is different. The player is already boosting and already
-    // entitled to that speed, and asking for more should not drop them to super until they let
-    // go -- which is what it did, and it read as the key not working.
-    if (!wasArmed) this.megaNeedsBoostRelease = tier !== 'none' && this.input.held('KeyB');
-  }
-
-  /** True for either armed tier. Interplanetary is mega and then some. */
-  get megaMode(): boolean { return this.armedTier !== 'none'; }
-  set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
-  get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
+  /** How long boost has been held in flight. Drives the tier ladder. */
+  private boostHeldS = 0;
 
   /**
-   * One press of the arm key.
+   * The tier the current boost hold has reached.
    *
-   * Off to mega, mega to interplanetary when the second press follows quickly, and anything to off
-   * otherwise. A slow second press still means "off", which is what the key did before this tier
-   * existed — the double tap adds a level without taking the old behaviour away.
+   * Interplanetary needs sky under it: a frame at 222 km/s covers thirteen kilometres, so nothing
+   * on the ground could be collided with and the player would pass through the city rather than
+   * over it. Below the floor the ladder stops at mega.
    */
-  private tapArm(): void {
-    const quick = this.armClockS - this.lastArmTapS <= FLIGHT.armDoubleTapS;
-    this.lastArmTapS = this.armClockS;
-    this.armed = this.armedTier === 'none' ? 'mega'
-      : this.armedTier === 'mega' && quick ? 'interplanetary'
-        : 'none';
+  private boostedTier(): FlightSpeedMode {
+    const held = this.boostHeldS;
+    const spool = FLIGHT.boostSpoolS;
+    if (held >= spool.interplanetary && this.position.y >= FLIGHT.interplanetaryFloorM) return 'interplanetary';
+    if (held >= spool.mega) return 'mega';
+    if (held >= spool.super) return 'super';
+    return 'fast';
   }
-  toggleMegaMode(): void { this.tapArm(); }
+
+  get megaMode(): boolean { return this.speedMode === 'mega' || this.speedMode === 'interplanetary'; }
+  get interplanetaryMode(): boolean { return this.speedMode === 'interplanetary'; }
+  /** Seconds of boost held, for a HUD that wants to show the ladder filling. */
+  get boostCharge(): number { return this.boostHeldS; }
 
   update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0): void {
     dt = Math.min(0.06, dt);
-    this.armClockS += dt;
-    if (this.input.consume('KeyV')) this.tapArm();
-    if (!this.input.held('KeyB')) this.megaNeedsBoostRelease = false;
+    
+    
+    
     if (this.input.consume('KeyF')) {
       this.state = this.state === 'Grounded' ? 'Hover' : 'Grounded';
       if (this.state === 'Hover') {
@@ -162,28 +150,25 @@ export class PlayerController {
       }
     }
     const flying = this.state !== 'Grounded';
-    const boosting = this.input.held('KeyB');
+    
     const sprinting = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
     const movementX = Number(this.input.held('KeyD')) - Number(this.input.held('KeyA'));
     const movementZ = Number(this.input.held('KeyS')) - Number(this.input.held('KeyW'));
     const ascent = Number(this.input.held('Space')) - Number(this.input.held('ControlLeft') || this.input.held('ControlRight'));
     const sizeSpeed = Math.sqrt(this.size);
 
-    const armedReady = this.armedTier !== 'none' && !this.megaNeedsBoostRelease;
+    
     // Interplanetary needs sky under it; below the atmosphere it is mega, which is what the tier
     // below it would have given anyway. See FLIGHT.interplanetaryFloorM.
-    const inSpace = this.position.y >= FLIGHT.interplanetaryFloorM;
+    
+    // Hold boost and the tier climbs; let go and it resets. See FLIGHT.boostSpoolS for why this
+    // is a spool and not a switch.
+    this.boostHeldS = sprinting && flying ? this.boostHeldS + dt : 0;
     this.speedMode = flying
-      ? boosting
-        ? armedReady
-          ? this.armedTier === 'interplanetary' && inSpace ? 'interplanetary' : 'mega'
-          : 'super'
-        : sprinting ? 'fast' : 'normal'
-      : 'ground';
+      ? sprinting ? this.boostedTier() : 'normal'
+      : sprinting ? 'fast' : 'ground';
 
-    const speed = this.speedMode === 'ground'
-      ? Math.min(3000, (boosting ? armedReady ? 650 : 120 : sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * sizeSpeed * this.speedMultiplier)
-      : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
+    const speed = this.speedMode === 'ground' ? Math.min(3000, (sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * Math.sqrt(this.size) * this.speedMultiplier) : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
 
     this.dodge.update(dt);
     if (this.input.consume(this.dodgeKey)) this.requestDodge(flying, movementX, movementZ, cameraYaw, cameraPitch, speed);
@@ -204,9 +189,9 @@ export class PlayerController {
         rightZ * movementX + forwardZ * -movementZ,
       );
       if (this.desired.lengthSq() > 0) this.desired.normalize().multiplyScalar(speed);
-      if (boosting && movementX === 0 && movementZ === 0 && ascent === 0) {
-        this.desired.set(forwardX, forwardY, forwardZ).multiplyScalar(speed);
-      }
+      // Boost is a modifier, never a direction. Synthesising a forward intent from it -- which
+      // this did -- means the player drifts off whenever they hold it to think, and it let the
+      // cosmic cruise engage with no forward input at all.
     } else {
       this.desired.set(movementX, 0, movementZ);
       if (this.desired.lengthSq() > 0) this.desired.normalize();
@@ -359,7 +344,7 @@ export class PlayerController {
       dt,
       Math.hypot(this.velocity.x, this.velocity.z) / sizeSpeed,
       flying,
-      boosting,
+      sprinting,
       this.pose || (showFallAnimation ? 'jump' : ''),
       this.velocity.y / sizeSpeed,
       bank,
@@ -381,7 +366,7 @@ export class PlayerController {
    * The logical position moves through UniverseRuntime/TravelDomain, while the visual model
    * stays at the camera-relative origin with flight animation alive and oriented by view/thrust.
    */
-  updateTravelVisual(dt: number, speedMps: number, viewForward: Vector3, cameraYaw: number, cameraPitch: number, isBoosting = true): void {
+  updateTravelVisual(dt: number, speedMps: number, viewForward: Vector3, cameraYaw: number, cameraPitch: number, issprinting = true): void {
     this.model.position.set(0, 0, 0);
     this.model.scale.setScalar(this.size);
     this.forward.copy(viewForward).normalize();
@@ -392,7 +377,7 @@ export class PlayerController {
       dt,
       speedMps,
       true,
-      isBoosting,
+      issprinting,
       'interplanetary',
       0,
       0,
@@ -508,3 +493,5 @@ export class PlayerController {
     this.poseTime = duration;
   }
 }
+
+

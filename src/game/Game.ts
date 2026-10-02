@@ -54,7 +54,15 @@ import { MoonSurfaceGenerator } from '../world/planet/MoonSurface';
 import { MarsSurfaceGenerator } from '../world/planet/MarsSurface';
 import { WGS84 } from '../world/spatial/WGS84';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
-import { InterplanetaryController } from '../world/travel/InterplanetaryController';
+import {
+  BASE_BRAKE_ACCEL, CosmicCruiseController, type FlightTelemetry, type NavigationTarget,
+  WARP_STEPS_C, warpLabel,
+} from '../world/travel/CosmicFlight';
+
+/** How far above a body's surface the cruise aims to stop. */
+const NAVIGATION_ARRIVAL_MARGIN_M = 50_000;
+/** Below this forward speed, S stops braking and starts reversing. */
+const COSMIC_REVERSE_EPSILON_MPS = 25;
 import { MANAUS_FRAME_ID } from '../world/spatial/ManausFrameAdapter';
 import { CelestialBodyVisualLayer } from '../rendering/celestial/CelestialBodyVisualLayer';
 import { CelestialPresentationController } from '../rendering/celestial/CelestialPresentationController';
@@ -85,7 +93,18 @@ export class Game {
   readonly cosmicWeb?:LargeScaleStructureProvider;
   /** Which simulation the player is in. Urban physics runs in one of them and not the other. */
   readonly travelDomain=new TravelDomain();
-  readonly interplanetary=new InterplanetaryController();
+  readonly interplanetary=new CosmicCruiseController();
+  navigationTarget?: NavigationTarget;
+  /** The last frame's cruise telemetry, so the HUD can show it rather than guess. */
+  private flightTelemetry?: FlightTelemetry;
+  /**
+   * The engaged warp step, counting from 1. Zero is off.
+   *
+   * Lives on `Game` rather than on the player because it belongs to the travel domain, and the
+   * travel domain is not something `PlayerController` knows about -- which is the point: this
+   * number must never reach the local physics.
+   */
+  private warpStep = 0;
   /** Present only while `FEATURES.earthGlobe` is on. The runtime itself never touches the scene. */
   readonly earth?:EarthProvider;
   readonly moon?:RockyPlanetProvider;
@@ -215,7 +234,15 @@ export class Game {
       damage:(point,radius,amount,deform)=>this.manausSimulationActive?this.destruction.damageAt(point,radius,amount,deform):0,prepare:destination=>this.manausSimulationActive?this.streamer.prepare(destination):Promise.resolve(),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
-    this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress()});
+    this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:id=>{
+        const bodyDef=this.universe.activeSystem.bodies.find(b=>b.id===id);
+        if(!bodyDef)return;
+        // Identity only. Capturing the position here would aim at where the body was at the
+        // moment of the click; the ephemeris keeps moving it, so the live position is resolved
+        // every update in `resolveNavigationTarget`.
+        this.navigationTarget={bodyId:id,arrivalMarginM:NAVIGATION_ARRIVAL_MARGIN_M};
+        this.hud.notify('Alvo selecionado: ' + bodyDef.name);
+      },settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress()});
     this.applySettings(this.save.data.settings);
     this.rendering.renderer.domElement.addEventListener('pointerdown',()=>{void this.audio.unlock();});
     window.addEventListener('keydown',()=>{void this.audio.unlock();},{once:true});
@@ -386,7 +413,7 @@ export class Game {
         this.viewForward,
         this.camera.yaw,
         this.camera.pitch,
-        this.input.held('KeyB')
+        this.input.held('ShiftLeft')
       );
     }
     this.lap('player');
@@ -407,10 +434,32 @@ export class Game {
         if (camRight.lengthSq() < 1e-4) camRight.set(1, 0, 0);
         const camUp = new Vector3().crossVectors(camRight, camFwd).normalize();
 
-        const fwdInput = (this.input.held('KeyW') ? 1 : 0) - (this.input.held('KeyS') ? 1 : 0);
+        const boostHeld = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+        const inputBrake = this.input.held('KeyX');
+
+        if (inputBrake && this.warpStep > 0) this.warpStep = 0;
+
+        const forwardHeld = this.input.held('KeyW');
+        const backHeld = this.input.held('KeyS');
         const rightInput = (this.input.held('KeyD') ? 1 : 0) - (this.input.held('KeyA') ? 1 : 0);
-        const upInput = (this.input.held('Space') ? 1 : 0) - (this.input.held('ControlLeft') || this.input.held('KeyC') ? 1 : 0);
-        const brake = this.input.held('ShiftLeft') || this.input.held('KeyX');
+        const upInput = (this.input.held('Space') ? 1 : 0) - (this.input.held('ControlLeft') || this.input.held('ControlRight') ? 1 : 0);
+
+        /**
+         * S brakes the forward component before it reverses anything.
+         *
+         * Encoding S as negative W looks equivalent and is not: at cosmic speed a plain reverse
+         * thrust spends the whole burn cancelling a velocity the player can no longer see, and
+         * then keeps going. So while there is forward motion left, S removes it; only once that
+         * component is spent does S push backward.
+         */
+        const relForward = this.relativeForwardSpeed(camFwd);
+        let fwdInput = 0;
+        if (forwardHeld && !backHeld) fwdInput = 1;
+        else if (backHeld && !forwardHeld) {
+          fwdInput = relForward > COSMIC_REVERSE_EPSILON_MPS ? 0 : -1;
+          // Shed the forward component rather than fighting it with reverse thrust.
+          if (relForward > COSMIC_REVERSE_EPSILON_MPS) this.brakeForwardComponent(camFwd, dt);
+        }
 
         const thrust = new Vector3();
         if (fwdInput !== 0 || rightInput !== 0 || upInput !== 0) {
@@ -418,20 +467,30 @@ export class Game {
           thrust.addScaledVector(camRight, rightInput);
           thrust.addScaledVector(camUp, upInput);
           thrust.normalize();
-        } else if (this.input.held('KeyB')) {
-          thrust.copy(camFwd).normalize();
         }
+        // Shift alone is a modifier, never a direction. It used to copy the camera forward here,
+        // so holding it with no movement key flew the player forwards and could enter cosmic
+        // cruise without any forward intent at all.
+        const forwardIntent = fwdInput > 0;
 
-        if (thrust.lengthSq() > 1e-4) {
-          const thrustBary: [number, number, number] = [0, 0, 0];
-          this.universe.frames.convertDirection(
-            this.universe.renderSpace.currentOrigin.frame,
-            'solar-system/barycentric',
-            [thrust.x, thrust.y, thrust.z],
-            thrustBary
-          );
-          thrust.set(thrustBary[0], thrustBary[1], thrustBary[2]);
-        }
+        /**
+         * Both of these cross into `solar-system/barycentric` before anything compares them.
+         *
+         * The camera forward used to be passed through in render space while the thrust was
+         * converted, so the cruise controller's alignment test was a dot product between two
+         * different frames -- it could decide the player was not looking at the Moon when they
+         * were, and the other way round.
+         */
+        const renderFrame = this.universe.renderSpace.currentOrigin.frame;
+        const toBary = (v: Vector3): void => {
+          const out: [number, number, number] = [0, 0, 0];
+          this.universe.frames.convertDirection(renderFrame, 'solar-system/barycentric', [v.x, v.y, v.z], out);
+          v.set(out[0], out[1], out[2]);
+        };
+        if (thrust.lengthSq() > 1e-4) toBary(thrust);
+        const camFwdBary = camFwd.clone();
+        toBary(camFwdBary);
+        if (camFwdBary.lengthSq() > 1e-12) camFwdBary.normalize();
         
         const t = this.universe.telemetry;
         const bodyDef = this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody);
@@ -441,7 +500,7 @@ export class Game {
         const ctx = {
           altitudeM: t.altitudeM,
           speedMps: this.currentGameplaySpeedMps(),
-          requested: this.player.interplanetaryMode && this.input.held('KeyB'),
+          requested: (this.player.state !== 'Grounded') && boostHeld,
           nearestColliderM: Number.POSITIVE_INFINITY,
           bodyRadiusM: bodyDef?.equatorialRadiusM ?? 6378137,
           bodyPositionM: bodyPos,
@@ -449,9 +508,16 @@ export class Game {
           bodyId: t.dominantBody,
           systemId: 'sol',
           envelopeMarginM: 1000,
+          cameraForwardBary: camFwdBary,
+          // Cosmic cruise assistance needs real forward intent, not merely the modifier.
+          inputBoost: boostHeld && forwardIntent,
+          warpStep: this.warpStep,
+          inputBrake,
+          target: this.resolveNavigationTarget(),
         };
-        const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, brake, ctx);
-        this.travelDomain.setState(newState); 
+        const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, ctx);
+        this.flightTelemetry = this.interplanetary.getTelemetry();
+        this.travelDomain.setState(newState);
         
         this.universe.updateSystemPose(newState.positionM, newState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
       }
@@ -567,7 +633,7 @@ export class Game {
     const animDebug = this.player.character.animationController.debugState;
     const softTarget = this.powers.softTargetInfo;
     const hitStopMs = this.powers.hitStop.remainingMs;
-    this.hud.update(dt,{position:this.player.position,origin:this.renderOriginVec,velocity:this.player.velocity,speedMps:speedNow,altitudeM:altitudeNow,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,speedMode:this.player.speedMode,megaMode:this.player.megaMode,interplanetaryMode:this.player.interplanetaryMode,spaceFactor:this.spaceFactor,district:this.district,location:this.universe.location,missionMarkerActive:this.manausSimulationActive,presentationDomain:this.presentationDomain,debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'Cidade real · tiles':`${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`,'Cidade real · triângulos':`${Math.round(this.realCity.stats.detailTriangles/1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles/1000)}k casca`,'Cidade real · skyline':this.realCity.stats.skyline,'Cidade real · colisores':this.realCity.stats.colliders,'Destruição':`${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`,'Perfil (ms)':Object.entries(this.profile).filter(([,v])=>v>.05).map(([k,v])=>`${k} ${v.toFixed(1)}`).join(' · ')||'—','Animação · Base / Voo':`${animDebug.baseLayer} / ${animDebug.flightLayer}`,'Animação · Combate':`${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`,'Animação · Pulo / Flip':`jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress*100).toFixed(0)}%`,'Voo · Alinhamento / Vel':`${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`,'Voo · Pitch / Bank':`${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`,'Voo · Modo / Vertical':`${animDebug.flightMode} · ${(animDebug.upright*100).toFixed(0)}% em pé`,'Movimento · Esquiva / Mortal':`${animDebug.dodge??'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming?' · SLAM':''}`,'Combate · Soft Target':`${softTarget.id??'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`,'Combate · Hit Stop':`${hitStopMs} ms`,'Largo':`${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`,'Skin cósmica':Object.entries(this.player.character.cosmicDiagnostics).filter(([,v])=>v!==undefined&&v!==null).slice(0,5).map(([k,v])=>`${k} ${v}`).join(' · '),'Trânsito':this.traffic?`${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos`:'sem malha viária','Ruas reais (tri)':this.realCity.stats.roadTriangles,'Voo':this.player.speedMode+(this.player.armed==='none'?'':` · ${this.player.armed.toUpperCase()} armado`),'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`,...this.universeDebug()}},this.rendering.camera);
+    this.hud.update(dt,{position:this.player.position,origin:this.renderOriginVec,velocity:this.player.velocity,speedMps:speedNow,altitudeM:altitudeNow,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,speedMode:this.player.speedMode,megaMode:this.player.megaMode,interplanetaryMode:this.travelDomain.isTravelling,spaceFactor:this.spaceFactor,district:this.district,location:this.universe.location,missionMarkerActive:this.manausSimulationActive,presentationDomain:this.presentationDomain,systemBodies:this.hudBodies(),flight:this.hudFlight(),debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'Cidade real · tiles':`${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`,'Cidade real · triângulos':`${Math.round(this.realCity.stats.detailTriangles/1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles/1000)}k casca`,'Cidade real · skyline':this.realCity.stats.skyline,'Cidade real · colisores':this.realCity.stats.colliders,'Destruição':`${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`,'Perfil (ms)':Object.entries(this.profile).filter(([,v])=>v>.05).map(([k,v])=>`${k} ${v.toFixed(1)}`).join(' · ')||'—','Animação · Base / Voo':`${animDebug.baseLayer} / ${animDebug.flightLayer}`,'Animação · Combate':`${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`,'Animação · Pulo / Flip':`jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress*100).toFixed(0)}%`,'Voo · Alinhamento / Vel':`${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`,'Voo · Pitch / Bank':`${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`,'Voo · Modo / Vertical':`${animDebug.flightMode} · ${(animDebug.upright*100).toFixed(0)}% em pé`,'Movimento · Esquiva / Mortal':`${animDebug.dodge??'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming?' · SLAM':''}`,'Combate · Soft Target':`${softTarget.id??'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`,'Combate · Hit Stop':`${hitStopMs} ms`,'Largo':`${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`,'Skin cósmica':Object.entries(this.player.character.cosmicDiagnostics).filter(([,v])=>v!==undefined&&v!==null).slice(0,5).map(([k,v])=>`${k} ${v}`).join(' · '),'Trânsito':this.traffic?`${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos`:'sem malha viária','Ruas reais (tri)':this.realCity.stats.roadTriangles,'Voo':this.player.speedMode+(this.player.megaMode ? 'mega' : 'none'==='none'?'':` · ${this.player.megaMode ? 'mega' : 'none'.toUpperCase()} armado`),'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`,...this.universeDebug()}},this.rendering.camera);
     this.input.endFrame();
   };
   /** Rebuilt in place every frame: spreads and filters would allocate three arrays per tick. */
@@ -710,8 +776,20 @@ export class Game {
     const t=this.universe.telemetry;
     const bodyVelocity=this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps??[0,0,0];
     const bodyPos=this.universe.activeSystem.positionOf(t.dominantBody)??[0,0,0];
-    const requested=this.player.interplanetaryMode&&this.input.held('KeyB');
+    const requested=this.player.interplanetaryMode&&this.input.held('ShiftLeft');
 
+    /**
+     * The warp key is read once a frame, outside the domain branches.
+     *
+     * Reading it inside the interplanetary branch dropped presses: edges are cleared at the end of
+     * every frame, so a press that landed on a frame spent in the local branch was discarded
+     * without being seen. Four taps reached warp 2.
+     */
+    if (this.input.consume('KeyB') && !this.travelDomain.localPhysicsActive) {
+      this.warpStep = Math.min(WARP_STEPS_C.length, this.warpStep + 1);
+      this.hud.notify(`Warp ${warpLabel(this.warpStep)}`);
+    }
+    if (this.travelDomain.localPhysicsActive) this.warpStep = 0;
     this.travelDomain.update({
       altitudeM:t.altitudeM,
       speedMps:this.currentGameplaySpeedMps(),
@@ -780,6 +858,118 @@ export class Game {
     };
   }
 
+  /**
+   * The solar system's bodies as the destination list needs them, with live coordinates.
+   *
+   * Built from `activeSystem` every time it is asked for rather than cached: these are ephemeris
+   * values and a cached copy is a copy of where the planets used to be.
+   */
+  private hudBodies(){
+    const player=this.travelDomain.state?.positionM
+      ?? this.universe.activeSystem.positionOf(this.universe.telemetry.dominantBody)
+      ?? [0,0,0];
+    const rows=[];
+    for(const body of this.universe.activeSystem.bodies){
+      const position=this.universe.activeSystem.positionOf(body.id);
+      if(!position)continue;
+      rows.push({
+        id:body.id,
+        name:body.name,
+        systemPositionM:position as readonly [number,number,number],
+        distanceFromPlayerM:Math.hypot(position[0]-player[0],position[1]-player[1],position[2]-player[2]),
+        selected:this.navigationTarget?.bodyId===body.id,
+      });
+    }
+    return rows;
+  }
+
+  /** The cruise controller's own numbers, named for the target rather than its id. */
+  private hudFlight(){
+    const telemetry=this.flightTelemetry;
+    if(!telemetry)return undefined;
+    const name=telemetry.targetBodyId
+      ? this.universe.activeSystem.bodies.find(b=>b.id===telemetry.targetBodyId)?.name
+      : undefined;
+    return {
+      phase:telemetry.phase,
+      speedMps:telemetry.speedMps,
+      accelerationMps2:telemetry.accelerationMps2,
+      targetBodyId:telemetry.targetBodyId,
+      targetName:name,
+      warpStep:telemetry.warpStep,
+      warpLabel:warpLabel(telemetry.warpStep),
+      distanceToTargetM:telemetry.distanceToTargetM,
+      timeToTargetS:telemetry.timeToTargetS,
+    };
+  }
+
+  /**
+   * The target, resolved against the ephemeris as it is now.
+   *
+   * Called every update. The body keeps orbiting after it was chosen, so anything that answers
+   * "where is Mars" has to ask the system rather than remember.
+   */
+  private resolveNavigationTarget(){
+    const target=this.navigationTarget;
+    if(!target)return undefined;
+    const body=this.universe.activeSystem.bodies.find(b=>b.id===target.bodyId);
+    const position=this.universe.activeSystem.positionOf(target.bodyId);
+    if(!body||!position)return undefined;
+    return {
+      bodyId:target.bodyId,
+      positionM:position as readonly [number,number,number],
+      radiusM:body.equatorialRadiusM,
+      arrivalMarginM:target.arrivalMarginM,
+    };
+  }
+
+  /** The player's speed along the camera's forward axis, relative to the reference body. */
+  private relativeForwardSpeed(camFwd:Vector3):number{
+    const state=this.travelDomain.state;
+    if(!state)return 0;
+    const body=this.universe.activeSystem.stateOf(this.universe.telemetry.dominantBody)?.velocityMps??[0,0,0];
+    const rel=new Vector3(
+      state.velocityMps[0]-body[0],
+      state.velocityMps[1]-body[1],
+      state.velocityMps[2]-body[2],
+    );
+    const fwdBary:[number,number,number]=[0,0,0];
+    this.universe.frames.convertDirection(
+      this.universe.renderSpace.currentOrigin.frame,'solar-system/barycentric',
+      [camFwd.x,camFwd.y,camFwd.z],fwdBary,
+    );
+    const length=Math.hypot(fwdBary[0],fwdBary[1],fwdBary[2])||1;
+    return (rel.x*fwdBary[0]+rel.y*fwdBary[1]+rel.z*fwdBary[2])/length;
+  }
+
+  /** Sheds the forward component of travel without touching the lateral one. */
+  private brakeForwardComponent(camFwd:Vector3,dt:number):void{
+    const state=this.travelDomain.state;
+    if(!state)return;
+    const fwdBary:[number,number,number]=[0,0,0];
+    this.universe.frames.convertDirection(
+      this.universe.renderSpace.currentOrigin.frame,'solar-system/barycentric',
+      [camFwd.x,camFwd.y,camFwd.z],fwdBary,
+    );
+    const length=Math.hypot(fwdBary[0],fwdBary[1],fwdBary[2]);
+    if(!(length>0))return;
+    const nx=fwdBary[0]/length,ny=fwdBary[1]/length,nz=fwdBary[2]/length;
+    const body=this.universe.activeSystem.stateOf(this.universe.telemetry.dominantBody)?.velocityMps??[0,0,0];
+    const rel:[number,number,number]=[
+      state.velocityMps[0]-body[0],state.velocityMps[1]-body[1],state.velocityMps[2]-body[2],
+    ];
+    const along=rel[0]*nx+rel[1]*ny+rel[2]*nz;
+    if(along<=0)return;
+    const shed=Math.min(along,Math.max(BASE_BRAKE_ACCEL,along*2.5)*dt);
+    rel[0]-=nx*shed;rel[1]-=ny*shed;rel[2]-=nz*shed;
+    this.travelDomain.setState({
+      systemId:state.systemId,
+      positionM:state.positionM,
+      velocityMps:[body[0]+rel[0],body[1]+rel[1],body[2]+rel[2]],
+      referenceBodyId:state.referenceBodyId,
+    });
+  }
+
   private universeDebug():Record<string,string|number>{
     if(!FEATURES.spatialCore)return{};
     const t=this.universe.telemetry;
@@ -798,3 +988,10 @@ export class Game {
 
   private sample(){const info=this.rendering.renderer.info,stats=this.streamer.stats;this.frame={fps:Math.round(1000/this.quality.averageMs),cpu:Number(this.cpu.toFixed(2)),drawCalls:info.render.drawCalls,triangles:info.render.triangles,geometries:info.memory.geometries,textures:info.memory.textures,active:stats.active,cached:stats.cached,queued:stats.queued,loadedMB:stats.loadedMB+info.memory.total/1048576,streamMs:stats.streamMs,x:this.player.position.x,z:this.player.position.z};}
 }
+
+
+
+
+
+
+

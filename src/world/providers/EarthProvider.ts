@@ -1,5 +1,5 @@
 import { Group, type Object3D } from 'three/webgpu';
-import { EarthGlobe, buildTileMesh } from '../planet/EarthGlobe';
+import { EARTH_GLOBE_RENDER_LIMIT_M, EarthGlobe, buildTileMesh } from '../planet/EarthGlobe';
 import { EARTH } from '../planet/PlanetBody';
 import { PlanetQuadtree } from '../planet/PlanetQuadtree';
 import { DEFAULT_SSE } from '../planet/ScreenSpaceError';
@@ -159,9 +159,24 @@ export class EarthProvider implements WorldProvider {
       this.globe.visible = false;
       return false;
     }
+    /**
+     * Beyond the renderer's reach the Earth is not this provider's job.
+     *
+     * `EarthGlobe.setCenterM` refuses an astronomical position rather than drawing something
+     * wrong, which is right -- but a provider that walks into that refusal throws out of its own
+     * coverage test every frame and is dropped from the active set with a console error. Warp
+     * made that reachable in ordinary play. Standing down is the answer: at twenty thousand
+     * kilometres the planet is a dot, and a dot belongs to whatever draws distant bodies.
+     */
+    const centre = this.earthCenterRender(context);
+    const reach = Math.max(Math.abs(centre[0]), Math.abs(centre[1]), Math.abs(centre[2]));
+    if (!Number.isFinite(reach) || reach > EARTH_GLOBE_RENDER_LIMIT_M) {
+      this.globe.visible = false;
+      return false;
+    }
     this.globe.opacity = this.opacity;
     this.globe.visible = this.opacity > 0.01;
-    this.globe.setCenterM(this.earthCenterRender(context), this.bodyToScene(), this.altitudeM);
+    this.globe.setCenterM(centre, this.bodyToScene(), this.altitudeM);
     return this.globe.visible;
   }
 

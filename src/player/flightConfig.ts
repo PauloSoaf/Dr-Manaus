@@ -33,8 +33,18 @@ export const FLIGHT = {
    * thing you do from the sky.
    */
   interplanetaryFloorM: 9000,
-  /** How quickly the arm key has to be struck twice for the second tap to mean the next tier. */
-  armDoubleTapS: 0.45,
+  /**
+   * How long boost must be held before each tier is reached, in seconds.
+   *
+   * The tiers used to be armed with a key combination; that scheme was removed and nothing
+   * replaced it, so `super`, `mega` and `interplanetary` became unreachable and flight topped out
+   * at `fast`. This is the replacement: one modifier, and the ladder is climbed by holding it.
+   *
+   * A spool rather than a switch, because eight kilometres a second should not arrive on the
+   * frame a key goes down -- and because a player who taps boost to cross a street must not be
+   * thrown across the city.
+   */
+  boostSpoolS: { fast: 0, super: 1.4, mega: 3.2, interplanetary: 5.0 },
   walkSpeed: 6.5,
   runSpeed: 16,
   groundResponse: 16,
