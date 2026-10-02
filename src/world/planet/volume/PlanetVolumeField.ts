@@ -3,6 +3,7 @@ import type { PlanetBody } from '../PlanetBody';
 import {
   planetVolumeEditSignedDistance,
   type BodyFixedPoint,
+  type PlanetVolumeEdit,
 } from './PlanetVolumeEdit';
 import { PlanetVolumeEditStore } from './PlanetVolumeEditStore';
 
@@ -35,16 +36,12 @@ export class PlanetVolumeField {
   get bodyId(): string { return this.body.id; }
 
   /** Signed radial distance to the intact ellipsoid plus relief, in metres. */
-  baseSignedDistance(pointBodyFixedM: BodyFixedPoint): number {
+  baseSignedDistance(pointBodyFixedM: BodyFixedPoint, direction: [number, number, number] = [0,0,0]): number {
     if (pointBodyFixedM.some(component => !Number.isFinite(component))) return Number.POSITIVE_INFINITY;
     const radiusM = Math.hypot(...pointBodyFixedM);
-    const direction: [number, number, number] = radiusM > 0
-      ? [
-        pointBodyFixedM[0] / radiusM,
-        pointBodyFixedM[1] / radiusM,
-        pointBodyFixedM[2] / radiusM,
-      ]
-      : [1, 0, 0];
+    direction[0] = radiusM > 0 ? pointBodyFixedM[0]/radiusM : 1;
+    direction[1] = radiusM > 0 ? pointBodyFixedM[1]/radiusM : 0;
+    direction[2] = radiusM > 0 ? pointBodyFixedM[2]/radiusM : 0;
     const surfaceRadiusM = planetSurfaceRadius(this.surface, direction);
     return radiusM > 0 ? radiusM - surfaceRadiusM : -surfaceRadiusM;
   }
@@ -72,8 +69,13 @@ export class PlanetVolumeField {
         ],
       })
       : this.edits.queryPoint(this.bodyId, pointBodyFixedM);
+    return this.combineCandidates(pointBodyFixedM, distanceM, candidates);
+  }
+
+  private combineCandidates(point: BodyFixedPoint, baseDistanceM: number, candidates: readonly PlanetVolumeEdit[]): number {
+    let distanceM = baseDistanceM;
     for (const edit of candidates) {
-      const cutDistanceM = planetVolumeEditSignedDistance(edit, pointBodyFixedM);
+      const cutDistanceM = planetVolumeEditSignedDistance(edit, point);
       distanceM = Math.max(distanceM, -cutDistanceM);
     }
     return distanceM;
@@ -88,8 +90,11 @@ export class PlanetVolumeField {
   sampleBodyFixed(
     positionM: BodyFixedPoint,
     out: PlanetVolumeSample = { distanceM: 0, material: this.intactMaterial },
+    /** Generator-owned precomputed base and conservative BVH candidates; no per-point query. */
+    batch?: { readonly baseDistanceM: number; readonly candidates: readonly PlanetVolumeEdit[] },
   ): PlanetVolumeSample {
-    out.distanceM = this.signedDistanceBodyFixed(positionM);
+    out.distanceM = batch ? this.combineCandidates(positionM, batch.baseDistanceM, batch.candidates)
+      : this.signedDistanceBodyFixed(positionM);
     out.material = this.intactMaterial;
     return out;
   }
