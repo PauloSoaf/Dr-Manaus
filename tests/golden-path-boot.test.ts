@@ -51,8 +51,7 @@ test('T_BOOT_MANAUS: initial Manaus frame does not throw during prepare()', () =
     controller.prepare({
       universe,
       earth,
-      moon: moonProvider,
-      mars: marsProvider,
+      planetProviders: new Map([['moon', moonProvider], ['mars', marsProvider]]),
       fovRad: FOV_RAD,
       viewportHeightPx: VIEWPORT_H_PX,
     });

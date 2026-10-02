@@ -1,11 +1,12 @@
 # The solar system
 
 Implements `10-SOLAR-SYSTEM.md`. Code: `src/world/celestial/`.
-Tests: `tests/solar-system.test.ts` (12).
+Tests: `tests/solar-system.test.ts`, `tests/solar11-*.test.ts`, plus existing landing/render regressions.
 
-**Status: the logical model is complete and tested. Nothing of it is drawn yet** — the Sun's
-direction is used to light the globe, and that is the only place it reaches the screen.
-`FEATURES.solarSystem` is off.
+**Status: Task 011 implemented (SOLAR-11), initial HEAD `47dd452`.** All eight planets, the Moon
+and Sun have observer-relative angular visuals and remain selectable as live navigation targets.
+Earth keeps its specialized provider; other solid bodies share a registry and a surface pipeline.
+Visual quality and the full manual travel matrix still require user validation.
 
 ## Bodies — `CelestialBody.ts`
 
@@ -56,15 +57,109 @@ can make by looking up.
 
 The planets are asserted to sit at their real J2000 distances, in the right order.
 
-## What it is used for today
+## Capabilities and physical authority
 
-`SolarSystem.sunDirection()` points the globe's `DirectionalLight`. The terminator on the Earth is
-therefore where the Sun actually is at the simulated epoch, rather than where a local time-of-day
-slider puts it.
+`CelestialBodyProfile.ts` describes capabilities and compact visual metadata. It contains no
+radius, mass, rotation period, frame or ephemeris copy. `CelestialBody.ts` remains the physical
+catalog. `PlanetBodyAdapter.ts` derives surface models from that catalog; `PlanetBody` introduces
+no third physical definition. Existing `MOON`/`MARS` exports now use that adapter.
 
-## Not built
+| Bodies | Surface / provider | Landing | Visual |
+| --- | --- | --- | --- |
+| Sun | None | No | Emissive angular disc/corona |
+| Mercury | Synthetic base ellipsoid / generic rocky provider | Yes, coverage gated | Dark grey |
+| Venus | Synthetic base ellipsoid / generic rocky provider | Yes, coverage gated | Cream/yellow |
+| Earth | Existing WGS84, Natural Earth, ETOPO / EarthProvider | Existing Manaus flow | Existing globe |
+| Moon | Existing deterministic synthetic relief / generic rocky provider | Yes | Grey |
+| Mars | Existing deterministic synthetic relief / generic rocky provider | Yes | Rust/red |
+| Jupiter, Saturn | No solid gameplay surface | No | Procedural bands; Saturn also has rings |
+| Uranus, Neptune | No solid gameplay surface | No | Cyan / deep blue |
 
-- No celestial body is drawn — no Sun disc, no Moon, no planets in the sky.
-- No frame handoff is driven by the player; `handoff()` is computed and reported, not acted on.
-- Landing on the Moon (the phase's stated first target) needs a Moon provider, which needs the
-  globe to draw first.
+Mercury/Venus terrain is explicitly synthetic, with zero relief above the catalog ellipsoid.
+It is not measured topography. Venus receives no new atmospheric physics. Its `hasAtmosphere`
+capability does not claim a pressure, heat or cloud simulation. Lunar/Martian relief remains
+synthetic as before. Earth retains its existing surface and transition implementations.
+
+The catalog-derived Moon polar radius differs from the previous `1/1130` model by about 561 m
+(under 0.04% of its radius); Mars differs by less than a metre. Derived gravitational parameters
+remain within 0.1% of the former rounded constants. Tests compare both catalog identity and these
+baseline tolerances. Render, terrain collision, handoff and volume now use the same models.
+
+## Generic presentation and streaming
+
+`CelestialPresentationController` loops over `activeSystem.bodies`, computing live position,
+observer-relative distance/direction, angular radius, phase light and visual orientation once.
+The Sun uses a specialized luminous material; Earth retains its specialized provider handoff.
+The duplicated Earth/Moon/Mars mathematics and Game's Moon/Mars surface ternary are removed.
+
+`Game.planetProviders` resolves providers by `bodyId`. The `moon`/`mars` getters remain only for
+existing browser diagnostics. `createPlanetProviders` registers four lightweight shells with the
+existing global scheduler: Mercury, Venus, Moon and Mars. Registration creates no terrain tiles.
+Only the largest render-safe nearby solid body is permitted to request physical tiles at a time.
+Far bodies use cheap proxies. Moving away retires their terrain through the existing scheduler;
+there is no scheduler per planet and no multiplied frame budget.
+
+The overview test observes zero resident terrain. The nearby-Mercury test observes real streamed
+tiles only for Mercury, bounds global fetching/activations and verifies retirement on departure.
+Debug telemetry reports proxy count, active physical body/mode, resident tiles by body and selected
+destination without exposing astronomical arrays in the normal HUD.
+
+Proxy centres are unit directions multiplied by a bounded proxy distance (at most 5,000 km).
+Geometry scales include rings/corona in the far-plane and 10,000 km render bounds. Physical centres
+pass through RenderSpaceService and its 20,000 km safety gate before touching Object3D transforms.
+Unsafe centres keep their proxies. Previous Earth proxy tests hid Earth at a 40,000 km centre,
+although EarthProvider refused to draw there; those tests now verify the visible proxy fallback
+and exercise coarse-globe handoff inside the safe bound instead.
+
+## Saturn rings
+
+One 96-segment unit annulus shares Saturn's proxy parent and opacity. Dimensionless radii are
+1.25–2.3 times the proxy radius. The material supplies simple procedural radial variation; no
+texture download or network dependency is added. The annulus orientation uses the catalog axial
+tilt converted into the active render frame, independently of the planet billboard. The current
+fixed frames omit obliquity, so this is a visual axial model and does not rewrite Earth/Manaus
+physics. Hiding Saturn hides its rings; their entire extent fits the proxy's far-plane budget.
+
+## Navigation and exclusions
+
+`BodyNavigation.ts` stores destination identity and resolves coordinates from the current system
+every update. Selection never teleports. Arrival policy comes from radius and body class:
+
+| Class | Arrival margin above reference radius | Deep-body exclusion margin |
+| --- | --- | --- |
+| Solid | `max(50 km, radius × 0.01)` | 1 km |
+| Gas / ice giant | `max(1,000 km, radius × 0.25)` | Same as arrival |
+| Star | One physical radius | Same as arrival |
+
+These are gameplay clearances, not scientific atmosphere models. Cosmic cruise sweeps all live
+body exclusions, even unselected bodies, so a warp step cannot cross an entire star/giant between
+frames. Arrival assistance additionally protects a target while another body is dominant. Once a
+solid target becomes dominant, its arrival margin stops acting as a collision floor and the
+smaller surface envelope permits manual descent. `canLand` and loaded surface coverage gate local
+physics. Stars/giants cannot create a surface handoff or a rocky terrain provider.
+
+## Volume compatibility and remaining work
+
+`surfaceForBody` returns the same PlanetSurfaceGenerator contract for every supported solid body.
+The capability `supportsVolumeDestruction` and body identity provide the future connection to
+PlanetVolumeField, PlanetVolumeEditStore and PlanetVolumeEditIndex. There is no provider-class
+check, competing destruction architecture or new resident volume chunk. Volume Phase 2, meshing,
+collision/gameplay integration and major moons remain separate checkpoints.
+
+Automated tests cover profile completeness, catalog adaptation, provider registration, all ten
+render samples, finite/bounded transforms, monotonic angular size, ring orientation/scaling,
+live ephemerides, generic cruise, star/giant sweeps, solid descent and the global streaming budget.
+Existing Earth/Manaus and Moon/Mars regressions remain part of the full suite.
+
+Validation on 2026-10-02: **427/427 unit tests passed**, including 34 new SOLAR-11 tests;
+`npm run typecheck`, `npm run build` and `git diff --check` passed. The build retains its bundle-size
+advisory. `npm run test:browser` launched the game with no captured page/console errors but failed
+in its destruction setup at `scripts/browser-test.mjs:265`: it passes the removed `game.origin`
+to `TerrainDestruction.update`. The same stale access exists in initial HEAD `47dd452`; the script
+also still references the old `player.armed` input API. Browser E2E is therefore not verified by
+this checkpoint. Its ignored artifacts record the failure; no test assertion was removed.
+
+**Requires user manual validation:** spawn/play in Manaus, leave Earth, inspect all ten map entries,
+travel toward each planet, verify smooth proxy growth and Saturn's rings, verify giants remain in
+travel mode, return to Earth/Manaus, land on the Moon, and check for jitter/disappearing planets.
+Automated rendering structure and browser smoke are not approval of these visual results.

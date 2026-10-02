@@ -14,10 +14,16 @@ export interface CelestialProxyGeometry {
   radiusM: number;
 }
 
-export function celestialProxyGeometry(angularRadiusRad: number, cameraFarM: number): CelestialProxyGeometry {
-  const distanceM = cameraFarM * 0.90;
-  const radiusM = Math.tan(angularRadiusRad) * distanceM;
-  const safe = Number.isFinite(radiusM) && radiusM <= CELESTIAL_RENDER_SAFE_RADIUS_M;
+export function celestialProxyGeometry(angularRadiusRad: number, cameraFarM: number, extent = 1): CelestialProxyGeometry {
+  // Fit the full proxy, rings/corona included, inside the far plane without astronomical meshes.
+  const farM = Number.isFinite(cameraFarM) && cameraFarM > 0 ? cameraFarM : 100_000;
+  const tangent = Math.tan(Math.max(0, Math.min(Math.PI / 2 - 1e-6, angularRadiusRad)));
+  const outerScale = Math.max(1, extent);
+  const distanceM = Math.min(CELESTIAL_PROXY_DISTANCE_M,
+    farM * 0.9 / (1 + tangent * outerScale), CELESTIAL_RENDER_SAFE_RADIUS_M / (1 + tangent * outerScale));
+  const radiusM = tangent * distanceM;
+  const safe = Number.isFinite(radiusM) && Number.isFinite(distanceM)
+    && radiusM * outerScale <= CELESTIAL_RENDER_SAFE_RADIUS_M;
   return {
     safe,
     distanceM,

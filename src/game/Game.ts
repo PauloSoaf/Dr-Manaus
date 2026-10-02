@@ -48,10 +48,11 @@ import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 import { TravelDomain } from '../world/travel/TravelDomain';
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
 import { RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
-import { EARTH, MOON, MARS, surfaceGravityMps2 } from '../world/planet/PlanetBody';
+import { createPlanetProviders } from '../world/providers/PlanetProviderRegistry';
+import { bodyProfile, bodyArrivalPolicy } from '../world/celestial/CelestialBodyProfile';
+import { bodyExclusionEnvelopes, selectBodyDestination, resolveBodyDestination } from '../world/travel/BodyNavigation';
+import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { PlanetTerrainProvider } from '../world/planet/PlanetTerrainProvider';
-import { MoonSurfaceGenerator } from '../world/planet/MoonSurface';
-import { MarsSurfaceGenerator } from '../world/planet/MarsSurface';
 import { WGS84 } from '../world/spatial/WGS84';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import {
@@ -59,8 +60,6 @@ import {
   WARP_STEPS_C, warpLabel,
 } from '../world/travel/CosmicFlight';
 
-/** How far above a body's surface the cruise aims to stop. */
-const NAVIGATION_ARRIVAL_MARGIN_M = 50_000;
 /** Below this forward speed, S stops braking and starts reversing. */
 const COSMIC_REVERSE_EPSILON_MPS = 25;
 import { MANAUS_FRAME_ID } from '../world/spatial/ManausFrameAdapter';
@@ -107,8 +106,10 @@ export class Game {
   private warpStep = 0;
   /** Present only while `FEATURES.earthGlobe` is on. The runtime itself never touches the scene. */
   readonly earth?:EarthProvider;
-  readonly moon?:RockyPlanetProvider;
-  readonly mars?:RockyPlanetProvider;
+  readonly planetProviders:ReadonlyMap<string,RockyPlanetProvider>;
+  /** Compatibility for existing browser diagnostics; the registry owns provider identity. */
+  get moon():RockyPlanetProvider|undefined { return this.planetProviders.get('moon'); }
+  get mars():RockyPlanetProvider|undefined { return this.planetProviders.get('mars'); }
   readonly earthTransition = new EarthTransitionController();
   private presentationDomain:HUDPresentationDomain='local';
   readonly celestialVisuals = new CelestialBodyVisualLayer();
@@ -148,16 +149,8 @@ export class Game {
     } else {
       this.rendering.scene.add(this.localWorldRoot);
     }
-    // The Moon as a place rather than a point of light. Its own flag, because it is a
-    // destination and the flight that reaches it is a different sprint from the one that draws
-    // the Earth.
-    if(FEATURES.solarSystem){
-      this.moon=new RockyPlanetProvider(this.planetRoot,this.universe.frames, MOON, MoonSurfaceGenerator, {renderSpace:this.universe.renderSpace});
-      this.universe.providers.register(this.moon);
-      
-      this.mars=new RockyPlanetProvider(this.planetRoot,this.universe.frames, MARS, MarsSurfaceGenerator, {renderSpace:this.universe.renderSpace});
-      this.universe.providers.register(this.mars);
-    }
+    this.planetProviders=FEATURES.solarSystem
+      ?createPlanetProviders(this.planetRoot,this.universe):new Map();
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -240,7 +233,7 @@ export class Game {
         // Identity only. Capturing the position here would aim at where the body was at the
         // moment of the click; the ephemeris keeps moving it, so the live position is resolved
         // every update in `resolveNavigationTarget`.
-        this.navigationTarget={bodyId:id,arrivalMarginM:NAVIGATION_ARRIVAL_MARGIN_M};
+        this.navigationTarget=selectBodyDestination(this.universe.activeSystem,id);
         this.hud.notify('Alvo selecionado: ' + bodyDef.name);
       },settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress()});
     this.applySettings(this.save.data.settings);
@@ -507,7 +500,8 @@ export class Game {
           bodyVelocityMps: bodyVel,
           bodyId: t.dominantBody,
           systemId: 'sol',
-          envelopeMarginM: 1000,
+          envelopeMarginM: bodyDef?bodyArrivalPolicy(bodyDef).exclusionMarginM:1000,
+          exclusionEnvelopes: bodyExclusionEnvelopes(this.universe.activeSystem),
           cameraForwardBary: camFwdBary,
           // Cosmic cruise assistance needs real forward intent, not merely the modifier.
           inputBoost: boostHeld && forwardIntent,
@@ -537,8 +531,7 @@ export class Game {
     this.celestialController.prepare({
       universe: this.universe,
       earth: this.earth,
-      moon: this.moon,
-      mars: this.mars,
+      planetProviders: this.planetProviders,
       fovRad: (this.rendering.camera.fov * Math.PI) / 180,
       viewportHeightPx: this.rendering.renderer.domElement.clientHeight,
       cameraFarM: this.rendering.camera.far,
@@ -802,7 +795,7 @@ export class Game {
       bodyId:t.dominantBody,
       systemId:'sol',
       envelopeMarginM:1000,
-      surfaceReady:t.dominantBody==='earth'||this.surfaceProvider(t.dominantBody)?.readiness().surfaceCoverageReady===true,
+      surfaceReady:this.surfaceReadyForLanding(t.dominantBody),
       // The real barycentric pose, so departure does not relocate the player across the system.
       entryPositionM:this.universe.playerSystemPositionM(),
       entryVelocityMps:bodyVelocity,
@@ -815,7 +808,13 @@ export class Game {
   }
 
   private surfaceProvider(bodyId:string):RockyPlanetProvider|undefined {
-    return bodyId===MOON.id?this.moon:bodyId===MARS.id?this.mars:undefined;
+    return this.planetProviders.get(bodyId);
+  }
+
+  private surfaceReadyForLanding(bodyId:string):boolean {
+    const body=this.universe.activeSystem.bodies.find(candidate=>candidate.id===bodyId);
+    if(!body||!bodyProfile(body).canLand)return false;
+    return bodyId==='earth'||this.surfaceProvider(bodyId)?.readiness().surfaceCoverageReady===true;
   }
 
   private bindSurfacePhysics():void {
@@ -941,17 +940,7 @@ export class Game {
    * "where is Mars" has to ask the system rather than remember.
    */
   private resolveNavigationTarget(){
-    const target=this.navigationTarget;
-    if(!target)return undefined;
-    const body=this.universe.activeSystem.bodies.find(b=>b.id===target.bodyId);
-    const position=this.universe.activeSystem.positionOf(target.bodyId);
-    if(!body||!position)return undefined;
-    return {
-      bodyId:target.bodyId,
-      positionM:position as readonly [number,number,number],
-      radiusM:body.equatorialRadiusM,
-      arrivalMarginM:target.arrivalMarginM,
-    };
+    return resolveBodyDestination(this.universe.activeSystem,this.navigationTarget);
   }
 
   /** The player's speed along the camera's forward axis, relative to the reference body. */
@@ -1012,14 +1001,17 @@ export class Game {
       'Planeta · Tiles / Stream':`${t.planetTiles} · ${t.streaming.active} ativos, ${t.streaming.fetching} em voo`,
       'Orçamento · Subsistemas':t.streaming.subsystems.map(x=>`${x.id.split('/').pop()} ${x.grantedMs.toFixed(1)}ms (${x.pending})`).join(' · ')||'—',
       'Domínio':`${this.travelDomain.kind}${this.travelDomain.transition.kind==='refused'?` · recusado (${this.travelDomain.transition.reason})`:''}`,
-      ...(this.moon?{'Lua':`${this.moon.stats.tiles} tiles · ${(this.moon.stats.distanceM/1000).toFixed(0)} km · ${this.moon.stats.visible?'superfície':'distante'}`}:{}),
+      'Corpos · Proxies':this.celestialController.renderSamples.filter(sample=>sample.visible).length,
+      'Corpos · Provider físico':this.celestialController.physicalBodyId??'—',
+      'Corpos · Apresentação':this.celestialController.physicalMode,
+      'Corpos · Tiles residentes':Array.from(this.planetProviders,([id,provider])=>`${id}: ${provider.stats.tiles}`).join(' · '),
+      'Destino':this.navigationTarget?.bodyId??'—',
       ...(this.earth?{'Planeta · Globo':`${this.earth.stats.tiles} tiles · ${this.earth.stats.triangles.toLocaleString()} tri · ${this.earth.stats.visible?'visível':'oculto'}`}:{}),
     };
   }
 
   private sample(){const info=this.rendering.renderer.info,stats=this.streamer.stats;this.frame={fps:Math.round(1000/this.quality.averageMs),cpu:Number(this.cpu.toFixed(2)),drawCalls:info.render.drawCalls,triangles:info.render.triangles,geometries:info.memory.geometries,textures:info.memory.textures,active:stats.active,cached:stats.cached,queued:stats.queued,loadedMB:stats.loadedMB+info.memory.total/1048576,streamMs:stats.streamMs,x:this.player.position.x,z:this.player.position.z};}
 }
-
 
 
 

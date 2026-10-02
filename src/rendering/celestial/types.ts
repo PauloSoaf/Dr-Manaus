@@ -1,4 +1,4 @@
-import { Vec3 } from '../../world/spatial/units';
+import type { Quat, Vec3 } from '../../world/spatial/units';
 
 export interface CelestialRenderSample {
   bodyId: string;
@@ -17,4 +17,6 @@ export interface CelestialRenderSample {
   
   // Phase light direction in render space, optional (used by moon)
   phaseLightDirection?: Vec3;
+  /** Catalog axial model converted into render axes, used for bands and Saturn's rings. */
+  bodyOrientationRender?: Quat;
 }

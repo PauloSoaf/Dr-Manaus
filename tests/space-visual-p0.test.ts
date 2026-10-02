@@ -96,8 +96,8 @@ test('T_PROXY1: Earth coarse globe replaces analytic blue proxy once it is visua
   const viewportHeightPx = 1080;
 
   const earthBary = universe.activeSystem.positionOf('earth') ?? [149_597_870_700, 0, 0];
-  // Move player so Earth is big enough (projectedPx >= 16) but still in 'planet' mode (dist = 40,000,000)
-  universe.updateSystemPose([earthBary[0], earthBary[1], earthBary[2] + 40_000_000], [0, 0, 0], 0);
+  // Inside RenderSpace's 20,000 km bound, while still in the angular 'planet' band.
+  universe.updateSystemPose([earthBary[0], earthBary[1], earthBary[2] + 19_000_000], [0, 0, 0], 0);
   controller.prepare({
     universe,
     earth: mockEarth,
@@ -136,8 +136,8 @@ test('T_PROXY2: Earth proxy handles transition thresholds correctly without over
 
   const testDistances = [
     900_000_000, // Very far (projectedPx < 16) -> Proxy
-    40_000_000,  // Far (projectedPx >= 16) -> Globe (coarse)
-    20_000_000,  // Close (projectedPx >= 64, still planet mode) -> Globe (coarse)
+    40_000_000,  // Render-unsafe centre -> proxy even with synchronous coarse fallback
+    19_000_000,  // Render-safe centre, still in planet mode -> coarse globe
   ];
 
   for (const dist of testDistances) {
@@ -145,7 +145,7 @@ test('T_PROXY2: Earth proxy handles transition thresholds correctly without over
     controller.prepare({ universe, earth: mockEarth, fovRad, viewportHeightPx, cameraFarM: 50_000_000 });
     const sample = (controller as any).samples.find((s: any) => s.bodyId === 'earth');
     
-    if (dist === 900_000_000) {
+    if (dist > 20_000_000) {
       assert.equal(sample.visible, true);
       assert.equal(sample.opacity, 1);
       assert.equal(modeFlag, 'off');

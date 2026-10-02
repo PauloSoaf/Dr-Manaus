@@ -66,7 +66,7 @@ export class SunVisual {
     this.group.position.set(dir[0], dir[1], dir[2]).multiplyScalar(sample.proxyDistanceM);
     
     // Look at camera so it's a billboard
-    this.group.lookAt(cameraPos);
+    this.group.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(...dir).negate().normalize());
   }
 
   dispose(): void {

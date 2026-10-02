@@ -7,6 +7,13 @@ including the things that do not work.
 Baseline: `d2e03428b1d9ba90fdc7b2a5112c280e6686fead` (PR #2 merged into `main`).
 Branch: `feat/universe-map`.
 
+Current implementation checkpoint: **SOLAR-11 / Task 011**, starting at `47dd452`.
+The Sun, Moon and all eight planets now share generic celestial presentation and live navigation.
+Mercury/Venus/Moon/Mars use a body-keyed rocky-provider registry; Earth retains its specialized
+Manaus/WGS84 flow. Stars and giants have exclusion envelopes and cannot land. See
+[10-solar-system.md](10-solar-system.md) for capabilities, synthetic-terrain provenance, arrival
+policy, render bounds, tests and required manual validation. Task 012 and volume Phase 2 are pending.
+
 This is the progress tracker. The subject documents are listed in [README.md](README.md); the
 acceptance criteria are checked one by one in [17-acceptance.md](17-acceptance.md).
 
@@ -23,21 +30,23 @@ acceptance criteria are checked one by one in [17-acceptance.md](17-acceptance.m
 | 6 | Curve Manaus onto the ellipsoid | **partial** — `SurfaceTileFrame` exists; `FEATURES.curvedManaus` is off | `SurfaceTileFrame.ts` |
 | 7 | Atmosphere and render domains | **partial** — domains done, atmosphere not | `src/rendering/domains/` — [08](08-render-domains.md) |
 | 8 | Remove the 140 km ceiling | **done** — 500 000 km, still a ceiling | `SPACE.maxAltitude` |
-| 9 | Solar system | **done** (logical model) | `src/world/celestial/` — [10](10-solar-system.md) |
+| 9 | Solar system | **implemented** — logical model, ten visuals, generic providers/navigation; manual validation pending | `src/world/celestial/` — [10](10-solar-system.md) |
 | 10 | Galaxy layer | **partial** — streamed provider, behind its flag | `StarSectorProvider.ts` — [11](11-galaxy-and-universe.md) |
 | 11 | Universe sectors | **partial** — addressing and seeds only | `UniverseAddress.ts` — [11](11-galaxy-and-universe.md) |
 | 12 | Persistence hardening | **done** — versioned, addressed, IndexedDB | `WorldMutationStore.ts` |
 | 13 | Hardening | **verified** | Visual, architectural, ephemeris and coordinates hardening (`tests/earth-transition.test.ts`, `tests/universe-coordinates.test.ts`, `tests/universe-navigation.test.ts`) |
 
-Everything is gated by `FEATURES` in `src/core/config.ts`. `spatialCore` and `earthGlobe` are on;
-the rest are off. Below 15 km nothing about the game has changed — the city, its sky and its
-horizon are exactly what they were. Above it the flat backdrop stands down and the real ellipsoid
-takes over.
+Everything is gated by `FEATURES` in `src/core/config.ts`. `spatialCore`, `earthGlobe` and
+`solarSystem` are on. Earth retains the current coverage-aware local/planetary handoff; generic
+planet providers share the same global scheduler and do not replace the Manaus implementation.
 
 ## What is verified
 
-308 unit tests, `npm run build`, and `npm run test:browser` pass. The city is unchanged at ground level, checked by eye at
-400 m and 12 km as well as by test. Earth is verified present in orbit (~236.3 km) through coarse fallback ellipsoidal guarantee.
+SOLAR-11 validation on 2026-10-02: 427/427 unit tests, typecheck and production build pass.
+The existing browser smoke fails in destruction setup because it still passes removed `game.origin`
+to the terrain updater; that stale API is present in the initial HEAD. No browser E2E pass or new
+visual approval is claimed. The full planet travel/ring/return matrix requires user manual validation.
+Earlier observations at 400 m, 12 km and approximately 236.3 km describe historical Earth checks.
 
 Specific invariants under test:
 

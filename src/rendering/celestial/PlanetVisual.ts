@@ -1,18 +1,22 @@
-import { Group, Mesh, MeshBasicNodeMaterial, NormalBlending, PlaneGeometry, Vector3 } from 'three/webgpu';
+import { DoubleSide, Group, Mesh, MeshBasicNodeMaterial, NormalBlending, PlaneGeometry, Quaternion, RingGeometry, Vector3 } from 'three/webgpu';
 import { float, max, positionLocal, smoothstep, uniform, vec3, vec4 } from 'three/tsl';
 import type { CelestialRenderSample } from './types';
+import type { BodyVisualProfile } from '../../world/celestial/CelestialBodyProfile';
 
 export class PlanetVisual {
   readonly group = new Group();
   private readonly disc: Mesh;
   private readonly material: MeshBasicNodeMaterial;
+  private readonly rings?: Mesh<RingGeometry, MeshBasicNodeMaterial>;
+  private readonly uPole = uniform(new Vector3(0, 1, 0));
   
   private readonly uPhaseLightDir = uniform(new Vector3(1, 0, 0));
   private readonly uOpacity = uniform(1);
   private readonly uAlbedo = uniform(new Vector3(0.5, 0.5, 0.5));
   private readonly uAmbient = uniform(new Vector3(0.02, 0.02, 0.02));
 
-  constructor(albedoRGB: [number, number, number], ambientRGB: [number, number, number] = [0.02, 0.02, 0.02]) {
+  constructor(albedoRGB: [number, number, number], ambientRGB: [number, number, number] = [0.02, 0.02, 0.02],
+    profile?: BodyVisualProfile) {
     this.group.name = 'PlanetVisual';
     this.uAlbedo.value.set(albedoRGB[0], albedoRGB[1], albedoRGB[2]);
     this.uAmbient.value.set(ambientRGB[0], ambientRGB[1], ambientRGB[2]);
@@ -42,7 +46,10 @@ export class PlanetVisual {
     
     const nDotL = max(0, normal.dot(this.uPhaseLightDir));
     
-    const lit = this.uAlbedo.mul(nDotL.pow(0.8)); 
+    const bands = profile?.bands
+      ? normal.dot(this.uPole).mul(profile.bands * Math.PI).sin().mul(0.16).add(0.84)
+      : float(1);
+    const lit = this.uAlbedo.mul(bands).mul(nDotL.pow(0.8));
     
     const earthshine = this.uAmbient.mul(float(1).sub(nDotL));
     const finalColor = lit.add(earthshine);
@@ -53,6 +60,18 @@ export class PlanetVisual {
     this.disc = new Mesh(geometry, this.material);
     this.disc.frustumCulled = false;
     this.group.add(this.disc);
+    if (profile?.rings) {
+      const material = new MeshBasicNodeMaterial({ transparent: true, side: DoubleSide,
+        depthWrite: false, depthTest: true, fog: false });
+      const radius = positionLocal.xy.length();
+      const stripe = radius.mul(90).sin().mul(0.14).add(0.65);
+      material.colorNode = vec3(0.72, 0.65, 0.47).mul(stripe);
+      material.opacityNode = stripe.mul(this.uOpacity);
+      this.rings = new Mesh(new RingGeometry(profile.rings.innerRadius, profile.rings.outerRadius, 96), material);
+      this.rings.name = 'analytic-rings';
+      this.rings.frustumCulled = false;
+      this.group.add(this.rings);
+    }
   }
 
   update(sample: CelestialRenderSample, cameraPos: Vector3): void {
@@ -66,7 +85,17 @@ export class PlanetVisual {
     const dir = sample.directionRender;
     this.group.position.set(dir[0], dir[1], dir[2]).multiplyScalar(sample.proxyDistanceM);
     
-    this.group.lookAt(cameraPos);
+    // Both the billboard and rings use observer-relative axes, independent of root translation.
+    this.group.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(...dir).negate().normalize());
+    if (sample.bodyOrientationRender) {
+      const bodyRotation = new Quaternion(...sample.bodyOrientationRender);
+      const localRotation = this.group.quaternion.clone().invert().multiply(bodyRotation);
+      this.uPole.value.set(0, 0, 1).applyQuaternion(localRotation);
+      if (this.rings) {
+        this.rings.quaternion.copy(localRotation);
+        this.rings.scale.setScalar(sample.proxyRadiusM);
+      }
+    }
 
     if (sample.phaseLightDirection) {
       const lightDir = new Vector3(sample.phaseLightDirection[0], sample.phaseLightDirection[1], sample.phaseLightDirection[2]);
@@ -79,5 +108,7 @@ export class PlanetVisual {
   dispose(): void {
     this.disc.geometry.dispose();
     this.material.dispose();
+    this.rings?.geometry.dispose();
+    this.rings?.material.dispose();
   }
 }

@@ -2,27 +2,33 @@ import { Group, PerspectiveCamera } from 'three/webgpu';
 import { SunVisual } from './SunVisual';
 import { PlanetVisual } from './PlanetVisual';
 import type { CelestialRenderSample } from './types';
+import { SOLAR_SYSTEM_BODIES } from '../../world/celestial/CelestialBody';
+import { bodyProfile } from '../../world/celestial/CelestialBodyProfile';
 
 export class CelestialBodyVisualLayer {
   readonly root = new Group();
   private readonly sun = new SunVisual();
   private readonly planets = new Map<string, PlanetVisual>();
 
-  constructor() {
+  constructor(parent?: Group) {
     this.root.name = 'CelestialBodyVisualLayer';
     this.root.add(this.sun.group);
     
-    // Register generic planets
-    this.planets.set('moon', new PlanetVisual([0.5, 0.5, 0.5], [0.01, 0.01, 0.01]));
-    this.planets.set('earth', new PlanetVisual([0.1, 0.3, 0.8], [0.02, 0.02, 0.05]));
-    this.planets.set('mars', new PlanetVisual([0.7, 0.3, 0.1], [0.05, 0.02, 0.01]));
+    parent?.add(this.root);
+    for (const body of SOLAR_SYSTEM_BODIES) {
+      const profile = bodyProfile(body);
+      if (profile.bodyClass === 'star') continue;
+      const visual = new PlanetVisual([...profile.visual.albedo], undefined, profile.visual);
+      visual.group.name = `${body.id}-proxy`;
+      this.planets.set(body.id, visual);
+    }
     
     for (const visual of this.planets.values()) {
       this.root.add(visual.group);
     }
   }
 
-  update(samples: CelestialRenderSample[], camera: PerspectiveCamera): void {
+  update(samples: readonly CelestialRenderSample[], camera: PerspectiveCamera): void {
     this.root.position.copy(camera.position);
 
     let foundSun = false;
