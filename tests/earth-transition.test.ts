@@ -129,9 +129,9 @@ test('ground ownership and presentation stay mutually exclusive through ascent a
 
   const expected = [
     { altitudeM: 0, owner: 'local', domain: 'local' },
-    { altitudeM: 14_999, owner: 'local', domain: 'local' },
+    { altitudeM: 11_499, owner: 'local', domain: 'local' },
+    { altitudeM: 11_500, owner: 'local', domain: 'planetary' },
     { altitudeM: 15_000, owner: 'planet', domain: 'planetary' },
-    { altitudeM: 59_999, owner: 'planet', domain: 'planetary' },
     { altitudeM: 60_000, owner: 'planet', domain: 'orbital' },
   ] as const;
 

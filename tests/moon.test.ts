@@ -101,7 +101,7 @@ test('neighbouring Moon tiles agree on their shared edge', () => {
 test('the Moon is a light in the sky until the player is a long way from Earth', () => {
   const runtime = new UniverseRuntime();
   const parent = new Group();
-  const moon = new RockyPlanetProvider(parent, runtime.frames, MOON, MoonSurfaceGenerator, { minAltitudeM: 400_000, maxRangeM: 4_000_000 });
+  const moon = new RockyPlanetProvider(parent, runtime.frames, MOON, MoonSurfaceGenerator, { minAltitudeM: 400_000, maxRangeM: 4_000_000, renderSpace: runtime.renderSpace });
   moon.setCentre([0, 384_400_000, 0], 'earth/fixed', 'earth/manaus/legacy-enu');
   moon.setStreamingMode('off');
   // On the ground: no surface, whatever the distance says.

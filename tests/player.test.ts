@@ -135,8 +135,8 @@ test('disabled UI input cannot arm mega and size/debug scaling respects the flig
   const player = new PlayerController(new Group(), input); player.teleport(new Vector3(0, 200, 0));
   input.enabled = false; edges.add('KeyV'); player.update(1 / 60, [], 0);
   input.enabled = true; player.update(1 / 60, [], 0);
-  assert.equal(player.megaMode, false);
-  player.setSize(22); player.megaMode = true; player.speedMultiplier = 10; held.add('KeyB');
+  assert.notEqual(player.speedMode, 'mega');
+  player.setSize(22); player['boostHeldS'] = 10; held.add('ShiftLeft'); player.speedMultiplier = 10; held.add('KeyW');
   for (let i = 0; i < 240; i++) player.update(1 / 60, [], 0);
   assert.ok(player.velocity.length() > 9900 && player.velocity.length() <= FLIGHT.maxSpeed);
 });
@@ -333,8 +333,8 @@ test('parkour boosts a reachable ledge jump but never passes through a ceiling',
 });
 
 test('mega running invokes destruction before collision and keeps ground movement', () => {
-  const h = harness(); h.player.teleport(new Vector3()); h.player.megaMode = true;
-  h.held.add('KeyW'); h.held.add('KeyB'); let calls = 0;
+  const h = harness(); h.player.teleport(new Vector3()); h.player.speedMultiplier = 10;
+  h.held.add('ShiftLeft'); h.held.add('KeyW'); let calls = 0;
   h.player.beforeMove = () => {calls++; return [];};
   for(let i=0;i<80;i++)h.player.update(.016,[],0);
   assert.ok(calls > 0); assert.ok(-h.player.velocity.z > 640); assert.equal(h.player.state,'Grounded');

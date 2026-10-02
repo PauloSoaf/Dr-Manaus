@@ -40,14 +40,12 @@ test('celestial directions use observer-centred travel axes instead of barycentr
 
 test('a rocky globe rotates body-fixed tiles into the active travel render frame', () => {
   const universe = new UniverseRuntime({ epochS: 0 });
-  const playerBary = universe.frames.convertPosition(
-    universe.player.frame, 'solar-system/barycentric', universe.player.position,
-  );
+  const moonBary = universe.activeSystem.positionOf('moon')!;
+  const playerBary: Vec3 = [moonBary[0], moonBary[1] + 1_000_000, moonBary[2]];
   universe.updateSystemPose(playerBary, universe.systemVelocityMps([0, 0, 0]), 0, [0, 0, -1]);
   const provider = new RockyPlanetProvider(
     new Group(), universe.frames, MOON, MoonSurfaceGenerator, { renderSpace: universe.renderSpace },
   );
-  const moonBary = universe.activeSystem.positionOf('moon')!;
   provider.setCentre(moonBary, 'solar-system/barycentric', TRAVEL_VIEW_FRAME, playerBary);
 
   const actual: Quat = provider.globe.root.quaternion.toArray();

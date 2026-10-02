@@ -227,7 +227,9 @@ export class CelestialPresentationController {
             opacity = 1;
             moon.setVisible(false);
           } else if (targetMode === 'planet') {
-            if (projectedPx < 64) {
+            const moonPosRender = universe.frames.convertPosition('solar-system/barycentric', renderFrame, moonBary);
+            const isSafe = universe.renderSpace.isRenderSafe(moonPosRender);
+            if (projectedPx < 64 || !isSafe) {
               streamingMode = 'off';
               visible = proxyGeo.safe;
               opacity = 1;
@@ -248,14 +250,17 @@ export class CelestialPresentationController {
               }
             }
           } else if (targetMode === 'surface') {
-            streamingMode = 'surface';
-            if (!ready.surfaceCoverageReady && !ready.coarseCoverageReady) {
-              // Fallback to celestial if completely unready
+            const moonPosRender = universe.frames.convertPosition('solar-system/barycentric', renderFrame, moonBary);
+            const isSafe = universe.renderSpace.isRenderSafe(moonPosRender);
+            if (!isSafe || (!ready.surfaceCoverageReady && !ready.coarseCoverageReady)) {
+              // Fallback to celestial if unready or unsafe
+              streamingMode = isSafe ? 'surface' : 'off';
               visible = proxyGeo.safe;
               opacity = 1;
               moon.setVisible(false);
             } else {
               // We have some physical representation
+              streamingMode = 'surface';
               visible = false;
               opacity = 0;
               moon.setVisible(true);
