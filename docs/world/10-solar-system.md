@@ -48,6 +48,19 @@ Ganymede/Titan neighbourhoods are stable under small perturbations; no hysteresi
 Enceladus may still report Saturn as dominant because Saturn's absolute acceleration wins;
 the global gravity model was not changed.
 
+### Presentation
+
+New bodies use the shared volcanic/icy/atmospheric moon profiles and one quad each. Albedo and
+optional analytic bands are recognizable approximations, not measured surface maps. Titan's
+warm haze is a 1.12× optical radius at resolved sizes, drawn in the same quad and included in
+the proxy extent budget. No atmosphere simulation, texture fetch or extra terrain is added.
+The layer has 22 meshes: 19 cheap proxies, Earth's and the Moon's geographic spheres, Saturn's
+rings. Physical radii remain unchanged by pixel floors and haze. Every moon receives the live
+Sun direction through the same phase model; a separate direct-sunlight attenuation input permits
+later eclipses. No eclipse geometry is implemented. Labels show Portuguese names and only offer
+unselected satellites in a nearby/selected parent system at useful apparent sizes. Selected
+labels reserve screen space first; colliding lower-priority labels are hidden.
+
 ## SPACE-HARDENING-1 runtime contract
 
 Baseline: `f8f451250e564958ffad20d26b72df3fe4c9e6de`, branch `feat/universe-map`.

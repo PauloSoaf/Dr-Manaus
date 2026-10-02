@@ -3,6 +3,7 @@ import type { CelestialBodyProfile } from '../../world/celestial/CelestialBodyPr
 
 export interface CelestialRenderSample {
   bodyId: string;
+  parentId?: string;
   profile?: CelestialBodyProfile;
 
   logicalDistanceM: number;
@@ -28,6 +29,8 @@ export interface CelestialRenderSample {
   
   // Phase light direction in render space, optional (used by moon)
   phaseLightDirection?: Vec3;
+  /** Later eclipse systems can attenuate sunlight without replacing the phase model. */
+  directSunlight01?: number;
   /** Catalog axial model converted into render axes, used for bands and Saturn's rings. */
   bodyOrientationRender?: Quat;
   /** Actual fixed frame, without extra catalog-only visual tilt. */

@@ -23,7 +23,7 @@ for (const body of SOLAR_SYSTEM_BODIES) {
       for (const ratio of [100, 20, 3]) {
         universe.updateSystemPose([position[0], position[1] + body.equatorialRadiusM * ratio, position[2]], [0, 0, 0], 0);
         controller.prepare({ universe, ...options });
-        assert.equal(controller.renderSamples.length, 10);
+        assert.equal(controller.renderSamples.length, 19);
         const sample = controller.renderSamples.find(sample => sample.bodyId === body.id)!;
         assert.ok(sample.visible, `${body.id} proxy must be visible without a physical provider`);
         assert.ok([sample.angularRadiusRad, sample.proxyDistanceM, sample.proxyRadiusM,
@@ -42,7 +42,7 @@ for (const body of SOLAR_SYSTEM_BODIES) {
             assert.ok(Math.max(...object.scale.toArray().map(Math.abs)) <= 10_000_000);
           }
         });
-        assert.equal(seenMeshes, 13, 'ten point proxies, two geographic spheres and one analytic ring mesh');
+        assert.equal(seenMeshes, 22, 'nineteen point proxies, two geographic spheres and one analytic ring mesh');
       }
       assert.ok(angles[0] < angles[1] && angles[1] < angles[2]);
     } finally { layer.dispose(); }

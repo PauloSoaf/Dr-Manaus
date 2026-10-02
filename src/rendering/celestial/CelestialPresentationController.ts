@@ -104,7 +104,7 @@ export class CelestialPresentationController {
       if (profile.surfaceKind === 'earth' && earth && phaseLightDirection) {
         earth.setSunDirection(phaseLightDirection, renderFrame, renderFrame);
       }
-      return { bodyId: body.id, profile, logicalDistanceM: distance, physicalRadiusM: body.equatorialRadiusM,
+      return { bodyId: body.id, parentId: body.parentId, profile, logicalDistanceM: distance, physicalRadiusM: body.equatorialRadiusM,
         angularRadiusRad: angle, directionRender: direction, proxyDistanceM: proxy.distanceM,
         proxyRadiusM: physicalProxyRadiusM, presentationProxyRadiusM, glowProxyRadiusM,
         physicalProjectedDiameterPx: presentation.physicalProjectedDiameterPx,

@@ -72,7 +72,7 @@ test('T_PRESENTATION_SIZE_NOT_PHYSICAL_SIZE: changing floors cannot affect physi
 
 test('T_ALL_BODY_POINT_MODE_FINITE: all ten distant samples and optical extents fit the far plane', () => {
   withDistantSamples((samples, layer) => {
-    assert.equal(samples.length, 10);
+    assert.equal(samples.length, 19);
     for (const s of samples) {
       assert.ok([s.physicalProjectedDiameterPx!, s.presentationDiameterPx!, s.pointMix!, s.proxyRadiusM,
         s.presentationProxyRadiusM!, s.glowProxyRadiusM!, s.proxyDistanceM, ...s.directionRender].every(Number.isFinite));

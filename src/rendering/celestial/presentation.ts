@@ -15,8 +15,9 @@ export function bodyPresentation(angle: number, profile: BodyVisualProfile, fovR
   const floor = Math.max(0, profile.minimumVisiblePx ?? 0);
   const presentationDiameterPx = Math.max(physicalProjectedDiameterPx, floor);
   const pointMix = floor > 0 ? 1 - smoothRange(physicalProjectedDiameterPx, floor, floor * 3) : 0;
-  const glowDiameterPx = presentationDiameterPx
-    + Math.max(0, (profile.pointGlowPx ?? 0) - presentationDiameterPx) * pointMix;
+  const glowDiameterPx = Math.max(presentationDiameterPx
+    + Math.max(0, (profile.pointGlowPx ?? 0) - presentationDiameterPx) * pointMix,
+    presentationDiameterPx * (1 + Math.max(0, (profile.haze?.radiusScale ?? 1) - 1) * (1 - pointMix)));
   const presentationTangent = presentationDiameterPx / pixelScale;
   const glowTangent = glowDiameterPx / pixelScale;
   const ringThreshold = profile.rings?.minimumDiameterPx ?? 6;

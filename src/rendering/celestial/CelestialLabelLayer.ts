@@ -6,12 +6,16 @@ import { smoothRange } from './presentation';
 export const CELESTIAL_LABEL_NAMES: Readonly<Record<string, string>> = {
   sun: 'SOL', mercury: 'MERCÚRIO', venus: 'VÊNUS', earth: 'TERRA', moon: 'LUA',
   mars: 'MARTE', jupiter: 'JÚPITER', saturn: 'SATURNO', uranus: 'URANO', neptune: 'NETUNO',
+  io: 'IO', europa: 'EUROPA', ganymede: 'GANIMEDES', callisto: 'CALISTO',
+  titan: 'TITÃ', enceladus: 'ENCÉLADO', titania: 'TITÂNIA', oberon: 'OBERON', triton: 'TRITÃO',
 };
 
 export interface CelestialLabelContext {
   selectedBodyId?: string;
   inTravel?: boolean;
   referenceBodyId?: string;
+  /** Derived from live samples, including when the selected body is a sibling moon. */
+  parentSystemId?: string;
 }
 
 /** Project the bounded observer-relative point, never the logical system coordinates. */
@@ -39,6 +43,12 @@ export function celestialLabelOpacity(sample: CelestialRenderSample, context: Ce
     const earthMoonContext = context.inTravel && (context.referenceBodyId === 'earth' || context.referenceBodyId === 'moon'
       || context.selectedBodyId === 'earth' || context.selectedBodyId === 'moon');
     return earthMoonContext ? 0.65 * (1 - smoothRange(diameter, 30, 80)) : 0;
+  }
+  if (sample.parentId && sample.parentId !== 'sun') {
+    const nearby = context.inTravel && (context.referenceBodyId === sample.parentId
+      || context.referenceBodyId === sample.bodyId || context.selectedBodyId === sample.parentId
+      || context.parentSystemId === sample.parentId);
+    return nearby ? 0.65 * smoothRange(diameter, 2, 8) : 0;
   }
   if (sample.profile?.bodyClass === 'star') {
     return context.inTravel && diameter < 80 ? 0.55 * smoothRange(Math.hypot(screen.x, screen.y), 0.35, 0.6) : 0;
@@ -77,10 +87,19 @@ export class CelestialLabelLayer {
     const width = this.container.clientWidth;
     const height = this.container.clientHeight;
     const seen = new Set<string>();
-    for (const sample of samples) {
+    const selected = samples.find(sample => sample.bodyId === context.selectedBodyId);
+    const reference = samples.find(sample => sample.bodyId === context.referenceBodyId);
+    const effectiveContext = { ...context, parentSystemId: context.parentSystemId
+      ?? (selected?.parentId !== 'sun' ? selected?.parentId : undefined)
+      ?? (reference?.parentId !== 'sun' ? reference?.parentId : undefined) };
+    const occupied: LabelRect[] = [];
+    const ranked = [...samples].sort((a, b) => Number(b.bodyId === context.selectedBodyId) - Number(a.bodyId === context.selectedBodyId)
+      || (b.profile?.visual.labelPriority ?? 0) - (a.profile?.visual.labelPriority ?? 0)
+      || (b.physicalProjectedDiameterPx ?? 0) - (a.physicalProjectedDiameterPx ?? 0));
+    for (const sample of ranked) {
       const screen = projectCelestialLabel(sample, camera);
       if (!screen || width <= 0 || height <= 0) continue;
-      const opacity = celestialLabelOpacity(sample, context, screen);
+      const opacity = celestialLabelOpacity(sample, effectiveContext, screen);
       if (opacity <= 0) continue;
       const el = this.getLabel(sample.bodyId);
       const name = CELESTIAL_LABEL_NAMES[sample.bodyId] ?? sample.bodyId.toUpperCase();
@@ -89,8 +108,11 @@ export class CelestialLabelLayer {
       if (width < halfLabel * 2 + 16 || height < 40) continue;
       const x = (screen.x + 1) * width / 2;
       const y = (1 - screen.y) * height / 2 - 10;
-      el.style.left = `${Math.max(halfLabel + 8, Math.min(width - halfLabel - 8, x))}px`;
-      el.style.top = `${Math.max(24, Math.min(height - 8, y))}px`;
+      const rect = { x: Math.max(halfLabel + 8, Math.min(width - halfLabel - 8, x)),
+        y: Math.max(24, Math.min(height - 8, y)), halfWidth: halfLabel };
+      if (!reserveLabelRect(rect, occupied)) continue;
+      el.style.left = `${rect.x}px`;
+      el.style.top = `${rect.y}px`;
       el.style.opacity = String(opacity);
       el.style.visibility = 'visible';
       seen.add(sample.bodyId);
@@ -104,4 +126,11 @@ export class CelestialLabelLayer {
   }
 
   dispose(): void { this.container.remove(); this.labels.clear(); }
+}
+
+export interface LabelRect { x: number; y: number; halfWidth: number; }
+/** Higher-priority labels reserve space first; lower ones cannot make a DOM pile. */
+export function reserveLabelRect(rect: LabelRect, occupied: LabelRect[]): boolean {
+  if (occupied.some(r => Math.abs(r.y - rect.y) < 22 && Math.abs(r.x - rect.x) < r.halfWidth + rect.halfWidth + 10)) return false;
+  occupied.push(rect); return true;
 }
