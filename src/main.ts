@@ -2,6 +2,11 @@ import './ui/style.css';
 import { Game } from './game/Game';
 declare global { interface Window { __DR_MANAUS__: Game } }
 async function main(){
+  if (new URLSearchParams(location.search).has('volumeLab')) {
+    const { startPlanetVolumeLab } = await import('./debug/PlanetVolumeLab');
+    startPlanetVolumeLab(document.querySelector<HTMLElement>('#app')!);
+    return;
+  }
   if (new URLSearchParams(location.search).has('animationLab')) {
     const { startAnimationLab } = await import('./player/animations/AnimationLab');
     await startAnimationLab(document.querySelector<HTMLElement>('#app')!);

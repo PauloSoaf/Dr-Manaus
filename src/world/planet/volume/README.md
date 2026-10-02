@@ -99,3 +99,40 @@ triangles per cell). A job checks a **2 MiB worst-case live-array limit**, inclu
 gradient/edge/zero caches and compact output copies. The default grid's bound is 1,295,036 bytes.
 Oversized configurations are rejected before allocating their mixed-grid scratch arrays; scalar
 sampling still supports the Phase 2 configurations. Meshing is resumable per sample/cell work unit.
+
+`PlanetVolumeRuntime.setDebugMeshing(true)` independently opts into CPU extraction after demand is
+enabled. Default gameplay still allocates zero volume grids or mesh jobs. Only ready MIXED scalar
+chunks are candidates, nearest-first; the nearest mesh is served before farther scalar requests.
+One existing global grant is shared by sampling and extraction: there is at most one live job,
+one scalar completion and one mesh completion per scheduler frame. Sampling batches adapt between
+1–128 samples and meshing between 1–64 work units, using an EWMA of observed cost and a 0.35 ms
+target (also clipped by remaining time). Deadlines remain cooperative, including count-to-buffer
+allocation and final compact copies; this is not a strict preemptive time guarantee.
+
+`PlanetVolumeMeshCache` is separate derived residency, capped at **8 payloads and 8 MiB** of typed
+arrays. Admission reserves worst-case per-grid capacity, so a tiny byte cap cannot induce endless
+eviction/remeshing. Current default output can reach at most 4,629,504 bytes at the eight-mesh cap.
+Every entry keeps its scalar source identity/revision. Stale or replaced/evicted scalar sources,
+body changes, lost demand and disabled modes discard corresponding geometry. Unrelated logical
+revisions preserve valid old sources. The `meshes` accessor hides stale data immediately on edits;
+no stale geometry waits for the next rendering frame. All sampling/mesh arrays are derived and
+remain absent from schema-1 persistence. F3 reports mesh queue/count, vertices/triangles, exact
+array bytes, job bytes, completion/time and classic-table ambiguous faces.
+
+The thin renderer adapter is `src/debug/VolumeMeshGeometry.ts`. It binds chunk-local positions,
+normals and indices to a `BufferGeometry`; it never adds the planetary origin into Float32 buffers.
+No production terrain renderer or collision provider consumes these geometries yet.
+
+For visual inspection, run the normal dev/preview server and open **`/?volumeLab=1`**. This lazy
+diagnostic entry starts an isolated chunk view, not `Game`. It uses the real `UniverseRuntime`,
+global scheduler, Earth/Moon/Mars surface factories, sampled chunks and meshing jobs. Choose
+Intacto/Esfera/Cápsula, orbit/zoom, inspect external/internal views, toggle triangulation and chunk
+bounds. Fixtures clear their own old derived data and keep at most one logical edit. Geometry,
+controls, renderer and cache resources are disposed on replacement/exit. The ordinary game query
+continues to use the existing shell/heightfield presentation and physics; Phase 5 owns future
+coverage handoff, Phase 6 collision and Phase 7 power wiring.
+
+`npm run test:browser:volume` exercises all nine body/scenario pairs, real production rendering,
+finite local attributes, bounded residency, internal/wireframe/mobile controls and complete
+disposal using the already installed Chromium. `npm run benchmark:volume` also reports pure
+meshing timings/geometry bytes and bounded meshes for the through-Earth entry/centre/exit fixture.

@@ -1,0 +1,6 @@
+.planet-volume-lab{position:fixed;top:20px;left:20px;width:min(330px,calc(100vw - 40px));padding:22px;box-sizing:border-box;background:rgba(12,24,36,.94);border:1px solid #416276;border-radius:12px;color:#dceaf4;font:14px/1.5 system-ui,sans-serif;box-shadow:0 12px 35px #0006}
+.planet-volume-lab h1{font-size:22px;margin:0 0 8px}.planet-volume-lab p{font-size:12px;color:#a8bdcc;margin:8px 0 16px}
+.planet-volume-lab label{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0}.planet-volume-lab input{margin-right:auto}
+.planet-volume-lab select,.planet-volume-lab button{color:#eaf5fc;background:#1d374a;border:1px solid #52778f;border-radius:5px;padding:7px;cursor:pointer}
+.planet-volume-lab button{margin-right:7px}.planet-volume-lab output{display:block;margin-top:18px;font-weight:600}.planet-volume-lab pre{white-space:pre-wrap;font-size:11px;color:#a9c1d0}.planet-volume-lab a{color:#92d4ff}
+@media(max-width:600px){.planet-volume-lab{top:auto;bottom:10px;left:10px;width:calc(100vw - 20px);padding:12px}.planet-volume-lab p,.planet-volume-lab pre{display:none}.planet-volume-lab label{display:inline-flex;margin:6px 12px 6px 0}.planet-volume-lab h1{font-size:18px}.planet-volume-lab output{margin-top:8px}}
