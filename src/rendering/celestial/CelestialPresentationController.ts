@@ -79,6 +79,7 @@ export class CelestialPresentationController {
       // only, preserving the existing Earth/Manaus frame contract.
       const bodyOrientationRender = universe.frames.convertOrientation(body.frameId, renderFrame,
         quatFromAxisAngle([1, 0, 0], body.axialTiltRad ?? 0));
+      const bodyFixedOrientationRender = universe.frames.convertOrientation(body.frameId, renderFrame, [0, 0, 0, 1]);
       const presentation = bodyPresentation(angle, profile.visual, ctx.fovRad, ctx.viewportHeightPx);
       const proxy = boundedCelestialProxy(presentation.physicalTangent, presentation.extentTangent, ctx.cameraFarM ?? 100_000);
       const physicalProxyRadiusM = presentation.physicalTangent * proxy.distanceM;
@@ -95,10 +96,9 @@ export class CelestialPresentationController {
           if (phaseLightDirection) provider.setSunDirection(phaseLightDirection, renderFrame, renderFrame);
           const ready = provider.readiness();
           const readyToDraw = ready.coarseCoverageReady || ready.surfaceCoverageReady;
-          const blend = this.activePhysicalMode === 'surface' ? 1 : handoff?.blend ?? 1;
           provider.setVisible(readyToDraw);
-          provider.setOpacity(readyToDraw ? blend : 0);
-          if (readyToDraw) { opacity = 1 - blend; visible = proxy.safe && opacity > 0; }
+          provider.setOpacity(readyToDraw ? 1 : 0);
+          if (readyToDraw) { opacity = 0; visible = false; }
         }
       }
       if (profile.surfaceKind === 'earth' && earth && phaseLightDirection) {
@@ -110,7 +110,7 @@ export class CelestialPresentationController {
         physicalProjectedDiameterPx: presentation.physicalProjectedDiameterPx,
         presentationDiameterPx: presentation.presentationDiameterPx,
         pointMix: presentation.pointMix, ringsOpacity: presentation.ringsOpacity,
-        visible, opacity, phaseLightDirection, bodyOrientationRender };
+        visible, opacity, phaseLightDirection, bodyOrientationRender, bodyFixedOrientationRender };
     });
   }
 

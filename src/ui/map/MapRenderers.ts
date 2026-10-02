@@ -1,5 +1,6 @@
 import type { UniverseLocation } from '../../world/spatial/UniverseLocation';
 import type { Vector3 } from 'three/webgpu';
+import type { HUDBody } from '../HUD';
 
 export interface MapRenderer {
   canvas: HTMLCanvasElement;
@@ -12,6 +13,8 @@ export interface MapRenderer {
 
 export abstract class BaseMapRenderer implements MapRenderer {
   ctx: CanvasRenderingContext2D;
+  protected width = 1;
+  protected height = 1;
   
   constructor(public canvas: HTMLCanvasElement) {
     this.ctx = canvas.getContext('2d')!;
@@ -28,15 +31,28 @@ export abstract class BaseMapRenderer implements MapRenderer {
   abstract draw(location: UniverseLocation, destination?: Vector3): void;
 
   protected clear(color: string = '#000') {
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    const rect = this.canvas.getBoundingClientRect();
+    this.width = Math.max(1, rect.width);
+    this.height = Math.max(1, rect.height);
+    const dpr = Math.min(2, Math.max(1, globalThis.devicePixelRatio || 1));
+    const w = Math.round(this.width * dpr), h = Math.round(this.height * dpr);
+    if (this.canvas.width !== w || this.canvas.height !== h) { this.canvas.width = w; this.canvas.height = h; }
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.ctx.clearRect(0, 0, this.width, this.height);
     this.ctx.fillStyle = color;
-    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    this.ctx.fillRect(0, 0, this.width, this.height);
   }
 }
 
 export class SurfaceMapRenderer extends BaseMapRenderer {
   draw(location: UniverseLocation, destination?: Vector3): void {
     this.clear('transparent');
+    if (!location.frameId.includes('manaus')) {
+      this.ctx.fillStyle = '#cbd5e1';
+      this.ctx.font = '14px sans-serif';
+      this.ctx.textAlign = 'left';
+      this.ctx.fillText(`${location.address.bodyId ?? 'Corpo'} · use a vista Planeta ou Sistema`, 24, 40);
+    }
   }
 }
 
@@ -45,8 +61,8 @@ export class PlanetMapRenderer extends BaseMapRenderer {
   
   draw(location: UniverseLocation, destination?: Vector3): void {
     this.clear('#020617');
-    const w = this.canvas.width;
-    const h = this.canvas.height;
+    const w = this.width;
+    const h = this.height;
     const cx = w / 2;
     const cy = h / 2;
     const r = Math.min(w, h) / 3;
@@ -128,93 +144,67 @@ const BODY_COLORS: Record<string, string> = {
 
 export class SystemMapRenderer extends BaseMapRenderer {
   private readonly ephemeris = new OfflineEphemeris();
-  private simTime = 0;
+  private bodies: readonly HUDBody[] = [];
+  zoom = 1;
+  readonly markers: { id: string; name: string; x: number; y: number; selected: boolean }[] = [];
 
-  draw(location: UniverseLocation, destination?: Vector3): void {
+  setBodies(bodies: readonly HUDBody[]): void { this.bodies = bodies; }
+  changeZoom(delta: number): void {
+    if (Number.isFinite(delta)) this.zoom = Math.max(0.5, Math.min(16, this.zoom * Math.exp(-Math.max(-1000, Math.min(1000, delta)) * 0.001)));
+  }
+  hitTest(x: number, y: number): string | undefined {
+    return [...this.markers].sort((a, b) => Math.hypot(a.x-x, a.y-y)-Math.hypot(b.x-x, b.y-y))
+      .find(marker => Math.hypot(marker.x-x, marker.y-y) <= 14)?.id;
+  }
+  get scaleText(): string { return `${(32 / (this.zoom * this.zoom)).toFixed(1)} AU · escala radial comprimida · ${this.zoom.toFixed(1)}×`; }
+
+  draw(location: UniverseLocation): void {
     this.clear('#020617');
-    const w = this.canvas.width;
-    const h = this.canvas.height;
-    const cx = w / 2;
-    const cy = h / 2;
-    const maxR = Math.min(w, h) * 0.42;
-
-    this.simTime += 86400 * 0.1; // advance time ~0.1 day per frame for visual orbital motion
-
-    // System grid
-    this.ctx.strokeStyle = 'rgba(51, 65, 85, 0.2)';
-    this.ctx.beginPath();
-    for (let i = 0; i < w; i += 50) {
-      this.ctx.moveTo(i, 0); this.ctx.lineTo(i, h);
-    }
-    for (let i = 0; i < h; i += 50) {
-      this.ctx.moveTo(0, i); this.ctx.lineTo(w, i);
-    }
-    this.ctx.stroke();
-
-    // Draw Sun at center
-    this.ctx.beginPath();
-    this.ctx.arc(cx, cy, 10, 0, Math.PI * 2);
-    this.ctx.fillStyle = BODY_COLORS.sun;
-    this.ctx.fill();
-
-    // Iterate through physical major bodies in solar system
-    for (const body of SOLAR_SYSTEM_BODIES) {
-      if (body.id === 'sun' || body.parentId !== 'sun') continue;
-
-      const sample = this.ephemeris.sample(body.id, this.simTime);
-      if (!sample) continue;
-      const distM = Math.hypot(sample.positionM[0], sample.positionM[2]);
-      const distAu = distM / AU_METRES;
-      // Square root mapping so inner planets and outer planets are both readable on canvas
-      const screenDist = Math.sqrt(Math.max(0.01, distAu) / 32) * maxR;
-      const angle = Math.atan2(sample.positionM[2], sample.positionM[0]);
-
-      // Draw orbit circle
-      this.ctx.beginPath();
-      this.ctx.arc(cx, cy, screenDist, 0, Math.PI * 2);
-      this.ctx.strokeStyle = 'rgba(148, 163, 184, 0.12)';
-      this.ctx.stroke();
-
-      const bx = cx + Math.cos(angle) * screenDist;
-      const by = cy + Math.sin(angle) * screenDist;
-
-      // Body radius scaled by physical size (clamped 2.5 to 8px)
-      const radiusPx = Math.max(2.5, Math.min(8, Math.log10(body.equatorialRadiusM / 1e6) * 3 + 3));
-
-      this.ctx.beginPath();
-      this.ctx.arc(bx, by, radiusPx, 0, Math.PI * 2);
-      this.ctx.fillStyle = BODY_COLORS[body.id] || '#ffffff';
-      this.ctx.fill();
-
-      // Highlight active body
-      if (location.address.bodyId === body.id) {
-        this.ctx.beginPath();
-        this.ctx.arc(bx, by, radiusPx + 6, 0, Math.PI * 2);
-        this.ctx.strokeStyle = '#ef4444';
-        this.ctx.lineWidth = 1.5;
-        this.ctx.stroke();
+    const w = this.width, h = this.height, cx = w/2, cy = h/2;
+    const maxR = Math.max(1, Math.min(w, h) * 0.39);
+    const bodies = this.bodies.length ? this.bodies : SOLAR_SYSTEM_BODIES.map(body => ({
+      id: body.id, name: body.name, selected: false, distanceFromPlayerM: 0,
+      systemPositionM: this.ephemeris.sample(body.id, 0)?.positionM ?? [0, 0, 0],
+    }));
+    const sun = bodies.find(body => body.id === 'sun')?.systemPositionM ?? [0, 0, 0];
+    const project = (p: readonly number[]) => {
+      const x = p[0]-sun[0], y = p[1]-sun[1]; // J2000 ecliptic XY, Z is the orbital pole.
+      const radius = Math.sqrt(Math.hypot(x,y)/AU_METRES/32)*maxR*this.zoom;
+      const angle = Math.atan2(y,x);
+      return { x: cx+Math.cos(angle)*radius, y: cy-Math.sin(angle)*radius, radius };
+    };
+    this.markers.length = 0;
+    const labels: { x: number; y: number; width: number }[] = [];
+    this.ctx.font = '12px "Inter", sans-serif';
+    this.ctx.textAlign = 'left';
+    for (const body of bodies) {
+      const p = project(body.systemPositionM);
+      if (body.id !== 'sun' && body.id !== 'moon') {
+        this.ctx.beginPath(); this.ctx.arc(cx,cy,p.radius,0,Math.PI*2);
+        this.ctx.strokeStyle='rgba(148,163,184,0.18)'; this.ctx.lineWidth=1; this.ctx.stroke();
+      }
+      const selected = body.selected;
+      this.markers.push({ id: body.id, name: body.name, x: p.x, y: p.y, selected });
+      this.ctx.beginPath(); this.ctx.arc(p.x,p.y,body.id === 'sun' ? 8 : 4,0,Math.PI*2);
+      this.ctx.fillStyle=BODY_COLORS[body.id] ?? '#fff'; this.ctx.fill();
+      if (selected) {
+        this.ctx.beginPath(); this.ctx.arc(p.x,p.y,12,0,Math.PI*2);
+        this.ctx.strokeStyle='#facc15'; this.ctx.lineWidth=2; this.ctx.stroke();
+      }
+      const label = body.name + (selected ? ' · ALVO' : '');
+      const width = this.ctx.measureText(label).width;
+      const lx = Math.max(8,Math.min(w-width-8,p.x+12));
+      let ly = Math.max(18,Math.min(h-28,p.y-8));
+      for (let attempt=0; attempt<20 && labels.some(r => Math.abs(r.y-ly)<15 && lx<r.x+r.width+6 && lx+width+6>r.x); attempt++) ly += 16;
+      if (p.x>=0 && p.x<=w && p.y>=0 && p.y<=h) {
+        this.ctx.fillStyle=selected ? '#facc15' : '#e2e8f0'; this.ctx.fillText(label,lx,ly);
+        labels.push({ x: lx, y: ly, width });
       }
     }
-
-    if (location.systemPositionM && !location.address.bodyId) {
-      const pDistM = Math.hypot(location.systemPositionM[0], location.systemPositionM[2]);
-      const pDistAu = pDistM / AU_METRES;
-      const pScreenDist = Math.sqrt(Math.max(0.001, pDistAu) / 32) * maxR;
-      const pAngle = Math.atan2(location.systemPositionM[2], location.systemPositionM[0]);
-
-      const px = cx + Math.cos(pAngle) * pScreenDist;
-      const py = cy + Math.sin(pAngle) * pScreenDist;
-
-      this.ctx.beginPath();
-      this.ctx.arc(px, py, 4, 0, Math.PI * 2);
-      this.ctx.fillStyle = '#ef4444';
-      this.ctx.fill();
+    if (location.systemPositionM) {
+      const p=project(location.systemPositionM);
+      this.ctx.beginPath(); this.ctx.arc(p.x,p.y,3,0,Math.PI*2); this.ctx.fillStyle='#ef4444'; this.ctx.fill();
     }
-
-    this.ctx.fillStyle = '#94a3b8';
-    this.ctx.font = '16px "Inter", sans-serif';
-    this.ctx.textAlign = 'center';
-    this.ctx.fillText(`SYSTEM: ${location.address.systemId ? location.address.systemId.toUpperCase() : 'SOL'}`, cx, h - 40);
   }
 }
 
@@ -223,8 +213,8 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
   
   draw(location: UniverseLocation, destination?: Vector3): void {
     this.clear('#000');
-    const w = this.canvas.width;
-    const h = this.canvas.height;
+    const w = this.width;
+    const h = this.height;
     const cx = w / 2;
     const cy = h / 2;
 
@@ -299,8 +289,8 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     };
     for (let i = 0; i < 200; i++) {
       this.points.push({
-        x: (lcg() - 0.5) * canvas.width * 2,
-        y: (lcg() - 0.5) * canvas.height * 2,
+        x: (lcg() - 0.5) * 2,
+        y: (lcg() - 0.5) * 2,
         z: lcg() * 1000
       });
     }
@@ -308,8 +298,8 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
 
   draw(location: UniverseLocation, destination?: Vector3): void {
     this.clear('#000');
-    const w = this.canvas.width;
-    const h = this.canvas.height;
+    const w = this.width;
+    const h = this.height;
     const cx = w / 2;
     const cy = h / 2;
 
@@ -318,8 +308,8 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
       if (p.z <= 0) p.z = 1000;
       
       const scale = 500 / p.z;
-      const px = cx + p.x * scale;
-      const py = cy + p.y * scale;
+      const px = cx + p.x * w * scale;
+      const py = cy + p.y * h * scale;
 
       if (px >= 0 && px <= w && py >= 0 && py <= h) {
         this.ctx.beginPath();

@@ -19,6 +19,9 @@ export interface PlanetCoverageReadiness {
   readonly activeTiles: number;
   readonly coarseCoverageReady: boolean;
   readonly surfaceCoverageReady: boolean;
+  readonly fallbackReady: boolean;
+  readonly landingRequiredKeys: readonly string[];
+  readonly landingMissingKeys: readonly string[];
 }
 
 export interface RockyPlanetProviderOptions {
@@ -40,7 +43,7 @@ export class RockyPlanetProvider implements WorldProvider {
   private centreM: Vec3 = [0, 0, 0];
   private distanceM = Number.POSITIVE_INFINITY;
   private streamingMode: 'off' | 'coarse' | 'surface' = 'off';
-  private cachedPlan?: { demands: readonly TileDemand[]; observer: EcefPosition; radiusM: number; timeS: number };
+  private cachedPlan?: { demands: readonly TileDemand[]; landingKeys: readonly string[]; observer: EcefPosition; radiusM: number; timeS: number };
   private playerFrameId = 'solar-system/barycentric';
 
   constructor(
@@ -76,8 +79,12 @@ export class RockyPlanetProvider implements WorldProvider {
 
   readiness(): PlanetCoverageReadiness {
     const activeTiles = this.globe.stats.tiles;
+    const landingRequiredKeys = this.cachedPlan?.landingKeys ?? [];
+    const landingMissingKeys = landingRequiredKeys.filter(key => !this.globe.has(key));
+    const fallbackReady = this.globe.fallbackReady;
     if (!this.cachedPlan || this.cachedPlan.demands.length === 0) {
-      return { activeTiles, coarseCoverageReady: false, surfaceCoverageReady: false };
+      return { activeTiles, coarseCoverageReady: fallbackReady, surfaceCoverageReady: false,
+        fallbackReady, landingRequiredKeys, landingMissingKeys };
     }
 
     let allRequiredReady = true;
@@ -90,8 +97,9 @@ export class RockyPlanetProvider implements WorldProvider {
 
     return {
       activeTiles,
-      coarseCoverageReady: allRequiredReady,
-      surfaceCoverageReady: allRequiredReady && this.streamingMode === 'surface',
+      coarseCoverageReady: fallbackReady || allRequiredReady,
+      surfaceCoverageReady: landingRequiredKeys.length > 0 && landingMissingKeys.length === 0 && this.streamingMode === 'surface',
+      fallbackReady, landingRequiredKeys, landingMissingKeys,
     };
   }
 
@@ -133,6 +141,8 @@ export class RockyPlanetProvider implements WorldProvider {
       this.streamingMode = mode;
       this.cachedPlan = undefined;
     }
+    if (mode === 'off') this.globe.releaseFallback();
+    else this.globe.ensureFallback(this.surface);
   }
 
   setVisible(visible: boolean): void {
@@ -213,9 +223,10 @@ export class RockyPlanetProvider implements WorldProvider {
       viewportHeightPx: context.camera.viewportHeightPx,
       targetPx: isCoarse ? 500 : context.quality.sseTargetPx,
       detailFactor: isCoarse ? 0.1 : context.quality.detailFactor,
-    });
+    }, isCoarse ? 0 : Math.min(8, this.options.maxLevel));
 
     const demands: TileDemand[] = [];
+    const landingKeys: string[] = [];
     let finestM = Number.POSITIVE_INFINITY;
     for (const tile of selection) {
       finestM = Math.min(finestM, tileExtentM(tile.address, this.surface.radiusM));
@@ -227,6 +238,8 @@ export class RockyPlanetProvider implements WorldProvider {
         x: tile.address.x,
         y: tile.address.y,
       };
+      const underPlayer = tile.groundRequired;
+      if (underPlayer) landingKeys.push(tileKeyToString(key));
       demands.push(tileDemand({
         key,
         providerId: this.id,
@@ -234,7 +247,7 @@ export class RockyPlanetProvider implements WorldProvider {
         screenSpaceError: tile.screenSpaceErrorPx,
         distanceM: tile.distanceM,
         timeToContactS: Number.POSITIVE_INFINITY,
-        gameplayCritical: false,
+        gameplayCritical: underPlayer && !isCoarse,
         representation: 'planet',
         centreM: [tile.centre.xM, tile.centre.yM, tile.centre.zM],
       }));
@@ -242,10 +255,12 @@ export class RockyPlanetProvider implements WorldProvider {
 
     this.cachedPlan = {
       demands,
+      landingKeys,
       observer: observerFixed,
       radiusM: Number.isFinite(finestM) ? Math.max(25, finestM * 0.25) : 25,
       timeS: context.spatial.timeS,
     };
+    this.globe.setRequiredTiles(demands.map(demand => tileKeyToString(demand.key)));
     return demands;
   }
 
@@ -255,7 +270,8 @@ export class RockyPlanetProvider implements WorldProvider {
       return Promise.reject(new Error(`${tileKeyToString(demand.key)} is not a ${this.bodyDef.id} tile`));
     }
     const address = { bodyId: k.bodyId, face: k.face as import('../planet/CubeSphere').CubeFace, level: k.level, x: k.x, y: k.y };
-    const mesh = buildPlanetTileMesh(address, this.surface);
+    const mesh = buildPlanetTileMesh(address, this.surface, false, 0,
+      k.level <= 2 ? this.surface.coarseResolution : undefined);
     return Promise.resolve({
       key: demand.key,
       version: 1,

@@ -42,7 +42,7 @@ for (const body of SOLAR_SYSTEM_BODIES) {
             assert.ok(Math.max(...object.scale.toArray().map(Math.abs)) <= 10_000_000);
           }
         });
-        assert.equal(seenMeshes, 11, 'ten body proxies plus one analytic ring mesh');
+        assert.equal(seenMeshes, 13, 'ten point proxies, two geographic spheres and one analytic ring mesh');
       }
       assert.ok(angles[0] < angles[1] && angles[1] < angles[2]);
     } finally { layer.dispose(); }

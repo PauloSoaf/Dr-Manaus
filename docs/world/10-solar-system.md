@@ -1,5 +1,137 @@
 # The solar system
 
+## SPACE-HARDENING-1 runtime contract
+
+Baseline: `f8f451250e564958ffad20d26b72df3fe4c9e6de`, branch `feat/universe-map`.
+The user's latest hardening request takes precedence over feature expansion in the older roadmap.
+
+### Camera and audio
+
+The old camera applied the local Euler pitch clamp in interplanetary space and rebuilt the view
+with `lookAt`. Flight then computed right from a world-up cross product, which degenerates at a
+pole. `CameraController` now maintains a normalized space quaternion; local yaw/pitch values are
+compatibility readouts. `prepareLook()` runs before propulsion. `cameraFlightAxes()` rotates the
+canonical camera basis, so W and the centre screen ray agree even after vertical rotations.
+Space update bypasses local terrain/camera sweeps. Surface return transports the outgoing view
+from the render frame into the body's ENU before restoring the existing local pitch limits.
+
+The ambience generator previously interpreted speed alone as wind everywhere. Its explicit
+environment now contains medium, density, speed, altitude and local rain/river flags. Earth density
+uses an 8.5 km exponential scale height and rounds the inaudible tail to zero. Both wind and other
+environmental ambience are zero for vacuum/airless terrain; impact/power effects use their own bus.
+
+### Earth geography and physical size
+
+The old distant Earth was a dim blue procedural disc without geographic information.
+Its point core is now 3.5 px, with an 8 px bounded glow extent. These are optical presentation
+dimensions only. Point weight fades into `GeographicBodyVisual`, whose colours sample the existing
+Natural Earth land mask with `surfaceColour()`. Continents, oceans and latitude-based ice/arid
+tints therefore share the existing Earth data rather than random shader shapes.
+
+Geographic spheres use `bodyFixedOrientationRender`, the actual fixed-frame transform, rather
+than the additional catalog-only tilt used for analytic bands/rings. Their radius is
+`sin(physicalAngularRadius) * boundedProxyDistance`; a spherical proxy therefore subtends the
+physical angle exactly. The existing EarthProvider/globe becomes the owner once its fallback or
+view coverage is ready. No astronomical Object3D positions, physical-radius inflation, new Earth
+streamer or runtime geography service were introduced. The constant proxy mesh count is now
+13: ten point/body proxies, two geographic spheres and Saturn's analytic rings.
+
+### Moon coverage, data and landing
+
+The old rocky-body plan could truncate before reaching a contact tile, even with nearest-first
+traversal: equal-distance branches at a boundary exhausted the cap first. Readiness also required
+the whole visible cut. There was no complete coarse backup, and retiring a cut could expose holes.
+The material used Earth fog and multiplied its sampled vertex colour twice, dimming the lunar
+surface. Distance blending could leave both the analytic proxy and the physical globe visible.
+
+The shared quadtree now reserves a 100 m contact footprint at level 8 (or the configured maximum)
+before spending the remaining budget. Boundary neighbours are included and marked gameplay
+critical. The cap remains unchanged; active landing keys, rather than every distant tile, govern
+`surfaceCoverageReady`. Coarse mode still uses the normal SSE policy. Retired cuts cannot remain
+visible on top of the current one.
+
+The active physical body lazily creates six fallback faces within its existing globe. Moon orbital
+faces use a bounded 65×65 grid to retain mapped maria and relief; refined local tiles retain the
+17×17 grid. A simple 4 m vertex offset is insufficient for a measured basin between coarse vertices:
+the lunar fallback instead takes the minimum DEM cell value over each vertex's neighbouring facets,
+then applies that offset. Bilinear cells and pole blends are bounded by those minima, and convex
+facet interpolation remains below authoritative terrain. This is a conservative presentation
+approximation, not the height used for collisions. Refined vertices and `PlanetTerrainProvider`
+continue using `planetSurfaceRadius()` and the same measured elevation. Fallback triangles are
+included in globe statistics. The root/material/opacity are shared, Earth fog is disabled, albedo
+is applied once, and a ready physical Moon fully retires its proxy.
+
+The primary Moon source is NASA's 2019 CGI Moon Kit, ingested offline and bundled with pinned
+source hashes, attribution, datum and projection. NASA's 1,737,400 m spherical datum is converted
+to relief over the unchanged catalog ellipsoid. Radius, ephemerides, cruise exclusions and arrival
+physics retain their catalog authority. Rendering/terrain share the converted measured surface;
+sampling wraps the antimeridian and converges to longitude-independent polar averages.
+See [lunar ingestion details](06-geodata-pipeline.md#lunar-elevation-and-appearance).
+
+Two functional issues prevented reliable walking. Returning above the ground teleported the player
+into `Hover`, which omitted gravity; terrain contact did not end downward flight. Return now uses
+`Falling`, keeps transported local velocity, places an already penetrated arrival above the actual
+floor, and lets swept collision establish `Grounded`. Downward flight contact also ends flight.
+Airless entry/return gates measure actual shared terrain clearance, avoiding a late handoff inside
+highlands. Thresholds remain 9 km departure / 7 km return and 10 km/s maximum relative return speed.
+Game binds the real planetary terrain and body gravity (Moon catalog value ≈1.622957 m/s²); the
+existing player motor preserves Earth's established jump impulse and scales its gameplay gravity
+by the body's ratio. No alternate Moon landing class, debug shortcut or hidden key is involved.
+
+City impact bursts were another source of large warm polygons in a lunar landing view. Airless
+landings now retain a bounded energy ring/SFX while suppressing city debris, deformation hooks
+and unearned crater notices. This does not implement lunar deformation or volume Phase 2.
+
+`Game.moonLandingState` and F3 expose actual terrain clearance, Moon-relative speed, frame/domain,
+gates and blocking reason, contact coverage/missing keys, active tiles, fallback activity and
+proxy/globe ownership/opacities. Game's physics diagnostic exposes the bound body, gravity and floor.
+
+### Universal map
+
+The old DOM placed the sidebar first while CSS gave the large column to it. The universal canvas
+also stretched a fixed 800×600 backing store, advanced its own orbit time, projected the wrong
+ecliptic plane and printed a city-only scale. Explicit grid areas now produce a 94 vw × 88 vh
+desktop panel, 320 px sidebar and a large canvas. Smaller screens stack the canvas and sidebar.
+Each draw measures CSS dimensions, resizes the backing store and draws in CSS units with DPR ≤2.
+
+System positions come from live HUD barycentric samples; its projection is ecliptic XY. Square-root
+radial compression keeps Neptune and the inner planets readable at default zoom; scale text
+explicitly says it is compressed. Wheel zoom is bounded to 0.5–16, finite and preserves radial
+order. Names, target rings and nearest-marker hit testing are present; clicks select navigation
+identity, while explicit translocation retains its separate existing action. The sidebar offers
+body names and distances instead of overlapping XYZ columns. All five level controls remain,
+with an active state. Interplanetary entry defaults to System and non-Earth local surfaces default
+to Planet; Manaus's city canvas is restricted to its actual frame. Panning was not added.
+
+### Changed files and verification
+
+| Area | Files |
+| --- | --- |
+| Input/motion/audio | `src/player/CameraController.ts`, `src/player/PlayerController.ts`, `src/player/powers/PowerSystem.ts`, `src/audio/AudioManager.ts` |
+| Gameplay/gates | `src/game/Game.ts`, `src/world/travel/TravelDomain.ts` |
+| Planet surface/coverage | `src/world/planet/PlanetSurface.ts`, `PlanetGlobe.ts`, `PlanetQuadtree.ts`, `MoonSurface.ts`, `MoonSurfaceData.ts`, `src/world/providers/RockyPlanetProvider.ts` |
+| Celestial presentation | `src/rendering/celestial/GeographicBodyVisual.ts`, `CelestialBodyVisualLayer.ts`, `CelestialPresentationController.ts`, `types.ts`, `src/world/celestial/CelestialBodyProfile.ts` |
+| UI/map | `src/ui/HUD.ts`, `src/ui/style.css`, `src/ui/map/UniversalMapPanel.ts`, `MapRenderers.ts` |
+| Lunar artifact/tooling | `src/world/geodata/moon-surface.json`, `scripts/geodata/build-moon-surface.py`, `requirements-lunar.txt`, `.gitattributes` (stable LF artifact hash) |
+| New regressions | `tests/space-hardening.test.ts`, `moon-landing-hardening.test.ts`, `universal-map-hardening.test.ts` |
+| Existing regressions | `tests/celestial-presentation.test.ts`, `solar11-presentation.test.ts`, `planet-terrain-physics.test.ts` |
+| Browser/commands | `scripts/space-hardening-browser.mjs`, `package.json` |
+| Authoritative documentation | `docs/world/10-solar-system.md`, `15-status.md`, `06-geodata-pipeline.md`, `specs/Promptatual.md` |
+
+On 2026-10-02: **52 added unit tests**, **110/110 focused** and **491/491 full** tests passed;
+typecheck, production build and diff checks passed. The build's existing bundle-size advisory remains.
+`npm run build` followed by `npm run test:browser:space` passed with installed Playwright/Chromium:
+map layout/canvas, automatic System selection, quaternion pole rotation, exclusive complete lunar
+globe, actual streamed Game return into `moon/local-enu`, Grounded, keyboard walking, jump and
+takeoff, with no captured page/console errors. Screenshots and diagnostics are under ignored
+`artifacts/space-hardening-*`; screenshots were inspected and exposed/fixed the impact-particle leak.
+The browser's incoming fixtures cover the real gameplay handoff but do not claim a manually flown
+Earth–Moon–Earth trip. User manual validation remains pending for the full travel/control matrix,
+Earth geographical transition, lunar phases/limbs/seams at additional sites, wind/SFX perception
+and other display/GPU configurations. Lunar centimetre-scale terrain is not provided by this DEM.
+
+This checkpoint ends here. Task 012, additional moons and volume Phase 2 remain future work.
+
 Implements `10-SOLAR-SYSTEM.md`. Code: `src/world/celestial/`.
 Tests: `tests/solar-system.test.ts`, `tests/solar11-*.test.ts`, plus existing landing/render regressions.
 

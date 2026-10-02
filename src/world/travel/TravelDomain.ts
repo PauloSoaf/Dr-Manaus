@@ -109,6 +109,7 @@ export class TravelDomain {
   private travel?: InterplanetaryState;
   private readonly options: Required<TravelDomainOptions>;
   private lastTransition: TravelTransition = { kind: 'none' };
+  private returnBlockedReason: 'local' | 'altitude' | 'speed' | 'surface-stream' | 'ready' = 'local';
 
   constructor(options: TravelDomainOptions = {}) {
     const entryAlt = options.entryAltitudeM ?? options.safeAltitudeM ?? DEFAULTS.entryAltitudeM;
@@ -130,6 +131,10 @@ export class TravelDomain {
   get isTravelling(): boolean { return this.current === 'interplanetary'; }
   get state(): InterplanetaryState | undefined { return this.travel; }
   get transition(): TravelTransition { return this.lastTransition; }
+  get landingGate() {
+    return { returnAltitudeM: this.options.returnAltitudeM, maxRelativeSpeedMps: this.options.maxLocalReturnSpeedMps,
+      entryAltitudeM: this.options.entryAltitudeM, blockedReason: this.returnBlockedReason };
+  }
 
   /**
    * Whether the local simulation should run this frame.
@@ -189,7 +194,10 @@ export class TravelDomain {
     const alt = finite(context.altitudeM);
     const speed = finite(context.speedMps);
 
-    if (context.surfaceReady === false) return { kind: 'none' };
+    this.returnBlockedReason = context.surfaceReady === false ? 'surface-stream'
+      : alt > this.options.returnAltitudeM ? 'altitude'
+      : speed > this.options.maxLocalReturnSpeedMps ? 'speed' : 'ready';
+    if (this.returnBlockedReason !== 'ready') return { kind: 'none' };
 
     if (alt <= this.options.returnAltitudeM && speed <= this.options.maxLocalReturnSpeedMps) {
       this.toLocal();
@@ -219,5 +227,6 @@ export class TravelDomain {
   reset(): void {
     this.toLocal();
     this.lastTransition = { kind: 'none' };
+    this.returnBlockedReason = 'local';
   }
 }

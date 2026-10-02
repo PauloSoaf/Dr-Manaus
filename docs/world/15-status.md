@@ -1,5 +1,53 @@
 # Planetary architecture — implementation status
 
+## SPACE-HARDENING-1 — 2026-10-02
+
+Implemented from baseline `f8f451250e564958ffad20d26b72df3fe4c9e6de` on
+`feat/universe-map`, including the user's P0 walkable Moon and P1 universal-map additions.
+This checkpoint stops feature expansion: Task 012, volume Phase 2 and additional moons remain
+outside its scope. Historical entries below describe earlier checkpoints.
+
+- Space camera orientation is quaternion-owned, with continuous pole crossing. Mouse input is
+  consumed before thrust; W, the central camera ray, strafing and vertical movement share the
+  same camera basis. Ground pitch limits and camera collision remain active locally.
+- Environmental audio receives medium and atmospheric density explicitly. Earth wind fades
+  continuously with density; vacuum and airless terrain have zero environmental gain. The
+  independent effects bus remains available.
+- Earth has a 3.5 px point core and 8 px optical extent, then an offline Natural Earth geographic
+  proxy aligned to the actual body-fixed frame. Physical radii and logical coordinates are unchanged.
+- Moon uses bundled NASA LRO/LOLA elevation and LROC/LOLA appearance. A complete six-face
+  fallback covers missing/retired cuts; its conservative DEM envelope stays under refined terrain
+  between vertices. Coarse lunar faces use 65×65 samples, local tiles 17×17. Fog and duplicated
+  vertex-colour multiplication are disabled. One physical globe replaces the proxy exclusively.
+- Landing readiness reserves the 100 m footprint, including neighbouring tiles at boundaries,
+  before other branches spend the tile budget. Airless gates measure actual terrain clearance.
+  The existing TravelDomain → UniverseRuntime handoff → Game physics binding enters
+  `moon/local-enu`; the player falls under the selected body's gravity, becomes `Grounded`,
+  walks, jumps and takes off. City debris and fictitious crater notices no longer accompany
+  airless landings; a bounded stylized impact and its audio remain.
+- The desktop map occupies 94 vw × 88 vh, with a 320 px sidebar and explicit grid areas.
+  Its universal canvas follows display dimensions with DPR capped at 2. The System view uses
+  live ecliptic XY positions, names, target selection, finite zoom and AU scale text. Interplanetary
+  entry defaults to System; a Moon surface never displays the Manaus city map.
+
+Validation: **491/491 unit tests passed** (52 added), **110/110 focused tests passed**,
+`npm run typecheck`, `npm run build` and `git diff --check` passed. The build retains the existing
+bundle-size advisory. **`npm run test:browser:space` passed** using installed Playwright/Chromium
+and the production build: desktop layout/backing size, automatic System view, space quaternion
+input, one orbital Moon, streamed Game return, grounded Moon, keyboard walking, jumping and
+takeoff; zero captured page/console errors. No browser tooling was installed.
+
+Browser setup uses explicit near-arrival fixtures; it does not establish a complete manual
+Earth–Moon–Earth trip. Existing `test:browser` is the older city/ascent suite, whose stale origin
+and arming assumptions were recorded in the preceding checkpoint; it is not reported as passing
+here. User manual validation remains required for the full 35-case travel/control/phase matrix,
+Earth point-to-globe visual quality, lunar limb/seams from multiple landing sites and DPR/resizing
+on other hardware. The bundled DEM resolves roughly 15 km at the equator, not centimetre terrain.
+
+Source, reproducible ingestion and size are in [06-geodata-pipeline.md](06-geodata-pipeline.md).
+The root causes, changed-file inventory and current runtime contract are in
+[10-solar-system.md](10-solar-system.md#space-hardening-1-runtime-contract).
+
 Tracks `dr-manaus-cosmic-world-specs` against the code, phase by phase. Written so that anyone
 picking this up knows what is finished, what is half-finished, and what has not been started —
 including the things that do not work.

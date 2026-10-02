@@ -30,4 +30,6 @@ export interface CelestialRenderSample {
   phaseLightDirection?: Vec3;
   /** Catalog axial model converted into render axes, used for bands and Saturn's rings. */
   bodyOrientationRender?: Quat;
+  /** Actual fixed frame, without extra catalog-only visual tilt. */
+  bodyFixedOrientationRender?: Quat;
 }

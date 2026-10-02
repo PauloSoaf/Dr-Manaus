@@ -219,7 +219,7 @@ export class HUD {
       <section class="debug-panel" id="debug-panel" hidden><div class="eyebrow">DIAGNÓSTICO · F3</div><div id="debug-metrics"></div><div class="debug-controls"><select id="debug-travel"><option value="">Teleportar para…</option>${LANDMARKS.map(l=>`<option value="${l.id}">${l.shortName}</option>`).join('')}</select>${[['bounds','Limites de chunks'],['lod','Cores de LOD'],['hlod','HLOD'],['geo','Marcos geográficos'],['roads','Cores de via'],['wireframe','Wireframe'],['culling','Frustum de câmera']].map(([id,label])=>`<label><input type="checkbox" data-debug="${id}"/>${label}</label>`).join('')}<label>Velocidade <input type="range" min="0.25" max="3" step="0.25" value="1" id="flight-speed"/></label><button class="text-button" id="stress-run">Iniciar rota de stress</button></div></section>
       <div class="loading-tag" id="loading-tag"><span class="spinner"></span>Despertando sobre a Amazônia…</div>`;
     document.querySelector('#app')!.append(root);
-    this.universalMap = new UniversalMapPanel($('#universal-map-container'), { address: { galaxyId: 'milky_way', sector: sectorIndex(0n, 0n, 0n), systemId: 'sol', bodyId: 'earth' }, frameId: 'earth/manaus/legacy-enu' }, id => this.travel(id), () => this.togglePanel(''));
+    this.universalMap = new UniversalMapPanel($('#universal-map-container'), { address: { galaxyId: 'milky_way', sector: sectorIndex(0n, 0n, 0n), systemId: 'sol', bodyId: 'earth' }, frameId: 'earth/manaus/legacy-enu' }, id => this.travel(id), () => this.togglePanel(''), id => this.hooks.setTarget(id));
     this.mini=new CityMap($('#minimap'),false);this.map=new CityMap($('#city-map'),true);
     root.querySelectorAll<HTMLButtonElement>('[data-panel]').forEach(button=>button.onclick=()=>this.togglePanel(button.dataset.panel!));
     root.querySelectorAll<HTMLButtonElement>('.close-panel').forEach(button=>button.onclick=()=>this.togglePanel(''));
@@ -414,7 +414,7 @@ export class HUD {
     
     const alt=typeof state.altitudeM==='number'?state.altitudeM:state.position.y;
     $('#altitude').textContent=alt>999999?(alt/1000).toFixed(0)+' km':alt>9999?(alt/1000).toFixed(1)+' km':Math.round(alt)+' m';
-    $('#flight-state').textContent=speed>343?'SUPERSÔNICO':state.state==='Grounded'?'EM SOLO':state.state==='Hover'?'LEVITANDO':'EM VOO';
+    $('#flight-state').textContent=speed>343?'SUPERSÔNICO':state.state==='Grounded'?'EM SOLO':state.state==='Falling'?'EM QUEDA':state.state==='Hover'?'LEVITANDO':'EM VOO';
     $('#world-time').textContent=state.time;$('#world-weather').textContent=({clear:'CÉU LIMPO',cloudy:'NUBLADO',rain:'CHUVA',storm:'TEMPORAL'} as Record<string,string>)[state.weather]??state.weather;
     const directions=['N','NE','L','SE','S','SO','O','NO'];const heading=((state.yaw*180/Math.PI)%360+360)%360;$('#heading').textContent=directions[Math.round(heading/45)%8];
     document.querySelectorAll<HTMLButtonElement>('[data-power]').forEach(button=>button.classList.toggle('active',button.dataset.power===state.selected));
@@ -437,4 +437,3 @@ export class HUD {
     }
   }
 }
-

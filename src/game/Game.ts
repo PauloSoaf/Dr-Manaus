@@ -22,7 +22,7 @@ import { createAirport } from '../world/realcity/airport';
 import { LANDMARKS, isLand } from '../world/geodata/geodata';
 import { InputController } from '../player/InputController';
 import { PlayerController } from '../player/PlayerController';
-import { CameraController } from '../player/CameraController';
+import { CameraController, cameraFlightAxes } from '../player/CameraController';
 import { PowerSystem } from '../player/powers/PowerSystem';
 import type { CosmicLevel } from '../player/CharacterModel';
 import { TerrainDestruction } from '../world/destruction/TerrainDestruction';
@@ -32,7 +32,7 @@ import { DestructionSystem } from '../world/destruction/DestructionSystem';
 import { TrafficSystem } from '../world/traffic/TrafficSystem';
 import { PopulationManager } from '../entities/PopulationManager';
 import { MissionManager } from '../missions/MissionManager';
-import { AudioManager } from '../audio/AudioManager';
+import { AudioManager, earthAtmosphericDensity01 } from '../audio/AudioManager';
 import { HUD, type HUDPresentationDomain } from '../ui/HUD';
 import { UniverseRuntime } from '../world/runtime/UniverseRuntime';
 import { BlackHoleProvider } from '../world/providers/BlackHoleProvider';
@@ -53,6 +53,7 @@ import { bodyProfile, bodyArrivalPolicy } from '../world/celestial/CelestialBody
 import { bodyExclusionEnvelopes, selectBodyDestination, resolveBodyDestination } from '../world/travel/BodyNavigation';
 import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { PlanetTerrainProvider } from '../world/planet/PlanetTerrainProvider';
+import { planetSurfaceRadius } from '../world/planet/PlanetSurface';
 import { WGS84 } from '../world/spatial/WGS84';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import {
@@ -209,6 +210,7 @@ export class Game {
     this.destruction=new DestructionSystem(this.worldRoot,this.destructible);
     this.player.beforeMove=(position,velocity,dt)=>{if(!this.manausSimulationActive)return [];this.destruction.plough(position,velocity,dt,true);this.gatherColliders();if(FEATURES.curvedManaus)this.curveColliders();return FEATURES.curvedManaus?this.curvedColliders:this.colliders;};
     this.powers=new PowerSystem(this.actorRoot,this.player,this.rendering.camera,this.input,{
+      canDeformSurface:()=>this.manausSimulationActive,
       targets:()=>this.manausSimulationActive?[...this.population.targets,...this.missions.targets]:[],
       hit:(id,force)=>{if(this.manausSimulationActive)this.missions.hit(id,force)||this.population.hit(id,force);},
       reconstruct:(position,radius)=>{
@@ -354,25 +356,12 @@ export class Game {
       this.camera.inSpace = true;
       this.hud.notify(`Comando de voo · Interplanetário`);
     } else if (transition.kind === 'returned') {
-      const targetBody = this.universe.telemetry.dominantBody;
-      const previousViewFrame=this.universe.renderSpace.currentOrigin.frame;
-      this.rendering.camera.getWorldDirection(this.viewForward);
-      const newLocalPos = this.universe.handoffTo(targetBody);
-      const landingView=this.universe.frames.convertDirection(previousViewFrame,this.universe.player.frame,[this.viewForward.x,this.viewForward.y,this.viewForward.z]);
-      this.camera.yaw=Math.atan2(-landingView[0],-landingView[2]);
-      this.camera.pitch=Math.max(-1.15,Math.min(1.27,Math.asin(Math.max(-1,Math.min(1,-landingView[1])))));
-      this.bindSurfacePhysics();
-      this.player.teleport(new Vector3(...newLocalPos));
-      this.player.velocity.set(...this.universe.localVelocityMps);
-      const uOrigin = this.universe.renderSpace.currentOrigin.position;
-      this.renderOriginVec.set(...uOrigin);
-      if (!this.earth) this.localRoot.position.copy(this.renderOriginVec).negate();
-      this.actorRoot.position.copy(this.renderOriginVec).negate();
-      this.camera.inSpace = false;
-      this.hud.notify(`Aproximação · ${this.universe.activeSystem.bodies.find(body=>body.id===targetBody)?.name ?? targetBody}`);
+      this.finishSurfaceReturn(this.universe.telemetry.dominantBody);
     }
     this.bindSurfacePhysics();
     const local = this.travelDomain.localPhysicsActive;
+    this.camera.inSpace = !local;
+    this.camera.prepareLook();
     const manaus = this.manausSimulationActive;
     // Non-Earth local ENU frames are planetary presentation domains too. Earth refines this
     // below with its coverage-aware visual handoff.
@@ -423,12 +412,7 @@ export class Game {
         this.player.velocity.set(0,0,0);
         
         // Read input for thrust and brake aligned with camera
-        const camFwd = new Vector3();
-        this.rendering.camera.getWorldDirection(camFwd);
-        const worldUp = new Vector3(0, 1, 0);
-        let camRight = new Vector3().crossVectors(camFwd, worldUp).normalize();
-        if (camRight.lengthSq() < 1e-4) camRight.set(1, 0, 0);
-        const camUp = new Vector3().crossVectors(camRight, camFwd).normalize();
+        const { forward: camFwd, right: camRight, up: camUp } = cameraFlightAxes(this.rendering.camera);
 
         const boostHeld = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
         const inputBrake = this.input.held('KeyX');
@@ -623,7 +607,14 @@ export class Game {
     const skyAltitude=this.universe.telemetry.dominantBody==='earth'?altitudeNow:1_000_000;
     this.atmosphere.setAltitude(skyAltitude);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(skyAltitude,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=manaus?this.weather.update(worldDt,this.player.position,this.atmosphere.weather):0;if(flash)this.atmosphere.sun.intensity+=flash;
     if(this.galaxy)this.galaxy.recentre([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z]);
-    this.audio.update(speedNow,altitudeNow,manaus&&['rain','storm'].includes(this.atmosphere.weather),manaus&&!isLand(this.player.position.x,this.player.position.z));
+    const audioBody=this.universe.telemetry.dominantBody;
+    this.audio.update({
+      medium:audioBody==='earth'?'earth-atmosphere':local?'airless-surface':'vacuum',
+      atmosphericDensity01:audioBody==='earth'?earthAtmosphericDensity01(altitudeNow):0,
+      speedMps:speedNow,altitudeM:altitudeNow,
+      rain:manaus&&['rain','storm'].includes(this.atmosphere.weather),
+      river:manaus&&!isLand(this.player.position.x,this.player.position.z),
+    });
     if(manaus){
       this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     }
@@ -793,7 +784,7 @@ export class Game {
     }
     if (this.travelDomain.localPhysicsActive) this.warpStep = 0;
     this.travelDomain.update({
-      altitudeM:t.altitudeM,
+      altitudeM:this.surfaceClearanceM(t.dominantBody) ?? t.altitudeM,
       speedMps:this.currentGameplaySpeedMps(),
       requested,
       nearestColliderM:nearest,
@@ -819,10 +810,40 @@ export class Game {
     return this.planetProviders.get(bodyId);
   }
 
+  /** Airless landing/departure gates use the same measured relief as local collision. */
+  private surfaceClearanceM(bodyId:string):number|undefined {
+    const provider=this.surfaceProvider(bodyId);
+    const body=this.universe.activeSystem.bodies.find(candidate=>candidate.id===bodyId);
+    if(!provider||!body)return undefined;
+    const fixed=this.universe.frames.convertPosition('solar-system/barycentric',body.frameId,this.universe.playerSystemPositionM());
+    const radius=Math.hypot(...fixed);
+    if(!(radius>0))return -planetSurfaceRadius(provider.surface,[1,0,0]);
+    return radius-planetSurfaceRadius(provider.surface,[fixed[0]/radius,fixed[1]/radius,fixed[2]/radius]);
+  }
+
   private surfaceReadyForLanding(bodyId:string):boolean {
     const body=this.universe.activeSystem.bodies.find(candidate=>candidate.id===bodyId);
     if(!body||!bodyProfile(body).canLand)return false;
     return bodyId==='earth'||this.surfaceProvider(bodyId)?.readiness().surfaceCoverageReady===true;
+  }
+
+  /** Completes the TravelDomain return using the actual gameplay physics and view. */
+  private finishSurfaceReturn(targetBody:string):void {
+      const previousViewFrame=this.universe.renderSpace.currentOrigin.frame;
+      this.rendering.camera.getWorldDirection(this.viewForward);
+      const newLocalPos = this.universe.handoffTo(targetBody);
+      const landingView=this.universe.frames.convertDirection(previousViewFrame,this.universe.player.frame,[this.viewForward.x,this.viewForward.y,this.viewForward.z]);
+      this.camera.setLocalView(landingView);
+      this.bindSurfacePhysics();
+      this.player.teleport(new Vector3(...newLocalPos));
+      this.player.velocity.set(...this.universe.localVelocityMps);
+      this.player.beginSurfaceApproach();
+      const uOrigin = this.universe.renderSpace.currentOrigin.position;
+      this.renderOriginVec.set(...uOrigin);
+      if (!this.earth) this.localRoot.position.copy(this.renderOriginVec).negate();
+      this.actorRoot.position.copy(this.renderOriginVec).negate();
+      this.camera.inSpace = false;
+      this.hud.notify(`Aproximação · ${this.universe.activeSystem.bodies.find(body=>body.id===targetBody)?.name ?? targetBody}`);
   }
 
   private bindSurfacePhysics():void {
@@ -867,6 +888,26 @@ export class Game {
       colliderCount:this.colliders.length+this.curvedColliders.length,
       manausSimulationActive:this.manausSimulationActive,
     };
+  }
+
+  /** Landing and representation gates are inspectable through F3 and browser diagnostics. */
+  get moonLandingState(){
+    const provider=this.surfaceProvider('moon');
+    const readiness=provider?.readiness();
+    const altitudeM=this.surfaceClearanceM('moon')??Infinity;
+    const velocity=this.travelDomain.state?.velocityMps??this.universe.systemVelocityMps();
+    const orbital=this.universe.activeSystem.stateOf('moon')?.velocityMps??[0,0,0];
+    const relativeSpeedMps=Math.hypot(...velocity.map((v,i)=>v-orbital[i]));
+    const sample=this.celestialController.renderSamples.find(candidate=>candidate.bodyId==='moon');
+    const gate=this.travelDomain.landingGate;
+    return {altitudeM,relativeSpeedMps,surfaceReady:readiness?.surfaceCoverageReady??false,
+      activeTiles:readiness?.activeTiles??0,missingLandingTiles:readiness?.landingMissingKeys.length??0,
+      fallbackActive:provider?.globe.visible===true&&readiness?.fallbackReady===true,
+      representation:this.physicsDomain==='moon'?'local-surface':provider?.globe.visible
+        ?provider.presentationMode==='surface'?'surface-globe':'coarse-globe':'proxy',
+      proxyOpacity:sample?.visible?sample.opacity:0,globeOpacity:provider?.globe.visible?provider.globe.opacity:0,
+      domain:this.travelDomain.kind,frame:this.universe.player.frame,...gate,
+      blockedReason:this.physicsDomain==='moon'?'local':this.universe.telemetry.dominantBody!=='moon'?'not-near-moon':gate.blockedReason};
   }
 
   /**
@@ -1001,6 +1042,7 @@ export class Game {
   private universeDebug():Record<string,string|number>{
     if(!FEATURES.spatialCore)return{};
     const t=this.universe.telemetry;
+    const moon=this.moonLandingState;
     return{
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
       'Geo · Altitude':`${t.altitudeM.toFixed(1)} m`,
@@ -1014,12 +1056,12 @@ export class Game {
       'Corpos · Apresentação':this.celestialController.physicalMode,
       'Corpos · Tiles residentes':Array.from(this.planetProviders,([id,provider])=>`${id}: ${provider.stats.tiles}`).join(' · '),
       'Destino':this.navigationTarget?.bodyId??'—',
+      'Lua · Pouso':`${moon.blockedReason} · ${moon.altitudeM.toFixed(0)} m sobre terreno · ${moon.relativeSpeedMps.toFixed(0)} m/s relativos`,
+      'Lua · Gates':`retorno ≤ ${moon.returnAltitudeM} m sobre terreno / ${moon.maxRelativeSpeedMps} m/s · superfície ${moon.surfaceReady?'pronta':'aguardando'} (${moon.missingLandingTiles} tiles faltando)`,
+      'Lua · Representação':`${moon.representation} · proxy ${moon.proxyOpacity.toFixed(2)} / globo ${moon.globeOpacity.toFixed(2)} · fallback ${moon.fallbackActive?'ativo':'off'} · ${moon.activeTiles} tiles`,
       ...(this.earth?{'Planeta · Globo':`${this.earth.stats.tiles} tiles · ${this.earth.stats.triangles.toLocaleString()} tri · ${this.earth.stats.visible?'visível':'oculto'}`}:{}),
     };
   }
 
   private sample(){const info=this.rendering.renderer.info,stats=this.streamer.stats;this.frame={fps:Math.round(1000/this.quality.averageMs),cpu:Number(this.cpu.toFixed(2)),drawCalls:info.render.drawCalls,triangles:info.render.triangles,geometries:info.memory.geometries,textures:info.memory.textures,active:stats.active,cached:stats.cached,queued:stats.queued,loadedMB:stats.loadedMB+info.memory.total/1048576,streamMs:stats.streamMs,x:this.player.position.x,z:this.player.position.z};}
 }
-
-
-

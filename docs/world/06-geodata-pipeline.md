@@ -24,9 +24,61 @@ These are project constraints, not preferences:
 | --- | --- | --- | --- | --- |
 | `src/world/geodata/earth-landmask.json` | Natural Earth 1:110m Physical Vectors — land | Public domain | 86 KB | 2026-09-25 |
 | `src/world/geodata/earth-elevation.json` | NOAA NGDC ETOPO5 global relief, 5 arc-minute | Public domain (US Gov) | 341 KB | 2026-09-26 |
+| `src/world/geodata/moon-surface.json` | NASA SVS CGI Moon Kit (2019 LRO/LOLA + LROC/LOLA) | Public domain per NASA SVS; no exception noted | 1,391,397 bytes | 2026-10-02 |
 
 Natural Earth's terms state that no permission is needed to use it and that crediting the authors
 is appreciated but not required. It is public domain.
+
+## Lunar elevation and appearance
+
+Source: [NASA Scientific Visualization Studio, CGI Moon Kit](https://svs.gsfc.nasa.gov/4720/).
+The kit's 2019 LOLA displacement map supplies measured relief; its LROC WAC colour map supplies
+mapped maria, highlands and rays, with polar colour filled from LOLA albedo. The RGB source uses
+643/566/415 nm channels adapted for visualization; it is not a radiometrically calibrated gameplay
+reflectance model. Runtime appearance is neutral luminance with a documented readability floor.
+
+[NASA SVS usage terms](https://svs.gsfc.nasa.gov/help/) identify their content as public domain
+unless an exception is noted; none is noted for these selected maps. Attribution is embedded in
+the artifact: NASA's Scientific Visualization Studio; Ernie Wright (USRA), Noah Petro (NASA/GSFC);
+LRO/LOLA and LROC teams. No paid, proprietary or live map service is involved.
+
+| Source TIFF | Source dimensions | SHA-256 |
+| --- | --- | --- |
+| [LOLA 4 px/degree unsigned elevation](https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/ldem_4_uint.tif) | 1440×720 | `e6668bec27fc9b8fbb02d198c7ddfb08eedeeb790167b494f95e6b34201da05e` |
+| [2019 LROC/LOLA colour](https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_poles_2k.tif) | 2048×1024 | `13b797422e8c4b8607ff2b2623ac3a046a6da0132d567c2d272d92fad7052c4a` |
+
+Run offline with Python and the pinned ingestion dependency:
+
+```powershell
+python -m pip install -r scripts/geodata/requirements-lunar.txt
+python scripts/geodata/build-moon-surface.py
+# Reuse audited sources already on disk:
+python scripts/geodata/build-moon-surface.py --cache artifacts/lunar-source
+```
+
+Pillow 12.3.0 decodes the TIFFs. The script verifies exact source hashes and dimensions; a changed
+source requires a provenance audit rather than silently refreshing the artifact. Default raw cache
+is ignored `data/raw-geodata/moon`. It averages 2×2 DEM cells into a 720×360 signed int16 grid in
+half-metre units and BOX-reduces neutral appearance to 1024×512 uint8 luminance. Packed samples are
+base64 in a compact JSON carrying first retrieval date, source URLs/hashes, usage basis, credit,
+projection, dimensions, encoding and datum. Re-ingestion with the pinned tool/source inputs was
+verified against the same artifact hash:
+
+`1696df0382263ac9aabc183d0f15e506099d982a66e9ad994852371e6910f628`
+
+Runtime file size is **1,391,397 bytes**, with **1,042,688 packed decoded bytes** (518,400 elevation
+plus 524,288 appearance). The elevation working array is Float32. The measured range after
+reduction is −8,327.5 to +9,789.5 m relative to NASA's 1,737,400 m spherical datum. Pixel centres
+span east-positive −180°…+180° longitude and +90°…−90° latitude. Sampling is bilinear, wraps longitude,
+clamps rows and converges to a longitude-independent average at each pole. The unchanged catalog
+ellipsoid receives the necessary datum correction; the physical surface radius then equals the
+NASA datum plus measured elevation. Streamed vertices and local collision use this one authority.
+
+The runtime grid has approximately **15.2 km elevation spacing** and **10.7 km appearance spacing**
+at the equator. Half-metre quantization is not half-metre spatial detail. Major geographic relief
+and appearance replace synthetic maria/craters as the primary source, but this does not resolve
+pebbles, footprints or centimetre-scale regolith. No runtime TIFF decode/download occurs. Lunar
+volume edits and crater deformation are outside SPACE-HARDENING-1.
 
 ## The land mask
 

@@ -1,0 +1,2 @@
+# Preserve the reproducible lunar artifact's byte hash on Windows checkouts.
+src/world/geodata/moon-surface.json text eol=lf

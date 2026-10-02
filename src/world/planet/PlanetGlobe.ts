@@ -5,12 +5,13 @@ import {
 import { attribute, normalWorld, smoothstep, uniform } from 'three/tsl';
 import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { faceUvToDirection } from './CubeSphere';
-import { type PlanetTileAddress, tileBounds, tileCentreDirection } from './PlanetTileAddress';
+import { planetTile, type PlanetTileAddress, tileBounds, tileCentreDirection } from './PlanetTileAddress';
 import { planetSurfaceRadius, type PlanetSurfaceGenerator } from './PlanetSurface';
 import { polarRadiusM } from './PlanetBody';
 import type { Quat, Vec3 } from '../spatial/units';
 
 export const PLANET_TILE_RESOLUTION = 17;
+export const PLANET_FALLBACK_INSET_M = 4;
 
 export interface PlanetTileMesh {
   readonly geometry: BufferGeometry;
@@ -27,8 +28,9 @@ function windingIsOutward(positions: Float32Array, normals: Float32Array, size: 
   return nx * normals[a] + ny * normals[a + 1] + nz * normals[a + 2] >= 0;
 }
 
-export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetSurfaceGenerator, flat = false): PlanetTileMesh {
-  const size = PLANET_TILE_RESOLUTION;
+export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetSurfaceGenerator, flat = false, insetM = 0,
+  resolution = PLANET_TILE_RESOLUTION): PlanetTileMesh {
+  const size = Math.max(3, Math.min(129, Math.round(resolution)));
   const { minU, maxU, minV, maxV } = tileBounds(address);
   const centreDirection = tileCentreDirection(address, [0, 0, 0]);
   const centreRadius = planetSurfaceRadius(surface, centreDirection, flat);
@@ -52,7 +54,11 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
     for (let column = 0; column < size; column++) {
       const u = minU + (maxU - minU) * (column / (size - 1));
       faceUvToDirection(address.face, u, v, direction);
-      const radius = planetSurfaceRadius(surface, direction, flat);
+      // A four-metre vertex inset alone cannot keep a coarse facet below a measured basin.
+      // The envelope covers adjacent facets; their linear interpolation remains inside it.
+      const radius = (insetM > 0 && !flat && surface.fallbackRadiusAt
+        ? surface.fallbackRadiusAt(direction, Math.PI / (size - 1) / 2 ** address.level)
+        : planetSurfaceRadius(surface, direction, flat)) - insetM;
       const index = (row * size + column) * 3;
       positions[index] = direction[0] * radius - centre[0];
       positions[index + 1] = direction[1] * radius - centre[1];
@@ -110,19 +116,25 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
 
 export class PlanetGlobe {
   readonly root = new Group();
+  readonly fallbackGroup = new Group();
   
   private readonly material: MeshBasicNodeMaterial;
   private readonly uSunDirectionRender = uniform(new Vector3(1, 0, 0));
   private readonly uTileOpacity = uniform(1);
   
   private readonly tiles = new Map<string, Mesh>();
+  private requiredKeys?: ReadonlySet<string>;
 
   constructor(bodyId: string) {
     this.root.name = `${bodyId}Globe`;
     this.root.layers.set(PLANET_LAYER);
+    this.fallbackGroup.name = `${bodyId}-coarse-fallback`;
+    this.fallbackGroup.layers.set(PLANET_LAYER);
+    this.root.add(this.fallbackGroup);
 
     this.material = new MeshBasicNodeMaterial({
-      vertexColors: true,
+      // colorNode reads the attribute itself. Enabling vertexColors would square the albedo.
+      fog: false,
       side: FrontSide,
       transparent: true,
       polygonOffset: true,
@@ -143,11 +155,43 @@ export class PlanetGlobe {
   get stats(): { tiles: number; triangles: number; visible: boolean } {
     let triangles = 0;
     for (const tile of this.tiles.values()) triangles += tile.geometry.index?.count ?? 0;
+    for (const tile of this.fallbackGroup.children as Mesh[]) triangles += tile.geometry.index?.count ?? 0;
     return { tiles: this.tiles.size, triangles: triangles / 3, visible: this.root.visible };
   }
 
   has(key: string): boolean {
     return this.tiles.has(key);
+  }
+
+  get fallbackReady(): boolean { return this.fallbackGroup.children.length === 6; }
+  get opacity(): number { return this.uTileOpacity.value; }
+
+  /** Created only for the active physical body, never for every registered provider shell. */
+  ensureFallback(surface: PlanetSurfaceGenerator): void {
+    if (this.fallbackReady) return;
+    for (let face = 0; face < 6; face++) {
+      const tile = buildPlanetTileMesh(planetTile(surface.body.id, face as 0, 0, 0, 0), surface, false,
+        PLANET_FALLBACK_INSET_M, surface.coarseResolution);
+      const mesh = new Mesh(tile.geometry, this.material);
+      mesh.name = `${surface.body.id}-fallback-face-${face}`;
+      mesh.position.set(...tile.centre);
+      mesh.layers.set(PLANET_LAYER);
+      mesh.renderOrder = -1;
+      mesh.frustumCulled = false;
+      mesh.userData.surfaceInsetM = PLANET_FALLBACK_INSET_M;
+      this.fallbackGroup.add(mesh);
+    }
+  }
+
+  releaseFallback(): void {
+    for (const child of this.fallbackGroup.children) (child as Mesh).geometry.dispose();
+    this.fallbackGroup.clear();
+  }
+
+  /** Retired parent/child cuts must not draw on top of the new cut while the scheduler evicts them. */
+  setRequiredTiles(keys: readonly string[]): void {
+    this.requiredKeys = new Set(keys);
+    for (const [key, mesh] of this.tiles) mesh.visible = this.requiredKeys.has(key);
   }
 
   set opacity(opacity: number) {
@@ -182,6 +226,7 @@ export class PlanetGlobe {
     const tileMesh = new Mesh(mesh.geometry, this.material);
     tileMesh.layers.set(PLANET_LAYER);
     tileMesh.position.set(mesh.centre[0], mesh.centre[1], mesh.centre[2]);
+    tileMesh.visible = !this.requiredKeys || this.requiredKeys.has(key);
     this.tiles.set(key, tileMesh);
     this.root.add(tileMesh);
   }
@@ -195,6 +240,7 @@ export class PlanetGlobe {
   }
 
   dispose(): void {
+    this.releaseFallback();
     this.material.dispose();
     for (const tile of this.tiles.values()) {
       tile.geometry.dispose();

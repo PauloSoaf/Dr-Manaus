@@ -26,6 +26,8 @@ export interface PowerHooks {
    * buildings collapsed. Absent, every power behaves exactly as it did before destruction.
    */
   damage?: (point: Vector3, radius: number, amount: number, deform?: number) => number;
+  /** City crater/debris visuals require an active deformable surface. */
+  canDeformSurface?: () => boolean;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }
@@ -339,6 +341,13 @@ export class PowerSystem {
    */
   private applyImpact(landing: LandingImpact): void {
     const { impact, position } = landing;
+    if (this.hooks.canDeformSurface?.() === false) {
+      // Preserve a bounded stylized impact and the effects bus on airless terrain. The city's
+      // large warm dust bursts and crater notices cannot claim deformation of a NASA heightmap.
+      this.effects.wave(position, Math.min(8, Math.max(2, impact.radius)), 0xa8fff0, 0.6);
+      this.hooks.sound('giant');
+      return;
+    }
     const size = this.player.size;
     const hot = impact.profile === 'meteor' || impact.profile === 'titan';
     const core = hot ? 0xffe6a8 : 0xa8fff0;

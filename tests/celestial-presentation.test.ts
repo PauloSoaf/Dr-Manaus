@@ -36,7 +36,7 @@ test('T_EARTH_DISTANT_POINT_MODE and T_EARTH_POINT_DIRECTION_PRESERVED', () => {
   withDistantSamples((samples, layer, universe) => {
     const earth = samples.find(s => s.bodyId === 'earth')!;
     assert.equal(earth.pointMix, 1);
-    assert.equal(earth.presentationDiameterPx, 2.5);
+    assert.equal(earth.presentationDiameterPx, 3.5);
     assert.ok(earth.physicalProjectedDiameterPx! < 1);
     assert.ok(earth.glowProxyRadiusM! > earth.presentationProxyRadiusM!);
     const centre = universe.activeSystem.positionOf('earth')!;
@@ -125,7 +125,7 @@ test('T_MOON_MIN_BRIGHTNESS: neutral finite ambient floor and brighter phased li
 test('point floor, glow and disc regimes transition continuously and stay finite near/inside a body', () => {
   const profile = SOLAR_BODY_PROFILES.earth.visual;
   const scale = 1080 / Math.tan(options.fovRad / 2);
-  for (const boundary of [2.5, 7.5]) {
+  for (const boundary of [3.5, 10.5]) {
     const before = bodyPresentation(Math.atan((boundary - 1e-6) / scale), profile, options.fovRad, 1080);
     const after = bodyPresentation(Math.atan((boundary + 1e-6) / scale), profile, options.fovRad, 1080);
     assert.ok(Math.abs(before.presentationDiameterPx - after.presentationDiameterPx) < 3e-6);

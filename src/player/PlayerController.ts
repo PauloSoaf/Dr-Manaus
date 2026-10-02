@@ -42,7 +42,7 @@ export class PlayerController {
   readonly dodge = new DodgeSystem();
   /** The key that evades: a roll on the ground, a dash in the air. */
   dodgeKey = 'KeyZ';
-  state: 'Grounded' | 'Hover' | 'Flight' = 'Grounded';
+  state: 'Grounded' | 'Falling' | 'Hover' | 'Flight' = 'Grounded';
   facingYaw = 0;
   size = 1;
   speedMultiplier = 1;
@@ -143,13 +143,13 @@ export class PlayerController {
     
     
     if (this.input.consume('KeyF')) {
-      this.state = this.state === 'Grounded' ? 'Hover' : 'Grounded';
+      this.state = this.state === 'Grounded' || this.state === 'Falling' ? 'Hover' : 'Falling';
       if (this.state === 'Hover') {
         this.velocity.y = 5;
         this.position.y += 0.18;
       }
     }
-    const flying = this.state !== 'Grounded';
+    const flying = this.state === 'Hover' || this.state === 'Flight';
     
     const sprinting = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
     const movementX = Number(this.input.held('KeyD')) - Number(this.input.held('KeyA'));
@@ -302,6 +302,10 @@ export class PlayerController {
     if (this.size >= 4 && supportInfo.hasSupport) {
       this.grounded = true;
     }
+    // Surface contact ends downward flight. Ordinary jumps/falls remain under body gravity.
+    if (this.grounded && (!flying || (this.desired.y <= 0 && !this.input.held('Space')))) {
+      this.state = 'Grounded';
+    } else if (!flying) this.state = 'Falling';
 
     // The one reliable contact event: the frame the sweep first reports ground. `velocity` has
     // already been zeroed by the sweep, so the arrival speed is the snapshot taken before it.
@@ -481,6 +485,15 @@ export class PlayerController {
     this.pendingImpact = null;
     this.dodge.reset();
     this.titanSupport.reset();
+  }
+
+  /** A normal travel return continues toward the terrain under the active body's gravity. */
+  beginSurfaceApproach(): void {
+    const floor = PhysicsWorld.terrainHeight(this.position.x, this.position.z, 0.32 * this.size);
+    if (Number.isFinite(floor)) this.position.y = Math.max(this.position.y, floor + 0.05);
+    this.state = 'Falling';
+    this.grounded = false;
+    this.model.position.copy(this.position);
   }
 
   setSize(scale: number): void {

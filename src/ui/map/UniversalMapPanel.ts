@@ -1,5 +1,4 @@
 import { MapNavigationModel } from './MapNavigationModel';
-import { icon } from '../icons';
 import { formatDistance, formatDuration, formatSpeed } from '../format';
 import type { HUDBody, HUDFlightTelemetry } from '../HUD';
 import type { UniverseLocation } from '../../world/spatial/UniverseLocation';
@@ -23,12 +22,14 @@ export class UniversalMapPanel {
   /** Live bodies and cruise telemetry, fed by the HUD each refresh. */
   private bodies: readonly HUDBody[] = [];
   private flight?: HUDFlightTelemetry;
+  private inTravel = false;
 
   constructor(
     private readonly container: HTMLElement,
     initialLocation: UniverseLocation,
     private readonly onTravel: (id: string) => void,
-    private readonly onClose: () => void
+    private readonly onClose: () => void,
+    private readonly onSelectTarget: (id: string) => void = () => {},
   ) {
     this.model = new MapNavigationModel(initialLocation);
     this.root = document.createElement('div');
@@ -45,6 +46,18 @@ export class UniversalMapPanel {
       galaxy: new GalaxyMapRenderer(canvas),
       cosmology: new CosmologyMapRenderer(canvas)
     };
+    canvas.addEventListener('wheel', event => {
+      if (this.currentLevel !== 'system') return;
+      event.preventDefault();
+      this.renderers.system.changeZoom(event.deltaY);
+      this.drawMap();
+    }, { passive: false });
+    canvas.addEventListener('click', event => {
+      if (this.currentLevel !== 'system') return;
+      const rect = canvas.getBoundingClientRect();
+      const id = this.renderers.system.hitTest(event.clientX - rect.left, event.clientY - rect.top);
+      if (id) this.onSelectTarget(id);
+    });
   }
 
   setLevel(level: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology') {
@@ -52,11 +65,11 @@ export class UniversalMapPanel {
     this.currentLevel = level;
     this.updateCard();
     this.updateBreadcrumb();
-    const cityCanvas = this.root.querySelector('#city-map') as HTMLCanvasElement;
-    if (cityCanvas) cityCanvas.style.display = level === 'surface' ? 'block' : 'none';
-    if (this.currentLevel !== 'surface') {
-      this.renderers[this.currentLevel].draw(this.model.location, this.model.destination);
+    this.updateCanvasVisibility();
+    if (this.currentLevel !== 'surface' || !this.model.location.frameId.includes('manaus')) {
+      this.drawMap();
     }
+    this.updateScale();
   }
 
   update(
@@ -68,6 +81,10 @@ export class UniversalMapPanel {
   ) {
     this.bodies = bodies;
     this.flight = flight;
+    const inTravel = location.frameId === 'solar-system/barycentric';
+    if (inTravel && !this.inTravel) this.selectedLevel = undefined;
+    this.inTravel = inTravel;
+    this.renderers.system.setBodies(bodies);
     this.model.updateLocation(location);
     this.model.destination = destination;
     
@@ -80,27 +97,46 @@ export class UniversalMapPanel {
       this.currentLevel = 'galaxy';
     } else if (loc.frameId === 'solar-system/barycentric') {
       this.currentLevel = 'system';
-    } else if (loc.surface && loc.surface.altitudeM > 200000) {
+    } else if (loc.surface && (loc.surface.altitudeM > 200000 || loc.address.bodyId !== 'earth')) {
       this.currentLevel = 'planet';
     } else {
       this.currentLevel = 'surface';
     }
 
-    const cityCanvas = this.root.querySelector('#city-map') as HTMLCanvasElement;
-    if (cityCanvas) cityCanvas.style.display = this.currentLevel === 'surface' ? 'block' : 'none';
+    this.updateCanvasVisibility();
 
     this.updateCard();
     this.updateBreadcrumb();
     
-    if (this.currentLevel !== 'surface') {
-      this.renderers[this.currentLevel].draw(loc, destination);
+    if (this.currentLevel !== 'surface' || !loc.frameId.includes('manaus')) {
+      this.drawMap();
     }
+    this.updateScale();
+  }
+
+  private drawMap(): void {
+    this.renderers[this.currentLevel].draw(this.model.location, this.model.destination);
+    this.updateScale();
+  }
+
+  private updateCanvasVisibility(): void {
+    const city = this.currentLevel === 'surface' && this.model.location.frameId.includes('manaus');
+    const cityCanvas = this.root.querySelector('#city-map') as HTMLCanvasElement;
+    const universalCanvas = this.root.querySelector('#universal-canvas') as HTMLCanvasElement;
+    if (cityCanvas) cityCanvas.style.display = city ? 'block' : 'none';
+    if (universalCanvas) universalCanvas.style.display = city ? 'none' : 'block';
+  }
+
+  private updateScale(): void {
+    const scale = this.root.querySelector('.map-scale');
+    if (scale) scale.textContent = this.currentLevel === 'system' ? this.renderers.system.scaleText
+      : ({ surface: '5 km', planet: 'Escala planetária · km', galaxy: 'Via Láctea · kly', cosmology: 'Grupo Local · Mly' } as const)[this.currentLevel];
   }
 
   private render() {
     this.root.innerHTML = `
+      <div class="map-levels"><div id="map-breadcrumb"></div><div class="map-level-buttons">${(['surface','planet','system','galaxy','cosmology'] as const).map((level,i) => `<button data-map-level="${level}">${['Superfície','Planeta','Sistema','Galáxia','Cosmos'][i]}</button>`).join('')}</div></div>
       <div class="map-sidebar" style="width: 320px; border-right: 1px solid #333; padding: 1rem; overflow-y: auto;">
-        <div class="map-breadcrumb" id="map-breadcrumb" style="font-size: 11px; opacity: 0.85; margin-bottom: 2rem;"></div>
         <div class="where-am-i-card" id="where-am-i-card"></div>
         <div class="map-coordinates-form" style="margin-top: 1.5rem; background: #0f172a; padding: 0.75rem; border-radius: 6px; border: 1px solid #1e293b;">
           <span class="eyebrow" style="color: #94a3b8; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;">COORDENADAS UNIVERSAIS</span>
@@ -117,11 +153,14 @@ export class UniversalMapPanel {
       </div>
       <div class="map-visual" style="flex: 1; position: relative;">
         <canvas id="city-map" style="position: absolute; width: 100%; height: 100%;"></canvas>
-        <canvas id="universal-canvas" width="800" height="600" style="position: absolute; width: 100%; height: 100%; pointer-events: none;"></canvas>
+        <canvas id="universal-canvas" style="position: absolute; width: 100%; height: 100%;"></canvas>
         <div class="map-scale">━━━━━━ <span>5 km</span></div>
         <span class="map-credit">Dados viários © OpenStreetMap contributors · Geografia estilizada</span>
       </div>
     `;
+    this.root.querySelectorAll<HTMLButtonElement>('[data-map-level]').forEach(button => {
+      button.onclick = () => this.setLevel(button.dataset.mapLevel as typeof this.currentLevel);
+    });
 
     const btnTranslocate = this.root.querySelector('#btn-translocate') as HTMLButtonElement;
     const coordInput = this.root.querySelector('#coord-input') as HTMLInputElement;
@@ -149,6 +188,11 @@ export class UniversalMapPanel {
   }
 
   private updateBreadcrumb() {
+    this.root.querySelectorAll<HTMLButtonElement>('[data-map-level]').forEach(button => {
+      const active = button.dataset.mapLevel === this.currentLevel;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
     const b = this.root.querySelector('#map-breadcrumb');
     if (!b) return;
     const a = this.model.location.address;
@@ -239,17 +283,18 @@ export class UniversalMapPanel {
     // Dynamic from `activeSystem.bodies`: nothing here is a hard-coded planet.
     if (this.bodies.length) {
       html += `<h3>CORPOS DO SISTEMA</h3><table class="card-table body-table">`;
-      html += `<tr><th>Corpo</th><th>X</th><th>Y</th><th>Z</th><th>Distância</th></tr>`;
+      html += `<tr><th>Corpo</th><th>Distância</th></tr>`;
       for (const body of this.bodies) {
-        const [x, y, z] = body.systemPositionM;
         html += `<tr class="${body.selected ? 'selected-body' : ''}">`
-          + `<td>${body.selected ? '▸ ' : ''}${body.name}</td>`
-          + `<td>${formatDistance(x)}</td><td>${formatDistance(y)}</td><td>${formatDistance(z)}</td>`
+          + `<td><button class="map-body-target" data-body-target="${body.id}" aria-pressed="${body.selected}">${body.selected ? '▸ ' : ''}${body.name}</button></td>`
           + `<td>${formatDistance(body.distanceFromPlayerM)}</td></tr>`;
       }
       html += `</table>`;
     }
 
     c.innerHTML = html;
+    c.querySelectorAll<HTMLButtonElement>('[data-body-target]').forEach(button => {
+      button.onclick = () => this.onSelectTarget(button.dataset.bodyTarget!);
+    });
   }
 }

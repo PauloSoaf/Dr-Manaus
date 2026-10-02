@@ -48,7 +48,7 @@ for (const [body, surface] of [[MOON, MoonSurfaceGenerator], [MARS, MarsSurfaceG
     finally { PhysicsWorld.setTerrain(null); }
   });
 
-  test(`${body.id} collision agrees with actual tile vertices at high latitude`, () => {
+  test(`${body.id==='moon'?'T_MOON_SURFACE_COLLISION_USES_SAME_HEIGHT_AUTHORITY: ':''}${body.id} collision agrees with actual tile vertices at high latitude`, () => {
     const frames = new ReferenceFrameGraph();
     anchor(frames, body, 1.2, 0.5);
     const terrain = new PlanetTerrainProvider(frames, body, surface);

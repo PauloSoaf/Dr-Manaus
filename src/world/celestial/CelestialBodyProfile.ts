@@ -42,7 +42,7 @@ export const SOLAR_BODY_PROFILES: Readonly<Record<string, CelestialBodyProfile>>
       solarGlow: { innerScale: 2, outerScale: 5 }, labelPriority: 10 } },
   mercury: solid('synthetic-base', [0.38, 0.36, 0.33], false, false, { minimumVisiblePx: 1, labelPriority: 2 }),
   venus: solid('synthetic-base', [0.86, 0.76, 0.52], true, false, { minimumVisiblePx: 2, labelPriority: 3 }),
-  earth: solid('earth', [0.1, 0.3, 0.8], true, false, { minimumVisiblePx: 2.5, pointGlowPx: 4, pointGlowStrength: 0.35, pointBrightness: 0.7, labelPriority: 10 }),
+  earth: solid('earth', [0.22, 0.48, 0.95], true, false, { minimumVisiblePx: 3.5, pointGlowPx: 8, pointGlowStrength: 0.45, pointBrightness: 1.1, labelPriority: 10 }),
   moon: solid('moon', [0.65, 0.65, 0.65], false, true, { ambient: [0.08, 0.08, 0.08], minimumVisiblePx: 2, labelPriority: 8 }),
   mars: solid('mars', [0.7, 0.3, 0.1], true, false, { minimumVisiblePx: 2, labelPriority: 5 }),
   jupiter: giant('gas-giant', { albedo: [0.76, 0.59, 0.43], bands: 16, minimumVisiblePx: 2.5, labelPriority: 6 }),

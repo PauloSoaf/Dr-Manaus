@@ -1,5 +1,23 @@
 # Patch v2 - indice e ordem obrigatoria
 
+## Checkpoint atual — SPACE-HARDENING-1 (2026-10-02)
+
+Os pedidos mais recentes do usuário delimitam este checkpoint de estabilização, incluindo Lua
+pisável como P0 e mapa universal como P1. Baseline real: `f8f451250e564958ffad20d26b72df3fe4c9e6de`,
+branch `feat/universe-map`. A baseline congelada do pacote abaixo é histórica.
+
+Implementado e verificado: câmera espacial sem clamp local, áudio por meio/densidade, Terra
+geográfica, cobertura lunar completa e exclusiva, dados NASA offline, retorno real ao terreno
+lunar com caminhada/salto/decolagem e mapa ampliado com canvas responsivo/zoom/labels.
+Resultado: 491 testes unitários e 110 focados passando; typecheck/build/diff check e smoke
+`npm run test:browser:space` passando. A matriz manual completa ainda requer validação do usuário.
+
+Estado e limitações: [docs/world/15-status.md](../docs/world/15-status.md).
+Contrato/causas/arquivos: [docs/world/10-solar-system.md](../docs/world/10-solar-system.md).
+Dados e licença: [docs/world/06-geodata-pipeline.md](../docs/world/06-geodata-pipeline.md).
+
+Encerrar neste checkpoint. Não iniciar Task 012, volume Phase 2 ou outras luas.
+
 Baseline congelada deste pacote:
 
 ```text

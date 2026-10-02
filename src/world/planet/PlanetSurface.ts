@@ -4,6 +4,10 @@ import { polarRadiusM, type PlanetBody } from './PlanetBody';
 export interface PlanetSurfaceGenerator {
   readonly body: PlanetBody;
   readonly radiusM: number;
+  /** Optional bounded detail for orbital appearance; local streamed tiles stay at the default. */
+  readonly coarseResolution?: number;
+  /** Conservative radial envelope for fallback facets, never used for physics. */
+  fallbackRadiusAt?(direction: Vec3, angularNeighbourhoodRad: number): number;
   /** Radial relief above the body's ellipsoid, sampled by geocentric direction. */
   heightAt(direction: Vec3): number;
   normalEnu(direction: Vec3, out: Vec3): void;
