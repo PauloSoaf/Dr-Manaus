@@ -3,6 +3,8 @@ import { geodetic, type GeodeticPosition } from '../spatial/Geodetic';
 import { WGS84 } from '../spatial/WGS84';
 import { finite, type Vec3 } from '../spatial/units';
 import { directionToGeodetic } from './CubeSphere';
+import { bodyById } from '../celestial/CelestialBody';
+import { planetBodyFromCelestial } from './PlanetBodyAdapter';
 
 /**
  * A body with a surface, described physically rather than at whatever scale happens to render
@@ -32,27 +34,11 @@ export const EARTH: PlanetBody = {
 };
 
 /**
- * The Moon, as a body rather than as a sprite. Very nearly spherical — its flattening is about
- * 1/1130 and its shape is dominated by real topography rather than by rotation.
+ * Compatibility exports for existing terrain callers. Their physics now comes from the same
+ * CelestialBody catalog as ephemerides and navigation; Earth preserves its WGS84 authority.
  */
-export const MOON: PlanetBody = {
-  id: 'moon',
-  semiMajorAxisM: 1_738_100,
-  flattening: 1 / 1130,
-  // Tidally locked: its rotation period is its orbital period.
-  rotationPeriodS: 2_360_591.5,
-  parentFrame: 'solar-system/earth-inertial',
-  gravitationalParameter: 4.902_800e12,
-};
-
-export const MARS: PlanetBody = {
-  id: 'mars',
-  semiMajorAxisM: 3_396_200,
-  flattening: 1 / 169.81,
-  rotationPeriodS: 88_642.663,
-  parentFrame: 'solar-system/sun-inertial',
-  gravitationalParameter: 4.282_837e13,
-};
+export const MOON: PlanetBody = planetBodyFromCelestial(bodyById('moon')!);
+export const MARS: PlanetBody = planetBodyFromCelestial(bodyById('mars')!);
 
 export const polarRadiusM = (body: PlanetBody): number =>
   body.semiMajorAxisM * (1 - finite(body.flattening));

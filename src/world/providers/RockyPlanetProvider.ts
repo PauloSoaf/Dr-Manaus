@@ -52,6 +52,7 @@ export class RockyPlanetProvider implements WorldProvider {
   ) {
     this.id = `${bodyDef.id}/surface`;
     this.globe = new PlanetGlobe(bodyDef.id);
+    this.globe.visible = false;
     parent.add(this.globe.root);
 
     this.options = {
@@ -70,6 +71,8 @@ export class RockyPlanetProvider implements WorldProvider {
   get stats(): { tiles: number; triangles: number; visible: boolean; distanceM: number } {
     return { ...this.globe.stats, distanceM: this.distanceM };
   }
+
+  get presentationMode(): 'off' | 'coarse' | 'surface' { return this.streamingMode; }
 
   readiness(): PlanetCoverageReadiness {
     const activeTiles = this.globe.stats.tiles;
@@ -97,6 +100,11 @@ export class RockyPlanetProvider implements WorldProvider {
   covers(context: SpatialContext): boolean {
     this.playerFrameId = context.frame.id;
 
+    if (this.streamingMode === 'off') {
+      this.globe.visible = false;
+      return false;
+    }
+
     if (this.options.renderSpace) {
       const candidate = this.planetCenterRender(context);
       if (!this.options.renderSpace.isRenderSafe(candidate)) {
@@ -104,7 +112,6 @@ export class RockyPlanetProvider implements WorldProvider {
         // CelestialBodyVisualLayer handle the analytic proxy.
         this.globe.visible = false;
         this.distanceM = Number.POSITIVE_INFINITY;
-        if (this.streamingMode === 'off') return false;
         return false;
       }
       this.centreM = candidate;
@@ -116,11 +123,6 @@ export class RockyPlanetProvider implements WorldProvider {
       this.distanceM = Math.hypot(
         this.centreM[0] - player[0], this.centreM[1] - player[1], this.centreM[2] - player[2],
       );
-    }
-
-    if (this.streamingMode === 'off') {
-      this.globe.visible = false;
-      return false;
     }
 
     return true;
@@ -167,6 +169,7 @@ export class RockyPlanetProvider implements WorldProvider {
   }
 
   plan(context: StreamingContext): readonly TileDemand[] {
+    if (this.streamingMode === 'off') return [];
     // Observer in the planet's own body-fixed frame — what the quadtree needs.
     const planetFrame = this.resolveBodyFrame();
     let observerFixed: EcefPosition;

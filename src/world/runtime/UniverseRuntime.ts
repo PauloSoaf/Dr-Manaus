@@ -1,5 +1,7 @@
 import { SolarSystem, SOLAR_SYSTEM_FRAME } from '../celestial/SolarSystem';
-import { bodyFixedToGeodetic, bodyGeodeticToFixed, EARTH, MARS, MOON, type PlanetBody } from '../planet/PlanetBody';
+import { bodyFixedToGeodetic, bodyGeodeticToFixed, EARTH } from '../planet/PlanetBody';
+import { bodyProfile } from '../celestial/CelestialBodyProfile';
+import { planetBodyFromCelestial } from '../planet/PlanetBodyAdapter';
 import { PlanetQuadtree } from '../planet/PlanetQuadtree';
 import { DEFAULT_SSE, type ScreenSpaceErrorContext } from '../planet/ScreenSpaceError';
 import type { SpatialContext, StreamingContext } from '../providers/WorldProvider';
@@ -27,7 +29,6 @@ import { createRenderOrigin } from '../spatial/RenderOrigin';
 
 /** Observer-centred axes captured from the surface frame at departure. */
 export const TRAVEL_VIEW_FRAME = 'travel/view';
-const SURFACE_BODIES: readonly PlanetBody[] = [EARTH, MOON, MARS];
 export interface UniverseRuntimeOptions {
   /**
    * When false the runtime tracks the world and reports on it but streams nothing and touches no
@@ -240,8 +241,10 @@ export class UniverseRuntime {
 
   private surfaceCoordinates(bodyId: string | undefined) {
     if (bodyId === 'earth' && this.playerPose.frame === MANAUS_FRAME_ID) return this.playerGeodetic();
-    const model = SURFACE_BODIES.find(body => body.id === bodyId);
-    const bodyFrame = this.activeSystem.bodies.find(body => body.id === bodyId)?.frameId;
+    const body = this.activeSystem.bodies.find(body => body.id === bodyId);
+    const model = body && bodyProfile(body).hasSolidSurface
+      ? body.id === 'earth' ? EARTH : planetBodyFromCelestial(body) : undefined;
+    const bodyFrame = body?.frameId;
     if (!model || !bodyFrame || !this.frames.has(this.playerPose.frame) || !this.frames.has(bodyFrame)) return undefined;
     const fixed = this.frames.convertPosition(this.playerPose.frame, bodyFrame, this.playerPose.position);
     return bodyFixedToGeodetic(model, { xM: fixed[0], yM: fixed[1], zM: fixed[2] });
@@ -504,8 +507,9 @@ export class UniverseRuntime {
       this.syncNavigationAddress();
       return cloneVec3(this.playerPose.position);
     }
-    const model = SURFACE_BODIES.find(body => body.id === bodyId);
     const body = this.activeSystem.bodies.find(candidate => candidate.id === bodyId);
+    const model = body && bodyProfile(body).canLand
+      ? body.id === 'earth' ? EARTH : planetBodyFromCelestial(body) : undefined;
     if (!model || !body || !this.frames.has(body.frameId) || !this.frames.has(this.playerPose.frame)) {
       return cloneVec3(this.playerPose.position);
     }

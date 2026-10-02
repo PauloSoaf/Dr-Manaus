@@ -1,5 +1,6 @@
 import { Vector3 } from 'three/webgpu';
 import { type InterplanetaryState, type TravelContext } from './TravelDomain';
+import type { BodyExclusionEnvelope } from './BodyNavigation';
 
 /**
  * Cosmic cruise: crossing a solar system in seconds without leaving the logical frame.
@@ -45,6 +46,8 @@ export interface FlightTelemetry {
 }
 
 export interface CosmicCruiseContext extends TravelContext {
+  /** Live exclusion spheres for all bodies, so an unselected giant cannot be crossed at warp. */
+  exclusionEnvelopes?: readonly BodyExclusionEnvelope[];
   /** Resolved live, in barycentric metres. Absent when nothing is selected. */
   target?: ResolvedTarget;
   /**
@@ -314,7 +317,7 @@ export class CosmicCruiseController {
      * dominant body is what let a flight from Earth to the Moon cross the Moon entirely between
      * two frames: while Earth is still dominant, the Moon is not in the list at all.
      */
-    const obstacles: Obstacle[] = [];
+    const obstacles: Obstacle[] = [...(context.exclusionEnvelopes ?? [])];
     if (context.bodyPositionM) {
       obstacles.push({
         centreM: context.bodyPositionM,
