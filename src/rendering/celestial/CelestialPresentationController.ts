@@ -80,6 +80,21 @@ export class CelestialPresentationController {
         quatFromAxisAngle([1, 0, 0], body.axialTiltRad ?? 0));
       const extent = profile.visual.rings?.outerRadius ?? (profile.bodyClass === 'star' ? 2 : 1);
       const proxy = celestialProxyGeometry(angle, ctx.cameraFarM ?? 100_000, extent);
+      let presentationProxyRadiusM = proxy.radiusM;
+      let glowProxyRadiusM = proxy.radiusM;
+      if (profile.bodyClass !== 'star') {
+        const projectedPx = projectedDiameterPx(angle, ctx.fovRad, ctx.viewportHeightPx);
+        if (profile.visual.minimumVisiblePx && projectedPx < profile.visual.minimumVisiblePx) {
+          const presentationAngle = (profile.visual.minimumVisiblePx / ctx.viewportHeightPx) * ctx.fovRad / 2;
+          presentationProxyRadiusM = Math.tan(presentationAngle) * proxy.distanceM;
+        }
+        if (profile.visual.pointGlowPx) {
+          const glowAngle = (Math.max(projectedPx, profile.visual.pointGlowPx) / ctx.viewportHeightPx) * ctx.fovRad / 2;
+          glowProxyRadiusM = Math.tan(glowAngle) * proxy.distanceM;
+        } else {
+          glowProxyRadiusM = presentationProxyRadiusM;
+        }
+      }
       let visible = proxy.safe && distance > 0;
       let opacity = 1;
       if (body.id === physical?.body.id) {
@@ -100,9 +115,9 @@ export class CelestialPresentationController {
       if (profile.surfaceKind === 'earth' && earth && phaseLightDirection) {
         earth.setSunDirection(phaseLightDirection, renderFrame, renderFrame);
       }
-      return { bodyId: body.id, logicalDistanceM: distance, physicalRadiusM: body.equatorialRadiusM,
+      return { bodyId: body.id, profile, logicalDistanceM: distance, physicalRadiusM: body.equatorialRadiusM,
         angularRadiusRad: angle, directionRender: direction, proxyDistanceM: proxy.distanceM,
-        proxyRadiusM: proxy.radiusM, visible, opacity, phaseLightDirection, bodyOrientationRender };
+        proxyRadiusM: proxy.radiusM, presentationProxyRadiusM, glowProxyRadiusM, visible, opacity, phaseLightDirection, bodyOrientationRender };
     });
   }
 

@@ -1,7 +1,9 @@
 import type { Quat, Vec3 } from '../../world/spatial/units';
+import type { CelestialBodyProfile } from '../../world/celestial/CelestialBodyProfile';
 
 export interface CelestialRenderSample {
   bodyId: string;
+  profile?: CelestialBodyProfile;
 
   logicalDistanceM: number;
   physicalRadiusM: number;
@@ -11,6 +13,10 @@ export interface CelestialRenderSample {
 
   proxyDistanceM: number;
   proxyRadiusM: number;
+  /** Radius of the proxy for screen-space readability (point mode glow etc), independent of physical size. */
+  presentationProxyRadiusM?: number;
+  /** Radius of the proxy including the optional glow layer, independent of physical size. */
+  glowProxyRadiusM?: number;
 
   visible: boolean;
   opacity: number;

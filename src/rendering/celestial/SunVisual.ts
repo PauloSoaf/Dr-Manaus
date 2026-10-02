@@ -24,19 +24,30 @@ export class SunVisual {
     // positionLocal is in [-1, 1] range for a 2x2 plane
     const radius = positionLocal.xy.length();
     
-    // Physical disc: sharp edge at r=0.5 (scaled in update)
-    const disc = float(1).sub(smoothstep(float(0.48), float(0.50), radius));
+    // Scale is set such that radius=0.1 corresponds to the physical disc.
+    // 0.1 allows the quad to be 5x the physical disc radius.
+    const disc = float(1).sub(smoothstep(float(0.19), float(0.20), radius));
     
-    // Corona: falls off exponentially outside the disc
-    const drop = float(1).sub(radius).max(0);
-    const corona = drop.pow(3.5).mul(0.6).add(drop.pow(12).mul(0.4));
+    // Inner glow (up to 2x physical radius, so radius 0.4)
+    const innerDrop = radius.sub(0.2).max(0).div(0.2);
+    const innerGlow = float(1).sub(innerDrop).max(0).pow(1.5).mul(0.8);
+    
+    // Outer corona (up to 5x physical radius, so radius 1.0)
+    const outerDrop = radius.sub(0.2).max(0).div(0.8);
+    const outerCorona = float(1).sub(outerDrop).max(0).pow(3.0).mul(0.4);
     
     // Core is very bright white-yellow, corona is warmer/softer
     const coreColor = vec3(1.0, 0.98, 0.95).mul(2.5);
-    const coronaColor = vec3(1.0, 0.8, 0.5).mul(1.5);
+    const innerColor = vec3(1.0, 0.9, 0.7).mul(1.5);
+    const coronaColor = vec3(1.0, 0.6, 0.2).mul(0.8);
     
-    const finalColor = mix(coronaColor, coreColor, disc);
-    const alpha = disc.add(corona).saturate();
+    // Blend them
+    const finalColor = mix(
+      mix(coronaColor, innerColor, innerGlow),
+      coreColor,
+      disc
+    );
+    const alpha = disc.add(innerGlow).add(outerCorona).saturate();
 
     this.material.colorNode = vec4(finalColor, alpha);
     
@@ -50,14 +61,9 @@ export class SunVisual {
     if (!this.group.visible) return;
 
     // The quad size needs to be larger than the physical proxy radius to fit the corona
-    // The disc is drawn at r=0.5 in local quad space. So a quad of size S means r=0.5 is S/4.
-    // If we want the physical radius to be `proxyRadiusM`, we need the quad width/height to be `proxyRadiusM * 4`.
-    // We can also allow some extra space for the corona. Let's make the quad size `proxyRadiusM * 6`,
-    // and scale the shader accordingly, or just scale the mesh.
-    // At scale = proxyRadiusM * 2, the plane is 4 * proxyRadiusM wide (since geom is 2x2).
-    // Local coords go from -1 to 1. r=0.5 corresponds to proxyRadiusM.
-    const scale = sample.proxyRadiusM * 2.0; 
-    // ^ This means local r=1 (edge of quad) is 2 * proxyRadiusM, giving 1 radius of corona space.
+    // The disc is drawn at r=0.2 in local quad space.
+    // So if local r=0.2 corresponds to proxyRadiusM, local r=1.0 is 5 * proxyRadiusM.
+    const scale = sample.proxyRadiusM * 5.0; 
     
     this.disc.scale.setScalar(scale);
 

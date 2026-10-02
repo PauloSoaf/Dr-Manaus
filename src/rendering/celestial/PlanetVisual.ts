@@ -14,12 +14,18 @@ export class PlanetVisual {
   private readonly uOpacity = uniform(1);
   private readonly uAlbedo = uniform(new Vector3(0.5, 0.5, 0.5));
   private readonly uAmbient = uniform(new Vector3(0.02, 0.02, 0.02));
+  private readonly uDiscRadius = uniform(0.9);
+  private readonly uGlowStrength = uniform(0.0);
 
   constructor(albedoRGB: [number, number, number], ambientRGB: [number, number, number] = [0.02, 0.02, 0.02],
     profile?: BodyVisualProfile) {
     this.group.name = 'PlanetVisual';
     this.uAlbedo.value.set(albedoRGB[0], albedoRGB[1], albedoRGB[2]);
-    this.uAmbient.value.set(ambientRGB[0], ambientRGB[1], ambientRGB[2]);
+    if (profile?.ambient) {
+      this.uAmbient.value.set(profile.ambient[0], profile.ambient[1], profile.ambient[2]);
+    } else {
+      this.uAmbient.value.set(ambientRGB[0], ambientRGB[1], ambientRGB[2]);
+    }
 
     const geometry = new PlaneGeometry(2, 2);
     
@@ -34,13 +40,15 @@ export class PlanetVisual {
     const x = positionLocal.x;
     const y = positionLocal.y;
     const rSq = x.mul(x).add(y.mul(y));
+    const normR = rSq.pow(0.5);
     
-    const sx = x.div(0.9);
-    const sy = y.div(0.9);
+    // sx/sy are used for the 3D spherical normal. They should map [0, uDiscRadius] to [0, 1]
+    const sx = x.div(this.uDiscRadius);
+    const sy = y.div(this.uDiscRadius);
     const sphereR2 = sx.mul(sx).add(sy.mul(sy));
-    const normR = sphereR2.pow(0.5);
     
-    const disc = float(1).sub(smoothstep(float(0.98), float(1.0), normR));
+    // The sharp disc
+    const disc = float(1).sub(smoothstep(this.uDiscRadius.mul(0.98), this.uDiscRadius, normR));
     const z = float(1).sub(sphereR2).max(0).pow(0.5);
     const normal = vec3(sx, sy, z).normalize();
     
@@ -52,8 +60,14 @@ export class PlanetVisual {
     const lit = this.uAlbedo.mul(bands).mul(nDotL.pow(0.8));
     
     const earthshine = this.uAmbient.mul(float(1).sub(nDotL));
-    const finalColor = lit.add(earthshine);
-    const alpha = disc.mul(this.uOpacity);
+    
+    // Add glow: fades out from uDiscRadius to 1.0
+    const drop = normR.sub(this.uDiscRadius).max(0).div(float(1.0).sub(this.uDiscRadius).max(0.001));
+    const glowAlpha = float(1).sub(drop).pow(2.0).mul(this.uGlowStrength);
+    const finalGlow = this.uAlbedo.mul(glowAlpha).mul(nDotL.mul(0.8).add(0.2));
+    
+    const finalColor = lit.add(earthshine).mul(disc).add(finalGlow.mul(float(1).sub(disc)));
+    const alpha = disc.add(glowAlpha.mul(float(1).sub(disc))).mul(this.uOpacity).saturate();
 
     this.material.colorNode = vec4(finalColor, alpha);
 
@@ -79,8 +93,14 @@ export class PlanetVisual {
     this.uOpacity.value = Math.max(0, Math.min(1, sample.opacity));
     if (!this.group.visible) return;
 
-    const scale = sample.proxyRadiusM / 0.9;
+    const baseRadius = sample.presentationProxyRadiusM ?? sample.proxyRadiusM;
+    const glowRadius = sample.glowProxyRadiusM ?? baseRadius;
+    const scale = glowRadius / 0.9;
     this.disc.scale.setScalar(scale);
+    
+    // discRadius is the fraction of the quad that the actual disc takes up
+    this.uDiscRadius.value = (baseRadius / glowRadius) * 0.9;
+    this.uGlowStrength.value = sample.profile?.visual.pointGlowStrength ?? 0.0;
 
     const dir = sample.directionRender;
     this.group.position.set(dir[0], dir[1], dir[2]).multiplyScalar(sample.proxyDistanceM);

@@ -65,6 +65,7 @@ const COSMIC_REVERSE_EPSILON_MPS = 25;
 import { MANAUS_FRAME_ID } from '../world/spatial/ManausFrameAdapter';
 import { CelestialBodyVisualLayer } from '../rendering/celestial/CelestialBodyVisualLayer';
 import { CelestialPresentationController } from '../rendering/celestial/CelestialPresentationController';
+import { CelestialLabelLayer } from '../rendering/celestial/CelestialLabelLayer';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   readonly save = new SaveManager(); readonly assets = new AssetManager(); readonly rendering: RendererManager;
@@ -114,6 +115,7 @@ export class Game {
   private presentationDomain:HUDPresentationDomain='local';
   readonly celestialVisuals = new CelestialBodyVisualLayer();
   readonly celestialController = new CelestialPresentationController(this.celestialVisuals);
+  readonly celestialLabels: CelestialLabelLayer;
   private readonly surfaceTerrains = new Map<string, PlanetTerrainProvider>();
   private physicsDomain = 'manaus';
   /** The generalized flat backdrop. It stands down once the globe becomes the ground. */
@@ -128,6 +130,7 @@ export class Game {
   private mark=0;private lastSpeed=0;private district='AMAZONAS';
   constructor(container:HTMLElement){
     this.rendering=new RendererManager(container);
+    this.celestialLabels = new CelestialLabelLayer(container);
     this.celestialRoot.name='Celestial · stars & deep space visuals';
     this.planetaryRoot.name='Planetary · camera-relative celestial bodies';
     this.localWorldRoot.name='Manaus · local city/terrain';
@@ -606,6 +609,7 @@ export class Game {
     this.celestialController.render({
       camera: this.rendering.camera
     });
+    this.celestialLabels.update(this.celestialController.renderSamples, this.rendering.camera, this.navigationTarget?.bodyId);
     // After the camera settles: the portal skin samples in screen space, so a stale matrix would
     // stretch the galaxy by the viewport and leave it static as the player looks around.
     this.player.character.updateCosmicView(this.rendering.camera);
