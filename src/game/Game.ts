@@ -1045,6 +1045,7 @@ export class Game {
     const t=this.universe.telemetry;
     const moon=this.moonLandingState;
     return{
+      ...this.universe.volume?.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
       'Geo · Altitude':`${t.altitudeM.toFixed(1)} m`,
       'Frame · Ativo':`${t.frame} · corpo ${t.dominantBody}`,

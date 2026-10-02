@@ -26,6 +26,8 @@ import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { RenderSpaceService } from '../spatial/RenderSpaceService';
 import { createRenderOrigin } from '../spatial/RenderOrigin';
+import { PlanetVolumeRuntime } from '../planet/volume/PlanetVolumeRuntime';
+import { surfaceForBody } from '../planet/BodySurfaceFactory';
 
 /** Observer-centred axes captured from the surface frame at departure. */
 export const TRAVEL_VIEW_FRAME = 'travel/view';
@@ -66,6 +68,7 @@ export class UniverseRuntime {
   readonly frames = new ReferenceFrameGraph();
   readonly providers = new ProviderRegistry();
   readonly scheduler: GlobalStreamingScheduler;
+  readonly volume: PlanetVolumeRuntime;
   readonly solarSystem: SolarSystem;
   public activeSystem: CelestialSystemRuntime;
   readonly earthQuadtree: PlanetQuadtree;
@@ -112,6 +115,15 @@ export class UniverseRuntime {
       systemId: 'sol',
       bodyId: 'earth'
     };
+    this.volume = new PlanetVolumeRuntime({ resolve: context => {
+      const body = this.activeSystem.bodies.find(candidate=>candidate.id===context.spatial.bodyId);
+      if (!body || !bodyProfile(body).supportsVolumeDestruction) return undefined;
+      const surface = surfaceForBody(body);
+      if (!surface || !body.frameId) return undefined;
+      return { surface, observerBodyFixedM: this.frames.convertPosition(context.spatial.player.frame,
+        body.frameId,context.spatial.player.position) };
+    } });
+    this.scheduler.registerSubsystem(this.volume);
   }
 
   setAddress(address: UniverseAddress): void {
@@ -593,6 +605,8 @@ export class UniverseRuntime {
   }
 
   dispose(): void {
+    this.scheduler.unregisterSubsystem(this.volume.id);
+    this.volume.dispose();
     this.scheduler.dispose();
     this.frames.clear();
   }
