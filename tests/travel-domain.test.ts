@@ -256,3 +256,45 @@ test('rubbish in the context does not move the player anywhere', () => {
     assert.ok(Number.isFinite(value), 'a non-finite coordinate must never survive the boundary');
   }
 });
+
+test('T_ENTRY_KEEPS_THE_PLAYER_WHERE_THEY_WERE: departure is not a teleport to the Sun', () => {
+  const domain = new TravelDomain();
+  // Where the player actually is: in orbit around an Earth that is one AU from the barycentre.
+  const earthBary: [number, number, number] = [1.496e11, 0, 0];
+  const entry: [number, number, number] = [earthBary[0], earthBary[1] + EARTH_R + 400_000, earthBary[2]];
+  const earthVelocity: [number, number, number] = [0, 29_780, 0];
+
+  domain.update({
+    altitudeM: 400_000,
+    speedMps: 8_000,
+    requested: true,
+    nearestColliderM: Infinity,
+    bodyRadiusM: EARTH_R,
+    bodyPositionM: earthBary,
+    bodyVelocityMps: earthVelocity,
+    bodyId: 'earth',
+    systemId: 'sol',
+    entryPositionM: entry,
+    entryVelocityMps: earthVelocity,
+  }, 1 / 60);
+
+  const state = domain.state;
+  assert.ok(state, 'the domain must have been entered');
+  // The bug this exists for: the entry position was [0, radius + altitude, 0], measured from the
+  // Earth's centre but read as barycentric. The barycentre is the Sun, so the player arrived a
+  // few thousand kilometres from the Sun with the Earth an astronomical unit behind them.
+  const fromBarycentre = Math.hypot(...state.positionM);
+  assert.ok(
+    fromBarycentre > 1e11,
+    `departure put the player ${(fromBarycentre / 1e9).toFixed(2)} million km from the barycentre`,
+  );
+  const fromEarth = Math.hypot(
+    state.positionM[0] - earthBary[0],
+    state.positionM[1] - earthBary[1],
+    state.positionM[2] - earthBary[2],
+  );
+  assert.ok(Math.abs(fromEarth - (EARTH_R + 400_000)) < 1, 'and exactly where they were above the Earth');
+
+  // Standing still relative to the Earth is 30 km/s relative to the Sun; zeroing that is a shove.
+  assert.ok(Math.abs(state.velocityMps[1] - 29_780) < 1, 'the body\'s orbital motion is kept');
+});

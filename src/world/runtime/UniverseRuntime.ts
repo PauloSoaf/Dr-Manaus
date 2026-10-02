@@ -305,6 +305,23 @@ export class UniverseRuntime {
     this.planetTiles = this.earthQuadtree.select(this.playerEcef(), this.options.sse).length;
   }
 
+  /**
+   * Where the player actually is, in `solar-system/barycentric` metres.
+   *
+   * Needed when entering the travel domain: the domain's position is barycentric, and anything
+   * that guesses it puts the player somewhere else in the solar system entirely.
+   */
+  playerSystemPositionM(): Vec3 {
+    if (this.playerPose.frame === SOLAR_SYSTEM_FRAME) {
+      return [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
+    }
+    if (this.frames.has(this.playerPose.frame) && this.frames.has(SOLAR_SYSTEM_FRAME)) {
+      return this.frames.convertPosition(this.playerPose.frame, SOLAR_SYSTEM_FRAME, this.playerPose.position);
+    }
+    const earth = this.activeSystem.positionOf('earth') ?? [0, 0, 0];
+    return [earth[0], earth[1], earth[2]];
+  }
+
   updateSystemPose(systemPosition: [number, number, number], systemVelocity: [number, number, number], dtS: number, viewForward?: [number, number, number]): void {
     const dt = Math.max(0, Math.min(0.25, finite(dtS)));
     this.timeS += dt;

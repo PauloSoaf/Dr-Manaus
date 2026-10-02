@@ -117,8 +117,19 @@ export class SpaceLayer {
     this.uSun.value.copy(this.axis);
     this.uSpace.value = space;
     this.uVisible.value = Math.min(1, Math.max(dark * .9, space * 1.2)) * veil;
-    // True horizon dip for the altitude, so the limb keeps opening up all the way to 140 km.
-    this.uLimb.value = -Math.sin(Math.acos(EARTH_RADIUS / (EARTH_RADIUS + this.height)));
+    /**
+     * The horizon the stars fade out below.
+     *
+     * A true horizon dip for the altitude, so the limb keeps opening up all the way to 140 km --
+     * but only while the painted sky is what is underfoot. Once the local ground has stood down the
+     * planet below is real geometry on `PLANET_LAYER` that occludes the star sphere by being in
+     * front of it, and this term becomes a second, flat horizon with nothing under it: looking down
+     * in deep space gave an empty black hemisphere. Pushed below every direction there, so the
+     * only thing that can hide a star is a body actually in the way.
+     */
+    this.uLimb.value = this.planetaryView
+      ? -1.2
+      : -Math.sin(Math.acos(EARTH_RADIUS / (EARTH_RADIUS + this.height)));
     this.uRimWidth.value = .17 - .125 * fade(0, SPACE.karman, this.height);
     this.uRimStrength.value = .3 + .7 * fade(.05, .7, space);
     this.uRimGain.value = 1 + space * 1.5;

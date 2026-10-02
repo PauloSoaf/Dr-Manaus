@@ -11,7 +11,16 @@ import { icon, POWERS } from './icons';
 import { formatDistance, formatDuration, formatSpeed } from './format';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string)=>void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
 export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; }
+
+/** The body close enough to be a place rather than a point of light. */
+export interface HUDNearbyBody {
+  readonly id: string;
+  readonly name: string;
+  readonly distanceM: number;
+  /** Apparent diameter in degrees -- how much of the view it takes up from where the player is. */
+  readonly angularDeg: number;
+}
 
 /**
  * A body as the destination list needs it.
@@ -114,13 +123,17 @@ export function resolveHUDPresentation(state: Pick<HUDState,
     };
   }
 
+  // Falling back to whatever is big in the sky: the address names a body only once a provider owns
+  // its ground, so between bodies it is empty and only apparent size can say where the player is.
+  const near = state.nearbyBody;
+  const approaching = !name && near ? near.name : undefined;
   return {
     domain,
-    place: name ? `Órbita: ${name}` : 'Espaço profundo',
-    coordinates: '—',
+    place: name ? `Órbita: ${name}` : approaching ? `Aproximando: ${approaching}` : 'Espaço profundo',
+    coordinates: near ? `${formatDistance(near.distanceM)}   ${near.angularDeg.toFixed(1)}°` : '—',
     domainLabel: 'NAVEGAÇÃO',
-    contextLabel: name ? 'ÓRBITA' : 'INTERPLANETÁRIA',
-    locationState: name ? 'NAVEGAÇÃO ORBITAL' : 'ESPAÇO PROFUNDO',
+    contextLabel: name ? 'ÓRBITA' : approaching ? approaching.toUpperCase() : 'INTERPLANETÁRIA',
+    locationState: name ? 'NAVEGAÇÃO ORBITAL' : approaching ? 'CORPO À VISTA' : 'ESPAÇO PROFUNDO',
     localUiVisible: false,
   };
 }

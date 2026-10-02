@@ -55,6 +55,19 @@ export interface TravelContext {
   readonly maxRelativeSpeedMps?: number;
   /** A supported ground provider must cover the landing site before local physics can resume. */
   readonly surfaceReady?: boolean;
+  /**
+   * Where the player is, in `solar-system/barycentric` metres, for the moment of departure.
+   *
+   * Without it the domain had to invent a position, and what it invented was
+   * `[0, bodyRadius + altitude, 0]` -- a position measured from the Earth's centre, handed to a
+   * system that reads it as barycentric. The barycentre is the Sun, so entering interplanetary
+   * flight put the player a few thousand kilometres from the Sun's surface: the Sun filled the
+   * sky, the Earth and Moon were an astronomical unit away, and the navigation readout quite
+   * correctly said deep space.
+   */
+  readonly entryPositionM?: Vec3;
+  /** The player's barycentric velocity at departure, so the Earth's orbital motion is kept. */
+  readonly entryVelocityMps?: Vec3;
 }
 
 export interface TravelDomainOptions {
@@ -150,12 +163,21 @@ export class TravelDomain {
       return { kind: 'refused', reason: 'collider' };
     }
     this.current = 'interplanetary';
+    const entry = context.entryPositionM;
+    const entryVelocity = context.entryVelocityMps ?? context.bodyVelocityMps;
     this.travel = {
       systemId: context.systemId ?? 'sol',
-      // Altitude above the body is all the local frame can tell us; the caller replaces this with
-      // a real system position when it has one.
-      positionM: [0, finite(context.bodyRadiusM) + finite(context.altitudeM), 0],
-      velocityMps: [0, 0, 0],
+      // The caller's real barycentric position. The fallback is the body's own surface along +Y,
+      // which is wrong but bounded; see `entryPositionM` for what happened when it was the only
+      // option.
+      positionM: entry
+        ? [finite(entry[0]), finite(entry[1]), finite(entry[2])]
+        : [0, finite(context.bodyRadiusM) + finite(context.altitudeM), 0],
+      // Departing must not cancel the body's orbital motion: standing still relative to the Earth
+      // is thirty kilometres a second relative to the Sun, and zeroing it is a shove.
+      velocityMps: entryVelocity
+        ? [finite(entryVelocity[0]), finite(entryVelocity[1]), finite(entryVelocity[2])]
+        : [0, 0, 0],
       referenceBodyId: context.bodyId,
     };
     return { kind: 'departed', reason: 'requested' };
