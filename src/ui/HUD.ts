@@ -80,7 +80,7 @@ const signedCoordinate = (value: number, positive: string, negative: string): st
  * controller directly into HUDState.
  */
 export function resolveHUDPresentation(state: Pick<HUDState,
-  'position' | 'location' | 'missionMarkerActive' | 'presentationDomain' | 'district'
+  'position' | 'location' | 'missionMarkerActive' | 'presentationDomain' | 'district' | 'nearbyBody'
 >): HUDPresentation {
   const domain = state.presentationDomain
     ?? (state.missionMarkerActive ? 'local' : state.location.surface ? 'planetary' : 'orbital');

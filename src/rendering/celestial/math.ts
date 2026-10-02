@@ -14,12 +14,13 @@ export interface CelestialProxyGeometry {
   radiusM: number;
 }
 
-export function celestialProxyGeometry(angularRadiusRad: number): CelestialProxyGeometry {
-  const radiusM = Math.tan(angularRadiusRad) * CELESTIAL_PROXY_DISTANCE_M;
+export function celestialProxyGeometry(angularRadiusRad: number, cameraFarM: number): CelestialProxyGeometry {
+  const distanceM = cameraFarM * 0.90;
+  const radiusM = Math.tan(angularRadiusRad) * distanceM;
   const safe = Number.isFinite(radiusM) && radiusM <= CELESTIAL_RENDER_SAFE_RADIUS_M;
   return {
     safe,
-    distanceM: CELESTIAL_PROXY_DISTANCE_M,
+    distanceM,
     radiusM
   };
 }

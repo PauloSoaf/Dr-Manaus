@@ -541,6 +541,7 @@ export class Game {
       mars: this.mars,
       fovRad: (this.rendering.camera.fov * Math.PI) / 180,
       viewportHeightPx: this.rendering.renderer.domElement.clientHeight,
+      cameraFarM: this.rendering.camera.far,
     });
     
     // Process streaming based on updated presentation state

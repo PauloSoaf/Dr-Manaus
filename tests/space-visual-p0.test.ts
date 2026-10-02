@@ -102,7 +102,8 @@ test('T_PROXY1: Earth coarse globe replaces analytic blue proxy once it is visua
     universe,
     earth: mockEarth,
     fovRad,
-    viewportHeightPx
+    viewportHeightPx,
+    cameraFarM: 50_000_000
   });
   
   const sample = (controller as any).samples.find((s: any) => s.bodyId === 'earth');
@@ -141,7 +142,7 @@ test('T_PROXY2: Earth proxy handles transition thresholds correctly without over
 
   for (const dist of testDistances) {
     universe.updateSystemPose([earthBary[0], earthBary[1], earthBary[2] + dist], [0, 0, 0], 0);
-    controller.prepare({ universe, earth: mockEarth, fovRad, viewportHeightPx });
+    controller.prepare({ universe, earth: mockEarth, fovRad, viewportHeightPx, cameraFarM: 50_000_000 });
     const sample = (controller as any).samples.find((s: any) => s.bodyId === 'earth');
     
     if (dist === 900_000_000) {

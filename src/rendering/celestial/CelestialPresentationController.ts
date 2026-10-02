@@ -13,6 +13,7 @@ export interface CelestialPresentationContext {
   mars?: RockyPlanetProvider;
   fovRad: number;
   viewportHeightPx: number;
+  cameraFarM: number;
 }
 
 export interface CelestialRenderContext {
@@ -60,7 +61,7 @@ export class CelestialPresentationController {
         );
         const sunDirRenderVec = new Vector3(sunDirRender[0], sunDirRender[1], sunDirRender[2]).normalize();
         const angRad = angularRadiusRad(sunDef.equatorialRadiusM, dist);
-        const proxyGeo = celestialProxyGeometry(angRad);
+        const proxyGeo = celestialProxyGeometry(angRad, ctx.cameraFarM);
 
         this.samples.push({
           bodyId: 'sun',
@@ -106,7 +107,7 @@ export class CelestialPresentationController {
         const angRad = angularRadiusRad(marsDef.equatorialRadiusM, dist);
         const presentation = system.handoff('mars', observerBary);
         const apparentAngRad = presentation ? presentation.apparentAngularRadiusRad : angRad;
-        const proxyGeo = celestialProxyGeometry(apparentAngRad);
+        const proxyGeo = celestialProxyGeometry(apparentAngRad, ctx.cameraFarM);
         const projectedPx = projectedDiameterPx(apparentAngRad, ctx.fovRad, ctx.viewportHeightPx);
         
         let visible = proxyGeo.safe;
@@ -209,7 +210,7 @@ export class CelestialPresentationController {
         const angRad = angularRadiusRad(moonDef.equatorialRadiusM, dist);
         const presentation = system.handoff('moon', observerBary);
         const apparentAngRad = presentation ? presentation.apparentAngularRadiusRad : angRad;
-        const proxyGeo = celestialProxyGeometry(apparentAngRad);
+        const proxyGeo = celestialProxyGeometry(apparentAngRad, ctx.cameraFarM);
         const projectedPx = projectedDiameterPx(apparentAngRad, ctx.fovRad, ctx.viewportHeightPx);
         
         let visible = proxyGeo.safe;
@@ -318,7 +319,7 @@ export class CelestialPresentationController {
         const angRad = angularRadiusRad(earthDef.equatorialRadiusM, dist);
         const presentation = system.handoff('earth', observerBary);
         const apparentAngRad = presentation ? presentation.apparentAngularRadiusRad : angRad;
-        const proxyGeo = celestialProxyGeometry(apparentAngRad);
+        const proxyGeo = celestialProxyGeometry(apparentAngRad, ctx.cameraFarM);
         const projectedPx = projectedDiameterPx(apparentAngRad, ctx.fovRad, ctx.viewportHeightPx);
         
         let visible = proxyGeo.safe;

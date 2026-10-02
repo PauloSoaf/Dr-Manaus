@@ -157,14 +157,13 @@ export class SpaceLayer {
     this.shell.visible = !FEATURES.earthGlobe && local && this.uShellFade.value > .003;
     this.disc.visible = !FEATURES.earthGlobe && local && veil > .02;
 
+    // The camera's far plane is set by RenderDomains. Push the stars
+    // out to just inside it, so they are physically behind planets and occluded by them.
+    const farM = this.camera.far * 0.95;
+    this.stars.scale.setScalar(farM / STAR_RADIUS);
     if (this.planetaryView) {
-      // The camera's far plane is set by RenderDomains to wrap the planet. Push the stars
-      // out to just inside it, so they are physically behind the planet and occluded by it.
-      const farM = this.camera.far * 0.95;
-      this.stars.scale.setScalar(farM / STAR_RADIUS);
       this.stars.layers.set(PLANET_LAYER);
     } else {
-      this.stars.scale.setScalar(1);
       this.stars.layers.set(0);
     }
   }
@@ -235,9 +234,10 @@ export class SpaceLayer {
     const beat = sin(time.mul(2.1).add(glint.y)).mul(sin(time.mul(1.27).add(glint.y.mul(3.7))));
     const twinkle = beat.mul(.24).mul(float(1).sub(this.uSpace).mul(.92).add(.08));
     const direction = positionLocal.normalize();
-    const lift = mix(smoothstep(-.02, .26, direction.y), smoothstep(this.uLimb.sub(.01), this.uLimb.add(.05), direction.y), this.uSpace);
+    const spaceLift = FEATURES.earthGlobe ? float(1.0) : smoothstep(this.uLimb.sub(.01), this.uLimb.add(.05), direction.y);
+    const lift = mix(smoothstep(-.02, .26, direction.y), spaceLift, this.uSpace);
     const glare = float(1).sub(smoothstep(.75, .995, direction.dot(this.uSun)).mul(float(1).sub(this.uSpace.mul(.45))));
-    this.starMaterial.colorNode = tint.mul(glint.x).mul(float(1).add(twinkle));
+    this.starMaterial.colorNode = tint.mul(glint.x).mul(float(1).add(twinkle)).mul(lift).mul(glare);
     this.starMaterial.opacityNode = shape.mul(glint.x).mul(this.uVisible).mul(lift).mul(glare).saturate();
   }
   private writeShellShader() {
