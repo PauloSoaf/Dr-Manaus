@@ -1,4 +1,4 @@
-# Planet volume field — phases 1–2
+# Planet volume field — phases 1–3
 
 This directory owns the mathematical authority for sparse destruction of rocky bodies.
 
@@ -77,3 +77,25 @@ chunks in `Game.tick`. The synchronous `generateVolumeChunk` facade is for tests
 EMPTY/SOLID/MIXED classify all sampled signs, including zero as MIXED. This is a grid
 classification, not proof of sub-cell topology: features smaller than the sample spacing can be
 missed. No mesh, collider, power integration or cave traversal is part of Phase 2.
+
+Phase 3 adds `PlanetVolumeMeshingJob` and the synchronous test/benchmark facade `meshVolumeChunk`.
+The pure mesher consumes a ready scalar grid at iso=0, never calls the field/BVH and never imports
+Three.js. EMPTY/SOLID chunks return zero geometry. MIXED chunks are validated and counted before
+indexed emission. Canonical grid-edge vertices are reused; exact zero endpoints are welded and
+degenerate triangles are discarded. Positions stay in chunk-local Float32 metres; the owning
+origin remains separate body-fixed Float64 metadata. Winding and finite-difference/interpolated
+gradient normals point from negative solid into positive empty, including cut cavity/tunnel walls.
+
+The classic 256-case triangle table is data copied from the installed **three.js r186**, with the
+full MIT copyright/license retained in `MarchingCubesTable.ts`. Source:
+https://github.com/mrdoob/three.js/blob/r186/examples/jsm/objects/MarchingCubes.js.
+Classic ambiguous face cases are counted in the payload; this initial extraction does not claim
+MC33 topology certification. Exact shared-face vertices are tested at the same LOD, but smooth
+cross-chunk normals have no ghost-sample halo and different LODs have no transition cells yet.
+Those limitations matter before world terrain coverage can consume these meshes.
+
+For N=17, the theoretical indexed output cap is 578,688 bytes (one vertex per grid edge, five
+triangles per cell). A job checks a **2 MiB worst-case live-array limit**, including temporary
+gradient/edge/zero caches and compact output copies. The default grid's bound is 1,295,036 bytes.
+Oversized configurations are rejected before allocating their mixed-grid scratch arrays; scalar
+sampling still supports the Phase 2 configurations. Meshing is resumable per sample/cell work unit.
