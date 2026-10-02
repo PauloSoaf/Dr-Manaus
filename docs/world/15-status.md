@@ -7,7 +7,10 @@ including the things that do not work.
 Baseline: `d2e03428b1d9ba90fdc7b2a5112c280e6686fead` (PR #2 merged into `main`).
 Branch: `feat/universe-map`.
 
-Current implementation checkpoint: **SOLAR-11 / Task 011**, starting at `47dd452`.
+Current implementation checkpoint: **CELESTIAL-LEGIBILITY-1**, continuing from `4529b9d` after
+**SOLAR-11 / Task 011** (`47dd452`). Physical scale and travel remain unchanged; optical point floors,
+solar halos, brighter phased Moon shading and bounded/contextual DOM labels improve readability.
+Saturn's existing rings fade in between 6 and 9 physical pixels.
 The Sun, Moon and all eight planets now share generic celestial presentation and live navigation.
 Mercury/Venus/Moon/Mars use a body-keyed rocky-provider registry; Earth retains its specialized
 Manaus/WGS84 flow. Stars and giants have exclusion envelopes and cannot land. See

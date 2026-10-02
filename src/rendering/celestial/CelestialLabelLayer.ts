@@ -1,128 +1,107 @@
-import { PerspectiveCamera, Vector3 } from 'three/webgpu';
+import { PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu';
 import type { CelestialRenderSample } from './types';
+import { CELESTIAL_RENDER_SAFE_RADIUS_M } from './math';
+import { smoothRange } from './presentation';
+
+export const CELESTIAL_LABEL_NAMES: Readonly<Record<string, string>> = {
+  sun: 'SOL', mercury: 'MERCÚRIO', venus: 'VÊNUS', earth: 'TERRA', moon: 'LUA',
+  mars: 'MARTE', jupiter: 'JÚPITER', saturn: 'SATURNO', uranus: 'URANO', neptune: 'NETUNO',
+};
+
+export interface CelestialLabelContext {
+  selectedBodyId?: string;
+  inTravel?: boolean;
+  referenceBodyId?: string;
+}
+
+/** Project the bounded observer-relative point, never the logical system coordinates. */
+export function projectCelestialLabel(sample: CelestialRenderSample, camera: PerspectiveCamera) {
+  const { directionRender: dir, proxyDistanceM: distance } = sample;
+  if (![...dir, distance].every(Number.isFinite) || distance <= 0
+    || distance > CELESTIAL_RENDER_SAFE_RADIUS_M || Math.abs(Math.hypot(...dir) - 1) > 1e-6) return undefined;
+  const point = new Vector3(...dir).multiplyScalar(distance);
+  point.applyQuaternion(camera.getWorldQuaternion(new Quaternion()).invert());
+  if (point.z >= -camera.near) return undefined;
+  point.applyMatrix4(camera.projectionMatrix);
+  if (!point.toArray().every(Number.isFinite) || Math.abs(point.x) > 1 || Math.abs(point.y) > 1
+    || point.z < -1 || point.z > 1) return undefined;
+  return { x: point.x, y: point.y };
+}
+
+/** Selected physical globes retain labels even when their proxy has retired. */
+export function celestialLabelOpacity(sample: CelestialRenderSample, context: CelestialLabelContext,
+  screen: { x: number; y: number }): number {
+  if (sample.bodyId === context.selectedBodyId) return 0.9;
+  const diameter = sample.physicalProjectedDiameterPx ?? Infinity;
+  if (!sample.visible || !Number.isFinite(diameter)) return 0;
+  if (sample.bodyId === 'earth') return context.inTravel ? 0.7 * (1 - smoothRange(diameter, 6, 18)) : 0;
+  if (sample.bodyId === 'moon') {
+    const earthMoonContext = context.inTravel && (context.referenceBodyId === 'earth' || context.referenceBodyId === 'moon'
+      || context.selectedBodyId === 'earth' || context.selectedBodyId === 'moon');
+    return earthMoonContext ? 0.65 * (1 - smoothRange(diameter, 30, 80)) : 0;
+  }
+  if (sample.profile?.bodyClass === 'star') {
+    return context.inTravel && diameter < 80 ? 0.55 * smoothRange(Math.hypot(screen.x, screen.y), 0.35, 0.6) : 0;
+  }
+  const priority = sample.profile?.visual.labelPriority ?? 0;
+  return 0.6 * smoothRange(diameter, 12 + (10 - priority), 30);
+}
 
 export class CelestialLabelLayer {
   private readonly container: HTMLDivElement;
   private readonly labels = new Map<string, HTMLDivElement>();
-  private readonly worldPosition = new Vector3();
 
   constructor(parentDom: HTMLElement) {
     this.container = document.createElement('div');
-    this.container.style.position = 'absolute';
-    this.container.style.top = '0';
-    this.container.style.left = '0';
-    this.container.style.width = '100%';
-    this.container.style.height = '100%';
-    this.container.style.pointerEvents = 'none';
-    this.container.style.overflow = 'hidden';
-    this.container.style.zIndex = '10'; // Above canvas but below UI
+    this.container.className = 'celestial-labels';
+    Object.assign(this.container.style, { position: 'absolute', inset: '0', pointerEvents: 'none',
+      overflow: 'hidden', zIndex: '10' });
     parentDom.appendChild(this.container);
   }
 
-  private getLabel(id: string, text: string): HTMLDivElement {
+  private getLabel(id: string): HTMLDivElement {
     let el = this.labels.get(id);
     if (!el) {
       el = document.createElement('div');
-      el.style.position = 'absolute';
-      el.style.color = '#ffffff';
-      el.style.fontFamily = 'monospace';
-      el.style.fontSize = '12px';
-      el.style.fontWeight = 'bold';
-      el.style.letterSpacing = '1px';
-      el.style.textShadow = '1px 1px 2px #000000';
-      el.style.transform = 'translate(-50%, -100%)';
-      el.style.opacity = '0';
-      el.style.transition = 'opacity 0.2s ease-out';
-      el.textContent = text;
+      Object.assign(el.style, { position: 'absolute', color: '#dce6ed', fontFamily: 'monospace',
+        fontSize: '12px', letterSpacing: '1px', textShadow: '1px 1px 2px #000',
+        transform: 'translate(-50%, -100%)', whiteSpace: 'nowrap', opacity: '0', transition: 'opacity 0.2s ease-out' });
+      el.dataset.bodyId = id;
       this.container.appendChild(el);
       this.labels.set(id, el);
     }
     return el;
   }
 
-  update(samples: readonly CelestialRenderSample[], camera: PerspectiveCamera, selectedBodyId?: string): void {
-    const halfWidth = this.container.clientWidth / 2;
-    const halfHeight = this.container.clientHeight / 2;
-
+  update(samples: readonly CelestialRenderSample[], camera: PerspectiveCamera, context: CelestialLabelContext = {}): void {
+    const width = this.container.clientWidth;
+    const height = this.container.clientHeight;
     const seen = new Set<string>();
-
     for (const sample of samples) {
-      if (!sample.visible || !sample.profile) continue;
-
-      // Distance and projection rules
-      // Do not show for physical globes taking up the whole screen, or stars
-      if (sample.angularRadiusRad > Math.PI / 4) continue;
-      
-      const isSelected = sample.bodyId === selectedBodyId;
-      
-      // Label visibility policy
-      let showLabel = false;
-      const bodyClass = sample.profile.bodyClass;
-      
-      if (isSelected) {
-        showLabel = true;
-      } else if (bodyClass !== 'star') {
-        const priority = sample.profile.visual.labelPriority ?? 0;
-        // Priority threshold or specific heuristics
-        if (priority >= 8) { // Earth, Moon
-          showLabel = true;
-        } else if (priority >= 4 && sample.angularRadiusRad > 0.005) { // Planets when close
-          showLabel = true;
-        }
-      }
-
-      if (!showLabel) continue;
-
-      const dir = sample.directionRender;
-      // Position is camera-relative, but we project it from the actual camera position
-      // Wait, directionRender is relative to camera.
-      this.worldPosition.set(dir[0], dir[1], dir[2]).multiplyScalar(sample.proxyDistanceM);
-      this.worldPosition.add(camera.position);
-
-      this.worldPosition.project(camera);
-
-      // Behind camera?
-      if (this.worldPosition.z > 1.0) continue;
-
-      // Inside viewport? (allow some margin)
-      if (this.worldPosition.x < -1.2 || this.worldPosition.x > 1.2 ||
-          this.worldPosition.y < -1.2 || this.worldPosition.y > 1.2) {
-        continue;
-      }
-
-      const x = (this.worldPosition.x * halfWidth) + halfWidth;
-      const y = -(this.worldPosition.y * halfHeight) + halfHeight;
-
-      let name = sample.bodyId.toUpperCase();
-      const ptNames: Record<string, string> = {
-        sun: 'SOL', mercury: 'MERCÚRIO', venus: 'VÊNUS', earth: 'TERRA', moon: 'LUA',
-        mars: 'MARTE', jupiter: 'JÚPITER', saturn: 'SATURNO', uranus: 'URANO', neptune: 'NETUNO'
-      };
-      name = ptNames[sample.bodyId] ?? name;
-
-      const el = this.getLabel(sample.bodyId, name);
-      // Add a dot if very small and not selected?
-      const text = sample.angularRadiusRad < 0.01 && sample.bodyId !== 'sun' ? `• ${name}` : name;
-      if (el.textContent !== text) el.textContent = text;
-      
-      el.style.left = `${x}px`;
-      el.style.top = `${y - 10}px`; // slightly above
-      el.style.opacity = '0.7';
+      const screen = projectCelestialLabel(sample, camera);
+      if (!screen || width <= 0 || height <= 0) continue;
+      const opacity = celestialLabelOpacity(sample, context, screen);
+      if (opacity <= 0) continue;
+      const el = this.getLabel(sample.bodyId);
+      const name = CELESTIAL_LABEL_NAMES[sample.bodyId] ?? sample.bodyId.toUpperCase();
+      el.textContent = (sample.physicalProjectedDiameterPx ?? Infinity) < 6 ? `• ${name}` : name;
+      const halfLabel = (el.offsetWidth || el.textContent.length * 8) / 2;
+      if (width < halfLabel * 2 + 16 || height < 40) continue;
+      const x = (screen.x + 1) * width / 2;
+      const y = (1 - screen.y) * height / 2 - 10;
+      el.style.left = `${Math.max(halfLabel + 8, Math.min(width - halfLabel - 8, x))}px`;
+      el.style.top = `${Math.max(24, Math.min(height - 8, y))}px`;
+      el.style.opacity = String(opacity);
+      el.style.visibility = 'visible';
       seen.add(sample.bodyId);
     }
-
-    // Hide unseen
-    for (const [id, el] of this.labels.entries()) {
+    for (const [id, el] of this.labels) {
       if (!seen.has(id)) {
         el.style.opacity = '0';
+        el.style.visibility = 'hidden';
       }
     }
   }
 
-  dispose(): void {
-    if (this.container.parentNode) {
-      this.container.parentNode.removeChild(this.container);
-    }
-    this.labels.clear();
-  }
+  dispose(): void { this.container.remove(); this.labels.clear(); }
 }

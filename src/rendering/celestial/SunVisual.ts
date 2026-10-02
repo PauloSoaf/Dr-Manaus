@@ -1,11 +1,14 @@
-import { AdditiveBlending, BufferGeometry, Float32BufferAttribute, Group, Mesh, MeshBasicNodeMaterial, PlaneGeometry, Vector3 } from 'three/webgpu';
-import { color, float, mix, positionLocal, smoothstep, vec3, vec4 } from 'three/tsl';
+import { AdditiveBlending, Group, Mesh, MeshBasicNodeMaterial, PlaneGeometry, Vector3 } from 'three/webgpu';
+import { float, mix, positionLocal, smoothstep, uniform, vec3, vec4 } from 'three/tsl';
 import type { CelestialRenderSample } from './types';
+import { SOLAR_BODY_PROFILES } from '../../world/celestial/CelestialBodyProfile';
 
 export class SunVisual {
   readonly group = new Group();
   private readonly disc: Mesh;
   private readonly material: MeshBasicNodeMaterial;
+  private readonly uOpacity = uniform(1);
+  private readonly glow = SOLAR_BODY_PROFILES.sun.visual.solarGlow!;
 
   constructor() {
     this.group.name = 'SunVisual';
@@ -24,16 +27,14 @@ export class SunVisual {
     // positionLocal is in [-1, 1] range for a 2x2 plane
     const radius = positionLocal.xy.length();
     
-    // Scale is set such that radius=0.1 corresponds to the physical disc.
-    // 0.1 allows the quad to be 5x the physical disc radius.
-    const disc = float(1).sub(smoothstep(float(0.19), float(0.20), radius));
+    const discRadius = 1 / this.glow.outerScale;
+    const disc = float(1).sub(smoothstep(float(discRadius * 0.95), float(discRadius), radius));
     
-    // Inner glow (up to 2x physical radius, so radius 0.4)
-    const innerDrop = radius.sub(0.2).max(0).div(0.2);
+    // Optical inner halo and corona are separate from the physical angular disc.
+    const innerDrop = radius.sub(discRadius).max(0).div(discRadius * (this.glow.innerScale - 1));
     const innerGlow = float(1).sub(innerDrop).max(0).pow(1.5).mul(0.8);
     
-    // Outer corona (up to 5x physical radius, so radius 1.0)
-    const outerDrop = radius.sub(0.2).max(0).div(0.8);
+    const outerDrop = radius.sub(discRadius).max(0).div(1 - discRadius);
     const outerCorona = float(1).sub(outerDrop).max(0).pow(3.0).mul(0.4);
     
     // Core is very bright white-yellow, corona is warmer/softer
@@ -47,7 +48,7 @@ export class SunVisual {
       coreColor,
       disc
     );
-    const alpha = disc.add(innerGlow).add(outerCorona).saturate();
+    const alpha = disc.add(innerGlow).add(outerCorona).saturate().mul(this.uOpacity);
 
     this.material.colorNode = vec4(finalColor, alpha);
     
@@ -60,10 +61,9 @@ export class SunVisual {
     this.group.visible = sample.visible;
     if (!this.group.visible) return;
 
-    // The quad size needs to be larger than the physical proxy radius to fit the corona
-    // The disc is drawn at r=0.2 in local quad space.
-    // So if local r=0.2 corresponds to proxyRadiusM, local r=1.0 is 5 * proxyRadiusM.
-    const scale = sample.proxyRadiusM * 5.0; 
+    // Only the optical quad expands; the disc's radius remains proxyRadiusM.
+    const scale = sample.proxyRadiusM * this.glow.outerScale;
+    this.uOpacity.value = Math.max(0, Math.min(1, sample.opacity));
     
     this.disc.scale.setScalar(scale);
 

@@ -609,7 +609,11 @@ export class Game {
     this.celestialController.render({
       camera: this.rendering.camera
     });
-    this.celestialLabels.update(this.celestialController.renderSamples, this.rendering.camera, this.navigationTarget?.bodyId);
+    this.celestialLabels.update(this.celestialController.renderSamples, this.rendering.camera, {
+      selectedBodyId: this.navigationTarget?.bodyId,
+      inTravel: this.travelDomain.kind === 'interplanetary',
+      referenceBodyId: this.universe.resolveBodyContext().dominantBody,
+    });
     // After the camera settles: the portal skin samples in screen space, so a stale matrix would
     // stretch the galaxy by the viewport and leave it static as the player looks around.
     this.player.character.updateCosmicView(this.rendering.camera);
@@ -1016,9 +1020,6 @@ export class Game {
 
   private sample(){const info=this.rendering.renderer.info,stats=this.streamer.stats;this.frame={fps:Math.round(1000/this.quality.averageMs),cpu:Number(this.cpu.toFixed(2)),drawCalls:info.render.drawCalls,triangles:info.render.triangles,geometries:info.memory.geometries,textures:info.memory.textures,active:stats.active,cached:stats.cached,queued:stats.queued,loadedMB:stats.loadedMB+info.memory.total/1048576,streamMs:stats.streamMs,x:this.player.position.x,z:this.player.position.z};}
 }
-
-
-
 
 
 

@@ -6,7 +6,8 @@ import { bodyProfile } from '../../world/celestial/CelestialBodyProfile';
 import { normalizeVec3, quatFromAxisAngle, type Vec3 } from '../../world/spatial/units';
 import { CelestialBodyVisualLayer } from './CelestialBodyVisualLayer';
 import type { CelestialRenderSample } from './types';
-import { angularRadiusRad, celestialProxyGeometry, projectedDiameterPx } from './math';
+import { angularRadiusRad, boundedCelestialProxy, projectedDiameterPx } from './math';
+import { bodyPresentation } from './presentation';
 
 export interface CelestialPresentationContext {
   universe: UniverseRuntime;
@@ -78,23 +79,11 @@ export class CelestialPresentationController {
       // only, preserving the existing Earth/Manaus frame contract.
       const bodyOrientationRender = universe.frames.convertOrientation(body.frameId, renderFrame,
         quatFromAxisAngle([1, 0, 0], body.axialTiltRad ?? 0));
-      const extent = profile.visual.rings?.outerRadius ?? (profile.bodyClass === 'star' ? 2 : 1);
-      const proxy = celestialProxyGeometry(angle, ctx.cameraFarM ?? 100_000, extent);
-      let presentationProxyRadiusM = proxy.radiusM;
-      let glowProxyRadiusM = proxy.radiusM;
-      if (profile.bodyClass !== 'star') {
-        const projectedPx = projectedDiameterPx(angle, ctx.fovRad, ctx.viewportHeightPx);
-        if (profile.visual.minimumVisiblePx && projectedPx < profile.visual.minimumVisiblePx) {
-          const presentationAngle = (profile.visual.minimumVisiblePx / ctx.viewportHeightPx) * ctx.fovRad / 2;
-          presentationProxyRadiusM = Math.tan(presentationAngle) * proxy.distanceM;
-        }
-        if (profile.visual.pointGlowPx) {
-          const glowAngle = (Math.max(projectedPx, profile.visual.pointGlowPx) / ctx.viewportHeightPx) * ctx.fovRad / 2;
-          glowProxyRadiusM = Math.tan(glowAngle) * proxy.distanceM;
-        } else {
-          glowProxyRadiusM = presentationProxyRadiusM;
-        }
-      }
+      const presentation = bodyPresentation(angle, profile.visual, ctx.fovRad, ctx.viewportHeightPx);
+      const proxy = boundedCelestialProxy(presentation.physicalTangent, presentation.extentTangent, ctx.cameraFarM ?? 100_000);
+      const physicalProxyRadiusM = presentation.physicalTangent * proxy.distanceM;
+      const presentationProxyRadiusM = presentation.presentationTangent * proxy.distanceM;
+      const glowProxyRadiusM = presentation.glowTangent * proxy.distanceM;
       let visible = proxy.safe && distance > 0;
       let opacity = 1;
       if (body.id === physical?.body.id) {
@@ -117,7 +106,11 @@ export class CelestialPresentationController {
       }
       return { bodyId: body.id, profile, logicalDistanceM: distance, physicalRadiusM: body.equatorialRadiusM,
         angularRadiusRad: angle, directionRender: direction, proxyDistanceM: proxy.distanceM,
-        proxyRadiusM: proxy.radiusM, presentationProxyRadiusM, glowProxyRadiusM, visible, opacity, phaseLightDirection, bodyOrientationRender };
+        proxyRadiusM: physicalProxyRadiusM, presentationProxyRadiusM, glowProxyRadiusM,
+        physicalProjectedDiameterPx: presentation.physicalProjectedDiameterPx,
+        presentationDiameterPx: presentation.presentationDiameterPx,
+        pointMix: presentation.pointMix, ringsOpacity: presentation.ringsOpacity,
+        visible, opacity, phaseLightDirection, bodyOrientationRender };
     });
   }
 

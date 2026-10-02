@@ -17,6 +17,11 @@ export interface CelestialRenderSample {
   presentationProxyRadiusM?: number;
   /** Radius of the proxy including the optional glow layer, independent of physical size. */
   glowProxyRadiusM?: number;
+  physicalProjectedDiameterPx?: number;
+  presentationDiameterPx?: number;
+  /** Continuous point-to-disc weight; physical provider ownership is unchanged. */
+  pointMix?: number;
+  ringsOpacity?: number;
 
   visible: boolean;
   opacity: number;

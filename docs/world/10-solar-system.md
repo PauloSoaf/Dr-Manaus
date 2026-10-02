@@ -163,3 +163,56 @@ this checkpoint. Its ignored artifacts record the failure; no test assertion was
 travel toward each planet, verify smooth proxy growth and Saturn's rings, verify giants remain in
 travel mode, return to Earth/Manaus, land on the Moon, and check for jitter/disappearing planets.
 Automated rendering structure and browser smoke are not approval of these visual results.
+
+## Celestial legibility checkpoint
+
+CELESTIAL-LEGIBILITY-1 continues from the already present `4529b9d` visual commit. The existing
+presentation pipeline now records `physicalProjectedDiameterPx` separately from
+`presentationDiameterPx`. Perspective projection supplies these pixel measurements; provider
+eligibility still uses its unchanged physical LOD and handoff. Physical radii, live distances,
+ephemerides, cruise/warp, arrival policy, surface streaming and volume fields are unchanged.
+
+`BodyVisualProfile` owns the optical settings. Earth's minimum disc is 2.5 pixels, with a blue
+4-pixel glow at strength 0.35. The point colour blends into phase shading as the physical diameter
+grows from the configured floor to three times that floor. Other planets retain distinct albedos
+and floors of 1–2.5 pixels. The Moon uses neutral 0.65 albedo and a 0.08 ambient/night-side floor,
+preserving substantially brighter illumination and the terminator instead of a uniform white disc.
+
+The Sun retains its physical angular disc, with a warm inner halo extending to twice its radius
+and a low-opacity corona reaching five times its radius. Optical extents participate only in the
+bounded proxy/far-plane budget. The corona and point floors never enlarge collision, navigation,
+handoff or provider activation radii. Both shaders fade radially to transparent before the quad
+boundary; point glow is disabled in resolved-disc mode.
+
+Saturn keeps the same analytic annulus and orientation. Ring opacity is zero below a **6-pixel
+physical outer diameter**, smoothly increases between 6 and 9 pixels, and reaches full opacity at
+9 pixels. An expanded point marker cannot make subpixel rings visible.
+
+`CelestialLabelLayer` is a pointer-transparent DOM overlay with Portuguese names for all ten
+bodies. It projects only bounded observer-relative proxy positions through the camera rotation
+and projection matrix. Selected targets remain eligible even after a physical globe replaces its
+proxy. Distant Earth labels appear in travel and fade as its physical disc grows from 6 to 18
+pixels; Moon labels require Earth/Moon travel context or selection. Unselected Sun labels avoid
+the centre, and other planets need a resolved disc. Continuous opacity and CSS transitions soften
+thresholds; invalid, behind-camera and off-screen anchors hide immediately. Text is clamped inside
+the viewport without adding astronomical Object3D positions or pointer targets.
+
+The presentation tests use the repository's `node:test` runner, replacing the incompatible Vitest
+imports in `4529b9d`. Twelve tests cover physical/presentation separation, exact Earth direction,
+all ten finite point samples, solar optical extents, Moon brightness parameters, continuous
+regimes, selected labels including physical globes, projection rejection/rebases, travel label
+policy and Saturn's physical ring threshold. The existing SOLAR-11 tests remain unchanged.
+
+Validation on 2026-10-02: **439/439 unit tests passed**, including the 12 legibility tests;
+**58/58 focused celestial/SOLAR-11/render-space tests passed**. Typecheck, production build and
+`git diff --check` passed. The build retains the existing bundle-size advisory. The existing
+browser command was executed: WebGL 2 boot succeeded with no captured page/console errors,
+then its destruction setup failed on the stale `game.origin` access at
+`scripts/browser-test.mjs:265` (call starts at line 263). This predates the checkpoint and leaves
+browser E2E unverified. No browser tooling was installed and no assertion was removed.
+
+**Requires user manual validation:** leave Earth and look back at increasing distances; verify a
+subtle blue point and TERRA label, label fading on approach, full/half/crescent Moon visibility,
+the physical solar disc with a soft corona, selected planet labels and screen edges, and Saturn's
+rings appearing without subpixel shimmer. Automated numeric/structural tests do not establish
+visual quality or complete the manual travel matrix.

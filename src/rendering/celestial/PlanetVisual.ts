@@ -1,5 +1,5 @@
 import { DoubleSide, Group, Mesh, MeshBasicNodeMaterial, NormalBlending, PlaneGeometry, Quaternion, RingGeometry, Vector3 } from 'three/webgpu';
-import { float, max, positionLocal, smoothstep, uniform, vec3, vec4 } from 'three/tsl';
+import { float, max, mix, positionLocal, smoothstep, uniform, vec3, vec4 } from 'three/tsl';
 import type { CelestialRenderSample } from './types';
 import type { BodyVisualProfile } from '../../world/celestial/CelestialBodyProfile';
 
@@ -16,6 +16,8 @@ export class PlanetVisual {
   private readonly uAmbient = uniform(new Vector3(0.02, 0.02, 0.02));
   private readonly uDiscRadius = uniform(0.9);
   private readonly uGlowStrength = uniform(0.0);
+  private readonly uPointMix = uniform(0);
+  private readonly uRingOpacity = uniform(1);
 
   constructor(albedoRGB: [number, number, number], ambientRGB: [number, number, number] = [0.02, 0.02, 0.02],
     profile?: BodyVisualProfile) {
@@ -57,16 +59,19 @@ export class PlanetVisual {
     const bands = profile?.bands
       ? normal.dot(this.uPole).mul(profile.bands * Math.PI).sin().mul(0.16).add(0.84)
       : float(1);
-    const lit = this.uAlbedo.mul(bands).mul(nDotL.pow(0.8));
+    const lit = this.uAlbedo.mul(bands).mul(nDotL.pow(profile?.phaseExponent ?? 0.8));
     
     const earthshine = this.uAmbient.mul(float(1).sub(nDotL));
     
-    // Add glow: fades out from uDiscRadius to 1.0
-    const drop = normR.sub(this.uDiscRadius).max(0).div(float(1.0).sub(this.uDiscRadius).max(0.001));
-    const glowAlpha = float(1).sub(drop).pow(2.0).mul(this.uGlowStrength);
+    // The optical radius ends at 0.9, matching the quad scale and the bounded proxy budget.
+    const drop = normR.sub(this.uDiscRadius).max(0).div(float(0.9).sub(this.uDiscRadius).max(0.001));
+    const glowAlpha = float(1).sub(drop).max(0).pow(2.0).mul(this.uGlowStrength);
     const finalGlow = this.uAlbedo.mul(glowAlpha).mul(nDotL.mul(0.8).add(0.2));
     
-    const finalColor = lit.add(earthshine).mul(disc).add(finalGlow.mul(float(1).sub(disc)));
+    const phaseColor = lit.add(earthshine);
+    const pointColor = this.uAlbedo.mul(profile?.pointBrightness ?? 0.55);
+    const finalColor = mix(phaseColor, pointColor, this.uPointMix).mul(disc)
+      .add(finalGlow.mul(float(1).sub(disc)));
     const alpha = disc.add(glowAlpha.mul(float(1).sub(disc))).mul(this.uOpacity).saturate();
 
     this.material.colorNode = vec4(finalColor, alpha);
@@ -80,7 +85,7 @@ export class PlanetVisual {
       const radius = positionLocal.xy.length();
       const stripe = radius.mul(90).sin().mul(0.14).add(0.65);
       material.colorNode = vec3(0.72, 0.65, 0.47).mul(stripe);
-      material.opacityNode = stripe.mul(this.uOpacity);
+      material.opacityNode = stripe.mul(this.uOpacity).mul(this.uRingOpacity);
       this.rings = new Mesh(new RingGeometry(profile.rings.innerRadius, profile.rings.outerRadius, 96), material);
       this.rings.name = 'analytic-rings';
       this.rings.frustumCulled = false;
@@ -94,13 +99,16 @@ export class PlanetVisual {
     if (!this.group.visible) return;
 
     const baseRadius = sample.presentationProxyRadiusM ?? sample.proxyRadiusM;
-    const glowRadius = sample.glowProxyRadiusM ?? baseRadius;
+    const glowRadius = Math.max(baseRadius, sample.glowProxyRadiusM ?? baseRadius, 1e-12);
     const scale = glowRadius / 0.9;
     this.disc.scale.setScalar(scale);
     
     // discRadius is the fraction of the quad that the actual disc takes up
     this.uDiscRadius.value = (baseRadius / glowRadius) * 0.9;
-    this.uGlowStrength.value = sample.profile?.visual.pointGlowStrength ?? 0.0;
+    this.uPointMix.value = sample.pointMix ?? 0;
+    this.uGlowStrength.value = (sample.profile?.visual.pointGlowStrength ?? 0) * this.uPointMix.value;
+    this.uRingOpacity.value = sample.ringsOpacity ?? 1;
+    if (this.rings) this.rings.visible = this.uRingOpacity.value > 0;
 
     const dir = sample.directionRender;
     this.group.position.set(dir[0], dir[1], dir[2]).multiplyScalar(sample.proxyDistanceM);
