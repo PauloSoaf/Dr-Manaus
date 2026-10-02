@@ -9,7 +9,90 @@ import type { UniverseLocation } from '../world/spatial/UniverseLocation';
 import { sectorIndex } from '../world/spatial/UniverseAddress';
 import { icon, POWERS } from './icons';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; }
+export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; }
+
+export interface HUDPresentation {
+  readonly domain: HUDPresentationDomain;
+  readonly place: string;
+  readonly coordinates: string;
+  readonly domainLabel: string;
+  readonly contextLabel: string;
+  readonly locationState: string;
+  readonly localUiVisible: boolean;
+}
+
+const BODY_NAMES: Readonly<Record<string, string>> = {
+  mercury: 'Mercúrio', venus: 'Vênus', earth: 'Terra', moon: 'Lua', mars: 'Marte',
+  jupiter: 'Júpiter', saturn: 'Saturno', uranus: 'Urano', neptune: 'Netuno',
+};
+
+const bodyName = (id: string | undefined): string | undefined => id
+  ? BODY_NAMES[id.toLowerCase()] ?? id
+  : undefined;
+
+const signedCoordinate = (value: number, positive: string, negative: string): string =>
+  `${Math.abs(value).toFixed(4)}° ${value >= 0 ? positive : negative}`;
+
+/**
+ * Pure presentation policy shared by the DOM update and structural tests.
+ * The explicit domain wins; the fallback keeps older callers safe until Game wires the transition
+ * controller directly into HUDState.
+ */
+export function resolveHUDPresentation(state: Pick<HUDState,
+  'position' | 'location' | 'missionMarkerActive' | 'presentationDomain' | 'district'
+>): HUDPresentation {
+  const domain = state.presentationDomain
+    ?? (state.missionMarkerActive ? 'local' : state.location.surface ? 'planetary' : 'orbital');
+
+  if (domain === 'local') {
+    const nearest = LANDMARKS.reduce((best, landmark) =>
+      Math.hypot(landmark.x - state.position.x, landmark.z - state.position.z)
+        < Math.hypot(best.x - state.position.x, best.z - state.position.z) ? landmark : best,
+    LANDMARKS[0]);
+    const near = Math.hypot(nearest.x - state.position.x, nearest.z - state.position.z)
+      < Math.max(400, nearest.radius * 2);
+    const geo = worldToLatLon(state.position.x, state.position.z);
+    return {
+      domain,
+      place: near ? nearest.name : 'Sobre a Amazônia',
+      coordinates: `${signedCoordinate(geo.lat, 'N', 'S')}   ${signedCoordinate(geo.lon, 'L', 'O')}`,
+      domainLabel: 'MANAUS',
+      contextLabel: state.district,
+      locationState: near ? 'ASSINATURA LOCALIZADA' : 'EXPLORAÇÃO LIVRE',
+      localUiVisible: true,
+    };
+  }
+
+  const id = state.location.address.bodyId;
+  const name = bodyName(id);
+  const surface = state.location.surface;
+  const coordinates = surface
+    ? `${signedCoordinate(surface.latDeg, 'N', 'S')}   ${signedCoordinate(surface.lonDeg, 'L', 'O')}`
+    : '—';
+
+  if (domain === 'planetary') {
+    return {
+      domain,
+      place: name ? `Sobre: ${name}` : 'Superfície planetária',
+      coordinates,
+      domainLabel: 'PLANETA',
+      contextLabel: (name ?? 'SUPERFÍCIE').toUpperCase(),
+      locationState: 'SUPERFÍCIE PLANETÁRIA',
+      localUiVisible: false,
+    };
+  }
+
+  return {
+    domain,
+    place: name ? `Órbita: ${name}` : 'Espaço profundo',
+    coordinates: '—',
+    domainLabel: 'NAVEGAÇÃO',
+    contextLabel: name ? 'ÓRBITA' : 'INTERPLANETÁRIA',
+    locationState: name ? 'NAVEGAÇÃO ORBITAL' : 'ESPAÇO PROFUNDO',
+    localUiVisible: false,
+  };
+}
 const $=<T extends HTMLElement=HTMLElement>(selector:string)=>document.querySelector<T>(selector)!;
 /** A labelled slider with a live readout; `format` turns the raw value into what the player reads. */
 const slider=(id:string,label:string,min:number,max:number,step:number,note='')=>
@@ -44,7 +127,7 @@ export class HUD {
       <div id="objective-marker" class="objective-marker" hidden><span>◇</span><small></small></div>
       <div class="welcome" id="welcome"><span>VOCÊ É A ENERGIA DESTA CIDADE.</span><p>O horizonte é só o começo.</p></div>
       <div class="toast" id="toast" role="status"></div>
-      <div class="location"><span class="eyebrow">MANAUS · <b id="district">AMAZONAS</b></span><h2 id="place-name">Teatro Amazonas</h2><p id="coordinates">3.1303° S &nbsp; 60.0234° O</p><div class="location-line"><i></i><span id="location-state">CENTRO HISTÓRICO</span></div></div>
+      <div class="location"><span class="eyebrow"><span id="location-domain">MANAUS</span> · <b id="district">AMAZONAS</b></span><h2 id="place-name">Teatro Amazonas</h2><p id="coordinates">3.1303° S &nbsp; 60.0234° O</p><div class="location-line"><i></i><span id="location-state">CENTRO HISTÓRICO</span></div></div>
       <footer class="power-dock"><div class="power-caption"><span>MANIPULAÇÃO CÓSMICA</span><i></i><span id="power-current">EMISSÃO DE ENERGIA</span></div><div class="power-buttons">${POWERS.map(([id,label,key],i)=>`<button class="power ${i===0?'active':''}" data-power="${id}" title="${label} (${key})" aria-label="${label}">${icon(id)}<kbd>${key}</kbd><span>${label}</span></button>`).join('')}</div><div class="control-hint" id="control-hint"><kbd>F</kbd> levitar <i></i><kbd>W A S D</kbd> mover <i></i><span>clique na cena para controlar a câmera</span></div></footer>
       <aside class="mini-cluster"><div class="space-band" id="space-band" hidden>${icon('flight',11)}<span id="space-label">ALTA ATMOSFERA</span><i></i></div><div class="flight-modes" id="flight-modes"><b data-mode="normal">NORMAL</b><b data-mode="fast">RÁPIDO</b><b data-mode="super">SUPER</b><b data-mode="mega">MEGA</b><b data-mode="interplanetary">INTERPLANETAR</b></div><div class="flight-readout">${icon('flight',17)}<span id="flight-state">EM SOLO</span><b id="speed">0</b><small>km/h</small></div><button class="minimap-button" data-panel="map" aria-label="Abrir mapa da cidade"><canvas id="minimap"></canvas><span class="map-caption">${icon('map',13)} EXPLORAR MANAUS <kbd>M</kbd></span></button><div class="mini-status"><i></i><span id="render-state">MUNDO CONECTADO</span><span id="altitude">38 m</span></div></aside>
       <div id="panel-backdrop" class="panel-backdrop" hidden></div>
@@ -192,19 +275,23 @@ export class HUD {
     this.elapsed+=dt;this.mapElapsed+=dt;this.toastTimer-=dt;if(this.toastTimer<=0)$('#toast').classList.remove('visible');
     if(this.elapsed<.1)return;this.elapsed=0;
     $('#welcome').classList.toggle('faded',performance.now()>16000||state.velocity.length()>2);
-    const nearest=LANDMARKS.reduce((best,l)=>Math.hypot(l.x-state.position.x,l.z-state.position.z)<Math.hypot(best.x-state.position.x,best.z-state.position.z)?l:best,LANDMARKS[0]);
-    const near=Math.hypot(nearest.x-state.position.x,nearest.z-state.position.z)<Math.max(400,nearest.radius*2);
-    const place=near?nearest.name:'Sobre a Amazônia';if(this.lastPlace!==place){$('#place-name').textContent=place;this.lastPlace=place;}
-    $('#location-state').textContent=state.temporal?'PERCEPÇÃO TEMPORAL':state.size>12?'MAGNITUDE COLOSSAL':state.size>2?'MAGNITUDE GIGANTE':near?'ASSINATURA LOCALIZADA':'EXPLORAÇÃO LIVRE';
-    $('#district').textContent=state.district;
-    const geo=worldToLatLon(state.position.x,state.position.z);$('#coordinates').textContent=`${Math.abs(geo.lat).toFixed(4)}° S   ${Math.abs(geo.lon).toFixed(4)}° O`;
+    const presentation = resolveHUDPresentation(state);
+    const localMissionActive = presentation.localUiVisible && state.missionMarkerActive;
+    $('#hud').dataset.presentationDomain = presentation.domain;
+    $('.mission').hidden = !presentation.localUiVisible;
+    $('.minimap-button').hidden = !presentation.localUiVisible;
+    if(this.lastPlace!==presentation.place){$('#place-name').textContent=presentation.place;this.lastPlace=presentation.place;}
+    $('#location-domain').textContent=presentation.domainLabel;
+    $('#location-state').textContent=state.temporal?'PERCEPÇÃO TEMPORAL':state.size>12?'MAGNITUDE COLOSSAL':state.size>2?'MAGNITUDE GIGANTE':presentation.locationState;
+    $('#district').textContent=presentation.contextLabel;
+    $('#coordinates').textContent=presentation.coordinates;
     $('#mission-title').textContent=state.title;$('#mission-objective').textContent=state.objective;$('#mission-type').textContent=state.stage>=4?'EXPLORAÇÃO LIVRE':'CAPÍTULO 01';
-    const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`;
+    const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':(!localMissionActive?'(Fora do alcance de Manaus)':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`);
     $('#control-hint').textContent=state.hint;
     for(const badge of document.querySelectorAll<HTMLElement>('#flight-modes b')){const mode=badge.dataset.mode!;badge.classList.toggle('on',mode===state.speedMode);badge.classList.toggle('armed',(mode==='mega'&&state.megaMode&&state.speedMode!=='mega')||(mode==='interplanetary'&&state.interplanetaryMode&&state.speedMode!=='interplanetary'));}
     // The orbital band only appears once the atmosphere has actually started to thin.
-    const band=$('#space-band');band.hidden=state.spaceFactor<=.02;
-    if(!band.hidden)$('#space-label').textContent=state.spaceFactor>.92?'ÓRBITA':state.spaceFactor>.55?'LINHA DE KÁRMÁN':'ALTA ATMOSFERA';
+    const band=$('#space-band');band.hidden=presentation.domain==='local'&&state.spaceFactor<=.02;
+    if(!band.hidden)$('#space-label').textContent=presentation.domain==='orbital'?'ÓRBITA':presentation.domain==='planetary'?'CURVATURA PLANETÁRIA':state.spaceFactor>.55?'LINHA DE KÁRMÁN':'ALTA ATMOSFERA';
     const speed=typeof state.speedMps==='number'?state.speedMps:state.velocity.length();
     $('#speed').textContent=Math.round(speed*3.6).toString();
     const alt=typeof state.altitudeM==='number'?state.altitudeM:state.position.y;
@@ -215,9 +302,20 @@ export class HUD {
     document.querySelectorAll<HTMLButtonElement>('[data-power]').forEach(button=>button.classList.toggle('active',button.dataset.power===state.selected));
     $('#power-current').textContent=state.selected==='punch'?'COMBATE · SOCO':state.selected==='kick'?'COMBATE · CHUTE':POWERS.find(p=>p[0]===state.selected)?.[1].toUpperCase()??'EMISSÃO';
     document.body.classList.toggle('temporal',state.temporal);document.body.classList.toggle('supersonic',state.velocity.length()>300);
-    const marker=$('#objective-marker');this.temp.copy(state.destination).sub(state.origin).project(camera);marker.hidden=state.stage===0||state.stage===4&&state.remaining===0||this.temp.z>1||Math.abs(this.temp.x)>.85||Math.abs(this.temp.y)>.7;
+    const marker=$('#objective-marker');this.temp.copy(state.destination).sub(state.origin).project(camera);marker.hidden=!localMissionActive||state.stage===0||state.stage===4&&state.remaining===0||this.temp.z>1||Math.abs(this.temp.x)>.85||Math.abs(this.temp.y)>.7;
     if(!marker.hidden){marker.style.left=`${(this.temp.x*.5+.5)*100}%`;marker.style.top=`${(-this.temp.y*.5+.5)*100}%`;marker.querySelector('small')!.textContent=distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m';}
     if(this.debugOpen)$('#debug-metrics').innerHTML=Object.entries(state.debug).map(([key,value])=>`<div><span>${key}</span><b>${value}</b></div>`).join('');
-    if(this.mapElapsed>.3){this.mapElapsed=0;this.mini.draw(state.position,state.yaw,this.save.data.discovered,state.stage>0?state.destination:undefined);if(this.openPanel==='map'){this.map.draw(state.position,state.yaw,this.save.data.discovered,state.destination);this.universalMap.update(state.location, state.position, state.destination);}}
+    if(this.mapElapsed>.3){
+      this.mapElapsed=0;
+      if (presentation.localUiVisible) {
+        this.mini.draw(state.position,state.yaw,this.save.data.discovered,state.stage>0?state.destination:undefined);
+      } else {
+        this.mini.clear();
+      }
+      if(this.openPanel==='map'){
+        if(presentation.localUiVisible)this.map.draw(state.position,state.yaw,this.save.data.discovered,state.destination);
+        this.universalMap.update(state.location, state.position, state.destination);
+      }
+    }
   }
 }

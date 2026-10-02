@@ -17,6 +17,7 @@ import { ecefToGeodetic, geodeticToEcef } from '../src/world/spatial/ECEF';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime';
 import { EarthProvider } from '../src/world/providers/EarthProvider';
 import { EarthTransitionController } from '../src/world/providers/EarthTransitionController';
+import { createDefaultReadiness } from '../src/world/providers/EarthCoverageReadiness';
 import { TravelDomain } from '../src/world/travel/TravelDomain';
 import { LANDMARKS } from '../src/world/geodata/geodata';
 import { WGS84, WGS84_B } from '../src/world/spatial/WGS84';
@@ -82,15 +83,21 @@ test('Teste 3 — Earth centre relative: visual displacement is earthSystemPosit
 
   const earthPos = universe.activeSystem.positionOf('earth') ?? [149_597_870_700, 0, 0];
   const renderEarthPos = universe.renderSpace.logicalToRender(EARTH_FIXED_FRAME_ID, [0, 0, 0]);
-  const expectedRelative: [number, number, number] = [
+  const expectedRelativeSystem: [number, number, number] = [
     earthPos[0] - playerPos[0],
     earthPos[1] - playerPos[1],
     earthPos[2] - playerPos[2],
   ];
 
-  assert.ok(Math.abs(renderEarthPos[0] - expectedRelative[0]) < 10, 'X displacement matches earth - player');
-  assert.ok(Math.abs(renderEarthPos[1] - expectedRelative[1]) < 10, 'Y displacement matches earth - player');
-  assert.ok(Math.abs(renderEarthPos[2] - expectedRelative[2]) < 10, 'Z displacement matches earth - player');
+  const expectedRelativeRender = universe.frames.convertDirection(
+    'solar-system/barycentric',
+    universe.renderSpace.currentOrigin.frame,
+    expectedRelativeSystem
+  );
+
+  assert.ok(Math.abs(renderEarthPos[0] - expectedRelativeRender[0]) < 10, 'X displacement matches earth - player');
+  assert.ok(Math.abs(renderEarthPos[1] - expectedRelativeRender[1]) < 10, 'Y displacement matches earth - player');
+  assert.ok(Math.abs(renderEarthPos[2] - expectedRelativeRender[2]) < 10, 'Z displacement matches earth - player');
 });
 
 test('Teste 4 — Representation continuity across all altitudes (zero 20-60 km gap)', () => {
@@ -382,20 +389,25 @@ test('Teste 11 — Continuity across local/interplanetary boundary (8.999 km to 
   assert.ok(pSpace.distanceTo(earthSurfaceSpace) < 0.1, 'After boundary: Manaus attached to Earth');
 });
 
-test('Teste 12 — Local ground visibility clamp: strictly false at and above 60 km', () => {
+test('Teste 12 — Local flat ground retires when ready planet coverage assumes ownership', () => {
   const controller = new EarthTransitionController();
-  const testAltitudes = [0, 5_000, 8_000, 9_000, 20_000, 59_999, 60_000, 65_000, 100_000, 1_000_000];
+  const readyEarth = {
+    readiness: (targetLod: number) => ({
+      ...createDefaultReadiness(targetLod),
+      coarseFallbackReady: true,
+      detailedCoverageReady: true,
+      coverageSource: 'detailed' as const,
+      viewCoverageReady: true,
+    }),
+  } as unknown as EarthProvider;
+  const testAltitudes = [0, 5_000, 8_000, 9_000, 14_999, 15_000, 20_000, 59_999, 60_000, 100_000];
 
   for (const alt of testAltitudes) {
-    const isEarth = true;
-    const state = controller.update(alt);
-    const localGround = isEarth && alt < 60_000 && (state.localWeight > 0.01 || !state.targetCoverageReady);
-
-    if (alt < 60_000) {
-      assert.equal(localGround, true, `Altitude ${alt} m should have local ground active`);
-    } else {
-      assert.equal(localGround, false, `Altitude ${alt} m must have local ground strictly clamped off`);
-    }
+    const state = controller.update(alt, readyEarth);
+    assert.equal(Number(state.localGroundVisible) + Number(state.planetGroundDominant), 1,
+      `Altitude ${alt} m must have exactly one dominant ground provider`);
+    assert.equal(state.localGroundVisible, alt < 15_000,
+      `Altitude ${alt} m must follow the structural 15 km handoff`);
   }
 });
 

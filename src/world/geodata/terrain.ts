@@ -183,3 +183,17 @@ export function createTerrain(root: Group): Group {
   root.add(terrain);
   return terrain;
 }
+
+/** Set opacity of the generalized flat terrain for crossfading with planetary tiles. */
+export function setTerrainOpacity(terrain: Group, opacity: number): void {
+  terrain.visible = opacity > 0.01;
+  if (!terrain.visible) return;
+  const transparent = opacity < 0.99;
+  for (const child of terrain.children) {
+    if ((child as Mesh).material) {
+      const mat = (child as Mesh).material as MeshStandardMaterial;
+      if (mat.transparent !== transparent) mat.transparent = transparent;
+      if (mat.opacity !== opacity) mat.opacity = opacity;
+    }
+  }
+}

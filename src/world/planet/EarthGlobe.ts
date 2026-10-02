@@ -58,7 +58,18 @@ export const TILE_RESOLUTION = 17;
 const SUN_GAIN = 1.45;
 /** Rayleigh blue, near enough. The limb of the Earth from orbit is this colour. */
 const ATMOSPHERE = uniform(new Color(0.29, 0.53, 0.93));
-const LIMB_GAIN = 0.25;
+// The surface and shell both contribute air at the limb. Keep each subtle so their sum never
+// becomes the opaque white/blue line that used to hide the real ground handoff defect.
+const LIMB_GAIN = 0.06;
+const ATMOSPHERE_SHELL_GAIN = 0.035;
+
+/**
+ * The coarse planet is a continuous safety net below refined tiles.
+ * Four metres is invisible at planetary scale but comfortably larger than float/depth noise,
+ * so the two representations can overlap without coplanar z-fighting.
+ */
+export const COARSE_FALLBACK_INSET_M = 4;
+export const EARTH_SURFACE_PALETTE = 'earth-natural-surface-v1';
 
 export interface TileMesh {
   readonly geometry: BufferGeometry;
@@ -207,6 +218,8 @@ function windingIsOutward(positions: Float32Array, normals: Float32Array, size: 
  */
 export class EarthGlobe {
   readonly group = new Group();
+  /** Planetary geometry only. The Manaus anchor remains live when this sub-tree is hidden. */
+  readonly surfaceGroup = new Group();
   readonly fallbackGroup = new Group();
   private readonly material: MeshBasicNodeMaterial;
   private readonly fallbackMaterial: MeshBasicNodeMaterial;
@@ -223,20 +236,31 @@ export class EarthGlobe {
    * with them. A planet is lit by one star and shades itself.
    */
   private readonly uSun = uniform(new Vector3(0, 1, 0));
+  private readonly uSurfaceOpacity = uniform(1);
   private triangles = 0;
   private fallbackTriangles = 0;
+  private altitudeM = 0;
 
   readonly manausSurfaceAnchor = new Group();
 
   constructor(parent: Object3D) {
     this.group.name = 'earth-globe';
-    this.group.visible = false;
+    this.group.visible = true;
     parent.add(this.group);
+    this.surfaceGroup.name = 'earth-planetary-surface';
+    this.surfaceGroup.visible = false;
+    this.surfaceGroup.layers.set(PLANET_LAYER);
+    this.group.add(this.surfaceGroup);
     this.material = this.buildMaterial(false);
     this.fallbackMaterial = this.buildMaterial(true);
+    this.material.userData.surfacePalette = EARTH_SURFACE_PALETTE;
+    this.material.userData.coverageRole = 'detail';
+    this.fallbackMaterial.userData.surfacePalette = EARTH_SURFACE_PALETTE;
+    this.fallbackMaterial.userData.coverageRole = 'coarse-fallback';
     this.fallbackGroup.name = 'earth-coarse-fallback';
     this.fallbackGroup.layers.set(PLANET_LAYER);
-    this.group.add(this.fallbackGroup);
+    this.fallbackGroup.renderOrder = -1;
+    this.surfaceGroup.add(this.fallbackGroup);
     this.initCoarseFallback();
 
     // Geometric anchor permanently holding Manaus onto the WGS84 surface
@@ -253,17 +277,25 @@ export class EarthGlobe {
     this.atmosphereMesh = new Mesh(atmoGeo, this.atmosphereMaterial);
     this.atmosphereMesh.layers.set(PLANET_LAYER);
     this.atmosphereMesh.frustumCulled = false;
-    this.group.add(this.atmosphereMesh);
+    this.atmosphereMesh.renderOrder = 2;
+    this.surfaceGroup.add(this.atmosphereMesh);
   }
 
   private initCoarseFallback(): void {
     for (let face = 0; face < 6; face++) {
       const tileAddr = planetTile('earth', face as any, 0, 0, 0);
-      const mesh = buildTileMesh(tileAddr);
+      // The fallback deliberately sits just below the authoritative detailed surface. It remains
+      // continuous across missing/streaming tiles and can show through an edge crack, while never
+      // fighting a refined tile for the same depth samples.
+      const mesh = buildTileMesh(tileAddr, -COARSE_FALLBACK_INSET_M);
       const obj = new Mesh(mesh.geometry, this.fallbackMaterial);
       obj.name = `earth-fallback-face-${face}`;
       obj.position.set(mesh.centre.xM, mesh.centre.yM, mesh.centre.zM);
       obj.frustumCulled = false;
+      obj.renderOrder = -1;
+      obj.userData.coverageRole = 'coarse-fallback';
+      obj.userData.surfaceInsetM = COARSE_FALLBACK_INSET_M;
+      obj.userData.surfacePalette = EARTH_SURFACE_PALETTE;
       obj.layers.set(PLANET_LAYER);
       this.fallbackGroup.add(obj);
       this.fallbackTriangles += mesh.triangles;
@@ -271,13 +303,18 @@ export class EarthGlobe {
   }
 
   setCenterM(positionM: Vec3, orientation?: Quat, altitudeM = 0): void {
+    const limit = 20_000_000;
+    if (Math.abs(positionM[0]) > limit || Math.abs(positionM[1]) > limit || Math.abs(positionM[2]) > limit) {
+      throw new Error(`Invariant violation: Astronomical coordinate [${positionM.join(', ')}] reached EarthGlobe Mesh.position. Must use camera-relative rendering.`);
+    }
+    this.altitudeM = altitudeM;
     this.group.position.set(positionM[0], positionM[1], positionM[2]);
     if (orientation) {
       this.group.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
     }
     this.atmosphereMesh.position.set(0, 0, 0);
     this.atmosphereMesh.quaternion.identity();
-    this.atmosphereMesh.visible = altitudeM >= 20000;
+    this.atmosphereMesh.visible = this.surfaceGroup.visible && altitudeM >= 20_000;
     this.fallbackGroup.position.set(0, 0, 0);
     this.fallbackGroup.quaternion.identity();
   }
@@ -311,11 +348,12 @@ export class EarthGlobe {
        * and the far side of the planet stops being rasterised at all.
        */
       side: FrontSide,
+      transparent: true,
       depthWrite: true,
       depthTest: true,
       polygonOffset: isFallback,
-      polygonOffsetFactor: isFallback ? 2 : 0,
-      polygonOffsetUnits: isFallback ? 2 : 0,
+      polygonOffsetFactor: isFallback ? 4 : 0,
+      polygonOffsetUnits: isFallback ? 4 : 0,
     });
 
     // The surface colour comes from the vertex attribute the land mask wrote. Read by name rather
@@ -349,6 +387,7 @@ export class EarthGlobe {
     const halo = ATMOSPHERE.mul(grazing.mul(smoothstep(-0.25, 0.15, incidence)).mul(LIMB_GAIN));
 
     material.colorNode = lit.add(halo);
+    material.opacityNode = this.uSurfaceOpacity;
     return material;
   }
 
@@ -371,7 +410,7 @@ export class EarthGlobe {
     const density = smoothstep(float(0.65), float(1.0), grazing);
     
     material.colorNode = ATMOSPHERE;
-    material.opacityNode = density.pow(2.5).mul(daylight).mul(0.10);
+    material.opacityNode = density.pow(2.5).mul(daylight).mul(ATMOSPHERE_SHELL_GAIN);
     return material;
   }
 
@@ -379,7 +418,7 @@ export class EarthGlobe {
     return {
       tiles: this.meshes.size,
       triangles: this.triangles,
-      visible: this.group.visible,
+      visible: this.surfaceGroup.visible,
       coarseFallback: this.fallbackGroup.children.length === 6,
     };
   }
@@ -401,8 +440,17 @@ export class EarthGlobe {
     return [...this.meshes.keys()];
   }
 
-  set visible(visible: boolean) { this.group.visible = visible; }
-  get visible(): boolean { return this.group.visible; }
+  set visible(visible: boolean) {
+    this.surfaceGroup.visible = visible;
+    this.atmosphereMesh.visible = visible && this.altitudeM >= 20_000;
+  }
+  get visible(): boolean { return this.surfaceGroup.visible; }
+
+  set opacity(opacity: number) {
+    this.uSurfaceOpacity.value = Math.max(0, Math.min(1, opacity));
+  }
+
+  get opacity(): number { return this.uSurfaceOpacity.value; }
 
   /** Points the planet's sun. `direction` runs from the planet toward the Sun, in scene axes. */
   setSunDirection(direction: Vec3): void {
@@ -444,9 +492,13 @@ export class EarthGlobe {
      * bug did.
      */
     object.frustumCulled = false;
+    object.renderOrder = 1;
+    object.userData.coverageRole = 'detail';
+    object.userData.surfaceInsetM = 0;
+    object.userData.surfacePalette = EARTH_SURFACE_PALETTE;
     // The planetary domain, so it is drawn by the far camera rather than clipped by the near one.
     object.layers.set(PLANET_LAYER);
-    this.group.add(object);
+    this.surfaceGroup.add(object);
     this.meshes.set(key, object);
     this.triangles += mesh.triangles;
     return object;

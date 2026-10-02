@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
 import { MANAUS_ANCHOR } from '../src/world/spatial/ManausFrameAdapter.ts';
 import { AU_M, radToDeg } from '../src/world/spatial/units.ts';
+import { MOON } from '../src/world/planet/PlanetBody.ts';
 
 test('the universe runtime places Manaus on the real Earth without moving it', () => {
   const runtime = new UniverseRuntime();
@@ -248,11 +249,11 @@ test('T8_NO_PINGPONG: dominant body remains stable at fixed altitude with no vel
 test('T9_ENU_FRAME: handoffTo moon creates local-enu frame at correct altitude', () => {
   const runtime = new UniverseRuntime({ streaming: false, epochS: 0 });
   const moonPos = runtime.solarSystem.positionOf('moon')!;
-  const MOON_R = 1_737_400;
+  const moonRadiusM = MOON.semiMajorAxisM;
 
   // Place player in barycentric at Moon surface + 10 km
   runtime.updateSystemPose(
-    [moonPos[0], moonPos[1] + MOON_R + 10_000, moonPos[2]],
+    [moonPos[0], moonPos[1] + moonRadiusM + 10_000, moonPos[2]],
     [0, 0, 0], 1 / 60,
   );
 
@@ -266,18 +267,18 @@ test('T9_ENU_FRAME: handoffTo moon creates local-enu frame at correct altitude',
 
   // y coordinate should be ~10 km (altitude)
   const y = runtime.player.position[1];
-  assert.ok(Math.abs(y - 10_000) < 1000,
+  assert.ok(Math.abs(y - 10_000) < 1e-3,
     `y in ENU frame should be ~10,000 m, got ${y.toFixed(1)} m`);
 });
 
 test('T9_ENU_SURFACE: landing at surface (y=0) in ENU frame means alt = 0', () => {
   const runtime = new UniverseRuntime({ streaming: false, epochS: 0 });
   const moonPos = runtime.solarSystem.positionOf('moon')!;
-  const MOON_R = 1_737_400;
+  const moonRadiusM = MOON.semiMajorAxisM;
 
   // Place player exactly on the Moon surface (altitude = 0)
   runtime.updateSystemPose(
-    [moonPos[0], moonPos[1] + MOON_R, moonPos[2]],
+    [moonPos[0], moonPos[1] + moonRadiusM, moonPos[2]],
     [0, 0, 0], 1 / 60,
   );
 
@@ -285,6 +286,6 @@ test('T9_ENU_SURFACE: landing at surface (y=0) in ENU frame means alt = 0', () =
 
   // y should be 0 (on the surface)
   const y = runtime.player.position[1];
-  assert.ok(y < 1, `y in ENU frame at surface should be ~0, got ${y.toFixed(3)} m`);
+  assert.ok(Math.abs(y) < 1e-3, `y in ENU frame at surface should be ~0, got ${y.toFixed(6)} m`);
 });
 

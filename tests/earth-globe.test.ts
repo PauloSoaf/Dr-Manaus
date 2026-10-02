@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Group, Mesh, Vector3 } from 'three/webgpu';
-import { EarthGlobe, TILE_RESOLUTION, buildTileMesh } from '../src/world/planet/EarthGlobe.ts';
+import {
+  COARSE_FALLBACK_INSET_M, EARTH_SURFACE_PALETTE, EarthGlobe, TILE_RESOLUTION, buildTileMesh,
+} from '../src/world/planet/EarthGlobe.ts';
 import { EarthProvider, MANAUS_COVERAGE } from '../src/world/providers/EarthProvider.ts';
 import { regionContains } from '../src/world/providers/WorldProvider.ts';
 import { planetTile, tileCentreGeodetic, tileContaining } from '../src/world/planet/PlanetTileAddress.ts';
@@ -192,6 +194,46 @@ test('the globe holds a tile and gives it back again', () => {
   }
 });
 
+test('coarse fallback closes detail gaps below the authoritative surface with coherent shading', () => {
+  const parent = new Group();
+  const globe = new EarthGlobe(parent);
+  try {
+    assert.equal(globe.surfaceGroup.parent, globe.group);
+    assert.equal(globe.manausSurfaceAnchor.parent, globe.group);
+    assert.notEqual(globe.manausSurfaceAnchor.parent, globe.surfaceGroup,
+      'surface visibility must never hide the Manaus transform anchor');
+
+    const address = planetTile('earth', 0, 0, 0, 0);
+    const detail = globe.add('planet:earth:0:0:0:0', buildTileMesh(address));
+    const fallback = globe.fallbackGroup.children.find(child => child.name === 'earth-fallback-face-0') as Mesh;
+    assert.ok(fallback?.isMesh);
+    assert.equal(detail.parent, globe.surfaceGroup);
+    assert.equal(fallback.userData.surfaceInsetM, COARSE_FALLBACK_INSET_M);
+    assert.equal(detail.userData.surfaceInsetM, 0);
+    assert.ok(fallback.renderOrder < detail.renderOrder, 'coarse coverage must draw below detailed coverage');
+    assert.equal(fallback.userData.surfacePalette, EARTH_SURFACE_PALETTE);
+    assert.equal(detail.userData.surfacePalette, EARTH_SURFACE_PALETTE,
+      'fallback/detail boundary must not change its surface palette');
+
+    const coarsePosition = fallback.geometry.getAttribute('position');
+    const detailPosition = detail.geometry.getAttribute('position');
+    const coarseRadius = Math.hypot(
+      coarsePosition.getX(0) + fallback.position.x,
+      coarsePosition.getY(0) + fallback.position.y,
+      coarsePosition.getZ(0) + fallback.position.z,
+    );
+    const detailRadius = Math.hypot(
+      detailPosition.getX(0) + detail.position.x,
+      detailPosition.getY(0) + detail.position.y,
+      detailPosition.getZ(0) + detail.position.z,
+    );
+    assert.ok(Math.abs((detailRadius - coarseRadius) - COARSE_FALLBACK_INSET_M) < 0.25,
+      'coarse/detail overlap needs a deterministic depth separation instead of coplanar z-fighting');
+  } finally {
+    globe.dispose();
+  }
+});
+
 test('the globe stays hidden on the ground and appears once altitude makes it honest', () => {
   const runtime = new UniverseRuntime();
   const parent = new Group();
@@ -201,6 +243,9 @@ test('the globe stays hidden on the ground and appears once altitude makes it ho
     assert.equal(earth.covers(context([38, 2.2, 12]).spatial), false);
     assert.equal(earth.globe.visible, false);
     assert.equal(earth.covers(context([38, 14_000, 12]).spatial), false, 'still below the gate');
+
+    assert.equal(earth.covers(context([38, 20_000, 12]).spatial), true);
+    assert.ok(Math.abs(earth.globe.opacity - 0.5) < 1e-6, 'fadeM must reach the actual globe material');
 
     // Above it the curvature is what you are looking at.
     assert.equal(earth.covers(context([38, 40_000, 12]).spatial), true);
@@ -308,7 +353,7 @@ test('an activated tile lands on the planet, vertex by vertex, not just at its c
 
     // By name, not by index or by 'first mesh': the group also holds the atmosphere shell, which
     // is a sphere 60 km up and would fail this test for reasons that have nothing to do with tiles.
-    const mesh = parent.children[0].children.find(child => child.name.startsWith('globe-')) as Mesh;
+    const mesh = earth.globe.surfaceGroup.children.find(child => child.name.startsWith('globe-')) as Mesh;
     assert.ok(mesh?.isMesh, 'the tile must be in the scene');
     parent.updateMatrixWorld(true);
 

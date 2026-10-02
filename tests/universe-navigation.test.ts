@@ -4,6 +4,7 @@ import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime';
 import { sectorIndex } from '../src/world/spatial/UniverseAddress';
 import { SolarSystem } from '../src/world/celestial/SolarSystem';
 import { ReferenceFrameGraph } from '../src/world/spatial/ReferenceFrameGraph';
+import { MARS, MOON, polarRadiusM } from '../src/world/planet/PlanetBody';
 
 test('UniverseRuntime.navigationState uses this.address as true authority', () => {
   const runtime = new UniverseRuntime();
@@ -53,25 +54,23 @@ test('SolarSystem.update() dynamically updates reference frame origins on epheme
   assert.ok(delta > 1e10, `Earth frame did not move: delta was ${delta} m`);
 });
 
-test('UniverseRuntime.location computes real spherical coordinates for Moon and Mars, not Manaus projection', () => {
+test('UniverseRuntime.location converts body-fixed Moon and Mars positions through their models', () => {
   const runtime = new UniverseRuntime();
   
-  // Set frame to Moon surface
-  runtime.setPlayerPose('solar-system/moon-fixed', [1000, 1737400 + 50, 2000]);
+  runtime.setPlayerPose('solar-system/moon-fixed', [MOON.semiMajorAxisM + 50, 0, 0]);
   const moonLoc = runtime.location;
   assert.ok(moonLoc.surface);
-  // Altitude must be relative to Moon radius (1737400 m)
-  assert.ok(Math.abs(moonLoc.surface.altitudeM - 50) < 5);
+  // Altitude must be relative to Moon radius
+  assert.ok(Math.abs(moonLoc.surface.altitudeM - 50) < 1e-6);
   // Lat/Lon should be bounded to sphere [-90, 90] and [-180, 180]
   assert.ok(moonLoc.surface.latDeg >= -90 && moonLoc.surface.latDeg <= 90);
   assert.ok(moonLoc.surface.lonDeg >= -180 && moonLoc.surface.lonDeg <= 180);
 
-  // Set frame to Mars surface: point near the pole [0, 3389500 + 120, 0]
-  runtime.setPlayerPose('solar-system/mars-fixed', [0, 3389500 + 120, 0]);
+  runtime.setPlayerPose('solar-system/mars-fixed', [0, 0, polarRadiusM(MARS) + 120]);
   const marsLoc = runtime.location;
   assert.ok(marsLoc.surface);
-  assert.ok(Math.abs(marsLoc.surface.altitudeM - 120) < 5);
-  // Lat at (0, R, 0) should be North pole = 90 deg
+  assert.ok(Math.abs(marsLoc.surface.altitudeM - 120) < 1e-6);
+  // Lat at (0, 0, R) should be North pole = 90 deg
   assert.ok(Math.abs(marsLoc.surface.latDeg - 90) < 0.1);
 });
 

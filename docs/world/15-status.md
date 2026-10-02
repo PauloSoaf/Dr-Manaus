@@ -325,3 +325,26 @@ Status: **verified** (tests passing, build clean).
 - **Resolved Coordinate Authority (Task 005):** Eliminated Game.origin duplicate authority over scene positioning. The Game.ts origin is now strictly synced from UniverseRuntime.renderSpace.currentOrigin.position, dropping any direct reads from FloatingOrigin3D in space. This prevents jitter and visual instability during coordinate rebases.
 - **Culled Ghost City in Space (Task 006):** In interplanetary travel mode, the local city streamer is fully suspended and localRoot.visible = local; forces the high-detail city meshes to disappear. This prevents floating urban garbage and z-fighting in the orbital view.
 - **Planetary Models (Mars):** Completed Mars implementation (MarsProvider, MarsGlobe, MarsSurface) using identical pipeline architecture as Moon, wired into CelestialPresentationController.ts.
+
+## Phases 0–1 — exclusive planetary handoff and sparse volume foundation
+
+Status: the surface handoff and mathematical volume foundation are implemented. This does not yet
+include volume chunks, extracted meshes, cave/tunnel collision, or destruction gameplay.
+
+- The Earth transition now has one explicit ground owner plus a shared `local`, `planetary`, or
+  `orbital` presentation domain. Detailed near-surface coverage must be ready before the flat local
+  ground retires; the coarse fallback alone remains valid for orbital LOD.
+- The HUD suppresses Manaus landmarks, local coordinates, mission UI, and the city minimap outside
+  the local domain. Celestial and rocky-body transforms use the active `travel/view` render frame.
+- The Earth coarse fallback sits 4 m below refined tiles, shares their surface palette and opacity,
+  and keeps partial coverage closed without coplanar depth fighting. Atmosphere/limb gains are
+  reduced so they do not disguise a surface seam.
+- `PlanetVolumeField` derives the intact solid from the existing Earth, Moon, and Mars surface
+  generators. Sparse body-fixed `subtract-sphere` and `subtract-capsule` edits compose through CSG
+  difference and are indexed by a lazy AABB BVH.
+- Versioned per-body JSON stores only the edit history. Generated grids, meshes, and colliders are
+  future discardable caches. A through-Earth tunnel is one capsule edit, not a chain of craters or
+  a planet-sized allocation.
+
+Architecture, invariants, focused test metrics, limitations, and the Phase 2–10 roadmap are in
+[planetary-handoff-and-volume-phase1.md](planetary-handoff-and-volume-phase1.md).

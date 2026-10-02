@@ -98,7 +98,16 @@ export class RockyPlanetProvider implements WorldProvider {
     this.playerFrameId = context.frame.id;
 
     if (this.options.renderSpace) {
-      this.centreM = this.planetCenterRender(context);
+      const candidate = this.planetCenterRender(context);
+      if (!this.options.renderSpace.isRenderSafe(candidate)) {
+        // Body is too far for physical rendering — keep globe hidden and let
+        // CelestialBodyVisualLayer handle the analytic proxy.
+        this.globe.visible = false;
+        this.distanceM = Number.POSITIVE_INFINITY;
+        if (this.streamingMode === 'off') return false;
+        return false;
+      }
+      this.centreM = candidate;
       this.globe.setCentre(this.centreM);
       this.globe.setOrientation(this.bodyToScene());
       this.distanceM = Math.hypot(...this.centreM);
@@ -128,10 +137,21 @@ export class RockyPlanetProvider implements WorldProvider {
     this.globe.visible = visible;
   }
 
+  setOpacity(opacity: number): void {
+    this.globe.opacity = opacity;
+  }
+
   setCentre(planetRelativeM: Vec3, systemFrameId: string, targetFrameId: string, observerPosition?: Vec3): void {
     const planetFrame = this.resolveBodyFrame();
     if (this.options.renderSpace && planetFrame) {
-      this.centreM = this.options.renderSpace.logicalToRender(planetFrame, [0, 0, 0]);
+      const candidate = this.options.renderSpace.logicalToRender(planetFrame, [0, 0, 0]);
+      if (!this.options.renderSpace.isRenderSafe(candidate)) {
+        // Body is too far to be represented as a physical globe in this frame.
+        // The controller must have already set streamingMode 'off'; keep globe hidden.
+        this.globe.visible = false;
+        return;
+      }
+      this.centreM = candidate;
     } else if (targetFrameId === 'solar-system/barycentric' && observerPosition) {
       const planetBary = this.frames.convertPosition(systemFrameId, 'solar-system/barycentric', planetRelativeM);
       this.centreM = [planetBary[0] - observerPosition[0], planetBary[1] - observerPosition[1], planetBary[2] - observerPosition[2]];
@@ -283,8 +303,11 @@ export class RockyPlanetProvider implements WorldProvider {
 
   private bodyToScene(): Quat {
     const planetFrame = this.resolveBodyFrame();
-    if (planetFrame && this.playerFrameId !== 'solar-system/barycentric') {
-      return this.frames.convertOrientation(planetFrame, this.playerFrameId, cloneQuat(IDENTITY_QUAT));
+    const targetFrame = this.options.renderSpace
+      ? this.options.renderSpace.currentOrigin.frame
+      : this.playerFrameId;
+    if (planetFrame && this.frames.has(targetFrame)) {
+      return this.frames.convertOrientation(planetFrame, targetFrame, cloneQuat(IDENTITY_QUAT));
     }
     return IDENTITY_QUAT;
   }

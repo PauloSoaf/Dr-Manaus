@@ -17,6 +17,10 @@ export interface EarthCoverageReadiness {
   readonly coverageRatio: number;
   /** Whether the coarse fallback (whole-planet base) is ready. */
   readonly coarseFallbackReady: boolean;
+  /** Whether every required detailed tile is active, without relying on the coarse base. */
+  readonly detailedCoverageReady: boolean;
+  /** Which representation currently closes the view coverage contract. */
+  readonly coverageSource: 'none' | 'coarse' | 'mixed' | 'detailed';
   /** Whether view coverage meets readiness threshold for retiring previous representation. */
   readonly viewCoverageReady: boolean;
   /** Target LOD for the current altitude regime. */
@@ -31,6 +35,8 @@ export function createDefaultReadiness(targetLod = 0): EarthCoverageReadiness {
     missingRequiredKeys: [],
     coverageRatio: 0,
     coarseFallbackReady: false,
+    detailedCoverageReady: false,
+    coverageSource: 'none',
     viewCoverageReady: false,
     targetLod,
   };

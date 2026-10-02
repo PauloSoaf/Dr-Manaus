@@ -98,6 +98,24 @@ test('T4: reentry requires both low altitude and safe relative speed', () => {
   assert.equal(domain3.state, undefined);
 });
 
+test('a solid-body landing waits for the matching surface coverage', () => {
+  const domain = new TravelDomain();
+  domain.update(context({ bodyId: 'moon', altitudeM: 100_000 }), 1 / 60);
+  assert.equal(domain.kind, 'interplanetary');
+
+  const waiting = domain.update(context({
+    bodyId: 'moon', altitudeM: 100, speedMps: 20, requested: false, surfaceReady: false,
+  }), 1 / 60);
+  assert.deepEqual(waiting, { kind: 'none' });
+  assert.equal(domain.kind, 'interplanetary');
+
+  const landed = domain.update(context({
+    bodyId: 'moon', altitudeM: 100, speedMps: 20, requested: false, surfaceReady: true,
+  }), 1 / 60);
+  assert.deepEqual(landed, { kind: 'returned', reason: 'altitude' });
+  assert.equal(domain.kind, 'local');
+});
+
 test('T5: altitude hysteresis prevents ping-pong between 8.8 km and 9.2 km', () => {
   const domain = new TravelDomain();
   // Enter at 9.2 km

@@ -113,7 +113,7 @@ export class PlanetGlobe {
   
   private readonly material: MeshBasicNodeMaterial;
   private readonly uSunDirectionRender = uniform(new Vector3(1, 0, 0));
-  private readonly uTileOpacity = uniform(0);
+  private readonly uTileOpacity = uniform(1);
   
   private readonly tiles = new Map<string, Mesh>();
 
@@ -156,6 +156,16 @@ export class PlanetGlobe {
   }
 
   setCentre(centreRenderM: Vec3): void {
+    // Last-line defence: upstream (RockyPlanetProvider / CelestialPresentationController)
+    // must guarantee render-safe coordinates before calling this method.
+    // If this throws, the bug is in the caller, not here.
+    const limit = 20_000_000;
+    if (Math.abs(centreRenderM[0]) > limit || Math.abs(centreRenderM[1]) > limit || Math.abs(centreRenderM[2]) > limit) {
+      throw new Error(
+        `[PlanetGlobe] Invariant violated: astronomical render coordinate [${centreRenderM.map(v => v.toExponential(2)).join(', ')}] m.` +
+        ' Caller must call RenderSpaceService.isRenderSafe() before positioning a physical globe.'
+      );
+    }
     this.root.position.set(centreRenderM[0], centreRenderM[1], centreRenderM[2]);
   }
 

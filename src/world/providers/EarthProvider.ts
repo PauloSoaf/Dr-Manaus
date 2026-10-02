@@ -94,8 +94,10 @@ export class EarthProvider implements WorldProvider {
   ) {
     this.globe = new EarthGlobe(parent);
     this.options = {
-      minAltitudeM: Math.max(0, finite(options.minAltitudeM, 0)),
-      fadeM: Math.max(1, finite(options.fadeM, 10_000)),
+      // Keep the planetary surface out of the ground-level scene. Its root still carries the
+      // geometric Manaus anchor; EarthGlobe hides only its surface sub-tree, never that anchor.
+      minAltitudeM: Math.max(0, finite(options.minAltitudeM, 8_000)),
+      fadeM: Math.max(1, finite(options.fadeM, 7_000)),
       maxTiles: Math.max(6, finite(options.maxTiles, 160)),
       maxLevel: Math.max(0, finite(options.maxLevel, 10)),
       replanIntervalS: Math.max(0, finite(options.replanIntervalS, 0.25)),
@@ -157,6 +159,7 @@ export class EarthProvider implements WorldProvider {
       this.globe.visible = false;
       return false;
     }
+    this.globe.opacity = this.opacity;
     this.globe.visible = this.opacity > 0.01;
     this.globe.setCenterM(this.earthCenterRender(context), this.bodyToScene(), this.altitudeM);
     return this.globe.visible;
@@ -175,9 +178,14 @@ export class EarthProvider implements WorldProvider {
         requiredKeys: [],
         activeRequiredKeys: [],
         missingRequiredKeys: [],
-        coverageRatio: coarseFallbackReady ? 1 : 0,
+        coverageRatio: 0,
         coarseFallbackReady,
-        viewCoverageReady: coarseFallbackReady,
+        detailedCoverageReady: false,
+        coverageSource: coarseFallbackReady ? 'coarse' : 'none',
+        // A whole-planet fallback is a valid orbital representation. Close to the surface the
+        // controller explicitly asks for LOD 4/6 and must see real active keys before retiring
+        // the flat ground; otherwise the permanently primed fallback neutralises the gate.
+        viewCoverageReady: targetLod <= 0 && coarseFallbackReady,
         targetLod,
       };
     }
@@ -205,7 +213,18 @@ export class EarthProvider implements WorldProvider {
       ? activeRequiredKeys.length / requiredKeys.length
       : (coarseFallbackReady ? 1 : 0);
 
-    const viewCoverageReady = coarseFallbackReady || coverageRatio >= 0.7;
+    const detailedCoverageReady = requiredKeys.length > 0 && missingRequiredKeys.length === 0;
+    const coverageSource = detailedCoverageReady
+      ? 'detailed'
+      : activeRequiredKeys.length > 0 && coarseFallbackReady
+        ? 'mixed'
+        : coarseFallbackReady
+          ? 'coarse'
+          : 'none';
+    // Partial detailed coverage is safe to draw because the inset coarse layer closes its holes,
+    // but it is not safe to declare the target LOD complete. Ground handoff waits for every
+    // bounded critical key; orbital targetLod=0 may rely on the whole-planet fallback alone.
+    const viewCoverageReady = detailedCoverageReady || (targetLod <= 0 && coarseFallbackReady);
 
     return {
       requestedKeys,
@@ -214,6 +233,8 @@ export class EarthProvider implements WorldProvider {
       missingRequiredKeys,
       coverageRatio,
       coarseFallbackReady,
+      detailedCoverageReady,
+      coverageSource,
       viewCoverageReady,
       targetLod,
     };
