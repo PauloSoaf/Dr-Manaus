@@ -1,6 +1,27 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — CELESTIAL-CCD-P0 / C0 (2026-10-03)
+## Checkpoint atual — NAV-LOCK-1 (2026-10-03)
+
+O usuário aceitou manualmente C0 no HEAD **`386c531a450ab6770b9da454267081f0501989b9`**:
+pouso lento na Lua, colisão de alta velocidade sem atravessar e interceptação celestial.
+O último anexo autoriza **TARGET LOCK + AUTOPILOT CAPTURE + MAP LOCK** juntos e somente eles.
+Essa autorização substitui a parada anterior em C0.
+
+Contrato implementado: [`03-TARGET-LOCK-AUTOPILOT-AND-MAP.md`](dr-manaus-universe-roadmap/03-TARGET-LOCK-AUTOPILOT-AND-MAP.md).
+Uma identidade em `Game.navigation`, consumida por mapa, HUD e voo; efeméride ao vivo;
+Tab/Shift+Tab selecionam/ciclam no cone de 15°, **P** liga/desliga piloto, Backspace libera.
+R mantém reconstrução de matéria; câmera permanece manual. Seleção não liga piloto nem teleporta.
+O controlador existente calcula frenagem `v²/(2a)`, limita o comando pela distância/warp,
+captura na margem de `bodyArrivalPolicy` e aproxima corpos pousáveis com cobertura e velocidades
+seguras. Corpos sem pouso autorizado fazem standoff e acompanham a velocidade orbital.
+O CCD de todos os 19 corpos e os gates de handoff C0 continuam como autoridades finais.
+
+Resultados e roteiro manual: [`15-status.md`](../docs/world/15-status.md).
+Documentar, commit e push por checkpoint, conforme autorização persistente.
+**PARAR em NAV-LOCK-1.** A validação manual deste checkpoint é necessária antes de qualquer
+impacto catastrófico, energia de impacto, edição de volume, fragmentação ou destruição planetária.
+
+## Checkpoint anterior — CELESTIAL-CCD-P0 / C0 (aceito manualmente em 2026-10-03)
 
 O ZIP `dr-manaus-universe-roadmap.zip` foi extraído em
 [`dr-manaus-universe-roadmap/`](dr-manaus-universe-roadmap/README.md): **20 Markdown, 4.497 linhas**,
@@ -16,10 +37,10 @@ piso. O sweep cósmico existente continua ativo até o retorno seguro. Marching 
 efemérides, poderes e volume Phase 3 não fazem parte desta alteração.
 
 Contrato: [planetary-handoff-and-volume-phase1.md](../docs/world/planetary-handoff-and-volume-phase1.md).
-Resultados medidos e aceitação manual pendente: [15-status.md](../docs/world/15-status.md).
+Resultados medidos: [15-status.md](../docs/world/15-status.md). C0 agora está aceito manualmente.
 Documentar, commit e push por checkpoint, conforme autorização persistente.
-**PARAR em C0.** Não iniciar TARGET-LOCK, autopilot novo, destruição ou Transvoxel antes da
-validação manual deste patch. O restante do pacote organiza checkpoints futuros independentes.
+O gate de C0 foi satisfeito e substituído pelo checkpoint NAV-LOCK-1 acima.
+O restante do pacote organiza checkpoints futuros independentes.
 
 ## Checkpoint anterior — PLANET-VOLUME-3 / Phase 3 (2026-10-02)
 

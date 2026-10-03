@@ -265,6 +265,131 @@ try {
   await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.setDebugDemand(false));
   assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.metrics.bytes),0);
   console.log('Explicit Moon volume demand uses bounded resident data and releases it when disabled.');
+  // NAV-LOCK-1: explicit fixtures shorten the trip; every subsequent movement is Game.tick.
+  // Instrument the production controller solely to retain phase changes between browser polls.
+  await page.evaluate(()=>{
+    const g=window.__DR_MANAUS__,original=g.interplanetary.update.bind(g.interplanetary);
+    window.__DR_NAV_PHASES__=[];
+    g.interplanetary.update=(...args)=>{
+      const state=original(...args),t=g.interplanetary.getTelemetry(),trace=window.__DR_NAV_PHASES__;
+      if(trace.at(-1)?.phase!==t.phase) trace.push({...t});
+      return state;
+    };
+  });
+  async function navigationFixture(id,gap=100000,sideways=0) {
+    await page.evaluate(({id,gap,sideways})=>{
+      const g=window.__DR_MANAUS__,u=g.universe,body=u.activeSystem.bodies.find(b=>b.id===id);
+      g.interplanetary.autopilot.cancel();window.__DR_NAV_PHASES__=[];
+      const centre=u.activeSystem.positionOf(id),orbital=u.activeSystem.stateOf(id).velocityMps;
+      const direction=id==='moon'?window.__DR_MOON_LANDING_DIRECTION__:[0,1,0];
+      const frame=body.frameId;
+      // Radius + shared policy margin; this setup never substitutes for autopilot motion.
+      const margin=id==='jupiter'?body.equatorialRadiusM*.25:50000;
+      const position=u.frames.convertPosition(frame,'solar-system/barycentric',direction.map(v=>v*(body.equatorialRadiusM+margin+gap)));
+      const outward=position.map((v,i)=>v-centre[i]),length=Math.hypot(...outward);
+      const radial=outward.map(v=>v/length),side=[-radial[1],radial[0],0],sideLength=Math.hypot(...side)||1;
+      const velocity=orbital.map((v,i)=>v+side[i]/sideLength*sideways);
+      g.travelDomain.update({requested:true,altitudeM:1e9,speedMps:0,nearestColliderM:Infinity,
+        bodyId:id,bodyRadiusM:body.equatorialRadiusM,entryPositionM:position,entryVelocityMps:velocity},0);
+      g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:velocity,referenceBodyId:id});
+      u.updateSystemPose(position,velocity,0);g.player.position.set(0,0,0);g.player.velocity.set(0,0,0);
+      const render=u.frames.convertDirection('solar-system/barycentric',u.renderSpace.currentOrigin.frame,radial.map(v=>-v));
+      const c=g.rendering.camera,V=c.position.constructor;
+      c.lookAt(c.position.clone().add(new V(...render)));c.updateMatrixWorld();
+      g.camera.inSpace=true;g.camera.wasInSpace=true;g.camera.spaceOrientation.copy(c.quaternion);
+      g.camera.lookPrepared=false;
+    },{id,gap,sideways});
+    await page.waitForFunction(()=>window.__DR_MANAUS__.surfacePhysicsState.domain==='space' && window.__DR_MANAUS__.camera.inSpace,null,{timeout:30000});
+    await page.waitForFunction(id=>window.__DR_MANAUS__.celestialController.renderSamples.some(s=>s.bodyId===id),id,{timeout:30000});
+  }
+  await navigationFixture('moon',20000000,400000);
+  await page.keyboard.press('Backspace');
+  await page.waitForFunction(()=>!window.__DR_MANAUS__.navigationLock,null,{timeout:15000});
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.navigationLock),undefined);
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.navigationLock?.bodyId==='moon',null,{timeout:15000});
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.navigationLock?.bodyId),'moon');
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.navigationLock?.source),'reticle');
+  await page.waitForFunction(()=>!document.querySelector('#navigation-lock-marker').hidden
+    && document.querySelector('#navigation-lock-marker').dataset.bodyId==='moon'
+    && document.querySelector('#cruise-block').textContent.includes('LUA'),null,{timeout:15000});
+  assert.match(await page.locator('#cruise-block').innerText(),/LUA/);
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.interplanetary.autopilot.active),false);
+  await page.keyboard.press('p');
+  await page.waitForFunction(()=>window.__DR_NAV_PHASES__.some(t=>t.phase==='acceleration'),null,{timeout:30000});
+  await page.keyboard.press('p');
+  await page.waitForFunction(()=>!window.__DR_MANAUS__.interplanetary.autopilot.active,null,{timeout:15000});
+  const midFlightVelocity=await page.evaluate(()=>[...window.__DR_MANAUS__.travelDomain.state.velocityMps]);
+  await page.waitForTimeout(100);
+  const midFlightCoast=await page.evaluate(()=>window.__DR_MANAUS__.travelDomain.state.velocityMps);
+  assert.ok(midFlightCoast.every((v,i)=>Math.abs(v-midFlightVelocity[i])<1e-6));
+  results.navigationMidFlightCancel={velocity:midFlightVelocity,coast:midFlightCoast};
+  await page.keyboard.press('p');
+  await page.waitForFunction(()=>window.__DR_NAV_PHASES__.some(t=>t.phase==='braking'),null,{timeout:60000});
+  await page.waitForFunction(()=>window.__DR_MANAUS__.surfacePhysicsState.domain==='moon',null,{timeout:180000});
+  results.navigationMoon=await page.evaluate(()=>({lock:window.__DR_MANAUS__.navigationLock,
+    phases:window.__DR_NAV_PHASES__,handoff:window.__DR_MANAUS__.surfaceReturnTrace,
+    autopilot:window.__DR_MANAUS__.interplanetary.autopilot.active}));
+  assert.ok(results.navigationMoon.phases.some(t=>t.phase==='align'));
+  assert.ok(results.navigationMoon.phases.some(t=>t.phase==='acceleration'));
+  assert.ok(results.navigationMoon.phases.some(t=>t.phase==='braking'));
+  assert.ok(results.navigationMoon.phases.some(t=>t.phase==='approach'));
+  assert.equal(results.navigationMoon.autopilot,false);
+  assert.ok(results.navigationMoon.handoff.relativeSpeedMps<=120);
+  assert.ok(results.navigationMoon.handoff.firstLocalStep.position[1]>=results.navigationMoon.handoff.firstLocalStep.terrainHeightM);
+  console.log('NAV-LOCK-1 Moon: keyboard Tab/P, align, acceleration, braking and real local handoff passed.');
+
+  await navigationFixture('mars',100000);
+  await page.keyboard.press('m');
+  const marsPick=await page.locator('[data-body-target="mars"]').evaluate(button=>{
+    const g=window.__DR_MANAUS__,before=[...g.travelDomain.state.positionM];
+    button.click();
+    return {lock:g.navigationLock,position:[...g.travelDomain.state.positionM],before};
+  });
+  assert.equal(marsPick.lock.bodyId,'mars');assert.equal(marsPick.lock.source,'map');
+  assert.deepEqual(marsPick.position,marsPick.before,'real map callback must not write the logical pose');
+  await page.waitForFunction(()=>document.querySelector('[data-body-target="mars"]').textContent.includes('TRAVADO'),null,{timeout:15000});
+  await page.locator('#map-panel .close-panel').click();
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.navigationLock.bodyId),'mars');
+  await page.keyboard.press('p');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.surfacePhysicsState.domain==='mars',null,{timeout:180000});
+  results.navigationMars=await page.evaluate(()=>({lock:window.__DR_MANAUS__.navigationLock,
+    phases:window.__DR_NAV_PHASES__,handoff:window.__DR_MANAUS__.surfaceReturnTrace,physics:window.__DR_MANAUS__.surfacePhysicsState}));
+  assert.ok(results.navigationMars.handoff.relativeSpeedMps<=120);
+  assert.ok(results.navigationMars.handoff.surfaceReady);
+  assert.equal(results.navigationMars.handoff.frameAfter,'mars/local-enu');
+  console.log('NAV-LOCK-1 Mars: shared map/HUD lock persists after closing; real safe local handoff passed.');
+
+  await navigationFixture('jupiter',100000);
+  await page.keyboard.press('m');
+  await page.locator('[data-body-target="jupiter"]').evaluate(button=>button.click());
+  await page.locator('#map-panel .close-panel').click();
+  await page.keyboard.press('p');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.interplanetary.autopilot.phase==='arrived',null,{timeout:60000});
+  results.navigationJupiter=await page.evaluate(()=>{
+    const g=window.__DR_MANAUS__,body=g.universe.activeSystem.bodies.find(b=>b.id==='jupiter'),
+      centre=g.universe.activeSystem.positionOf('jupiter'),state=g.travelDomain.state;
+    return {domain:g.travelDomain.kind,physics:g.surfacePhysicsState,lock:g.navigationLock,
+      distance:Math.hypot(...state.positionM.map((v,i)=>v-centre[i])),radius:body.equatorialRadiusM,
+      relativeSpeed:g.interplanetary.getTelemetry().relativeSpeedMps,phases:window.__DR_NAV_PHASES__};
+  });
+  assert.equal(results.navigationJupiter.domain,'interplanetary');
+  assert.equal(results.navigationJupiter.physics.domain,'space');
+  assert.ok(results.navigationJupiter.distance>=results.navigationJupiter.radius*1.25-1);
+  assert.ok(results.navigationJupiter.relativeSpeed<=3);
+  // Actual keyboard cancellation followed by manual coast retains the velocity.
+  await page.keyboard.press('p');
+  await page.waitForFunction(()=>!window.__DR_MANAUS__.interplanetary.autopilot.active,null,{timeout:15000});
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.interplanetary.autopilot.active),false);
+  const coast=await page.evaluate(()=>{
+    const g=window.__DR_MANAUS__,before=[...g.travelDomain.state.velocityMps];
+    return {before,body:g.navigationLock.bodyId};
+  });
+  await page.waitForTimeout(250);
+  const coastAfter=await page.evaluate(()=>window.__DR_MANAUS__.travelDomain.state.velocityMps);
+  assert.deepEqual(coastAfter,coast.before);
+  results.navigationCancel=coast;
+  console.log('NAV-LOCK-1 Jupiter: outside exclusion, no local ground, keyboard cancellation preserves momentum.');
   assert.equal(errors.length,0,errors.join('\n'));
   results.errors=errors;
   await writeFile('artifacts/space-hardening-browser.json',JSON.stringify(results,null,2));

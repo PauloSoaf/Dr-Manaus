@@ -1,19 +1,90 @@
 # Planetary architecture — implementation status
 
+## NAV-LOCK-1 — 2026-10-03
+
+Initial HEAD: **`386c531a450ab6770b9da454267081f0501989b9`**, branch `feat/universe-map`.
+The user manually accepted C0 (slow Moon landing, no high-speed tunnelling, correct celestial
+interception) and authorized the combined target lock, autopilot capture and map lock checkpoint.
+The original C0 stop gate below is historical; the current stop gate is NAV-LOCK-1 manual acceptance.
+
+**Authority:** `Game.navigation: NavigationTargetState` stores one identity-only NavigationLock
+with body ID, source, lock time and mode. `Game.navigationTarget` remains a derived compatibility
+accessor. Every consumer resolves live `positionOf/stateOf`; no camera, HUD, map or autopilot
+owns another target. Map feedback derives from Game's returned ID, and map selection never writes
+pose/velocity. Map focus, overview, close, proxy/globe swaps and offscreen motion retain the lock.
+
+**Controls/selection:** Tab cycles forward, Shift+Tab backward, P toggles autopilot, Backspace
+clears the lock in interplanetary space. R reconstruction and Escape panel controls retain their
+existing meaning. Tab selection never engages autopilot. The cone is **15°** in barycentric space;
+finite presentable bodies in front compete by angular offset, apparent angular size and a weak
+logarithmic distance penalty. Fully hidden discs are rejected; partial overlaps remain candidates.
+Stable geometric ordering reaches every candidate, including three overlapping bodies. No candidate
+means “Nenhum alvo”. No mesh raycast or loaded-globe requirement.
+
+**Flight:** the existing CosmicCruiseController owns a target-free AutopilotCapture command state:
+idle, align, acceleration, cruise, braking, capture, approach, arrived. It uses target-relative
+orbital velocity and bounded acceleration; large direction errors brake before reorientation,
+with a 1 rad/s direction bound and no camera rotation. One engagement capability bounds both
+acceleration and deceleration. **Stopping distance = v²/(2a)**. Effective commanded speed is bounded
+by the selected warp, `sqrt(2 a remainingGap × .35)` and `remainingGap / 1.5`; this automatically
+reduces speed without changing physical scale or rescaling incoming velocity instantaneously.
+Positions advance only through integration and the unchanged CCD motion clamp.
+
+**Arrival:** capture first at body radius + the existing `bodyArrivalPolicy` margin. Landable
+bodies then descend relative to measured relief: wait above the 7 km gate when terrain is missing,
+approach toward 5.6 km when covered, fall from the shared 2000 m/s approach tier to **96 m/s** near
+handoff. TravelDomain still independently enforces readiness, inward <=120 m/s, total <=8000 m/s.
+Its existing local ENU handoff finishes the command and retains the target. Actual ground descent
+uses existing character physics; orbital capture itself does not claim ground contact.
+Stars/giants and the nine currently nonlandable SOLAR-12 moons remain outside policy standoff
+and match target orbital velocity, with no terrain floor. Cancel/target loss retains momentum.
+All 19 celestial envelopes remain swept after autopilot planning, including failed extreme arrivals.
+
+**UI/debug:** localized name, live center distance, relative/closing speed, positive-closing-only
+ETA, lock/command state and phase; one render-safe DOM marker or offscreen edge arrow. Map/card
+display “TRAVADO”. F3 includes source, alignment, stopping distance, arrival radius, effective cap
+and C0 contact body/fraction. Marker scratch is reused; target definitions use a reusable index;
+acquisition allocates on key edges, and the new arithmetic autopilot planner uses scalar scratch.
+
+**Validation:** typecheck, **186/186 focused tests**, **668/668 full tests**, production build and
+`git diff --check` passed. **34 new deterministic tests** are in `tests/navigation-lock.test.ts`
+and `tests/autopilot-capture.test.ts`, covering all **29 required named cases**,
+30/60/120 Hz, moving-target arrival, manual coast, failed-plan CCD,
+occlusion/cycling, bounded marker, actual map callback/HUD authority and readiness waiting.
+The extended space browser smoke uses the existing Chromium and explicit far/near fixtures,
+then production Game.tick for Moon Tab/P arrival, Mars map/P handoff, Jupiter standoff and
+keyboard cancellation. **`npm run test:browser:space` passed with zero console/page errors**.
+Observed Moon and Mars local handoffs had terrain coverage and about **96 m/s** relative speed;
+Jupiter arrived roughly **3 m outside** its exclusion/standoff radius with zero target-relative
+speed. The traces include align/acceleration/braking/capture/approach and arrived phases, plus
+real first-local-step contact checks. This is not a claimed hours-long real-time journey.
+The build retains its existing bundle-size warning. Implementation commit: **`198ccc5`**;
+the following validation commit records this browser flow and the current prompt/status.
+
+**Requires user manual validation:** look at Moon, Tab, P, confirm acceleration/braking and safe
+arrival; repeat Mars. Map-select Jupiter then P and confirm outside standoff; repeat Titan.
+Cancel P during flight and confirm momentum remains. C0 is already manually accepted;
+NAV-LOCK-1 manual acceptance is pending. **Stop here; no catastrophic impact/destruction.**
+
+Detailed audited contracts, scoring weights, braking math and capture policy:
+[`03-TARGET-LOCK-AUTOPILOT-AND-MAP.md`](../../specs/dr-manaus-universe-roadmap/03-TARGET-LOCK-AUTOPILOT-AND-MAP.md).
+
 ## CELESTIAL-CCD-P0 / C0 — 2026-10-03
+
+Historical checkpoint, now manually accepted by the user at `386c531`.
 
 Initial HEAD: `9c6d5b24b8b55e7fe836899d034057747872436e`, branch `feat/universe-map`.
 The new user ZIP was extracted into `specs/dr-manaus-universe-roadmap`: **20 Markdown files,
 4,497 lines**, read in full. The supplied manifest's 19-file count excludes the manifest itself.
-The package and latest attachment authorize **C0 only**, with documentation, commit and push;
-the following navigation/destruction/universe sprints remain separate manual gates.
+The package and then-current attachment authorized **C0 only**, with documentation, commit and push.
+That gate was subsequently satisfied by user manual acceptance; NAV-LOCK-1 is now authorized above.
 
 **Confirmed defects:** before the patch, both newly introduced regressions failed: a diagonal
 step could cross a relief ridge while its sampled endpoints remained above ground, and the
 10,000 m/s return gate admitted an unsafe descent into local character physics. Existing vertical
 endpoint floor correction already worked; this patch adds first trajectory contact and safe handoff
-rather than claiming the Moon provider was missing. The user's visual reproduction still needs
-manual revalidation after the automated fixtures.
+rather than claiming the Moon provider was missing. The user's visual reproduction was subsequently
+manually accepted before NAV-LOCK-1.
 
 **Implemented:** generic five-point foot terrain sweep; exact vertical crossing; 16 bounded
 diagonal brackets followed by 12 binary refinements; motion clamping and inward-normal velocity
@@ -86,8 +157,8 @@ benchmark fixtures/JSON and browser screenshots stay in ignored `artifacts/`.
 
 **Manual validation required:** repeat the original slow Moon approach and walk; fast and
 absurd-speed Moon approach; fast Mars approach; free-flight crossing attempts against Jupiter
-and Sun. Inspect control feel, stopping distance and F3 contact telemetry. **Stop at C0 until this
-acceptance. Do not start TARGET-LOCK, destruction, Transvoxel or procedural universe expansion.**
+and Sun. Inspect control feel, stopping distance and F3 contact telemetry. **The C0 acceptance gate
+was satisfied by the user; the next authorized checkpoint is NAV-LOCK-1 above.**
 
 Architecture details: [`planetary-handoff-and-volume-phase1.md`](planetary-handoff-and-volume-phase1.md).
 Requirements: [`02-PATCH-CELESTIAL-CCD-P0.md`](../../specs/dr-manaus-universe-roadmap/02-PATCH-CELESTIAL-CCD-P0.md).
