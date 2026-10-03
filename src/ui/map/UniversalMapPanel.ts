@@ -29,7 +29,7 @@ export class UniversalMapPanel {
     initialLocation: UniverseLocation,
     private readonly onTravel: (id: string) => void,
     private readonly onClose: () => void,
-    private readonly onSelectTarget: (id: string) => void = () => {},
+    private readonly onSelectTarget: (id: string) => string | undefined | void = () => {},
   ) {
     this.model = new MapNavigationModel(initialLocation);
     this.root = document.createElement('div');
@@ -84,8 +84,9 @@ export class UniversalMapPanel {
   }
 
   private selectTarget(id: string): void {
-    this.onSelectTarget(id);
-    this.bodies = this.bodies.map(body => ({ ...body, selected: body.id === id }));
+    const lockedId = this.onSelectTarget(id);
+    // Presentation copy of the identity confirmed by Game; never an independent target.
+    if (typeof lockedId === 'string') this.bodies = this.bodies.map(body => ({ ...body, selected: body.id === lockedId }));
     this.renderers.system.setBodies(this.bodies);
     this.updateCard(); this.drawMap();
   }
@@ -312,7 +313,7 @@ export class UniversalMapPanel {
         const parent = body.parentId ?? this.renderers?.system.parentOf(body);
         const hasMoons = !!parent && this.bodies.some(child => (child.parentId ?? this.renderers?.system.parentOf(child)) === body.id);
         html += `<tr class="${body.selected ? 'selected-body' : ''}">`
-          + `<td><button class="map-body-target" data-body-target="${body.id}" style="margin-left:${parent && parent !== 'sun' ? 12 : 0}px" aria-pressed="${body.selected}">${body.selected ? '▸ ' : ''}${body.name}</button>`
+          + `<td><button class="map-body-target" data-body-target="${body.id}" style="margin-left:${parent && parent !== 'sun' ? 12 : 0}px" aria-pressed="${body.selected}">${body.selected ? 'TRAVADO · ' : ''}${body.name}</button>`
           + (hasMoons ? `<button class="map-body-target" data-system-focus="${body.id}" aria-label="Focar sistema de ${body.name}">Focar luas</button>` : '') + `</td>`
           + `<td>${formatDistance(body.distanceFromPlayerM)}</td></tr>`;
       }

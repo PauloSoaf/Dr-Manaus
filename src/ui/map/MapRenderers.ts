@@ -233,7 +233,7 @@ export class SystemMapRenderer extends BaseMapRenderer {
         this.ctx.beginPath(); this.ctx.arc(p.x,p.y,12,0,Math.PI*2);
         this.ctx.strokeStyle='#facc15'; this.ctx.lineWidth=2; this.ctx.stroke();
       }
-      const label = body.name + (selected ? ' · ALVO' : '');
+      const label = body.name + (selected ? ' · TRAVADO' : '');
       const width = this.ctx.measureText(label).width;
       const lx = Math.max(8,Math.min(w-width-8,p.x+12));
       let ly = Math.max(18,Math.min(h-28,p.y-8));

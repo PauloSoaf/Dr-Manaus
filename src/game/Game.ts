@@ -50,6 +50,8 @@ import { ManausSubsystem } from '../world/providers/ManausSubsystem';
 import { RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
 import { createPlanetProviders } from '../world/providers/PlanetProviderRegistry';
 import { bodyProfile, bodyArrivalPolicy } from '../world/celestial/CelestialBodyProfile';
+import { NavigationTargetState, celestialLockCandidates, cycleNavigationTarget, type NavigationLock } from '../world/travel/NavigationLock';
+import { CELESTIAL_LABEL_NAMES } from '../rendering/celestial/CelestialLabelLayer';
 import { bodyExclusionEnvelopes, selectBodyDestination, resolveBodyDestination } from '../world/travel/BodyNavigation';
 import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { PlanetTerrainProvider } from '../world/planet/PlanetTerrainProvider';
@@ -102,7 +104,28 @@ export class Game {
   /** Which simulation the player is in. Urban physics runs in one of them and not the other. */
   readonly travelDomain=new TravelDomain();
   readonly interplanetary=new CosmicCruiseController();
-  navigationTarget?: NavigationTarget;
+  navigation = new NavigationTargetState();
+  get navigationLock(): NavigationLock | undefined { return this.navigation?.lock; }
+  get navigationTarget(): NavigationTarget | undefined {
+    return this.navigationLock ? selectBodyDestination(this.universe.activeSystem,this.navigationLock.bodyId) : undefined;
+  }
+  set navigationTarget(target: NavigationTarget | undefined) {
+    this.navigation ??= new NavigationTargetState();
+    if (target) this.navigation.select(target.bodyId,'hud',this.universe.activeSystem.time);
+    else this.navigation.clear();
+    this.interplanetary?.autopilot.cancel();
+  }
+  selectNavigationTarget(id: string, source: NavigationLock['source'] = 'hud'): string | undefined {
+    if (!selectBodyDestination(this.universe.activeSystem,id)) return;
+    this.navigation.select(id,source,this.universe.activeSystem.time);
+    this.interplanetary.autopilot.cancel();
+    this.hud.notify('Alvo travado: ' + (CELESTIAL_LABEL_NAMES[id] ?? this.universe.activeSystem.bodies.find(b=>b.id===id)?.name));
+    return this.navigationLock?.bodyId;
+  }
+  clearNavigationTarget(): void {
+    this.navigation.clear(); this.interplanetary.autopilot.cancel();
+    this.hud.notify('Nenhum alvo');
+  }
   /** The last frame's cruise telemetry, so the HUD can show it rather than guess. */
   private flightTelemetry?: FlightTelemetry;
   /**
@@ -239,15 +262,7 @@ export class Game {
       damage:(point,radius,amount,deform)=>this.manausSimulationActive?this.destruction.damageAt(point,radius,amount,deform):0,prepare:destination=>this.manausSimulationActive?this.streamer.prepare(destination):Promise.resolve(),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
-    this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:id=>{
-        const bodyDef=this.universe.activeSystem.bodies.find(b=>b.id===id);
-        if(!bodyDef)return;
-        // Identity only. Capturing the position here would aim at where the body was at the
-        // moment of the click; the ephemeris keeps moving it, so the live position is resolved
-        // every update in `resolveNavigationTarget`.
-        this.navigationTarget=selectBodyDestination(this.universe.activeSystem,id);
-        this.hud.notify('Alvo selecionado: ' + bodyDef.name);
-      },settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress()});
+    this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:(id,source)=>this.selectNavigationTarget(id,source),settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress()});
     this.applySettings(this.save.data.settings);
     this.rendering.renderer.domElement.addEventListener('pointerdown',()=>{void this.audio.unlock();});
     window.addEventListener('keydown',()=>{void this.audio.unlock();},{once:true});
@@ -337,6 +352,8 @@ export class Game {
     const start=performance.now(),rawDt=Math.max(.001,(time-this.lastTime)/1000);this.lastTime=time;
     const dt=Math.min(.06,rawDt),worldDt=dt*(this.powers.temporal?.14:1);
     this.mark=performance.now();
+    this.navigation.validate(this.universe.activeSystem);
+    if (!this.navigationLock && this.interplanetary.autopilot.active) this.interplanetary.autopilot.cancel();
     this.updateTravelDomain(dt);
     const transition = this.travelDomain.transition;
     if (transition.kind === 'departed') {
@@ -482,6 +499,21 @@ export class Game {
         toBary(camFwdBary);
         if (camFwdBary.lengthSq() > 1e-12) camFwdBary.normalize();
         
+        if (this.input.consume('Backspace')) this.clearNavigationTarget();
+        if (this.input.consume('Tab')) {
+          const candidates = celestialLockCandidates(this.universe.activeSystem,
+            this.universe.playerSystemPositionM(),[camFwdBary.x,camFwdBary.y,camFwdBary.z],
+            this.celestialController.renderSamples);
+          const id = cycleNavigationTarget(candidates,this.navigationLock?.bodyId,boostHeld);
+          if (id) this.selectNavigationTarget(id,'reticle'); else this.clearNavigationTarget();
+        }
+        if (this.input.consume('KeyP')) {
+          if (this.interplanetary.autopilot.active) this.interplanetary.autopilot.cancel();
+          else if (this.navigationLock) this.interplanetary.autopilot.engage();
+          this.hud.notify(this.interplanetary.autopilot.active ? 'Piloto automático ativo' : 'Piloto automático desligado');
+        }
+        const target = this.resolveNavigationTarget();
+        const targetBody = target && this.universe.activeSystem.bodies.find(b=>b.id===target.bodyId);
         const t = this.universe.telemetry;
         const bodyDef = this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody);
         const bodyVel = this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps ?? [0,0,0];
@@ -508,7 +540,11 @@ export class Game {
           inputBoost: boostHeld && forwardIntent,
           warpStep: this.warpStep,
           inputBrake,
-          target: this.resolveNavigationTarget(),
+          target,
+          targetCanLand:targetBody ? bodyProfile(targetBody).canLand : false,
+          targetSurfaceClearanceM:target ? this.surfaceClearanceM(target.bodyId) : undefined,
+          targetSurfaceReady:target ? this.surfaceReadyForLanding(target.bodyId) : false,
+          returnAltitudeM:this.travelDomain.landingGate.returnAltitudeM,
         };
         const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, ctx);
         this.flightTelemetry = this.interplanetary.getTelemetry();
@@ -608,7 +644,7 @@ export class Game {
       camera: this.rendering.camera
     });
     this.celestialLabels.update(this.celestialController.renderSamples, this.rendering.camera, {
-      selectedBodyId: this.navigationTarget?.bodyId,
+      selectedBodyId: this.navigationLock?.bodyId,
       inTravel: this.travelDomain.kind === 'interplanetary',
       referenceBodyId: this.universe.resolveBodyContext().dominantBody,
     });
@@ -640,7 +676,8 @@ export class Game {
     const animDebug = this.player.character.animationController.debugState;
     const softTarget = this.powers.softTargetInfo;
     const hitStopMs = this.powers.hitStop.remainingMs;
-    this.hud.update(dt,{position:this.player.position,origin:this.renderOriginVec,velocity:this.player.velocity,speedMps:speedNow,altitudeM:altitudeNow,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,speedMode:this.player.speedMode,megaMode:this.player.megaMode,interplanetaryMode:this.travelDomain.isTravelling,spaceFactor:this.spaceFactor,district:this.district,location:this.universe.location,missionMarkerActive:this.manausSimulationActive,presentationDomain:this.presentationDomain,systemBodies:this.hudBodies(),flight:this.hudFlight(),nearbyBody:this.nearestNamedBody(),debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'Cidade real · tiles':`${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`,'Cidade real · triângulos':`${Math.round(this.realCity.stats.detailTriangles/1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles/1000)}k casca`,'Cidade real · skyline':this.realCity.stats.skyline,'Cidade real · colisores':this.realCity.stats.colliders,'Destruição':`${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`,'Perfil (ms)':Object.entries(this.profile).filter(([,v])=>v>.05).map(([k,v])=>`${k} ${v.toFixed(1)}`).join(' · ')||'—','Animação · Base / Voo':`${animDebug.baseLayer} / ${animDebug.flightLayer}`,'Animação · Combate':`${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`,'Animação · Pulo / Flip':`jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress*100).toFixed(0)}%`,'Voo · Alinhamento / Vel':`${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`,'Voo · Pitch / Bank':`${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`,'Voo · Modo / Vertical':`${animDebug.flightMode} · ${(animDebug.upright*100).toFixed(0)}% em pé`,'Movimento · Esquiva / Mortal':`${animDebug.dodge??'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming?' · SLAM':''}`,'Combate · Soft Target':`${softTarget.id??'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`,'Combate · Hit Stop':`${hitStopMs} ms`,'Largo':`${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`,'Skin cósmica':Object.entries(this.player.character.cosmicDiagnostics).filter(([,v])=>v!==undefined&&v!==null).slice(0,5).map(([k,v])=>`${k} ${v}`).join(' · '),'Trânsito':this.traffic?`${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos`:'sem malha viária','Ruas reais (tri)':this.realCity.stats.roadTriangles,'Voo':this.player.speedMode+(this.player.megaMode ? 'mega' : 'none'==='none'?'':` · ${this.player.megaMode ? 'mega' : 'none'.toUpperCase()} armado`),'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`,...this.universeDebug()}},this.rendering.camera);
+    const navFlight=this.hudFlight();
+    this.hud.update(dt,{position:this.player.position,origin:this.renderOriginVec,velocity:this.player.velocity,speedMps:speedNow,altitudeM:altitudeNow,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,speedMode:this.player.speedMode,megaMode:this.player.megaMode,interplanetaryMode:this.travelDomain.isTravelling,spaceFactor:this.spaceFactor,district:this.district,location:this.universe.location,missionMarkerActive:this.manausSimulationActive,presentationDomain:this.presentationDomain,systemBodies:this.hudBodies(),flight:navFlight,nearbyBody:this.nearestNamedBody(),debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'Cidade real · tiles':`${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`,'Cidade real · triângulos':`${Math.round(this.realCity.stats.detailTriangles/1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles/1000)}k casca`,'Cidade real · skyline':this.realCity.stats.skyline,'Cidade real · colisores':this.realCity.stats.colliders,'Destruição':`${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`,'Perfil (ms)':Object.entries(this.profile).filter(([,v])=>v>.05).map(([k,v])=>`${k} ${v.toFixed(1)}`).join(' · ')||'—','Animação · Base / Voo':`${animDebug.baseLayer} / ${animDebug.flightLayer}`,'Animação · Combate':`${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`,'Animação · Pulo / Flip':`jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress*100).toFixed(0)}%`,'Voo · Alinhamento / Vel':`${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`,'Voo · Pitch / Bank':`${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`,'Voo · Modo / Vertical':`${animDebug.flightMode} · ${(animDebug.upright*100).toFixed(0)}% em pé`,'Movimento · Esquiva / Mortal':`${animDebug.dodge??'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming?' · SLAM':''}`,'Combate · Soft Target':`${softTarget.id??'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`,'Combate · Hit Stop':`${hitStopMs} ms`,'Largo':`${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`,'Skin cósmica':Object.entries(this.player.character.cosmicDiagnostics).filter(([,v])=>v!==undefined&&v!==null).slice(0,5).map(([k,v])=>`${k} ${v}`).join(' · '),'Trânsito':this.traffic?`${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos`:'sem malha viária','Ruas reais (tri)':this.realCity.stats.roadTriangles,'Voo':this.player.speedMode+(this.player.megaMode ? 'mega' : 'none'==='none'?'':` · ${this.player.megaMode ? 'mega' : 'none'.toUpperCase()} armado`),'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`,...this.universeDebug(navFlight)}},this.rendering.camera);
     this.input.endFrame();
   };
   /** Rebuilt in place every frame: spreads and filters would allocate three arrays per tick. */
@@ -812,7 +849,7 @@ export class Game {
       surfaceReady:this.surfaceReadyForLanding(t.dominantBody),
       radialSpeedMps:motion.radialSpeedMps,
       tangentialSpeedMps:motion.tangentialSpeedMps,
-      isAssistedTarget:this.navigationTarget?.bodyId===t.dominantBody,
+      isAssistedTarget:this.navigationLock?.bodyId===t.dominantBody,
       // The real barycentric pose, so departure does not relocate the player across the system.
       entryPositionM:this.universe.playerSystemPositionM(),
       entryVelocityMps:bodyVelocity,
@@ -861,6 +898,8 @@ export class Game {
 
   /** Completes the TravelDomain return using the actual gameplay physics and view. */
   private finishSurfaceReturn(targetBody:string):void {
+    if (this.interplanetary?.autopilot.active && this.navigationLock?.bodyId===targetBody)
+      this.interplanetary.autopilot.arrive();
       const frameBefore=this.universe.player.frame,motion=this.landingMotion(targetBody);
       const previousViewFrame=this.universe.renderSpace.currentOrigin.frame;
       this.rendering.camera.getWorldDirection(this.viewForward);
@@ -973,11 +1012,11 @@ export class Game {
       if(!position)continue;
       rows.push({
         id:body.id,
-        name:body.name,
+        name:CELESTIAL_LABEL_NAMES[body.id] ?? body.name,
         parentId:body.parentId,
         systemPositionM:position as readonly [number,number,number],
         distanceFromPlayerM:Math.hypot(position[0]-player[0],position[1]-player[1],position[2]-player[2]),
-        selected:this.navigationTarget?.bodyId===body.id,
+        selected:this.navigationLock?.bodyId===body.id,
       });
     }
     return rows;
@@ -1012,21 +1051,35 @@ export class Game {
 
   /** The cruise controller's own numbers, named for the target rather than its id. */
   private hudFlight(){
-    const telemetry=this.flightTelemetry;
-    if(!telemetry)return undefined;
-    const name=telemetry.targetBodyId
-      ? this.universe.activeSystem.bodies.find(b=>b.id===telemetry.targetBodyId)?.name
+    const telemetry=this.flightTelemetry ?? this.interplanetary.getTelemetry();
+    const target=this.resolveNavigationTarget();
+    const position=this.universe.playerSystemPositionM();
+    const velocity=this.travelDomain.state?.velocityMps ?? this.universe.systemVelocityMps();
+    const dx=target ? target.positionM[0]-position[0] : 0,dy=target ? target.positionM[1]-position[1] : 0,
+      dz=target ? target.positionM[2]-position[2] : 0;
+    const distance=Math.hypot(dx,dy,dz);
+    const relative=target ? velocity.map((v,i)=>v-(target.velocityMps?.[i]??0)) : [0,0,0];
+    const closing=distance>0 ? (dx*relative[0]+dy*relative[1]+dz*relative[2])/distance : 0;
+    const arrivalRadius=this.interplanetary.autopilot.active && this.interplanetary.autopilot.arrivalRadiusM>0
+      ? this.interplanetary.autopilot.arrivalRadiusM : target ? target.radiusM+target.arrivalMarginM : 0;
+    const name=target?.bodyId
+      ? CELESTIAL_LABEL_NAMES[target.bodyId] ?? this.universe.activeSystem.bodies.find(b=>b.id===target.bodyId)?.name
       : undefined;
     return {
-      phase:telemetry.phase,
+      phase:this.interplanetary.autopilot.phase==='arrived' ? 'arrived' : telemetry.targetBodyId===target?.bodyId ? telemetry.phase : 'idle',
       speedMps:telemetry.speedMps,
       accelerationMps2:telemetry.accelerationMps2,
-      targetBodyId:telemetry.targetBodyId,
+      targetBodyId:target?.bodyId,
+      lockSource:this.navigationLock?.source,
+      lockActive:!!this.navigationLock,
+      autopilotActive:this.interplanetary.autopilot.active,
+      closingSpeedMps:closing,
+      relativeSpeedMps:Math.hypot(...relative),
       targetName:name,
       warpStep:telemetry.warpStep,
       warpLabel:warpLabel(telemetry.warpStep),
-      distanceToTargetM:telemetry.distanceToTargetM,
-      timeToTargetS:telemetry.timeToTargetS,
+      distanceToTargetM:target ? distance : undefined,
+      timeToTargetS:closing>0 ? Math.max(0,distance-arrivalRadius)/closing : undefined,
     };
   }
 
@@ -1037,7 +1090,7 @@ export class Game {
    * "where is Mars" has to ask the system rather than remember.
    */
   private resolveNavigationTarget(){
-    return resolveBodyDestination(this.universe.activeSystem,this.navigationTarget);
+    return resolveBodyDestination(this.universe.activeSystem,this.navigationLock);
   }
 
   /** The player's speed along the camera's forward axis, relative to the reference body. */
@@ -1087,7 +1140,7 @@ export class Game {
     });
   }
 
-  private universeDebug():Record<string,string|number>{
+  private universeDebug(nav=this.hudFlight()):Record<string,string|number>{
     if(!FEATURES.spatialCore)return{};
     const t=this.universe.telemetry;
     const moon=this.moonLandingState;
@@ -1106,7 +1159,12 @@ export class Game {
       'Corpos · Provider físico':this.celestialController.physicalBodyId??'—',
       'Corpos · Apresentação':this.celestialController.physicalMode,
       'Corpos · Tiles residentes':Array.from(this.planetProviders,([id,provider])=>`${id}: ${provider.stats.tiles}`).join(' · '),
-      'Destino':this.navigationTarget?.bodyId??'—',
+      'Destino':this.navigationLock?.bodyId??'—',
+      'Alvo · Origem':this.navigationLock?.source??'—',
+      'Alvo · Distância / Relativa / Fechamento':`${nav.distanceToTargetM??0} / ${nav.relativeSpeedMps} / ${nav.closingSpeedMps}`,
+      'Alvo · Alinhamento':this.flightTelemetry?.alignment??0,
+      'Piloto · Ativo / Fase':`${this.interplanetary.autopilot.active} / ${this.interplanetary.autopilot.phase}`,
+      'Piloto · Frenagem / Raio / Limite':`${this.interplanetary.autopilot.stoppingDistanceM} / ${this.interplanetary.autopilot.arrivalRadiusM} / ${this.interplanetary.autopilot.effectiveSpeedCapMps}`,
       'Contato · Domínio físico':this.physicsDomain,
       'Contato · Vel relativa / radial / tangente':`${motion.relativeSpeedMps.toFixed(1)} / ${motion.radialSpeedMps.toFixed(1)} / ${motion.tangentialSpeedMps.toFixed(1)} m/s`,
       'Contato · Folga / Gate':`${(this.surfaceClearanceM(t.dominantBody)??t.altitudeM).toFixed(1)} m / ${gate.blockedReason}`,

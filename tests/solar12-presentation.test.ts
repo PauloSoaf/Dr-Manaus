@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Mesh, PerspectiveCamera, Vector3 } from 'three/webgpu';
+import { Mesh, PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
 import { SOLAR_SYSTEM_BODIES, bodyById } from '../src/world/celestial/CelestialBody.ts';
 import { bodyProfile } from '../src/world/celestial/CelestialBodyProfile.ts';
@@ -56,7 +56,9 @@ test('T_LABEL_SELECTED_MOON_VISIBLE / T_LABEL_CLUSTER_REDUCES_OVERLAP: selected 
   const u = new UniverseRuntime(), layer = new CelestialBodyVisualLayer(), controller = new CelestialPresentationController(layer);
   const labels = Object.create(CelestialLabelLayer.prototype) as CelestialLabelLayer;
   const elements = new Map(moons.map(b => [b.id, { style: {}, textContent: '', offsetWidth: 90 }]));
-  Object.assign(labels, { container: { clientWidth: 1000, clientHeight: 700 }, labels: elements });
+  Object.assign(labels, { container: { clientWidth: 1000, clientHeight: 700 }, labels: elements,
+    marker: { hidden: true, style: {}, dataset: {} }, markerPoint: new Vector3(),
+    markerRotation: new Quaternion(), markerScreen: { x: 0, y: 0, offscreen: false } });
   try {
     u.updateSystemPose([1e13, 0, 0], [0,0,0], 0); controller.prepare({ universe: u, ...options });
     const cluster = controller.renderSamples.filter(s => ['io','europa','ganymede','callisto'].includes(s.bodyId))

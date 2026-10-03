@@ -35,7 +35,7 @@ test('T_SYSTEM_MAP_BODY_LABELS_PRESENT',()=>{
 });
 test('T_SYSTEM_MAP_SELECTED_TARGET_HIGHLIGHT',()=>{
   const f=fixture();try{f.renderer.draw(location);const n=f.renderer.markers.find(m=>m.id==='neptune')!;
-    assert.ok(n.selected);assert.ok(f.labels.some(l=>l.includes('ALVO')));
+    assert.ok(n.selected);assert.ok(f.labels.some(l=>l.includes('TRAVADO')));
     assert.ok(f.circles.some(c=>c[0]===n.x&&c[1]===n.y&&c[2]===12));}finally{f.dispose();}
 });
 test('T_SYSTEM_MAP_SCALE_USES_AU',()=>{const f=fixture();try{assert.match(f.renderer.scaleText,/AU/);assert.doesNotMatch(f.renderer.scaleText,/5 km/);}finally{f.dispose();}});

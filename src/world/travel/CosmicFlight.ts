@@ -2,6 +2,7 @@ import { Vector3 } from 'three/webgpu';
 import { type InterplanetaryState, type TravelContext } from './TravelDomain';
 import type { BodyExclusionEnvelope } from './BodyNavigation';
 import type { CelestialContact } from './CelestialContact';
+import { AutopilotCapture } from './AutopilotCapture';
 import { LANDING_SPEED_LIMITS } from './LandingCapture';
 
 /**
@@ -45,10 +46,21 @@ export interface FlightTelemetry {
   targetBodyId?: string;
   /** The engaged warp step, counting from 1; zero is off. */
   warpStep: number;
-  phase: 'idle' | 'align' | 'acceleration' | 'cruise' | 'braking' | 'approach';
+  phase: 'idle' | 'align' | 'acceleration' | 'cruise' | 'braking' | 'capture' | 'approach' | 'arrived';
+  autopilotActive?: boolean;
+  relativeSpeedMps?: number;
+  closingSpeedMps?: number;
+  alignment?: number;
+  stoppingDistanceM?: number;
+  arrivalRadiusM?: number;
+  effectiveSpeedCapMps?: number;
 }
 
 export interface CosmicCruiseContext extends TravelContext {
+  targetCanLand?: boolean;
+  targetSurfaceClearanceM?: number;
+  targetSurfaceReady?: boolean;
+  returnAltitudeM?: number;
   /** Live exclusion spheres for all bodies, so an unselected giant cannot be crossed at warp. */
   exclusionEnvelopes?: readonly BodyExclusionEnvelope[];
   /** Resolved live, in barycentric metres. Absent when nothing is selected. */
@@ -208,6 +220,7 @@ export function sweepSegmentSphere(
 }
 
 export class CosmicCruiseController {
+  readonly autopilot = new AutopilotCapture();
   private lastContact?: CelestialContact;
   get lastCelestialContact(): CelestialContact | undefined { return this.lastContact; }
   private telemetry: FlightTelemetry = { speedMps: 0, accelerationMps2: 0, warpStep: 0, phase: 'idle' };
@@ -228,7 +241,14 @@ export class CosmicCruiseController {
       finite(state.velocityMps[0]), finite(state.velocityMps[1]), finite(state.velocityMps[2]),
     ];
 
-    const bodyVel: readonly [number, number, number] = context.bodyVelocityMps
+    const candidate = context.target;
+    const target = candidate && candidate.positionM.every(Number.isFinite)
+      && Number.isFinite(candidate.radiusM) && candidate.radiusM > 0
+      && Number.isFinite(candidate.arrivalMarginM) && candidate.arrivalMarginM >= 0
+      && (!candidate.velocityMps || candidate.velocityMps.every(Number.isFinite)) ? candidate : undefined;
+    if (!target && this.autopilot.active) this.autopilot.cancel();
+    const assisted = this.autopilot.active;
+    const bodyVel: readonly [number, number, number] = assisted ? (target?.velocityMps ?? [0, 0, 0]) : context.bodyVelocityMps
       ? [finite(context.bodyVelocityMps[0]), finite(context.bodyVelocityMps[1]), finite(context.bodyVelocityMps[2])]
       : [0, 0, 0];
 
@@ -243,7 +263,6 @@ export class CosmicCruiseController {
     const margin = finite(context.envelopeMarginM, 1000);
 
     const warpSpeed = warpSpeedMps(finite(context.warpStep));
-    const target = context.target;
     const toTarget: [number, number, number] = target
       ? [
         finite(target.positionM[0]) - positionM[0],
@@ -255,7 +274,12 @@ export class CosmicCruiseController {
     const arrivalRadius = target ? target.radiusM + target.arrivalMarginM : 0;
     const remainingDistance = target ? Math.max(0, distanceToTarget - arrivalRadius) : 0;
 
-    if (context.inputBrake) {
+    if (context.inputBrake && assisted) this.autopilot.cancel();
+    if (assisted && !context.inputBrake) {
+      acceleration = this.autopilot.update(positionM, velocityMps, dt, context, warpSpeed);
+      for (let i=0;i<3;i++) relVel[i] = velocityMps[i] - bodyVel[i];
+      phase = this.autopilot.phase;
+    } else if (context.inputBrake) {
       phase = 'braking';
       acceleration = -this.applyBrake(relVel, BASE_BRAKE_ACCEL, dt);
     } else if (context.inputBoost && target && remainingDistance > 0) {
@@ -308,7 +332,7 @@ export class CosmicCruiseController {
       ? warpSpeed
       : Math.max(0, finite(context.maxRelativeSpeedMps, 500_000_000));
     const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
-    if (relSpeed > maxRelative && relSpeed > 0) {
+    if (!assisted && relSpeed > maxRelative && relSpeed > 0) {
       const scale = maxRelative / relSpeed;
       relVel[0] *= scale; relVel[1] *= scale; relVel[2] *= scale;
     }
@@ -379,7 +403,7 @@ export class CosmicCruiseController {
       this.lastContact = { bodyId: obstacle.bodyId ?? context.bodyId ?? 'unknown', fraction: earliest.fraction,
         contactPositionM: hitPosition, relativeSpeedMps: Math.hypot(...contactRelative),
         radialSpeedMps: contactRelative.reduce((sum, value, i) => sum + value * offset[i] / distance, 0),
-        assisted: (context.isAssistedTarget ?? context.inputBoost) && target?.bodyId === obstacle.bodyId };
+        assisted: (assisted || (context.isAssistedTarget ?? context.inputBoost)) && target?.bodyId === obstacle.bodyId };
       const relativeStepLength = Math.hypot(...contactRelative) * dt;
       const fraction = Math.max(0, earliest.fraction - 1 / Math.max(1, relativeStepLength));
       positionM[0] += step[0] * fraction;
@@ -413,15 +437,28 @@ export class CosmicCruiseController {
       ];
       const gap = Math.max(0, Math.hypot(after[0], after[1], after[2]) - arrivalRadius);
       this.telemetry.distanceToTargetM = gap;
-      const closing = radialApproachSpeed(after, relVel);
+      const relative: [number,number,number] = [velocityMps[0]-(target.velocityMps?.[0]??0),
+        velocityMps[1]-(target.velocityMps?.[1]??0),velocityMps[2]-(target.velocityMps?.[2]??0)];
+      const closing = radialApproachSpeed(after, relative);
+      this.telemetry.relativeSpeedMps = Math.hypot(...relative);
+      this.telemetry.closingSpeedMps = closing;
+      this.telemetry.alignment = distanceToTarget > 0 ? (context.cameraForwardBary.x * toTarget[0]
+        + context.cameraForwardBary.y * toTarget[1] + context.cameraForwardBary.z * toTarget[2]) / distanceToTarget : 0;
       // Finite only while actually approaching, which is now the case when the player is flying
       // at the target rather than away from it.
       this.telemetry.timeToTargetS = closing > 0 ? gap / closing : undefined;
     } else {
       this.telemetry.distanceToTargetM = undefined;
       this.telemetry.timeToTargetS = undefined;
+      this.telemetry.relativeSpeedMps = undefined;
+      this.telemetry.closingSpeedMps = undefined;
+      this.telemetry.alignment = undefined;
     }
 
+    this.telemetry.autopilotActive = this.autopilot.active;
+    this.telemetry.stoppingDistanceM = this.autopilot.stoppingDistanceM;
+    this.telemetry.arrivalRadiusM = this.autopilot.arrivalRadiusM;
+    this.telemetry.effectiveSpeedCapMps = this.autopilot.effectiveSpeedCapMps;
     this.telemetry.speedMps = Math.hypot(relVel[0], relVel[1], relVel[2]);
     this.telemetry.accelerationMps2 = acceleration;
     this.telemetry.phase = phase;

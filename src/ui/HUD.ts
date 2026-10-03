@@ -1,3 +1,5 @@
+import type { FlightTelemetry } from '../world/travel/CosmicFlight';
+import type { NavigationLock } from '../world/travel/NavigationLock';
 import { Vector3, type PerspectiveCamera } from 'three/webgpu';
 import { LANDMARKS, worldToLatLon } from '../world/geodata/geodata';
 import type { Settings, SaveManager } from '../core/SaveManager';
@@ -9,7 +11,7 @@ import type { UniverseLocation } from '../world/spatial/UniverseLocation';
 import { sectorIndex } from '../world/spatial/UniverseAddress';
 import { icon, POWERS } from './icons';
 import { formatDistance, formatDuration, formatSpeed } from './format';
-export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string)=>void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
+export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string,source?:NavigationLock['source'])=>string|undefined|void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
 export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
 export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; }
 
@@ -41,7 +43,12 @@ export interface HUDBody {
 
 /** What the cruise controller knows, as the HUD needs to show it. */
 export interface HUDFlightTelemetry {
-  readonly phase: 'idle' | 'align' | 'acceleration' | 'cruise' | 'braking' | 'approach';
+  readonly phase: FlightTelemetry['phase'];
+  readonly relativeSpeedMps?: number;
+  readonly closingSpeedMps?: number;
+  readonly lockSource?: string;
+  readonly lockActive?: boolean;
+  readonly autopilotActive?: boolean;
   readonly speedMps: number;
   readonly accelerationMps2: number;
   readonly targetBodyId?: string;
@@ -157,7 +164,7 @@ const CONTROLS: readonly (readonly [string,string])[]=[
   ['Ctrl','Descer'],['Shift','Boost · segure para subir de nível até Cosmic Cruise'],['B','Warp · cada toque dobra (1c, 2c, 4c…)'],['X','Freio espacial · desengata o warp'],['Mouse','Direção de voo'],
   ['L','Ligar / desligar laser continuo'],['Clique / 1','Emitir energia'],['E','Teleportar à mira'],['Q','Onda de choque'],['R','Reconstruir matéria'],
   ['G','Alternar tamanho até 1 km'],['C','Criar ecos temporários'],['T','Percepção temporal'],
-  ['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
+  ['Tab / Shift+Tab (espaço)','Travar alvo / próximo / anterior'],['P (espaço)','Piloto automático: ligar / desligar'],['Backspace (espaço)','Liberar alvo e cancelar piloto'],['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
 ];
 export class HUD {
   private mini:CityMap;private map:CityMap;private universalMap:UniversalMapPanel;private elapsed=0;private mapElapsed=0;private toastTimer=0;private lastPlace='';private temp=new Vector3();
@@ -220,7 +227,7 @@ export class HUD {
       <section class="debug-panel" id="debug-panel" hidden><div class="eyebrow">DIAGNÓSTICO · F3</div><div id="debug-metrics"></div><div class="debug-controls"><select id="debug-travel"><option value="">Teleportar para…</option>${LANDMARKS.map(l=>`<option value="${l.id}">${l.shortName}</option>`).join('')}</select>${[['bounds','Limites de chunks'],['lod','Cores de LOD'],['hlod','HLOD'],['geo','Marcos geográficos'],['roads','Cores de via'],['wireframe','Wireframe'],['culling','Frustum de câmera']].map(([id,label])=>`<label><input type="checkbox" data-debug="${id}"/>${label}</label>`).join('')}<label>Velocidade <input type="range" min="0.25" max="3" step="0.25" value="1" id="flight-speed"/></label><button class="text-button" id="stress-run">Iniciar rota de stress</button></div></section>
       <div class="loading-tag" id="loading-tag"><span class="spinner"></span>Despertando sobre a Amazônia…</div>`;
     document.querySelector('#app')!.append(root);
-    this.universalMap = new UniversalMapPanel($('#universal-map-container'), { address: { galaxyId: 'milky_way', sector: sectorIndex(0n, 0n, 0n), systemId: 'sol', bodyId: 'earth' }, frameId: 'earth/manaus/legacy-enu' }, id => this.travel(id), () => this.togglePanel(''), id => this.hooks.setTarget(id));
+    this.universalMap = new UniversalMapPanel($('#universal-map-container'), { address: { galaxyId: 'milky_way', sector: sectorIndex(0n, 0n, 0n), systemId: 'sol', bodyId: 'earth' }, frameId: 'earth/manaus/legacy-enu' }, id => this.travel(id), () => this.togglePanel(''), id => this.hooks.setTarget(id,'map'));
     this.mini=new CityMap($('#minimap'),false);this.map=new CityMap($('#city-map'),true);
     root.querySelectorAll<HTMLButtonElement>('[data-panel]').forEach(button=>button.onclick=()=>this.togglePanel(button.dataset.panel!));
     root.querySelectorAll<HTMLButtonElement>('.close-panel').forEach(button=>button.onclick=()=>this.togglePanel(''));
@@ -314,7 +321,7 @@ export class HUD {
   private travel(id:string){if(!this.save.data.discovered.includes(id)){this.notify('Voe até este lugar para descobrir sua assinatura.');return;}this.togglePanel('');this.hooks.travel(id);}
   /** Phase names the player can act on, rather than the controller's internal vocabulary. */
   private static readonly CRUISE_PHASES: Record<string,string> = {
-    idle: 'PRONTO PARA CRUISE',
+    capture:'CAPTURA', arrived:'CHEGADA', idle: 'PRONTO PARA CRUISE',
     align: 'ALINHE-SE AO DESTINO',
     acceleration: 'ACELERANDO',
     cruise: 'COSMIC CRUISE',
@@ -341,11 +348,14 @@ export class HUD {
       ? `${Math.round(flight.accelerationMps2/1000).toLocaleString('pt-BR')} km/s²`
       : `${Math.round(flight.accelerationMps2)} m/s²`;
     block.innerHTML=`<b>${HUD.CRUISE_PHASES[flight.phase]??flight.phase}</b>`
+      +`<span>LOCK<i>${flight.lockActive?'ATIVO':'—'}</i></span><span>PILOTO<i>${flight.autopilotActive?'ATIVO':'MANUAL'}</i></span>`
       +(flight.warpLabel?`<span>WARP<i class="warp">${flight.warpLabel}</i></span>`:'')
       +`<span>DESTINO<i>${flight.targetName??flight.targetBodyId??'—'}</i></span>`
       +`<span>DISTÂNCIA<i>${flight.distanceToTargetM===undefined?'—':formatDistance(flight.distanceToTargetM)}</i></span>`
       +`<span>VELOCIDADE<i>${speed.value} ${speed.unit}</i></span>`
       +`<span>ACELERAÇÃO<i>${accel}</i></span>`
+      +`<span>RELATIVA<i>${formatSpeed(flight.relativeSpeedMps??0).value} ${formatSpeed(flight.relativeSpeedMps??0).unit}</i></span>`
+      +`<span>FECHAMENTO<i>${(flight.closingSpeedMps??0)<0?'-':''}${formatSpeed(flight.closingSpeedMps??0).value} ${formatSpeed(flight.closingSpeedMps??0).unit}</i></span>`
       +`<span>ETA<i>${formatDuration(flight.timeToTargetS)}</i></span>`;
   }
 

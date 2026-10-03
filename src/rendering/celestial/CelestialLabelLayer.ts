@@ -18,6 +18,24 @@ export interface CelestialLabelContext {
   parentSystemId?: string;
 }
 
+export function projectNavigationMarker(sample: CelestialRenderSample, camera: PerspectiveCamera,
+  out = { x: 0, y: 0, offscreen: false }, point = new Vector3(), rotation = new Quaternion()) {
+  if (!sample.directionRender.every(Number.isFinite) || !Number.isFinite(sample.proxyDistanceM)
+    || sample.proxyDistanceM <= 0 || sample.proxyDistanceM > CELESTIAL_RENDER_SAFE_RADIUS_M) return undefined;
+  point.set(...sample.directionRender).applyQuaternion(camera.getWorldQuaternion(rotation).invert());
+  const depth = Math.max(.0001, Math.abs(point.z));
+  const tangent = Math.tan(camera.fov * Math.PI / 360);
+  let x = point.x / (depth * tangent * camera.aspect), y = point.y / (depth * tangent);
+  const offscreen = point.z >= 0 || Math.abs(x) > .9 || Math.abs(y) > .85;
+  if (offscreen) {
+    if (Math.abs(x) + Math.abs(y) < 1e-8) y = -1;
+    const scale = Math.max(Math.abs(x) / .9, Math.abs(y) / .85);
+    x /= scale; y /= scale;
+  }
+  out.x = x; out.y = y; out.offscreen = offscreen;
+  return out;
+}
+
 /** Project the bounded observer-relative point, never the logical system coordinates. */
 export function projectCelestialLabel(sample: CelestialRenderSample, camera: PerspectiveCamera) {
   const { directionRender: dir, proxyDistanceM: distance } = sample;
@@ -60,6 +78,10 @@ export function celestialLabelOpacity(sample: CelestialRenderSample, context: Ce
 export class CelestialLabelLayer {
   private readonly container: HTMLDivElement;
   private readonly labels = new Map<string, HTMLDivElement>();
+  private readonly marker = document.createElement('div');
+  private readonly markerPoint = new Vector3();
+  private readonly markerRotation = new Quaternion();
+  private readonly markerScreen = { x: 0, y: 0, offscreen: false };
 
   constructor(parentDom: HTMLElement) {
     this.container = document.createElement('div');
@@ -67,6 +89,10 @@ export class CelestialLabelLayer {
     Object.assign(this.container.style, { position: 'absolute', inset: '0', pointerEvents: 'none',
       overflow: 'hidden', zIndex: '10' });
     parentDom.appendChild(this.container);
+    this.marker.id = 'navigation-lock-marker';
+    Object.assign(this.marker.style, { position: 'absolute', color: '#facc15', fontSize: '24px',
+      transform: 'translate(-50%, -50%)', textShadow: '0 0 3px black' });
+    this.container.appendChild(this.marker);
   }
 
   private getLabel(id: string): HTMLDivElement {
@@ -88,6 +114,18 @@ export class CelestialLabelLayer {
     const height = this.container.clientHeight;
     const seen = new Set<string>();
     const selected = samples.find(sample => sample.bodyId === context.selectedBodyId);
+    const marker = selected && projectNavigationMarker(selected, camera, this.markerScreen,
+      this.markerPoint, this.markerRotation);
+    this.marker.hidden = !marker;
+    if (marker && selected) {
+      this.marker.dataset.bodyId = selected.bodyId;
+      this.marker.dataset.offscreen = String(marker.offscreen);
+      this.marker.textContent = marker.offscreen ? '➤' : '⌖';
+      this.marker.style.left = `${(marker.x + 1) * width / 2}px`;
+      this.marker.style.top = `${(1 - marker.y) * height / 2}px`;
+      this.marker.style.transform = `translate(-50%, -50%)${marker.offscreen
+        ? ` rotate(${Math.atan2(-marker.y, marker.x)}rad)` : ''}`;
+    }
     const reference = samples.find(sample => sample.bodyId === context.referenceBodyId);
     const effectiveContext = { ...context, parentSystemId: context.parentSystemId
       ?? (selected?.parentId !== 'sun' ? selected?.parentId : undefined)

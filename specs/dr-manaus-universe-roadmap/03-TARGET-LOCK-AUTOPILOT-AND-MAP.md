@@ -1,5 +1,103 @@
 # Target lock, autopilot and map integration
 
+## NAV-LOCK-1 implementation contract — 2026-10-03
+
+The user manually accepted C0 at `386c531a450ab6770b9da454267081f0501989b9` and explicitly
+authorized this combined navigation checkpoint. This supersedes the previous C0 stop gate.
+The sections below retain the original planning context; the implemented contract is described here.
+
+### Audited baseline
+
+`Game.navigationTarget` stored `NavigationTarget { bodyId, arrivalMarginM }`; `BodyNavigation`
+resolved live position and velocity through `activeSystem.positionOf/stateOf`. The system already
+indexed ephemerides in a Map, although body definitions were repeatedly found in arrays.
+`CosmicCruiseController.update` accepted barycentric thrust/camera axes, Shift+W assistance,
+manual brake/warp and all 19 live exclusion envelopes. It returned a continuous logical pose,
+with `sweepSegmentSphere` motion clamping as the final authority. `CelestialContact` was diagnostic.
+`TravelDomain` admitted local return only with terrain coverage, clearance <=7 km, inward speed
+<=120 m/s and total relative speed <=8 km/s. `LandingCapture` supplied those shared limits.
+`SolarSystem` supplied live hierarchical positions/velocities; `CelestialBodyProfile` supplied
+landability and the sole arrival/exclusion margin policy. Presentation samples contained bounded
+render-frame directions/distances, independently of proxy/globe ownership. Labels projected those
+samples. The map's callback selected Game's target without teleporting; focus was presentation state.
+HUD used cruise telemetry but lacked explicit lock/capture state. Input already reserved Tab;
+R reconstructed matter, Escape opened/closed panels. The space camera already had free quaternion
+mouse control. These contracts, CCD and manual thrust/brake remain the integration points.
+
+### One identity and controls
+
+`Game.navigation: NavigationTargetState` is the only lock authority. Its lock stores
+`bodyId`, `source` (`reticle`, `map`, `hud`), `lockedAtS`, `mode` (`locked`; the type also allows
+`selected`). `Game.navigationTarget` is a compatibility accessor derived from that identity and
+the shared margin policy; it stores no second target. HUD, labels, map and flight resolve the
+same ID. Invalid/nonfinite live positions clear the lock; closing/focusing a map, going offscreen
+or changing LOD do not. Selecting a different target cancels the previous command without
+changing velocity. Map feedback is a presentation copy of the ID confirmed by Game's callback.
+
+- **Tab / Shift+Tab in space:** acquire/cycle forward/backward among candidates in a **15°** cone.
+- **P in space:** engage/disengage autopilot. R retains reconstruction; selection alone never engages.
+- **Backspace in space:** clear the target and cancel autopilot. X still brakes and disengages warp.
+- Camera remains under mouse control; autopilot does not rotate it.
+
+Acquisition uses finite live barycentric directions, front-facing alignment and presentable bounded
+sample metadata, not mesh raycasts. A retired proxy with a physical globe stays lockable. A body
+containing the observer is ineligible. Fully hidden angular discs are excluded; partial overlaps
+remain cyclable. Score = angular offset / 15° - .08 × bounded apparent angular radius / 15°
++ .02 × bounded log10(distance metres) / 15. The pure scorer optionally accepts a .005 current-lock
+bonus, but cycling uses the stable geometric order without that bonus so all overlapping candidates
+remain reachable. Body ID breaks ties. No candidates clears the lock and displays “Nenhum alvo”.
+
+HUD shows localized name, center distance, target-relative speed, signed closing speed, phase,
+lock and command status, with ETA only for positive closing speed. Autopilot ETA uses its current
+capture/approach radius. One DOM marker projects the bounded render direction using reusable
+Vector3/Quaternion scratch; offscreen/behind targets receive an edge arrow. No astronomical
+absolute position is sent to Three.js projection. Map/card use “TRAVADO”; focus and overview persist.
+F3 exposes target source, distance, relative/closing speed, alignment, command phase, stopping
+distance, arrival radius, effective speed cap and the existing CCD contact body/fraction.
+
+### Continuous capture controller
+
+The existing `CosmicCruiseController` owns an `AutopilotCapture` command state, with **no stored
+target ID or position**. Phases: `idle → align → acceleration/cruise → braking → capture → approach
+→ arrived` (revisited as motion requires). Live velocity planning is relative to target orbital
+velocity, rather than the dominant body's velocity or barycentric zero.
+
+The engagement engine capability is `a = max(100000, 4 × initial gap / 6²)` m/s², kept constant
+through that command. The same `a` bounds each velocity change and computes **v²/(2a)** stopping
+distance. Command speed = minimum of selected warp cap (500 million m/s when warp is off),
+`sqrt(2 a gap × .35)` and `gap / 1.5`. This keeps 65% braking reserve and smooths the last metres;
+high-speed incoming motion is decelerated with bounded acceleration, never directly rescaled to
+the envelope. Large direction errors brake before reorienting; otherwise direction change is
+bounded by 1 rad/s. Position changes only through integration and the existing CCD sweep.
+
+First capture uses **body radius + `bodyArrivalPolicy().arrivalMarginM`**. Landable bodies then
+approach using measured ellipsoid/relief clearance: wait at `returnAltitude + 1000` m while
+coverage is missing, or aim at `.8 × returnAltitude` when ready. Approach speed is bounded by
+the shared 2000 m/s approach tier and falls to 96 m/s near the 7000 m gate; the original radial,
+total-speed and coverage gates still decide the real local ENU handoff. Handoff finishes the command
+but preserves the lock. The descent thereafter uses the existing falling/local flight controller.
+No ground contact is claimed at the moment of orbital capture.
+
+Sun, gas/ice giants and the nine SOLAR-12 proxy moons retain the policy's standoff radius,
+match target orbital velocity and stationkeep there. No local floor is installed. Cancellation,
+lock loss and manual braking retain momentum; all 19 celestial sweeps still run after autopilot
+planning. A deliberately impossible incoming velocity is covered by the CCD regression test.
+
+Acquisition allocates only on key edges. Target-definition lookup now reuses a WeakMap index;
+the arithmetic autopilot path uses scalars and mutates the controller's existing velocity buffer.
+This does not claim the pre-existing complete game/renderer loop is allocation-free.
+
+### Acceptance
+
+Named lock/autopilot tests cover the supplied checkpoint matrix, plus full-disc occlusion,
+three-candidate cycling, marker bounds, invalidation and waiting for actual terrain coverage.
+The browser suite extends the existing Chromium smoke with real Tab/P, map locks, Moon/Mars
+safe handoffs, Jupiter standoff and cancellation. Explicit far/near fixtures shorten the trips;
+the production controller and Game.tick perform subsequent motion. Verification results and
+manual acceptance remain recorded in [`../../docs/world/15-status.md`](../../docs/world/15-status.md).
+Manual NAV-LOCK-1 acceptance is still required: Moon/Mars Tab/P arrivals, Jupiter/Titan map
+standoff and mid-flight cancellation. **Stop after this checkpoint.**
+
 ## Goal
 
 Provide one consistent way to choose a celestial destination and let the flight controller reach it safely.
