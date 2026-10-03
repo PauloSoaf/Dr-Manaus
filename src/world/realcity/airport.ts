@@ -77,7 +77,7 @@ function taxiways(b: GeometryBatch): void {
   for (const along of [-200, 326, 900]) ribbon(b, 'dark', at(along, TAXI_A), at(along, TAXI_B), 25, PAVE_Y, .5);
 }
 
-function terminal(b: GeometryBatch): void {
+function terminal(b: GeometryBatch, ground: GeometryBatch): void {
   const p = latLonToWorld(TERMINAL.lat, TERMINAL.lon);
   b.box('cream', p.x, 7, p.z, 340, 13, 58, YAW);
   b.box('stone', p.x, 13.6, p.z, 346, 1.2, 64, YAW);
@@ -95,9 +95,9 @@ function terminal(b: GeometryBatch): void {
   }
   // Kerbside road and canopy on the landside, then the stub that leaves for the city.
   const kerb = face(46), gate = latLonToWorld(CITY_GATE.lat, CITY_GATE.lon);
-  b.box('dark', kerb.x, PAVE_Y, kerb.z, 330, .5, 26, YAW);
-  ribbon(b, 'dark', kerb, gate, 22, PAVE_Y, .5);
-  ribbon(b, 'gold', kerb, gate, .7, MARK_Y, .08);
+  ground.box('dark', kerb.x, PAVE_Y, kerb.z, 330, .5, 26, YAW);
+  ribbon(ground, 'dark', kerb, gate, 22, PAVE_Y, .5);
+  ribbon(ground, 'gold', kerb, gate, .7, MARK_Y, .08);
 }
 
 function tower(b: GeometryBatch): void {
@@ -111,7 +111,7 @@ function tower(b: GeometryBatch): void {
   b.sphere('light', p.x, 50.4, p.z, .7);
 }
 
-function apron(b: GeometryBatch): void {
+function apron(b: GeometryBatch, structures: GeometryBatch): void {
   slab(b, 'stone', 326, APRON_ACROSS, 760, 340, PAVE_Y, .5);
   // Stand lead-in lines fan off the apron taxilane toward the terminal face.
   for (let i = -4; i <= 4; i++) {
@@ -119,6 +119,8 @@ function apron(b: GeometryBatch): void {
     slab(b, 'gold', 326 + i * 74, APRON_ACROSS - 60, 60, 1, MARK_Y, .08);
   }
   slab(b, 'gold', 326, APRON_ACROSS - 130, 720, .9, MARK_Y, .08);
+  // The apron surface and its buildings cannot share crater-masked material batches.
+  b = structures;
   for (let i = -3; i <= 3; i++) {
     const p = at(326 + i * 110, APRON_ACROSS - 140);
     b.cylinder('steel', p.x, 11, p.z, .35, .6, 22, 6);
@@ -143,14 +145,19 @@ function apron(b: GeometryBatch): void {
 
 export function createAirport(destruction?: AuthoredDestruction): Group {
   const flat = new GeometryBatch(), built = new GeometryBatch();
-  runway(flat); taxiways(flat); apron(flat);
-  built.entity('airport:terminal', undefined, () => terminal(built));
+  runway(flat); taxiways(flat); apron(flat, built);
+  built.entity('airport:terminal', undefined, () => terminal(built, flat));
   built.entity('airport:tower', undefined, () => tower(built));
   const group = new Group();
   group.name = 'Aeroporto Internacional Eduardo Gomes — pista 10/28';
   // Pavement is 2.7 km of flat quad: casting shadows from it only bloats the shadow frustum.
   const ground = flat.build('airport-pavement');
-  ground.traverse(object => { if (object instanceof Mesh) object.castShadow = false; });
+  ground.traverse(object => {
+    if (object instanceof Mesh) {
+      object.castShadow = false;
+      object.userData.terrainSurface = 'road';
+    }
+  });
   group.add(ground, built.build('airport-structures'));
   if(destruction){for(const box of AIRPORT_COLLIDERS)destruction.addCollider(box);destruction.register(group,'airport:ground',{x:0,z:0});}
   return group;

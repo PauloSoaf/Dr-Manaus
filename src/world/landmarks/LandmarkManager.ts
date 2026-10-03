@@ -1,6 +1,6 @@
 import { Group, Mesh, SphereGeometry, TorusGeometry, Vector3, Matrix4 } from 'three/webgpu';
 import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
-import { FEATURES } from '../../core/config';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
 import type { Collider, Landmark } from '../../core/types';
 import { LANDMARKS } from '../geodata/geodata';
 import { GeometryBatch, treeProxy } from './GeometryBatch';
@@ -88,7 +88,7 @@ export class LandmarkManager {
     const surfaceService = new SurfaceFrameService('earth');
     for (const landmark of LANDMARKS) {
       const anchor = new Group(); anchor.name = landmark.name;
-      if (FEATURES.curvedManaus) {
+      if (localManausPresentationMode() === 'curved') {
         const pt = surfaceService.legacyPointToRenderLocal(landmark.x, 0, landmark.z);
         const up = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, landmark.x, 0, landmark.z).normalize();
         const north = surfaceService.legacyDirectionToRenderLocal(0, 0, -1, landmark.x, 0, landmark.z).normalize();

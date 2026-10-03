@@ -1,5 +1,5 @@
 import { CircleGeometry, Color, DynamicDrawUsage, Group, InstancedMesh, Matrix4, MeshBasicMaterial, MultiplyBlending, Object3D, Vector3 } from 'three/webgpu';
-import { FEATURES } from '../../core/config';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
 import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
 
 export interface ScarOptions {
@@ -82,10 +82,10 @@ export class ScarField {
     this.phase[i] = heat > .05 ? COOLING : SETTLED;
     this.life[i] = this.options.duration;
     // A 27 mm ladder over sixteen slots stops overlapping scars from fighting each other for depth.
-    const flatY = FEATURES.curvedManaus ? 0 : this.options.height;
+    const flatY = localManausPresentationMode() === 'curved' ? 0 : this.options.height;
     const finalY = flatY + (i & 15) * .0018;
     
-    if (FEATURES.curvedManaus) {
+    if (localManausPresentationMode() === 'curved') {
       // Find the uncurved equivalent point just to sample its normal
       const surface = new SurfaceFrameService('earth');
       const flat = surface.renderLocalToLegacyPoint(x, y, z);

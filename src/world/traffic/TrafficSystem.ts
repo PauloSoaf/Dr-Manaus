@@ -5,7 +5,7 @@ import type { RoadGraph, RoadSegment } from './RoadGraph';
 import { hash32, VehicleNavigator } from './VehicleNavigator';
 import { roadHeightOf } from '../realcity/roads';
 import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
-import { FEATURES } from '../../core/config';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
 
 /** The pool is sized once; `setCount` only changes how much of it drives. */
 const CAPACITY = 256;
@@ -200,7 +200,7 @@ export class TrafficSystem {
   }
   private drawVehicle(i:number,vehicle:Vehicle,wreck:boolean):void{
       this.dummy.scale.set(1,wreck?.65:1,1);
-      if (FEATURES.curvedManaus) {
+      if (localManausPresentationMode() === 'curved') {
         const pt = this.surfaceService.legacyPointToRenderLocal(vehicle.x, vehicle.y, vehicle.z);
         // Vehicle direction is yaw (rotation around Y).
         const fwdX = Math.sin(vehicle.yaw), fwdZ = Math.cos(vehicle.yaw);

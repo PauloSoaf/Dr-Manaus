@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { BufferGeometry, Group, Mesh, MeshStandardMaterial, Vector3 } from 'three/webgpu';
 import { FEATURES } from '../src/core/config.ts';
 import { createTerrain } from '../src/world/geodata/terrain.ts';
+import { MANAUS_GROUND_COVER_Y } from '../src/world/spatial/ManausSurfacePresentation.ts';
+import { ROAD_HEIGHT } from '../src/world/realcity/roads.ts';
 import { TerrainDestruction } from '../src/world/destruction/TerrainDestruction.ts';
 import { PhysicsWorld } from '../src/physics/PhysicsWorld.ts';
 
@@ -25,7 +27,12 @@ test('T9: curvedManaus false means ground-cover, backdrop, and roads remain in f
   assert.equal(groundCover.userData.terrainSurface, 'sheet');
   const groundAttr = groundCover.geometry.getAttribute('position');
   for (let i = 1; i < groundAttr.count * 3; i += 3) {
-    assert.ok(Math.abs(groundAttr.array[i] - 0.02) < 1e-4, 'ground-cover Y must remain at authored 0.02');
+    assert.equal(groundAttr.array[i], MANAUS_GROUND_COVER_Y, 'ground-cover Y follows the single surface authority');
+  }
+  // The invariant the number exists for: every road class clears the cover by at least 2 cm. The
+  // cover used to sit at 0.02, which left service streets exactly level with it.
+  for (const [klass, y] of Object.entries(ROAD_HEIGHT)) {
+    assert.ok(y - MANAUS_GROUND_COVER_Y >= 0.02, `${klass} asphalt must clear the ground cover`);
   }
 
   const roads = terrain.getObjectByName('legacy-osm-roads') as Mesh;
@@ -54,6 +61,7 @@ test('T10: terrain-backdrop and ground-cover are masked as sheet without vertica
 
   const regularBox = new Mesh(new BufferGeometry(), new MeshStandardMaterial());
   regularBox.name = 'building-sidewalk';
+  regularBox.userData.terrainSurface = 'band';
   terrain.registerSurface(regularBox);
   const boxMat = regularBox.material as any;
   assert.ok(boxMat.name.includes(':crater-band'), 'sidewalk must use crater-band material');

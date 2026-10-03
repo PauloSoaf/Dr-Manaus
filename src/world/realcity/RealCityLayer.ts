@@ -15,7 +15,7 @@ import {
   appendNearBuilding, appendShellBuilding, buildingExtent, createBuffers, districtCharacter, setDistrictSampler,
   type MeshBuffers, type RealBuilding,
 } from './buildingGeometry';
-import { createSurfaceTileFrame } from '../spatial/SurfaceTileFrame';
+import { manausTileSceneMatrix } from '../spatial/ManausSurfacePresentation';
 
 interface PackedTile { key: string; tx: number; tz: number; buildings: RealBuilding[] }
 interface RuinedBuilding { bounds: Collider; tile: string; blocks: number[] }
@@ -304,16 +304,14 @@ export class RealCityLayer {
       if (this.tiles.has(key)) continue;
       const [tx, tz] = key.split(',').map(Number);
       const originX = tx * size, originZ = tz * size;
-      const frame = createSurfaceTileFrame('earth', key, originX, originZ);
-      const tileMatrix = frame.getSceneMatrix();
+      const tileMatrix = manausTileSceneMatrix(key, originX, originZ);
       
       for (let p = 0; p + 7 < blocks.length; p += 8) {
         if (this.ruinedSkyline.get(key)?.has(p)) continue;
         if (index >= mesh.instanceMatrix.count) break;
         for(const building of this.skylineShapes.get(key)![p/8]){
-          const local = frame.legacyToLocal(building.x, 0, building.z);
           matrix.makeScale(building.width,building.height,building.depth);
-          matrix.setPosition(local[0], local[1], local[2]);
+          matrix.setPosition(building.x - originX, 0, building.z - originZ);
           matrix.premultiply(tileMatrix);
           mesh.setMatrixAt(index,matrix);mesh.setColorAt(index++,color.setRGB(building.gray*.96,building.gray,building.gray*1.04));
         }
@@ -586,9 +584,8 @@ export class RealCityLayer {
       }
       const group = new Group();
       group.name = `real-city-tile:${key}`;
-      const frame = createSurfaceTileFrame('earth', key, packed.tx * size, packed.tz * size);
       group.matrixAutoUpdate = false;
-      group.matrix.copy(frame.getSceneMatrix());
+      manausTileSceneMatrix(key, packed.tx * size, packed.tz * size, group.matrix);
       const originX = packed.tx * size;
       const originZ = packed.tz * size;
       const tile: Tile = {

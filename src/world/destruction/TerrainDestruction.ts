@@ -1,7 +1,7 @@
 import {
-  BufferAttribute, BufferGeometry, DataTexture, DoubleSide, DynamicDrawUsage, Group, LinearFilter,
+  Box3, BufferAttribute, BufferGeometry, DataTexture, DoubleSide, DynamicDrawUsage, Group, LinearFilter,
   Material, Mesh, MeshBasicMaterial, MeshBasicNodeMaterial, MeshStandardMaterial, MeshStandardNodeMaterial,
-  RGBAFormat, Vector2, Vector3, type Node, type Object3D,
+  RGBAFormat, Sphere, Vector2, Vector3, type Node, type Object3D,
 } from 'three/webgpu';
 import { bool, positionWorld, texture, uniform } from 'three/tsl';
 import type { TerrainProvider } from '../../physics/PhysicsWorld';
@@ -15,6 +15,20 @@ const GRID = TERRAIN_DAMAGE.cells + 1;
 const DEPTH_QUANTUM = 20 / 255;
 export interface CraterRecord { id: number; x: number; z: number; radius: number; depth: number; order: number }
 type GroundMaterial = MeshStandardNodeMaterial | MeshBasicNodeMaterial;
+export type TerrainSurfaceKind = 'sheet' | 'road' | 'plaza' | 'band';
+
+/** Only leaf surfaces opt in. Being inside a district/road-network group is not sufficient:
+ * those groups also contain roofs, walls, lamps and tree canopies. */
+export function terrainSurfaceKind(object: Object3D): TerrainSurfaceKind | undefined {
+  if (!(object instanceof Mesh) || object.userData.terrainDestructionBowl) return undefined;
+  const role = object.userData.terrainSurface;
+  if (role === 'sheet' || role === 'road' || role === 'plaza' || role === 'band') return role;
+  if (object.name === 'terrain-backdrop' || object.name === 'ground-cover') return 'sheet';
+  if (/^(?:real-roads-(?:arterial|local|markings)|legacy-osm-roads|legacy-osm-road-markings)$/.test(object.name)) return 'road';
+  if (object.name === 'largo-pavement') return 'plaza';
+  if (object.name === 'sidewalks' || object.name === 'destruction-scars') return 'band';
+  return undefined;
+}
 
 function finite(value: number, fallback = 0): number { return Number.isFinite(value) ? value : fallback; }
 
@@ -160,7 +174,9 @@ export class TerrainDestruction implements TerrainProvider {
   /** Register once when a ground/road/plaza mesh enters the scene; never traversed per frame. */
   registerSurface(mesh: Mesh): void {
     if (this.disposed || mesh.userData.terrainDestructionBowl || this.bindings.has(mesh)) return;
-    const mode: 'sheet' | 'band' = (mesh.userData.terrainSurface === 'sheet' || mesh.name === 'terrain-backdrop' || mesh.name === 'ground-cover') ? 'sheet' : 'band';
+    const role = terrainSurfaceKind(mesh);
+    if (!role) return;
+    const mode = role === 'sheet' ? 'sheet' : 'band';
     const original = mesh.material;
     this.bindings.set(mesh, original);
     for(const material of Array.isArray(original)?original:[original])this.references.set(material,(this.references.get(material)??0)+1);
@@ -187,7 +203,7 @@ export class TerrainDestruction implements TerrainProvider {
       }
     }
   }
-  /** The caller selects a newly-added surface subtree. Mixed meshes are cut only in the ground band. */
+  /** Traverse only on attachment; each leaf must carry its own surface classification. */
   attach(object: Object3D): void {
     object.traverse(child => { if (child instanceof Mesh && !child.userData.terrainDestructionBowl) this.registerSurface(child); });
   }
@@ -227,6 +243,7 @@ export class TerrainDestruction implements TerrainProvider {
     if (!this.active.length) {
       if (previouslyActive) { this.heights.fill(0); this.pixels.fill(0); this.mask.needsUpdate = true; }
       this.geometry.setDrawRange(0, 0); this.triangles = 0; this.bowl.visible = false; this.geometryRevision++;
+      this.setBounds(0, 0, 0, 0, 0, 0);
       this.lastBuildMs = performance.now() - started; return;
     }
     this.heights.fill(0); this.pixels.fill(0);
@@ -250,8 +267,10 @@ export class TerrainDestruction implements TerrainProvider {
       }
     }
     lowX=Math.max(0,lowX-1);lowZ=Math.max(0,lowZ-1);highX=Math.min(GRID-1,highX+1);highZ=Math.min(GRID-1,highZ+1);
+    let lowH = 0, highH = 0;
     for (let z = lowZ; z <= highZ; z++) for (let x = lowX; x <= highX; x++) {
       const index = z * GRID + x, p = index * 3, h = this.heights[index];
+      if (h < lowH) lowH = h; if (h > highH) highH = h;
       this.positions[p] = x * this.step; this.positions[p + 1] = h; this.positions[p + 2] = z * this.step;
       const dx = (this.heights[z * GRID + Math.min(GRID - 1, x + 1)] - this.heights[z * GRID + Math.max(0, x - 1)]) / (2 * this.step);
       const dz = (this.heights[Math.min(GRID - 1, z + 1) * GRID + x] - this.heights[Math.max(0, z - 1) * GRID + x]) / (2 * this.step);
@@ -272,10 +291,33 @@ export class TerrainDestruction implements TerrainProvider {
       this.indices[count++] = b; this.indices[count++] = d; this.indices[count++] = c;
     }
     this.geometry.setDrawRange(0, count); this.triangles = count / 3;
+    this.setBounds(lowX * this.step, lowH, lowZ * this.step, highX * this.step, highH, highZ * this.step);
     for (const key of ['position', 'normal', 'color']) this.geometry.getAttribute(key).needsUpdate = true;
     this.geometry.index!.needsUpdate = true; this.bowl.frustumCulled=false;
     this.mask.needsUpdate = true; this.bowl.visible = count > 0; this.geometryRevision++;
     this.lastBuildMs = performance.now() - started;
+  }
+
+  /**
+   * The bowl's own bounds, rewritten with the vertices that were actually built.
+   *
+   * Three.js computes a geometry's bounding sphere once, lazily, and never again. This geometry is
+   * a fixed buffer rewritten in place: recentering moves the written window and a growing span
+   * changes the grid step, so the first sphere stops describing the mesh the moment the player
+   * walks far enough to recenter. Rendering survives on `frustumCulled = false`, but any bounds
+   * consumer -- a raycast against the scene, a culling decision, a measurement -- is handed a shape
+   * the crater no longer has: a downward ray through the middle of a 640 m crater missed every
+   * triangle after an 850 m recenter while physics still reported the floor 180 m down.
+   *
+   * Computing it from the buffer would walk 66 049 vertices, most of them stale; the written window
+   * is known exactly, so the box is three subtractions.
+   */
+  private setBounds(lowX: number, lowY: number, lowZ: number, highX: number, highY: number, highZ: number): void {
+    const box = this.geometry.boundingBox ?? (this.geometry.boundingBox = new Box3());
+    const sphere = this.geometry.boundingSphere ?? (this.geometry.boundingSphere = new Sphere());
+    if (highX <= lowX && highZ <= lowZ) { box.makeEmpty(); sphere.makeEmpty(); return; }
+    box.min.set(lowX, lowY, lowZ); box.max.set(highX, highY, highZ);
+    box.getBoundingSphere(sphere);
   }
 
   heightAt(x: number, z: number): number {

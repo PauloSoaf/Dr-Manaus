@@ -3,6 +3,7 @@ import type { Collider } from '../../core/types';
 import { REAL_CITY } from '../../core/config';
 import { drawnByLandmark } from './ownership';
 import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
 
 const surfaceService = new SurfaceFrameService('earth');
 
@@ -127,7 +128,7 @@ function canopy(
 function toGeometry(out: Ribbon): BufferGeometry | null {
   if (!out.position.length) return null;
   
-  for (let i = 0; i < out.position.length; i += 3) {
+  if (localManausPresentationMode() === 'curved') for (let i = 0; i < out.position.length; i += 3) {
     // Preserve old coordinate to calculate direction correctly!
     const ox = out.position[i], oy = out.position[i+1], oz = out.position[i+2];
     

@@ -262,7 +262,7 @@ try {
 
   const destructionCoverage = await page.evaluate(() => {
     const game=window.__DR_MANAUS__, point=game.player.position.clone();point.y=0;
-    game.terrain.damageAt(point,22,2600);game.terrain.update(point,game.origin);
+    game.terrain.damageAt(point,22,2600);game.terrain.update(point,game.renderOriginVec);
     const depth=game.terrain.heightAt(point.x,point.z), surfaces=game.terrain.stats.surfaces;
     const victim=game.largo.colliders.find(c=>c.id?.startsWith('largo:venue:'))??game.largo.colliders.find(c=>c.id==='largo:monumento');
     const removed=victim&&game.destructible.destroy(victim.id)&&!game.largo.colliders.some(c=>c.id===victim.id);
@@ -277,11 +277,36 @@ try {
 
   // Visual validation: Scenario 1 - Ground Golden Hour (climb to ~100m, clear weather, horizon view)
   console.log('  taking off and climbing to 100m for Golden Hour visual validation...');
-  await page.keyboard.down('b');
+  /**
+   * Flight is a toggle on KeyF, so a blind press is only correct from the ground.
+   *
+   * This harness used to press 'b', which is bound to nothing: the player never left the ground and
+   * every climb below waited out its timeout. A toggle also cannot be pressed again later in the
+   * run without dropping the player out of the sky, so arrival is what is asserted, not the key.
+   */
+  const ensureFlying = async () => {
+    if (await page.evaluate(() => ['Hover', 'Flight'].includes(window.__DR_MANAUS__.player.state))) return;
+    await page.keyboard.press('KeyF');
+    await page.waitForFunction(() => ['Hover', 'Flight'].includes(window.__DR_MANAUS__.player.state),
+      null, { timeout: 5_000 });
+  };
+  await ensureFlying();
   await page.keyboard.down('Space');
-  await page.waitForFunction(() => window.__DR_MANAUS__.player.position.y >= 90, null, { timeout: 15_000 });
-  await page.keyboard.up('b');
+  // Polled with a trace, like the ascent below: a software rasteriser running the whole city
+  // simulates far less than wall-clock, and a bare timeout reports nothing about why.
+  const climbStart = Date.now();
+  let climb;
+  while (Date.now() - climbStart < 60_000) {
+    climb = await page.evaluate(() => {
+      const g = window.__DR_MANAUS__;
+      return { y: g.player.position.y, vy: g.player.velocity.y, state: g.player.state, fps: g.frame?.fps };
+    });
+    if (climb.y >= 90) break;
+    console.log(`    [climb] y=${climb.y.toFixed(1)}m vy=${climb.vy.toFixed(1)} ${climb.state} fps=${climb.fps}`);
+    await sleep(2000);
+  }
   await page.keyboard.up('Space');
+  if (!climb || climb.y < 90) throw new Error(`Climb to 90 m failed: ${JSON.stringify(climb)}`);
 
   const goldenHourTelemetry = await page.evaluate(() => {
     const game = window.__DR_MANAUS__;
@@ -314,24 +339,45 @@ try {
   stage = 'authentic-ascent';
 
   // Step 1: Ensure clean input state before arming
-  await page.keyboard.up('b');
   await page.keyboard.up('Space');
   await sleep(150);
-
-  // Two distinct consumed key edges exercise the same arming path as a player.
-  await page.keyboard.press('v');
-  await page.waitForFunction(() => window.__DR_MANAUS__.player.armed === 'mega', null, { timeout: 15_000 });
-  await page.keyboard.press('v');
-  await page.waitForFunction(() => window.__DR_MANAUS__.player.armed === 'interplanetary', null, { timeout: 15_000 });
 
   // Step 2: Pitch camera up to zenith
   await page.evaluate(() => {
     window.__DR_MANAUS__.camera.pitch = -1.15;
   });
 
-  // Step 3: Hold boost and climb through 9 km into space
-  await page.keyboard.down('b');
+  /**
+   * Step 3: hold the boost and climb through 9 km into space.
+   *
+   * The tiers are spooled by holding Shift while flying -- fast, then super at 1.4 s, mega at
+   * 3.2 s, and interplanetary at 5 s once past the 9 km floor. This harness still pressed 'v' and
+   * waited on `player.armed`, an arming model that no longer exists in the source at all, so the
+   * run could never leave the atmosphere.
+   */
+  await ensureFlying();
+  await page.keyboard.down('ShiftLeft');
   await page.keyboard.down('Space');
+  /*
+   * Spool timers are in simulated seconds, and a software rasteriser running the whole city
+   * simulates roughly a tenth of wall time, so mega's 3.2 s of held boost costs around half a
+   * minute here. Traced rather than timed out blind.
+   */
+  const spoolStart = Date.now();
+  let spool;
+  while (Date.now() - spoolStart < 150_000) {
+    spool = await page.evaluate(() => {
+      const g = window.__DR_MANAUS__;
+      return { mode: g.player.speedMode, charge: g.player.boostCharge, y: g.player.position.y, fps: g.frame?.fps };
+    });
+    if (spool.mode === 'mega' || spool.mode === 'interplanetary') break;
+    console.log(`    [spool] ${spool.mode} charge=${spool.charge?.toFixed(2)}s y=${spool.y.toFixed(0)}m fps=${spool.fps}`);
+    await sleep(3000);
+  }
+  if (!spool || (spool.mode !== 'mega' && spool.mode !== 'interplanetary')) {
+    throw new Error(`Boost never spooled past super: ${JSON.stringify(spool)}`);
+  }
+  console.log(`  boost spooled to ${spool.mode} at ${spool.y.toFixed(0)} m`);
 
   // Poll with diagnostic trace if timeout approaches
   const startTime = Date.now();
@@ -344,7 +390,7 @@ try {
         altitudeM: g.universe.telemetry.altitudeM,
         state: g.player.state,
         speedMode: g.player.speedMode,
-        armedTier: g.player.armedTier,
+        boostCharge: g.player.boostCharge,
         heldB: g.input.held('KeyB'),
         heldSpace: g.input.held('Space'),
         local: g.travelDomain.localPhysicsActive,
@@ -357,7 +403,7 @@ try {
     }
     await sleep(500);
     if ((Date.now() - startTime) % 2000 < 600) {
-      console.log(`    [climb trace] y=${status.y.toFixed(0)}m, alt=${status.altitudeM.toFixed(0)}m, vy=${status.vy.toFixed(0)}m/s, mode=${status.speedMode}, armed=${status.armedTier}, heldB=${status.heldB}`);
+      console.log(`    [climb trace] y=${status.y.toFixed(0)}m, alt=${status.altitudeM.toFixed(0)}m, vy=${status.vy.toFixed(0)}m/s, mode=${status.speedMode}, charge=${status.boostCharge?.toFixed(1)}s, heldB=${status.heldB}`);
     }
   }
 
@@ -392,8 +438,8 @@ try {
   console.log(`  reached 1,000 km deep orbit: altitude = ${(alt1000k / 1000).toFixed(1)} km`);
 
   // Step 6: Release boost and coast for ten seconds; every domain transition is recorded.
-  await page.keyboard.up('b');
   await page.keyboard.up('Space');
+  await page.keyboard.up('ShiftLeft');
   stage = 'coasting';
   const coastStarted = await snapshot(page);
   await sleep(10_000);
@@ -467,24 +513,58 @@ try {
   if (!orbitTelemetry.renderSafe) throw new Error(`Earth render position exceeds safe bound: ${orbitTelemetry.maxRenderCoord}m`);
   if (!orbitTelemetry.tilesLocalSafe) throw new Error(`Earth tile mesh coordinate exceeds body-local bound: ${orbitTelemetry.maxTileCoord}m`);
 
-  // Step 9: Reentry flight: thrust downwards toward Earth
+  /*
+   * Step 9: reentry.
+   *
+   * Out here X is the space brake and Shift is thrust; this harness held Shift to "brake" and so
+   * accelerated away, climbing from 14 000 km to 17 300 km while waiting to be captured. The
+   * outward velocity has to be killed first, then the nose put on the planet, and only then is
+   * there anything for the capture to catch.
+   */
   console.log('  initiating reentry descent...');
   stage = 'authentic-reentry';
-  await page.keyboard.down('b');
-  const descentStart = Date.now();
-  while (Date.now() - descentStart < 60_000) {
-    const curAlt = await page.evaluate(() => window.__DR_MANAUS__.universe.telemetry.altitudeM);
-    if (curAlt <= 25_000) break;
-    await sleep(1000);
-    console.log(`    [reentry descent] altitude = ${(curAlt / 1000).toFixed(1)} km`);
-  }
-  await page.keyboard.up('b');
+  await ensureFlying();
+  const altitudeNow = () => page.evaluate(() => window.__DR_MANAUS__.universe.telemetry.altitudeM);
 
-  // Apply atmospheric braking to capture into local domain safely
-  console.log('  applying atmospheric braking...');
-  await page.keyboard.down('ShiftLeft');
+  await page.keyboard.down('KeyX');
+  let previousAlt = await altitudeNow(), descending = false;
+  const brakeStart = Date.now();
+  while (Date.now() - brakeStart < 120_000) {
+    await sleep(2000);
+    const alt = await altitudeNow();
+    console.log(`    [outward brake] altitude = ${(alt / 1000).toFixed(1)} km`);
+    if (alt < previousAlt) { descending = true; break; }
+    previousAlt = alt;
+  }
+  await page.keyboard.up('KeyX');
+  console.log(`  outward velocity ${descending ? 'reversed' : 'arrested'}; pointing at Earth`);
+
+  /*
+   * Lock Earth and let the autopilot fly home.
+   *
+   * Pitching the camera down does not point at anything from here: the camera is oriented to the
+   * player, not to the planet, and at a hundred thousand kilometres Earth is in whatever direction
+   * it happens to be. Thrusting "down" only climbed further out. The navigation lock is what knows
+   * where the target actually is.
+   */
+  await page.evaluate(() => window.__DR_MANAUS__.selectNavigationTarget('earth', 'hud'));
+  await page.keyboard.press('KeyP');
+  await page.waitForFunction(() => window.__DR_MANAUS__.interplanetary.autopilot.active,
+    null, { timeout: 15_000 });
+  const descentStart = Date.now();
+  while (Date.now() - descentStart < 180_000) {
+    const curAlt = await altitudeNow();
+    if (curAlt <= 25_000) break;
+    await sleep(1500);
+    const phase = await page.evaluate(() => window.__DR_MANAUS__.interplanetary.autopilot.phase);
+    console.log(`    [reentry descent] altitude = ${(curAlt / 1000).toFixed(1)} km, autopilot ${phase}`);
+  }
+
+  // Brake into the capture.
+  console.log('  braking into capture...');
+  await page.keyboard.down('KeyX');
   const captureStart = Date.now();
-  while (Date.now() - captureStart < 25_000) {
+  while (Date.now() - captureStart < 60_000) {
     const status = await page.evaluate(() => ({
       alt: window.__DR_MANAUS__.universe.telemetry.altitudeM,
       local: window.__DR_MANAUS__.travelDomain.localPhysicsActive,
@@ -493,7 +573,7 @@ try {
     await sleep(500);
     console.log(`    [braking capture] alt = ${(status.alt / 1000).toFixed(1)} km, local = ${status.local}`);
   }
-  await page.keyboard.up('ShiftLeft');
+  await page.keyboard.up('KeyX');
 
   // Wait for reentry handoff to local domain
   await page.waitForFunction(

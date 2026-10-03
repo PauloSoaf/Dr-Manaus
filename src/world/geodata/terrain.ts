@@ -1,5 +1,5 @@
 import { BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Shape, ShapeGeometry } from 'three/webgpu';
-import { FEATURES } from '../../core/config';
+import { localManausPresentationMode, MANAUS_GROUND_COVER_Y } from '../spatial/ManausSurfacePresentation';
 import { LAND_MASK } from './landmask';
 import { urbanDensity } from '../chunks/BuildingGenerator';
 import { LANDMARKS, OSM_ROADS, SHORELINE, isLand, riverWidth, shoreZ } from './geodata';
@@ -15,7 +15,7 @@ function polygon(points: readonly (readonly [number, number])[], material: MeshS
   
   const posAttr = geometry.getAttribute('position');
   const arr = posAttr.array as Float32Array;
-  if (FEATURES.curvedManaus) {
+  if (localManausPresentationMode() === 'curved') {
     for (let i = 0; i < arr.length; i += 3) {
       const pt = surfaceService.legacyPointToRenderLocal(arr[i], y, arr[i + 2]);
       arr[i] = pt.x;
@@ -65,13 +65,13 @@ function groundCover(): Mesh {
     const g = (base[1] + (target[1] - base[1]) * f) * shade;
     const b = (base[2] + (target[2] - base[2]) * f) * shade;
     for (const [px, pz] of [[x, z], [x + CELL, z], [x + CELL, z + CELL], [x, z], [x + CELL, z + CELL], [x, z + CELL]] as const) {
-      if (FEATURES.curvedManaus) {
-        const pt = surfaceService.legacyPointToRenderLocal(px, .02, pz);
+      if (localManausPresentationMode() === 'curved') {
+        const pt = surfaceService.legacyPointToRenderLocal(px, MANAUS_GROUND_COVER_Y, pz);
         position.push(pt.x, pt.y, pt.z); 
-        const up = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, px, .02, pz);
+        const up = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, px, MANAUS_GROUND_COVER_Y, pz);
         normal.push(up.x, up.y, up.z); 
       } else {
-        position.push(px, .02, pz);
+        position.push(px, MANAUS_GROUND_COVER_Y, pz);
         normal.push(0, 1, 0);
       }
       color.push(r, g, b);
@@ -158,7 +158,7 @@ export function createTerrain(root: Group): Group {
   }
   
   // Curve the ribbons only if curvedManaus is enabled
-  if (FEATURES.curvedManaus) {
+  if (localManausPresentationMode() === 'curved') {
     for (const verts of [roadVertices, lineVertices]) {
       for (let i = 0; i < verts.length; i += 3) {
         const pt = surfaceService.legacyPointToRenderLocal(verts[i], verts[i + 1], verts[i + 2]);

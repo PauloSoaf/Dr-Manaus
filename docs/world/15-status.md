@@ -809,3 +809,82 @@ include volume chunks, extracted meshes, cave/tunnel collision, or destruction g
 
 Architecture, invariants, focused test metrics, limitations, and the Phase 2–10 roadmap are in
 [planetary-handoff-and-volume-phase1.md](planetary-handoff-and-volume-phase1.md).
+
+## Checkpoint MANAUS-SURFACE-AUTHORITY-P0 — one local frame for the whole city
+
+Status: **implemented and automated**; the visual acceptance pass in Part T of the checkpoint still
+requires manual validation in the running game.
+
+### Root cause
+
+`FEATURES.curvedManaus` is `false`, and the local terrain honoured it: `ground-cover` and
+`terrain-backdrop` stayed in the flat legacy projection. The `SurfaceTileFrame` migration
+(`2f06e3c`) had meanwhile routed three other local systems through WGS84 tangent frames
+*unconditionally*:
+
+| System | File | Behaviour before |
+| --- | --- | --- |
+| Real streets and lane paint | `src/world/realcity/roads.ts` | every vertex and normal through `legacyPointToRenderLocal` in `toGeometry()` |
+| Real building tiles and skyline | `src/world/realcity/RealCityLayer.ts` | tile groups and skyline instances placed by `createSurfaceTileFrame(...).getSceneMatrix()` |
+| Procedural chunks | `src/world/chunks/ChunkMeshes.ts` | same tile frame for facades, sidewalks and trees |
+
+Colliders, terrain destruction and local physics stayed flat throughout, so the city had two
+spatial authorities at once. The two diverge as the square of the distance from the Manaus anchor,
+`d² / 2R`:
+
+| Distance from anchor | Curved surface drop below the flat sheet |
+| --- | --- |
+| 5 km | ~2 m |
+| 10 km | ~8 m |
+| 15 km | ~18 m |
+| 20 km | ~31 m |
+| 25 km | ~49 m |
+
+That is the regression in the screenshots: near the centre the city looked right, and the further
+out the player flew the deeper the streets and building bases sank under an unmoved green sheet,
+until only roofs showed. A building's visual base and its collider could sit tens of metres apart,
+so the mismatch was never only cosmetic.
+
+### Correction
+
+- `src/world/spatial/ManausSurfacePresentation.ts` is now the single authority:
+  `localManausPresentationMode()` plus `manausTileSceneMatrix()`, which returns a pure translation
+  when flat and the WGS84 tile matrix when curved. `MANAUS_GROUND_COVER_Y` holds the one ground
+  height the sheet and the asphalt offsets are measured against.
+- Roads, real building tiles, the skyline and the procedural chunks go through that authority. Their
+  authored flat coordinates — `ROAD_HEIGHT`, `ROAD_MARKING_LIFT`, footprints, tile origins — are
+  untouched.
+- Water, scars, landmarks, HLOD proxies and traffic were already gated on the flag; they now read
+  the same authority rather than the flag directly, so there is one decision to change.
+- `ground-cover` moved from `0.02` to `0` so every road class clears it by at least 2 cm. At the old
+  value, a service street at `0.022` had 2 mm of separation, which is inside depth precision.
+- `ChunkMeshes.restore()` rebuilt its instance from `group.position`, which is zero now that the
+  group carries an explicit matrix. It uses the tile origin, so a restored building returns to where
+  it was away from the anchor as well as at it.
+- `TerrainDestruction` classifies each ground leaf explicitly (`sheet`, `road`, `plaza`, `band`)
+  instead of masking whatever a district subtree contained; walls, roofs, lamps and canopies no
+  longer enter crater batches. The airport's kerb road moved into the pavement batch and its
+  structures out of it, because a batch is masked as a whole.
+- `TerrainDestruction.rebuild()` now publishes the bowl's own bounds. Three.js computes a bounding
+  sphere once and never again, and this geometry is a fixed buffer rewritten in place: recentering
+  moves the written window and a growing span changes the grid step. A downward ray through the
+  middle of a 640 m crater found no triangle after an 850 m recenter while physics still reported
+  the floor 180 m down. Rendering had survived on `frustumCulled = false`.
+
+### Verification
+
+`tests/manaus-surface-authority.test.ts`, `tests/manaus-procedural-surface.test.ts` and
+`tests/manaus-crater-coverage.test.ts` cover the flat frame, the collider/visual agreement, the
+surface height order, the dormancy of `SurfaceTileFrame` while the flag is false, the still-working
+curved path, and crater mask/bowl/collision coverage. `T_FLAT_MANAUS_ONE_SURFACE_AUTHORITY` is the
+structural guard: any file outside `src/world/spatial/` that reaches for a curvature conversion must
+also consult the authority, so the next partial migration fails in CI rather than in a screenshot.
+
+`npm run test:browser:manaus` samples the shipped builders at 0, 5, 10, 15 and 20 km: ground, road,
+arterial, marking, building base and collider base all report their authored heights with zero sag,
+and tile matrices are pure translations.
+
+Known gap: `tsconfig.json` includes only `src`, so `npm run typecheck` does not typecheck `tests`.
+A test in this checkpoint called `RoadNetwork.update(Vector3, 0)` against a `(x, z, speed)`
+signature and failed at runtime instead of compile time. Including `tests` currently surfaces 314
+pre-existing errors, mostly a missing `node` entry in `compilerOptions.types`.

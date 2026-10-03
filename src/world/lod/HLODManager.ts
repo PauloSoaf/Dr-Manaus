@@ -1,5 +1,6 @@
 import { BoxGeometry, Color, DynamicDrawUsage, Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Vector3 } from 'three/webgpu';
-import { WORLD, FEATURES } from '../../core/config';
+import { WORLD } from '../../core/config';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
 import type { Collider } from '../../core/types';
 import { buildingAllowed, isLand, isUrban, riverWidth, shoreZ } from '../geodata/geodata';
 import { BUILDING_STRIDE, TREE_STRIDE, chunkKey, type ChunkPayload } from '../chunks/Chunk';
@@ -261,7 +262,7 @@ export class HLODManager {
   }
 
   private set(mesh: InstancedMesh, index: number, x: number, y: number, z: number, w: number, h: number, d: number): void {
-    if (FEATURES.curvedManaus) {
+    if (localManausPresentationMode() === 'curved') {
       const up = this.surfaceService.legacyDirectionToRenderLocal(0, 1, 0, x, y, z).normalize();
       const north = this.surfaceService.legacyDirectionToRenderLocal(0, 0, -1, x, y, z).normalize();
       const east = this.surfaceService.legacyDirectionToRenderLocal(1, 0, 0, x, y, z).normalize();
