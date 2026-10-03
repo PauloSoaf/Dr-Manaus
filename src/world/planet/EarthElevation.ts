@@ -31,6 +31,7 @@ interface ElevationPayload {
 }
 
 const grid = payload as unknown as ElevationPayload;
+export const EARTH_MAX_ELEVATION_M = grid.maxM;
 
 /** Base64 without `atob` or `Buffer`: this module is imported by the game and by the tests. */
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';

@@ -186,10 +186,11 @@ test('Teste 7 — Reentry handoff occurs deterministically', () => {
   });
   assert.equal(domain.localPhysicsActive, false);
 
-  // Descend below return altitude with safe return speed
+  // Descend below return altitude with safe return speed and confirmed surface coverage.
   const reentryTransition = domain.update({
     altitudeM: 6_000,
     speedMps: 100,
+    surfaceReady: true,
     requested: false,
     nearestColliderM: Number.POSITIVE_INFINITY,
     bodyRadiusM: 6_378_137,

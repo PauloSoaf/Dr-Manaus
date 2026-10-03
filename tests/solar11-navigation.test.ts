@@ -58,8 +58,9 @@ for (const body of SOLAR_SYSTEM_BODIES.filter(body => !bodyProfile(body).hasSoli
     };
     const result = new CosmicCruiseController().update({ systemId: 'sol', positionM: initial,
       velocityMps: [0, envelope.radiusM * 30, 0] }, 0.25, new Vector3(), context);
-    assert.ok(result.positionM[1] < y - envelope.radiusM, 'high-speed step must stop on the entry side');
-    assert.ok(Math.hypot(result.positionM[0] - x, result.positionM[1] - y, result.positionM[2] - z) >= envelope.radiusM);
+    const endCentre = envelope.centreM.map((value, i) => value + (envelope.velocityMps?.[i] ?? 0) * .25);
+    assert.ok(result.positionM[1] < endCentre[1], 'high-speed step must stop on the entry side of the live body');
+    assert.ok(Math.hypot(...result.positionM.map((value, i) => value - endCentre[i])) >= envelope.radiusM);
     const domain = new TravelDomain();
     domain.update({ ...context, altitudeM: 20_000, requested: true }, 1 / 60);
     domain.update({ ...context, altitudeM: 0, speedMps: 0, surfaceReady: bodyProfile(body).canLand }, 1 / 60);

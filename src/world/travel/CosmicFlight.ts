@@ -1,6 +1,8 @@
 import { Vector3 } from 'three/webgpu';
 import { type InterplanetaryState, type TravelContext } from './TravelDomain';
 import type { BodyExclusionEnvelope } from './BodyNavigation';
+import type { CelestialContact } from './CelestialContact';
+import { LANDING_SPEED_LIMITS } from './LandingCapture';
 
 /**
  * Cosmic cruise: crossing a solar system in seconds without leaving the logical frame.
@@ -27,6 +29,7 @@ export interface NavigationTarget {
 
 /** The same target, resolved against the current ephemeris. Built fresh each update. */
 export interface ResolvedTarget {
+  readonly velocityMps?: readonly [number, number, number];
   readonly bodyId: string;
   /** Live position in `solar-system/barycentric`. */
   readonly positionM: readonly [number, number, number];
@@ -160,6 +163,9 @@ export function cruiseSecondsFor(remainingDistanceM: number): number {
 
 /** A sphere the flight must not pass through. */
 interface Obstacle {
+  readonly captureRadiusM?: number;
+  readonly bodyId?: string;
+  readonly velocityMps?: readonly [number, number, number];
   readonly centreM: readonly [number, number, number];
   readonly radiusM: number;
 }
@@ -184,21 +190,26 @@ export function sweepSegmentSphere(
   if (!(radius > 0)) return undefined;
 
   const a = dx * dx + dy * dy + dz * dz;
-  const b = 2 * (ox * dx + oy * dy + oz * dz);
   const c = ox * ox + oy * oy + oz * oz - radius * radius;
 
   // Already inside: the segment does not need to enter what it never left.
   if (c <= 0) return 0;
   if (a <= 1e-9) return undefined;
 
-  const discriminant = b * b - 4 * a * c;
-  if (discriminant < 0) return undefined;
-  const root = Math.sqrt(discriminant);
-  const t = (-b - root) / (2 * a);
+  // Equivalent quadratic, measured along the normalized segment. Avoid subtracting two
+  // astronomical squared terms: a tiny moon must remain detectable at the 256c gear.
+  const length = Math.sqrt(a), ux = dx / length, uy = dy / length, uz = dz / length;
+  const along = -(ox * ux + oy * uy + oz * uz);
+  const px = ox + ux * along, py = oy + uy * along, pz = oz + uz * along;
+  const perpendicularSquared = px * px + py * py + pz * pz;
+  if (perpendicularSquared >= radius * radius) return undefined; // Touching a tangent is not entry.
+  const t = (along - Math.sqrt(radius * radius - perpendicularSquared)) / length;
   return t >= 0 && t <= 1 ? t : undefined;
 }
 
 export class CosmicCruiseController {
+  private lastContact?: CelestialContact;
+  get lastCelestialContact(): CelestialContact | undefined { return this.lastContact; }
   private telemetry: FlightTelemetry = { speedMps: 0, accelerationMps2: 0, warpStep: 0, phase: 'idle' };
 
   getTelemetry(): Readonly<FlightTelemetry> { return this.telemetry; }
@@ -318,33 +329,74 @@ export class CosmicCruiseController {
      * two frames: while Earth is still dominant, the Moon is not in the list at all.
      */
     const obstacles: Obstacle[] = [...(context.exclusionEnvelopes ?? [])];
-    if (context.bodyPositionM) {
+    if (context.bodyPositionM && !obstacles.some(obstacle => obstacle.bodyId === context.bodyId)) {
       obstacles.push({
+        bodyId: context.bodyId, velocityMps: context.bodyVelocityMps,
         centreM: context.bodyPositionM,
         radiusM: finite(context.bodyRadiusM) + margin,
       });
     }
-    if (target && target.bodyId !== context.bodyId) {
-      obstacles.push({ centreM: target.positionM, radiusM: target.radiusM + target.arrivalMarginM });
+    if (target && target.bodyId !== context.bodyId && !obstacles.some(obstacle => obstacle.bodyId === target.bodyId)) {
+      obstacles.push({ bodyId: target.bodyId, velocityMps: target.velocityMps,
+        centreM: target.positionM, radiusM: target.radiusM + target.arrivalMarginM });
     }
 
     let earliest: { fraction: number; obstacle: Obstacle } | undefined;
-    for (const obstacle of obstacles) {
-      const hit = sweepSegmentSphere(positionM, step, obstacle.centreM, obstacle.radiusM);
+    for (const envelope of obstacles) {
+      const orbital = envelope.velocityMps ?? (envelope.bodyId === context.bodyId ? bodyVel : [0, 0, 0]);
+      const speed = Math.hypot(velocityMps[0]-orbital[0],velocityMps[1]-orbital[1],velocityMps[2]-orbital[2]);
+      // Decide after thrust/warp acceleration. A previously slow player must not shrink
+      // the broad envelope on the same frame in which a cosmic gear accelerates them.
+      const radiusM = envelope.captureRadiusM !== undefined && speed <=
+        (context.maxLocalTerrainSweepMps ?? LANDING_SPEED_LIMITS.maxLocalTerrainSweepMps)
+        ? envelope.captureRadiusM : envelope.radiusM;
+      const obstacle = radiusM === envelope.radiusM ? envelope : { ...envelope, radiusM };
+      const relativeStep: [number, number, number] = [step[0] - orbital[0] * dt,
+        step[1] - orbital[1] * dt, step[2] - orbital[2] * dt];
+      // Inside an approach envelope, outward motion remains possible. Inward motion is clamped.
+      const offset: [number, number, number] = [positionM[0] - obstacle.centreM[0],
+        positionM[1] - obstacle.centreM[1], positionM[2] - obstacle.centreM[2]];
+      if (Math.hypot(...offset) <= obstacle.radiusM &&
+        offset[0] * relativeStep[0] + offset[1] * relativeStep[1] + offset[2] * relativeStep[2] > 0) continue;
+      const hit = sweepSegmentSphere(positionM, relativeStep, obstacle.centreM, obstacle.radiusM);
       if (hit === undefined) continue;
       if (!earliest || hit < earliest.fraction) earliest = { fraction: hit, obstacle };
     }
 
     if (earliest) {
       // Stop short of the surface rather than on it, and never at the centre.
-      const fraction = Math.max(0, earliest.fraction - 1e-4);
+      const obstacle = earliest.obstacle;
+      const orbital = obstacle.velocityMps ?? (obstacle.bodyId === context.bodyId ? bodyVel : [0, 0, 0]);
+      const hitCentre: [number, number, number] = [obstacle.centreM[0] + orbital[0] * dt * earliest.fraction,
+        obstacle.centreM[1] + orbital[1] * dt * earliest.fraction,
+        obstacle.centreM[2] + orbital[2] * dt * earliest.fraction];
+      const hitPosition: [number, number, number] = [positionM[0] + step[0] * earliest.fraction,
+        positionM[1] + step[1] * earliest.fraction, positionM[2] + step[2] * earliest.fraction];
+      const contactRelative: [number, number, number] = [velocityMps[0] - orbital[0],
+        velocityMps[1] - orbital[1], velocityMps[2] - orbital[2]];
+      const offset = hitPosition.map((value, i) => value - hitCentre[i]);
+      const distance = Math.hypot(...offset) || 1;
+      this.lastContact = { bodyId: obstacle.bodyId ?? context.bodyId ?? 'unknown', fraction: earliest.fraction,
+        contactPositionM: hitPosition, relativeSpeedMps: Math.hypot(...contactRelative),
+        radialSpeedMps: contactRelative.reduce((sum, value, i) => sum + value * offset[i] / distance, 0),
+        assisted: (context.isAssistedTarget ?? context.inputBoost) && target?.bodyId === obstacle.bodyId };
+      const relativeStepLength = Math.hypot(...contactRelative) * dt;
+      const fraction = Math.max(0, earliest.fraction - 1 / Math.max(1, relativeStepLength));
       positionM[0] += step[0] * fraction;
       positionM[1] += step[1] * fraction;
       positionM[2] += step[2] * fraction;
-      this.removeInwardVelocity(positionM, earliest.obstacle, relVel);
-      velocityMps[0] = bodyVel[0] + relVel[0];
-      velocityMps[1] = bodyVel[1] + relVel[1];
-      velocityMps[2] = bodyVel[2] + relVel[2];
+      // The ephemeris still advances for the whole frame after motion clamping. Carry the
+      // arrested player with the contacted body for the unused time, rather than let it overrun us.
+      const finalCentre: [number, number, number] = [0, 0, 0];
+      for (let i = 0; i < 3; i++) {
+        positionM[i] += orbital[i] * dt * (1 - fraction);
+        finalCentre[i] = obstacle.centreM[i] + orbital[i] * dt;
+      }
+      this.removeInwardVelocity(positionM, { centreM: finalCentre, radiusM: obstacle.radiusM }, contactRelative);
+      for (let i = 0; i < 3; i++) {
+        velocityMps[i] = orbital[i] + contactRelative[i];
+        relVel[i] = velocityMps[i] - bodyVel[i];
+      }
       if (phase !== 'braking') phase = 'approach';
     } else {
       positionM[0] += step[0];

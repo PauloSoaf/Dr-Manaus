@@ -1,12 +1,22 @@
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
-import { bodyArrivalPolicy } from '../celestial/CelestialBodyProfile';
+import { bodyArrivalPolicy, bodyProfile } from '../celestial/CelestialBodyProfile';
 import type { NavigationTarget, ResolvedTarget } from './CosmicFlight';
 import type { Vec3 } from '../spatial/units';
+import { maximumSurfaceReliefM } from '../planet/BodySurfaceFactory';
 
 export interface BodyExclusionEnvelope {
   readonly bodyId: string;
   readonly centreM: Vec3;
   readonly radiusM: number;
+  readonly velocityMps?: Vec3;
+  /** Optional measured terminal radius; high-speed motion must still use radiusM. */
+  readonly captureRadiusM?: number;
+}
+
+export interface TerminalSurfaceContext {
+  readonly bodyId: string;
+  readonly observerM: Vec3;
+  readonly clearanceM: number | undefined;
 }
 
 /** Selection stores identity only and cannot teleport or capture stale ephemeris coordinates. */
@@ -21,16 +31,23 @@ export function resolveBodyDestination(system: CelestialSystemRuntime,
   const positionM = body && system.positionOf(body.id);
   if (!body || !positionM) return undefined;
   return { bodyId: body.id, positionM, radiusM: body.equatorialRadiusM,
-    arrivalMarginM: bodyArrivalPolicy(body).arrivalMarginM };
+    arrivalMarginM: bodyArrivalPolicy(body).arrivalMarginM,
+    velocityMps: system.stateOf(body.id)?.velocityMps };
 }
 
 /** Every body is swept, including unselected bodies crossed at warp speed. */
-export function bodyExclusionEnvelopes(system: CelestialSystemRuntime): BodyExclusionEnvelope[] {
+export function bodyExclusionEnvelopes(system: CelestialSystemRuntime, terminal?: TerminalSurfaceContext): BodyExclusionEnvelope[] {
   const envelopes: BodyExclusionEnvelope[] = [];
   for (const body of system.bodies) {
     const centreM = system.positionOf(body.id);
-    if (centreM) envelopes.push({ bodyId: body.id, centreM,
-      radiusM: body.equatorialRadiusM + bodyArrivalPolicy(body).exclusionMarginM });
+    if (!centreM) continue;
+    const margin = bodyArrivalPolicy(body).exclusionMarginM;
+    const measured = terminal?.bodyId === body.id && bodyProfile(body).canLand && Number.isFinite(terminal.clearanceM)
+      ? Math.hypot(terminal.observerM[0]-centreM[0],terminal.observerM[1]-centreM[1],terminal.observerM[2]-centreM[2])
+        - terminal.clearanceM! + margin : undefined;
+    envelopes.push({ bodyId: body.id, centreM, velocityMps: system.stateOf(body.id)?.velocityMps,
+      radiusM: body.equatorialRadiusM + maximumSurfaceReliefM(body) + margin,
+      captureRadiusM: measured !== undefined && Number.isFinite(measured) && measured > 0 ? measured : undefined });
   }
   return envelopes;
 }

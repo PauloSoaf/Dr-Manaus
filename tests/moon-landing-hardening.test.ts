@@ -111,6 +111,30 @@ test('T_MOON_GROUNDED_ON_LOCAL_TERRAIN',async()=>{
     f.edges.add('KeyF');f.player.update(.016,[],0,0);assert.ok(f.player.state==='Hover'||f.player.state==='Flight');
   }finally{f.dispose();}
 });
+
+test('T_MOON_FAST_GAME_HANDOFF_TRACE: unsafe arrival retains cosmic CCD, safe return binds before movement',async()=>{
+  const f=await fixture();try {
+    await f.loadSite();
+    const orbital=f.universe.activeSystem.stateOf('moon')!.velocityMps;
+    const fixed=f.universe.frames.convertPosition('solar-system/barycentric','moon/fixed',f.before);
+    const length=Math.hypot(...fixed);
+    const inward=f.universe.frames.convertDirection('moon/fixed','solar-system/barycentric',fixed.map(v=>v/length*-10000) as Vec3);
+    const velocity=orbital.map((v,i)=>v+inward[i]) as Vec3;
+    f.travelDomain.setState({systemId:'sol',positionM:f.before,velocityMps:velocity,referenceBodyId:'moon'});
+    f.universe.updateSystemPose(f.before,velocity,0);f.game.updateTravelDomain(1/30);
+    assert.equal(f.travelDomain.kind,'interplanetary');
+    assert.ok(['speed','inward-speed'].includes(f.travelDomain.landingGate.blockedReason));
+    const safe=orbital.map((v,i)=>v+inward[i]/100) as Vec3;
+    f.travelDomain.setState({systemId:'sol',positionM:f.before,velocityMps:safe,referenceBodyId:'moon'});
+    f.universe.updateSystemPose(f.before,safe,0);f.returnToMoon();
+    f.player.update(1/30,[],0);f.game.recordSurfaceReturnStep();
+    const trace=f.game.surfaceReturnTrace;
+    assert.equal(trace.frameBefore,'solar-system/barycentric');assert.equal(trace.frameAfter,'moon/local-enu');
+    assert.equal(trace.physicsDomain,'moon');assert.ok(trace.surfaceReady);
+    assert.ok(trace.radialSpeedMps>=-120);
+    assert.ok(trace.firstLocalStep.position[1]>=trace.firstLocalStep.terrainHeightM);
+  }finally{f.dispose();}
+});
 test('Moon highland approach measures terrain clearance before the reference ellipsoid gate',async()=>{
   let direction:Vec3=[1,0,0],height=-Infinity;
   for(let lat=-75;lat<=75;lat+=15)for(let lon=-180;lon<=180;lon+=15) {

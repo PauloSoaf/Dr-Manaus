@@ -1,6 +1,6 @@
-# Planetary handoff and sparse volume field — phases 0–3
+# Planetary handoff CCD and sparse volume field — phases 0–3
 
-This note records the historical Phase 0/1/2 implementation and the current Phase 3 checkpoint on
+This note records the completed volume phases and the subsequent CELESTIAL-CCD-P0 checkpoint on
 `feat/universe-map`. The historical implementation baseline observed before Phase 0/1 was
 `c941b17`. The audit that motivated the work described a white horizon band, the visible end of
 the Manaus ground patch, a local HUD in planetary views, and the longer-term requirement that a
@@ -12,6 +12,50 @@ The historical first two phases had different scopes:
   seam with the existing shell/heightfield renderer.
 - **Phase 1** establishes the mathematical authority for sparse volumetric destruction. It does
 not yet render or collide with caves and tunnels.
+
+## CELESTIAL-CCD-P0 — intact terrain contact (2026-10-03)
+
+Baseline: `9c6d5b24b8b55e7fe836899d034057747872436e`. Requirements:
+[`02-PATCH-CELESTIAL-CCD-P0.md`](../../specs/dr-manaus-universe-roadmap/02-PATCH-CELESTIAL-CCD-P0.md).
+This checkpoint fixes intact-body contact independently of volume phases 1–3.
+
+`LandingCapture` separates the existing character tiers: approach telemetry **2,000 m/s**
+(super), maximum inward handoff **120 m/s** (normal), maximum total handoff **8,000 m/s**
+(mega). The last two are gates, not replacements for local flight controls. Surface coverage
+must be ready and measured relief clearance must be at most **7,000 m**. Outward/tangential
+motion is distinguished from descent using the actual surface gradient and live body velocity.
+Legacy context callers without a radial component are conservatively treated as direct descent.
+
+All 19 bodies retain conservative logical envelopes, including maximum existing relief for
+Earth/Moon/Mars. Near a landable body, `BodyNavigation` can additionally provide a measured
+terminal radius. `CosmicCruiseController` chooses it only after thrust, braking and speed capping,
+when body-relative speed is at most the terrain handoff ceiling. Unsafe motion keeps the broad
+envelope. The existing `sweepSegmentSphere`, earliest-hit selection and inward-velocity removal
+remain; the equivalent normalized quadratic avoids cancellation for small bodies at huge step
+lengths. Sweeps account for live body translation over the frame. Response uses the contacted
+body's velocity and carries its orbital translation through the unused frame time. A one-metre
+logical stand-off replaces the old step-fraction margin. A pure `CelestialContact` records identity,
+fraction, contact position, incoming relative/radial speed and assistance; it triggers no destruction.
+
+`TerrainSweep` evaluates five-point foot clearance through the generic `TerrainProvider`.
+Vertical crossing is exact. Diagonal motion uses **16 fixed subdivisions + 12 binary refinements**,
+then clamps position to first detected contact and projects away only inward normal velocity.
+Scratch vectors/results are reused by `PhysicsWorld`; the sampling/refinement loop creates no
+temporary arrays. With no nearby boxes, intact planetary terrain needs one sweep of the whole
+segment. Urban box sliding/cavity-wall raycasts and ordinary supported walking retain their
+existing path. `PlanetTerrainProvider.heightfieldOnly` declares the intact heightfield capability,
+without a Moon/Mars ID branch. Pure tangential movement on flat ground is not treated as entry.
+This is a bounded heightfield solver for existing relief, not exact CCD against arbitrary sub-sample
+features, overhangs or Phase 3 triangle meshes. Volume walls/ceilings remain future work.
+
+`Game.surfaceReturnTrace` records returned → old frame → body ENU → terrain binding → first
+local PlayerController step. F3 includes domains, relative/radial/tangent speed, measured clearance,
+all three thresholds, terrain height, local Y/state and last celestial contact body/fraction.
+Sun, gas/ice giants and proxy-only moons remain non-landable; no fake ground or volume colliders
+were introduced. Volume meshes/lab, ephemerides, map layout and powers remain unchanged.
+
+Measured verification and remaining manual acceptance: [`15-status.md`](15-status.md).
+Stop here until the user manually validates C0; do not chain TARGET-LOCK or volume phases 4+.
 
 ## Phase 3 — indexed Marching Cubes (PLANET-VOLUME-3, 2026-10-02)
 

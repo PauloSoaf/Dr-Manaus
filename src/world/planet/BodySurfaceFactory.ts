@@ -1,10 +1,21 @@
 import type { CelestialBody } from '../celestial/CelestialBody';
 import { bodyProfile } from '../celestial/CelestialBodyProfile';
 import { EarthSurfaceGenerator } from './EarthSurface';
-import { MarsSurfaceGenerator } from './MarsSurface';
-import { MoonSurfaceGenerator } from './MoonSurface';
+import { MarsSurfaceGenerator, MARS_RELIEF_M } from './MarsSurface';
+import { MoonSurfaceGenerator, MOON_RELIEF_M } from './MoonSurface';
+import { EARTH_MAX_ELEVATION_M } from './EarthElevation';
 import { planetBodyFromCelestial } from './PlanetBodyAdapter';
 import type { PlanetSurfaceGenerator } from './PlanetSurface';
+
+/** Broad-phase upper bound from the existing relief authorities, independent of rendering. */
+export function maximumSurfaceReliefM(body: CelestialBody): number {
+  switch (bodyProfile(body).surfaceKind) {
+    case 'earth': return Math.max(0, EARTH_MAX_ELEVATION_M);
+    case 'moon': return MOON_RELIEF_M;
+    case 'mars': return MARS_RELIEF_M;
+    default: return 0;
+  }
+}
 
 /** All intact solid surfaces feed the same future PlanetVolumeField, keyed by bodyId. */
 export function surfaceForBody(body: CelestialBody): PlanetSurfaceGenerator | undefined {

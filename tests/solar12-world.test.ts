@@ -125,7 +125,9 @@ for (const id of moons) test(`T_WARP_SWEEP_MOON: ${id} live envelope`, () => {
       requested: false, nearestColliderM: Infinity, bodyRadiusM: 0, bodyId: 'none',
       cameraForwardBary: new Vector3(0,1,0), inputBoost: false, inputBrake: false,
       maxRelativeSpeedMps: 1e12, exclusionEnvelopes: envelopes });
-  assert.ok(result.positionM[1] < y - moon.radiusM);
+  const endCentre = moon.centreM.map((v,i)=>v+(moon.velocityMps?.[i]??0)*.25);
+  assert.ok(result.positionM[1] < endCentre[1], 'contact remains on the entry side of the moving moon');
+  assert.ok(Math.hypot(...result.positionM.map((v,i)=>v-endCentre[i]))>=moon.radiusM);
 });
 
 for (const id of ['ganymede', 'titan']) test(`T_DOMINANT_BODY_NEAR_${id.toUpperCase()}: stable neighbourhood over time`, () => {

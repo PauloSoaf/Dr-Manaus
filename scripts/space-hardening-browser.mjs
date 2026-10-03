@@ -46,7 +46,9 @@ try {
   results.majorMoonSystems={};
   assert.equal(await page.locator('[data-system-focus="sun"]').count(),0);
   for(const [parent,moons] of Object.entries(lunarSystems)) {
-    await page.locator(`[data-system-focus="${parent}"]`).click();
+    // Live ephemeris updates replace card buttons each frame. Dispatch the real DOM
+    // click synchronously, as the canvas fixture does, without bypassing its handler.
+    await page.locator(`[data-system-focus="${parent}"]`).evaluate(button=>button.click());
     const focused=await page.evaluate(()=>{
       const g=window.__DR_MANAUS__,r=g.hud.universalMap.renderers.system;
       return {focus:r.focusedBodyId,markers:r.markers.map(m=>({...m})),scale:r.scaleText,
@@ -73,7 +75,7 @@ try {
     }
     if(parent==='jupiter') await page.screenshot({path:'artifacts/solar12-jupiter-map.png',timeout:90_000});
     results.majorMoonSystems[parent]={...focused,picks};
-    await page.locator('[data-system-overview]').click();
+    await page.locator('[data-system-overview]').evaluate(button=>button.click());
     assert.match(await page.locator('.map-scale').textContent(),/AU/);
   }
   assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.universe.activeSystem.bodies.length),19);
@@ -174,7 +176,7 @@ try {
 
   // Put the incoming state over the measured terrain, stream through the existing scheduler,
   // and let Game.tick decide the return. No direct handoff or alternate Moon physics.
-  await page.evaluate(()=>{
+  const unsafeMoonGate=await page.evaluate(()=>{
     const g=window.__DR_MANAUS__,u=g.universe,m=g.moon;
     const direction=window.__DR_MOON_LANDING_DIRECTION__;
     const height=m.surface.heightAt(direction),a=m.bodyDef.semiMajorAxisM,b=a*(1-m.bodyDef.flattening);
@@ -182,11 +184,20 @@ try {
     const fixed=direction.map(v=>v*(radius+height+400));
     const position=u.frames.convertPosition('moon/fixed','solar-system/barycentric',fixed);
     const orbital=u.activeSystem.stateOf('moon').velocityMps;
-    const inward=u.frames.convertDirection('moon/fixed','solar-system/barycentric',direction.map(v=>v*-800));
+    const inward=u.frames.convertDirection('moon/fixed','solar-system/barycentric',direction.map(v=>v*-10000));
     const velocity=orbital.map((v,i)=>v+inward[i]);
     g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:velocity,referenceBodyId:'moon'});
     u.updateSystemPose(position,velocity,0);g.player.position.set(0,0,0);g.player.velocity.set(0,0,0);
+    g.updateTravelDomain(0);
+    const rejected={domain:g.travelDomain.kind,gate:g.travelDomain.landingGate};
+    const safe=orbital.map((v,i)=>v+inward[i]/100);
+    g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:safe,referenceBodyId:'moon'});
+    u.updateSystemPose(position,safe,0);
+    return rejected;
   });
+  assert.equal(unsafeMoonGate.domain,'interplanetary','10 km/s must not bypass cosmic CCD');
+  assert.ok(['speed','inward-speed','surface-stream'].includes(unsafeMoonGate.gate.blockedReason));
+  results.unsafeMoonGate=unsafeMoonGate;
   await page.waitForFunction(()=>window.__DR_MANAUS__.surfacePhysicsState.domain==='moon',null,{timeout:60_000});
   console.log('Game.tick returned into moon/local-enu through streamed landing readiness.');
   // Descend with the public flight controls; lunar gravity alone takes much longer in a
@@ -219,6 +230,30 @@ try {
   await page.keyboard.press('f');
   await page.waitForFunction(()=>['Hover','Flight'].includes(window.__DR_MANAUS__.player.state),null,{timeout:15_000});
   results.moonLanding=landed;results.walkJumpTakeoff=true;
+  results.handoffTrace=await page.evaluate(()=>window.__DR_MANAUS__.surfaceReturnTrace);
+  assert.equal(results.handoffTrace.frameBefore,'solar-system/barycentric');
+  assert.equal(results.handoffTrace.frameAfter,'moon/local-enu');
+  assert.equal(results.handoffTrace.physicsDomain,'moon');
+  assert.ok(results.handoffTrace.surfaceReady);
+  assert.ok(results.handoffTrace.radialSpeedMps>=-120);
+  assert.ok(results.handoffTrace.firstLocalStep.position[1]>=results.handoffTrace.firstLocalStep.terrainHeightM);
+  results.fastLocalMoon=await page.evaluate(()=>{
+    const g=window.__DR_MANAUS__,p=g.player;
+    const floor=g.surfacePhysicsState.terrainHeightM;
+    p.position.y=floor+40;p.beginSurfaceApproach();p.velocity.set(200,-10000,50);
+    const previous=p.position.toArray(),oldEndpoint=p.position.clone().addScaledVector(p.velocity,1/30).toArray();
+    p.update(1/30,[],g.camera.yaw,g.camera.pitch);
+    const contact=p.lastTerrainContact;
+    return {previous,oldEndpoint,position:p.position.toArray(),physics:g.surfacePhysicsState,
+      grounded:p.isGrounded,state:p.state,contact:contact?{fraction:contact.fraction,
+        heightM:contact.heightM,normal:contact.normal.toArray(),outwardVelocity:p.velocity.dot(contact.normal)}:null};
+  });
+  assert.ok(results.fastLocalMoon.contact,'actual PlayerController reports a swept Moon contact');
+  assert.ok(results.fastLocalMoon.oldEndpoint[1]<results.fastLocalMoon.contact.heightM);
+  assert.ok(results.fastLocalMoon.position[1]>=results.fastLocalMoon.physics.terrainHeightM-.01);
+  assert.equal(results.fastLocalMoon.state,'Grounded');assert.ok(results.fastLocalMoon.grounded);
+  assert.ok(Math.abs(results.fastLocalMoon.contact.outwardVelocity)<1e-7);
+  console.log('P0 unsafe Moon handoff, first local frame trace and fast local CCD passed.');
   console.log('Moon ground contact, keyboard walking, jumping and takeoff passed.');
   results.volumeInactive=await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.metrics);
   assert.equal(results.volumeInactive.resident,0);assert.equal(results.volumeInactive.pendingBytes,0);

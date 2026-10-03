@@ -134,6 +134,7 @@ export class PlayerController {
 
   get megaMode(): boolean { return this.speedMode === 'mega' || this.speedMode === 'interplanetary'; }
   get interplanetaryMode(): boolean { return this.speedMode === 'interplanetary'; }
+  get lastTerrainContact() { return this.physics.lastTerrainContact; }
   /** Seconds of boost held, for a HUD that wants to show the ladder filling. */
   get boostCharge(): number { return this.boostHeldS; }
 

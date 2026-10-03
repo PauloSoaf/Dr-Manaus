@@ -74,9 +74,11 @@ for (const [body, surface] of [[MOON, MoonSurfaceGenerator], [MARS, MarsSurfaceG
       const floor = PhysicsWorld.terrainHeight(x, z, 0.32);
       assert.ok(Math.abs(floor) > 50, 'the fixture must differ materially from Manaus ground');
       const position = new Vector3(x, floor + 2_000, z), velocity = new Vector3(0, -100_000, 0);
-      assert.equal(new PhysicsWorld().move(position, velocity, 0.06, 0.32, 2.1, []), true);
+      const physics = new PhysicsWorld();
+      assert.equal(physics.move(position, velocity, 0.06, 0.32, 2.1, []), true);
       assert.ok(Math.abs(position.y - floor) < 1e-8);
-      assert.equal(velocity.y, 0);
+      assert.ok(Math.abs(velocity.dot(physics.lastTerrainContact!.normal)) < 1e-8,
+        'contact removes inward velocity along the actual slope, preserving its tangent');
       const rayOrigin = new Vector3(x, terrain.heightAt(x, z) + 30, z);
       const vertical = PhysicsWorld.raycast(rayOrigin, new Vector3(0, -1, 0), [], 100, 0, true);
       assert.ok(vertical && Math.abs(vertical.distance - 30) < 0.001);

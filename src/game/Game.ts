@@ -54,6 +54,8 @@ import { bodyExclusionEnvelopes, selectBodyDestination, resolveBodyDestination }
 import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { PlanetTerrainProvider } from '../world/planet/PlanetTerrainProvider';
 import { planetSurfaceRadius } from '../world/planet/PlanetSurface';
+import { surfaceForBody } from '../world/planet/BodySurfaceFactory';
+import { relativeSurfaceMotion, surfaceOutwardNormal } from '../world/travel/LandingCapture';
 import { WGS84 } from '../world/spatial/WGS84';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import {
@@ -69,6 +71,11 @@ import { CelestialPresentationController } from '../rendering/celestial/Celestia
 import { CelestialLabelLayer } from '../rendering/celestial/CelestialLabelLayer';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
+  surfaceReturnTrace?: {
+    bodyId: string; transition: 'returned'; frameBefore: string; frameAfter: string;
+    physicsDomain: string; surfaceReady: boolean; relativeSpeedMps: number; radialSpeedMps: number;
+    firstLocalStep?: { position: number[]; velocity: number[]; state: string; terrainHeightM: number };
+  };
   readonly save = new SaveManager(); readonly assets = new AssetManager(); readonly rendering: RendererManager;
   readonly celestialRoot = new Group();
   readonly planetaryRoot = new Group();
@@ -389,7 +396,10 @@ export class Game {
     this.lap('colliders');
     if(manaus)this.updateStomps(dt);
     if(manaus&&this.stressRoute.length)this.updateStress(dt);
-    else if (local) this.player.update(dt,FEATURES.curvedManaus?this.curvedColliders:this.colliders,this.camera.yaw,this.camera.pitch);
+    else if (local) {
+      this.player.update(dt,FEATURES.curvedManaus?this.curvedColliders:this.colliders,this.camera.yaw,this.camera.pitch);
+      this.recordSurfaceReturnStep();
+    }
     else {
       const simSpeed = this.currentGameplaySpeedMps();
       this.player.updateTravelVisual(
@@ -488,7 +498,11 @@ export class Game {
           bodyId: t.dominantBody,
           systemId: 'sol',
           envelopeMarginM: bodyDef?bodyArrivalPolicy(bodyDef).exclusionMarginM:1000,
-          exclusionEnvelopes: bodyExclusionEnvelopes(this.universe.activeSystem),
+          exclusionEnvelopes: bodyExclusionEnvelopes(this.universe.activeSystem, {
+            bodyId:t.dominantBody,observerM:this.universe.playerSystemPositionM(),
+            clearanceM:this.surfaceClearanceM(t.dominantBody),
+          }),
+          maxLocalTerrainSweepMps:this.travelDomain.landingGate.maxLocalTerrainSweepMps,
           cameraForwardBary: camFwdBary,
           // Cosmic cruise assistance needs real forward intent, not merely the modifier.
           inputBoost: boostHeld && forwardIntent,
@@ -770,6 +784,7 @@ export class Game {
     const bodyVelocity=this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps??[0,0,0];
     const bodyPos=this.universe.activeSystem.positionOf(t.dominantBody)??[0,0,0];
     const requested=this.player.interplanetaryMode&&this.input.held('ShiftLeft');
+    const motion=this.landingMotion(t.dominantBody);
 
     /**
      * The warp key is read once a frame, outside the domain branches.
@@ -795,6 +810,9 @@ export class Game {
       systemId:'sol',
       envelopeMarginM:1000,
       surfaceReady:this.surfaceReadyForLanding(t.dominantBody),
+      radialSpeedMps:motion.radialSpeedMps,
+      tangentialSpeedMps:motion.tangentialSpeedMps,
+      isAssistedTarget:this.navigationTarget?.bodyId===t.dominantBody,
       // The real barycentric pose, so departure does not relocate the player across the system.
       entryPositionM:this.universe.playerSystemPositionM(),
       entryVelocityMps:bodyVelocity,
@@ -814,11 +832,25 @@ export class Game {
   private surfaceClearanceM(bodyId:string):number|undefined {
     const provider=this.surfaceProvider(bodyId);
     const body=this.universe.activeSystem.bodies.find(candidate=>candidate.id===bodyId);
-    if(!provider||!body)return undefined;
+    const surface=provider?.surface??(body?surfaceForBody(body):undefined);
+    if(!surface||!body)return undefined;
     const fixed=this.universe.frames.convertPosition('solar-system/barycentric',body.frameId,this.universe.playerSystemPositionM());
     const radius=Math.hypot(...fixed);
-    if(!(radius>0))return -planetSurfaceRadius(provider.surface,[1,0,0]);
-    return radius-planetSurfaceRadius(provider.surface,[fixed[0]/radius,fixed[1]/radius,fixed[2]/radius]);
+    if(!(radius>0))return -planetSurfaceRadius(surface,[1,0,0]);
+    return radius-planetSurfaceRadius(surface,[fixed[0]/radius,fixed[1]/radius,fixed[2]/radius]);
+  }
+
+  private landingMotion(bodyId:string) {
+    const body=this.universe.activeSystem.bodies.find(candidate=>candidate.id===bodyId);
+    const position=this.universe.playerSystemPositionM();
+    const centre=this.universe.activeSystem.positionOf(bodyId)??[0,0,0];
+    const surface=this.surfaceProvider(bodyId)?.surface??(body?surfaceForBody(body):undefined);
+    const fixed=body?this.universe.frames.convertPosition('solar-system/barycentric',body.frameId,position):[1,0,0] as [number,number,number];
+    const offset=position.map((v,i)=>v-centre[i]);const radius=Math.hypot(...offset)||1;
+    const normal=surface&&body?this.universe.frames.convertDirection(body.frameId,'solar-system/barycentric',surfaceOutwardNormal(surface,fixed)):
+      offset.map(v=>v/radius) as [number,number,number];
+    return relativeSurfaceMotion(this.travelDomain.state?.velocityMps??this.universe.systemVelocityMps(),
+      this.universe.activeSystem.stateOf(bodyId)?.velocityMps??[0,0,0],normal);
   }
 
   private surfaceReadyForLanding(bodyId:string):boolean {
@@ -829,6 +861,7 @@ export class Game {
 
   /** Completes the TravelDomain return using the actual gameplay physics and view. */
   private finishSurfaceReturn(targetBody:string):void {
+      const frameBefore=this.universe.player.frame,motion=this.landingMotion(targetBody);
       const previousViewFrame=this.universe.renderSpace.currentOrigin.frame;
       this.rendering.camera.getWorldDirection(this.viewForward);
       const newLocalPos = this.universe.handoffTo(targetBody);
@@ -838,12 +871,23 @@ export class Game {
       this.player.teleport(new Vector3(...newLocalPos));
       this.player.velocity.set(...this.universe.localVelocityMps);
       this.player.beginSurfaceApproach();
+      this.surfaceReturnTrace={bodyId:targetBody,transition:'returned',frameBefore,
+        frameAfter:this.universe.player.frame,physicsDomain:this.physicsDomain,
+        surfaceReady:this.surfaceReadyForLanding(targetBody),
+        relativeSpeedMps:motion.relativeSpeedMps,radialSpeedMps:motion.radialSpeedMps};
       const uOrigin = this.universe.renderSpace.currentOrigin.position;
       this.renderOriginVec.set(...uOrigin);
       if (!this.earth) this.localRoot.position.copy(this.renderOriginVec).negate();
       this.actorRoot.position.copy(this.renderOriginVec).negate();
       this.camera.inSpace = false;
       this.hud.notify(`Aproximação · ${this.universe.activeSystem.bodies.find(body=>body.id===targetBody)?.name ?? targetBody}`);
+  }
+
+  private recordSurfaceReturnStep():void {
+    const trace=this.surfaceReturnTrace;
+    if(trace&&!trace.firstLocalStep) trace.firstLocalStep={position:this.player.position.toArray(),
+      velocity:this.player.velocity.toArray(),state:this.player.state,
+      terrainHeightM:PhysicsWorld.terrainHeight(this.player.position.x,this.player.position.z,.32*this.player.size)};
   }
 
   private bindSurfacePhysics():void {
@@ -887,6 +931,9 @@ export class Game {
       gravityMps2:this.player.surfaceGravityMps2,
       colliderCount:this.colliders.length+this.curvedColliders.length,
       manausSimulationActive:this.manausSimulationActive,
+      playerLocalYM:this.player.position.y,
+      playerState:this.player.state,
+      terrainContactFraction:this.player.lastTerrainContact?.fraction??null,
     };
   }
 
@@ -1044,6 +1091,8 @@ export class Game {
     if(!FEATURES.spatialCore)return{};
     const t=this.universe.telemetry;
     const moon=this.moonLandingState;
+    const motion=this.landingMotion(t.dominantBody),gate=this.travelDomain.landingGate;
+    const contact=this.interplanetary.lastCelestialContact;
     return{
       ...this.universe.volume?.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
@@ -1058,6 +1107,12 @@ export class Game {
       'Corpos · Apresentação':this.celestialController.physicalMode,
       'Corpos · Tiles residentes':Array.from(this.planetProviders,([id,provider])=>`${id}: ${provider.stats.tiles}`).join(' · '),
       'Destino':this.navigationTarget?.bodyId??'—',
+      'Contato · Domínio físico':this.physicsDomain,
+      'Contato · Vel relativa / radial / tangente':`${motion.relativeSpeedMps.toFixed(1)} / ${motion.radialSpeedMps.toFixed(1)} / ${motion.tangentialSpeedMps.toFixed(1)} m/s`,
+      'Contato · Folga / Gate':`${(this.surfaceClearanceM(t.dominantBody)??t.altitudeM).toFixed(1)} m / ${gate.blockedReason}`,
+      'Contato · Aproximação / Handoff / Sweep':`${gate.approachCaptureSpeedMps} / ${gate.localHandoffSpeedMps} / ${gate.maxLocalTerrainSweepMps} m/s`,
+      'Contato · Terreno / Y / Estado':`${this.physicsDomain} · ${PhysicsWorld.terrainHeight(this.player.position.x,this.player.position.z).toFixed(2)} / ${this.player.position.y.toFixed(2)} m · ${this.player.state}`,
+      'Contato · Último corpo / Fração':contact?`${contact.bodyId} / ${contact.fraction.toFixed(6)}`:'—',
       'Lua · Pouso':`${moon.blockedReason} · ${moon.altitudeM.toFixed(0)} m sobre terreno · ${moon.relativeSpeedMps.toFixed(0)} m/s relativos`,
       'Lua · Gates':`retorno ≤ ${moon.returnAltitudeM} m sobre terreno / ${moon.maxRelativeSpeedMps} m/s · superfície ${moon.surfaceReady?'pronta':'aguardando'} (${moon.missingLandingTiles} tiles faltando)`,
       'Lua · Representação':`${moon.representation} · proxy ${moon.proxyOpacity.toFixed(2)} / globo ${moon.globeOpacity.toFixed(2)} · fallback ${moon.fallbackActive?'ativo':'off'} · ${moon.activeTiles} tiles`,

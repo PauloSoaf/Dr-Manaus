@@ -14,6 +14,7 @@ const context = (over: Partial<TravelContext> = {}): TravelContext => ({
   bodyRadiusM: EARTH_R,
   bodyId: 'earth',
   systemId: 'sol',
+  surfaceReady: true,
   ...over,
 });
 
@@ -54,7 +55,7 @@ test('local physics is off exactly while travelling, and on either side of it', 
   assert.equal(domain.localPhysicsActive, true);
   domain.update(context(), 1 / 60);
   assert.equal(domain.localPhysicsActive, false);
-  domain.update(context({ altitudeM: 5_000, speedMps: 5_000, requested: false }), 1 / 60);
+  domain.update(context({ altitudeM: 5_000, speedMps: 120, requested: false }), 1 / 60);
   assert.equal(domain.localPhysicsActive, true);
 });
 
@@ -88,11 +89,11 @@ test('T4: reentry requires both low altitude and safe relative speed', () => {
   assert.deepEqual(t2, { kind: 'none' });
   assert.equal(domain2.kind, 'interplanetary');
 
-  // Case 3: altitude 5 km, relative speed 8 km/s -> returned
+  // Case 3: altitude 5 km, ordinary-flight inward speed -> returned
   const domain3 = new TravelDomain();
   domain3.update(context({ altitudeM: 100_000, requested: true }), 1 / 60);
   assert.equal(domain3.kind, 'interplanetary');
-  const t3 = domain3.update(context({ altitudeM: 5_000, speedMps: 8_000, requested: false }), 1 / 60);
+  const t3 = domain3.update(context({ altitudeM: 5_000, speedMps: 120, requested: false }), 1 / 60);
   assert.deepEqual(t3, { kind: 'returned', reason: 'altitude' });
   assert.equal(domain3.kind, 'local');
   assert.equal(domain3.state, undefined);

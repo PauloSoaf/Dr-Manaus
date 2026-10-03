@@ -11,6 +11,7 @@ import { planetSurfaceRadius, type PlanetSurfaceGenerator } from './PlanetSurfac
  * The graph is consulted on each query so re-registering an ENU anchor cannot leave stale ground.
  */
 export class PlanetTerrainProvider implements TerrainProvider {
+  readonly heightfieldOnly = true;
   private readonly fixedFrameId: string;
   private readonly point: Vec3 = [0, 0, 0];
   private readonly direction: Vec3 = [0, 0, 0];

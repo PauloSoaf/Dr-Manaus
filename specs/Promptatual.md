@@ -1,6 +1,27 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — PLANET-VOLUME-3 / Phase 3 (2026-10-02)
+## Checkpoint atual — CELESTIAL-CCD-P0 / C0 (2026-10-03)
+
+O ZIP `dr-manaus-universe-roadmap.zip` foi extraído em
+[`dr-manaus-universe-roadmap/`](dr-manaus-universe-roadmap/README.md): **20 Markdown, 4.497 linhas**,
+lidos integralmente. Baseline real: `9c6d5b24b8b55e7fe836899d034057747872436e`,
+branch `feat/universe-map`. Executar somente o primeiro checkpoint, conforme
+[`02-PATCH-CELESTIAL-CCD-P0.md`](dr-manaus-universe-roadmap/02-PATCH-CELESTIAL-CCD-P0.md).
+
+Implementado: sweep genérico de terreno com motion clamping, separação de velocidades de
+aproximação/handoff/solver, gate por velocidade radial real e cobertura, envelopes para os
+19 corpos, resposta relativa ao corpo atingido, contrato CelestialContact e telemetria F3/trace
+do primeiro passo local. Lua e Marte compartilham TerrainProvider; gigantes/estrelas não recebem
+piso. O sweep cósmico existente continua ativo até o retorno seguro. Marching Cubes, mapa,
+efemérides, poderes e volume Phase 3 não fazem parte desta alteração.
+
+Contrato: [planetary-handoff-and-volume-phase1.md](../docs/world/planetary-handoff-and-volume-phase1.md).
+Resultados medidos e aceitação manual pendente: [15-status.md](../docs/world/15-status.md).
+Documentar, commit e push por checkpoint, conforme autorização persistente.
+**PARAR em C0.** Não iniciar TARGET-LOCK, autopilot novo, destruição ou Transvoxel antes da
+validação manual deste patch. O restante do pacote organiza checkpoints futuros independentes.
+
+## Checkpoint anterior — PLANET-VOLUME-3 / Phase 3 (2026-10-02)
 
 O anexo mais recente aprova Phase 2 por inspeção estática no HEAD
 `a752f7ceb24811ece5c0ceafdc275fd217d7b272` e pede o próximo patch: Marching Cubes.

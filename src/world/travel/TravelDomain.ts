@@ -1,4 +1,5 @@
 import { finite, type Vec3 } from '../spatial/units';
+import { LANDING_SPEED_LIMITS, landingCaptureGate } from './LandingCapture';
 
 /**
  * Which simulation the player is in: the city, or the space between planets.
@@ -55,6 +56,10 @@ export interface TravelContext {
   readonly maxRelativeSpeedMps?: number;
   /** A supported ground provider must cover the landing site before local physics can resume. */
   readonly surfaceReady?: boolean;
+  readonly radialSpeedMps?: number;
+  readonly tangentialSpeedMps?: number;
+  readonly isAssistedTarget?: boolean;
+  readonly maxLocalTerrainSweepMps?: number;
   /**
    * Where the player is, in `solar-system/barycentric` metres, for the moment of departure.
    *
@@ -71,6 +76,9 @@ export interface TravelContext {
 }
 
 export interface TravelDomainOptions {
+  approachCaptureSpeedMps?: number;
+  localHandoffSpeedMps?: number;
+  maxLocalTerrainSweepMps?: number;
   /** No transition below this altitude, whatever else is true. */
   entryAltitudeM?: number;
   /** Altitude below which the player may return to local simulation. */
@@ -88,11 +96,12 @@ export interface TravelDomainOptions {
 }
 
 const DEFAULTS: Required<TravelDomainOptions> = {
+  ...LANDING_SPEED_LIMITS,
   entryAltitudeM: 9_000,
   returnAltitudeM: 7_000,
   safeAltitudeM: 9_000,
   colliderClearanceM: 2_000,
-  maxLocalReturnSpeedMps: 10_000,
+  maxLocalReturnSpeedMps: LANDING_SPEED_LIMITS.maxLocalTerrainSweepMps,
   minTravelSpeedMps: 2_000,
   envelopeMarginM: 1_000,
 };
@@ -109,7 +118,7 @@ export class TravelDomain {
   private travel?: InterplanetaryState;
   private readonly options: Required<TravelDomainOptions>;
   private lastTransition: TravelTransition = { kind: 'none' };
-  private returnBlockedReason: 'local' | 'altitude' | 'speed' | 'surface-stream' | 'ready' = 'local';
+  private returnBlockedReason: 'local' | ReturnType<typeof landingCaptureGate> = 'local';
 
   constructor(options: TravelDomainOptions = {}) {
     const entryAlt = options.entryAltitudeM ?? options.safeAltitudeM ?? DEFAULTS.entryAltitudeM;
@@ -117,6 +126,9 @@ export class TravelDomain {
     const maxReturnSpeed = options.maxLocalReturnSpeedMps ?? DEFAULTS.maxLocalReturnSpeedMps;
 
     this.options = {
+      approachCaptureSpeedMps: Math.max(0, finite(options.approachCaptureSpeedMps, DEFAULTS.approachCaptureSpeedMps)),
+      localHandoffSpeedMps: Math.max(0, finite(options.localHandoffSpeedMps, DEFAULTS.localHandoffSpeedMps)),
+      maxLocalTerrainSweepMps: Math.max(0, finite(options.maxLocalTerrainSweepMps ?? maxReturnSpeed, DEFAULTS.maxLocalTerrainSweepMps)),
       entryAltitudeM: Math.max(0, finite(entryAlt, DEFAULTS.entryAltitudeM)),
       returnAltitudeM: Math.max(0, finite(returnAlt, DEFAULTS.returnAltitudeM)),
       safeAltitudeM: Math.max(0, finite(entryAlt, DEFAULTS.safeAltitudeM)),
@@ -133,6 +145,9 @@ export class TravelDomain {
   get transition(): TravelTransition { return this.lastTransition; }
   get landingGate() {
     return { returnAltitudeM: this.options.returnAltitudeM, maxRelativeSpeedMps: this.options.maxLocalReturnSpeedMps,
+      approachCaptureSpeedMps: this.options.approachCaptureSpeedMps,
+      localHandoffSpeedMps: this.options.localHandoffSpeedMps,
+      maxLocalTerrainSweepMps: this.options.maxLocalTerrainSweepMps,
       entryAltitudeM: this.options.entryAltitudeM, blockedReason: this.returnBlockedReason };
   }
 
@@ -191,19 +206,17 @@ export class TravelDomain {
   private considerReturning(context: TravelContext): TravelTransition {
     // Releasing requested (e.g. B key) does NOT return to local: the player coasts in space.
     // Returning to local only occurs when the player approaches a body and reaches safe altitude AND safe relative speed.
-    const alt = finite(context.altitudeM);
-    const speed = finite(context.speedMps);
-
-    this.returnBlockedReason = context.surfaceReady === false ? 'surface-stream'
-      : alt > this.options.returnAltitudeM ? 'altitude'
-      : speed > this.options.maxLocalReturnSpeedMps ? 'speed' : 'ready';
+    this.returnBlockedReason = landingCaptureGate({ bodyId: context.bodyId,
+      isAssistedTarget: context.isAssistedTarget, clearanceM: context.altitudeM,
+      relativeSpeedMps: context.speedMps,
+      // Legacy callers without a normal are conservatively treated as direct descent.
+      radialSpeedMps: context.radialSpeedMps ?? -context.speedMps,
+      tangentialSpeedMps: context.tangentialSpeedMps, surfaceReady: context.surfaceReady === true,
+    }, this.options);
     if (this.returnBlockedReason !== 'ready') return { kind: 'none' };
 
-    if (alt <= this.options.returnAltitudeM && speed <= this.options.maxLocalReturnSpeedMps) {
-      this.toLocal();
-      return { kind: 'returned', reason: 'altitude' };
-    }
-    return { kind: 'none' };
+    this.toLocal();
+    return { kind: 'returned', reason: 'altitude' };
   }
 
   private toLocal(): void {

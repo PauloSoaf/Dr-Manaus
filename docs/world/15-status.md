@@ -1,5 +1,97 @@
 # Planetary architecture — implementation status
 
+## CELESTIAL-CCD-P0 / C0 — 2026-10-03
+
+Initial HEAD: `9c6d5b24b8b55e7fe836899d034057747872436e`, branch `feat/universe-map`.
+The new user ZIP was extracted into `specs/dr-manaus-universe-roadmap`: **20 Markdown files,
+4,497 lines**, read in full. The supplied manifest's 19-file count excludes the manifest itself.
+The package and latest attachment authorize **C0 only**, with documentation, commit and push;
+the following navigation/destruction/universe sprints remain separate manual gates.
+
+**Confirmed defects:** before the patch, both newly introduced regressions failed: a diagonal
+step could cross a relief ridge while its sampled endpoints remained above ground, and the
+10,000 m/s return gate admitted an unsafe descent into local character physics. Existing vertical
+endpoint floor correction already worked; this patch adds first trajectory contact and safe handoff
+rather than claiming the Moon provider was missing. The user's visual reproduction still needs
+manual revalidation after the automated fixtures.
+
+**Implemented:** generic five-point foot terrain sweep; exact vertical crossing; 16 bounded
+diagonal brackets followed by 12 binary refinements; motion clamping and inward-normal velocity
+projection with tangential velocity retained. Without nearby boxes, planetary terrain uses one
+whole-segment sweep; urban box sliding, cavity-wall raycasts and supported walking retain their
+existing path. Contact fraction/height/normal are inspectable through PlayerController/PhysicsWorld.
+The algorithm is for existing intact smooth heightfields, not arbitrary sub-sample features,
+overhangs or Marching Cubes triangle collision.
+
+**Landing contract:** readiness must explicitly be `true`, relief clearance at most **7,000 m**,
+relative inward speed at most **120 m/s**, total relative speed at most **8,000 m/s**. The limits
+come from the current normal/mega character tiers and are covered at their boundaries. The
+**2,000 m/s** super tier separately supplies approach telemetry/future capture planning; it is not
+a new autopilot. Body-relative radial/tangent components use the actual surface gradient, without
+the visual slope exaggeration. A fast orbit is distinguished from a direct dive. Unsafe arrivals
+remain interplanetary; a missing readiness result cannot silently enable local physics.
+
+All **19** active bodies have finite live logical envelopes/velocities and positive radii. Broad
+Earth/Moon/Mars envelopes include existing conservative relief bounds. The existing sphere sweep,
+earliest-hit selection and inward-velocity response are preserved. The normalized equivalent
+quadratic avoids large-term cancellation; tangency does not count as entry. Motion is swept relative
+to the moving contacted body, and the unused frame time carries its orbital translation. Response
+subtracts that body's velocity, not an unrelated dominant body's. A measured terminal envelope is
+used only after the post-thrust speed is within the local ceiling; cosmic acceleration cannot shrink
+the broad envelope by reusing a previously slow speed. Sun/gas/ice giants and non-landable moons
+receive broad safe-stop contact without local ground. `CelestialContact` is a pure diagnostic
+result; no destructive impact policy or event dispatcher was added.
+
+F3 exposes travel/physics domains, target, relative/radial/tangent speeds, clearance and thresholds,
+terrain body/height, local Y/state and last celestial contact/fraction. `surfaceReturnTrace` captures
+returned → barycentric → body local ENU → PlanetTerrainProvider binding → first PlayerController
+step. No per-frame console logging was introduced. Volume phases 1–3, lab, ephemerides, map layout,
+galaxy generation and powers remain unchanged.
+
+**Automatically verified:**
+
+| Check | Result |
+| --- | --- |
+| Mandatory P0 regression file | 39/39 tests; all requested named cases present |
+| All 19 celestial bodies | Full crossing at bounded dt plus grazing crossings at 120/60/30 FPS; both endpoints outside |
+| Moon local terrain | 120/60/30 FPS at 120, 8,000, 10,000 and 260,000 m/s; no below-terrain endpoint |
+| Mars local terrain | 120/60/30 FPS; swept contact without Manaus colliders |
+| Contact response | Inward component removed, tangential component retained; Grounded and walking regressions pass |
+| Gas/ice giants / Sun | Broad interception, no ground handoff |
+| Focused physics/travel/Moon/Solar-12/runtime/player/Manaus suite | 200/200 |
+| `npm run typecheck` / `npm test` / `npm run build` / `git diff --check` | Pass; 634/634 full tests; inherited bundle-size warning only |
+| `npm run test:browser:space` | Pass; zero console/page errors; map, cosmic view, proxies, real Moon return/walk/jump/takeoff, volume opt-in/release |
+
+Browser P0 fixtures explicitly reject a 10 km/s lunar return, record the actual Game.tick handoff
+and first local step, then run the real PlayerController at 30 FPS with a 10 km/s downward velocity
+whose old endpoint is underground. Swept contact leaves it Grounded on terrain with no inward
+normal velocity. These are controlled near-arrival fixtures, not a claimed manual Earth–Moon trip.
+One repeated browser run exposed a pre-existing test race: ephemeris-driven map card replacement
+detached the overview button during Playwright's stability wait. The test now dispatches the actual
+DOM button click synchronously, retains the focus/scale assertions and passes; map implementation
+was not modified. The unrelated legacy `npm run test:browser` was not run in this checkpoint.
+
+**Measured movement CPU, median / p95 ms** (same Moon ENU, dt=1/30, 30 warmups + 120 samples,
+baseline PhysicsWorld loaded from the initial HEAD versus the final implementation):
+
+| Scenario | Baseline | CCD |
+| --- | ---: | ---: |
+| Diagonal 10 km/s contact | 1.957 / 3.268 | 0.516 / 1.045 |
+| Diagonal 8 km/s without contact | 0.211 / 0.435 | 0.396 / 0.843 |
+| Supported ground walk | 0.038 / 0.091 | 0.071 / 0.231 |
+
+These are movement-query timings on this workstation, not total frame/GPU/FPS guarantees.
+No renderer resources, streaming jobs, dependencies or volume residency were added. Logs,
+benchmark fixtures/JSON and browser screenshots stay in ignored `artifacts/`.
+
+**Manual validation required:** repeat the original slow Moon approach and walk; fast and
+absurd-speed Moon approach; fast Mars approach; free-flight crossing attempts against Jupiter
+and Sun. Inspect control feel, stopping distance and F3 contact telemetry. **Stop at C0 until this
+acceptance. Do not start TARGET-LOCK, destruction, Transvoxel or procedural universe expansion.**
+
+Architecture details: [`planetary-handoff-and-volume-phase1.md`](planetary-handoff-and-volume-phase1.md).
+Requirements: [`02-PATCH-CELESTIAL-CCD-P0.md`](../../specs/dr-manaus-universe-roadmap/02-PATCH-CELESTIAL-CCD-P0.md).
+
 ## PLANET-VOLUME-3 / Phase 3 — 2026-10-02
 
 Initial HEAD: `a752f7ceb24811ece5c0ceafdc275fd217d7b272`, `feat/universe-map`.
