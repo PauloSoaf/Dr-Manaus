@@ -4,10 +4,9 @@ import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { CharacterModel } from './CharacterModel';
 import type { InputController } from './InputController';
 import { SPACE, WORLD } from '../core/config';
-import { FLIGHT, type FlightSpeedMode } from './flightConfig';
+import { FLIGHT, type ArmedTier, type FlightSpeedMode } from './flightConfig';
 
-/** What the arm key has selected. Each tier unlocks the one below it as well. */
-export type ArmedTier = 'none' | 'mega' | 'interplanetary';
+export type { ArmedTier };
 import { getDoubleJumpDuration, getJumpVelocity, getGravity, JUMP_CONFIG } from './physics/JumpPhysics';
 import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { TitanGroundSupport } from './physics/TitanGroundSupport';
@@ -50,11 +49,11 @@ export class PlayerController {
   beforeMove?: (position: Vector3, velocity: Vector3, dt: number) => readonly Collider[];
   readonly input: InputController;
   private jumps = 0;
-  
-  
+  private armedTier: ArmedTier = 'none';
+  private megaNeedsBoostRelease = false;
   /** Seconds since the controller started, used only to time the arm key's double tap. */
-  
-  
+  private armClockS = 0;
+  private lastArmTapS = -Infinity;
   private targetSize = 1;
   private readonly desired = new Vector3();
   private readonly physics = new PhysicsWorld();
@@ -113,36 +112,66 @@ export class PlayerController {
     const dive = SLAM.entry * Math.sqrt(Math.max(1, this.size));
     this.velocity.y = Math.min(this.velocity.y, 0) - dive;
   }
-  /** How long boost has been held in flight. Drives the tier ladder. */
-  private boostHeldS = 0;
+  /** Which tier the arm key has selected: none, mega, or interplanetary. */
+  get armed(): ArmedTier { return this.armedTier; }
+  set armed(tier: ArmedTier) {
+    if (tier === this.armedTier) return;
+    const wasArmed = this.armedTier !== 'none';
+    this.armedTier = tier;
+    // Arming from cold while boost is already down must not fling the player: the key has to be
+    // released and pressed again, so arming is never itself an acceleration.
+    //
+    // Stepping up a tier mid-flight is different. The player is already boosting and already
+    // entitled to that speed, and asking for more should not drop them to super until they let
+    // go -- which is what it did, and it read as the key not working.
+    if (!wasArmed) this.megaNeedsBoostRelease = tier !== 'none' && this.input.held('KeyB');
+  }
+
+  /** True for either armed tier. Interplanetary is mega and then some. */
+  get megaMode(): boolean { return this.armedTier !== 'none'; }
+  set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
+  get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
+  get lastTerrainContact() { return this.physics.lastTerrainContact; }
+  /** True while an armed tier waits for the boost key to be let go and pressed again. */
+  get armWaitingForBoostRelease(): boolean { return this.megaNeedsBoostRelease; }
 
   /**
-   * The tier the current boost hold has reached.
+   * One press of the arm key.
+   *
+   * Off to mega, mega to interplanetary when the second press follows quickly, and anything to off
+   * otherwise. A slow second press still means "off", so the key keeps the plain on/off behaviour
+   * it had before the second tier existed: the double tap adds a level without taking one away.
+   */
+  private tapArm(): void {
+    const quick = this.armClockS - this.lastArmTapS <= FLIGHT.armDoubleTapS;
+    this.lastArmTapS = this.armClockS;
+    this.armed = this.armedTier === 'none' ? 'mega'
+      : this.armedTier === 'mega' && quick ? 'interplanetary'
+        : 'none';
+  }
+  toggleMegaMode(): void { this.tapArm(); }
+
+  /**
+   * The local flight tier the player is actually in this frame.
    *
    * Interplanetary needs sky under it: a frame at 222 km/s covers thirteen kilometres, so nothing
    * on the ground could be collided with and the player would pass through the city rather than
-   * over it. Below the floor the ladder stops at mega.
+   * over it. Below the floor an armed interplanetary gives mega, which is what the tier below it
+   * would have given anyway.
    */
-  private boostedTier(): FlightSpeedMode {
-    const held = this.boostHeldS;
-    const spool = FLIGHT.boostSpoolS;
-    if (held >= spool.interplanetary && this.position.y >= FLIGHT.interplanetaryFloorM) return 'interplanetary';
-    if (held >= spool.mega) return 'mega';
-    if (held >= spool.super) return 'super';
-    return 'fast';
+  private localTier(flying: boolean, boosting: boolean, sprinting: boolean): FlightSpeedMode {
+    if (!flying) return 'ground';
+    if (!boosting) return sprinting ? 'fast' : 'normal';
+    if (this.armedTier === 'none' || this.megaNeedsBoostRelease) return 'super';
+    return this.armedTier === 'interplanetary' && this.position.y >= FLIGHT.interplanetaryFloorM
+      ? 'interplanetary' : 'mega';
   }
-
-  get megaMode(): boolean { return this.speedMode === 'mega' || this.speedMode === 'interplanetary'; }
-  get interplanetaryMode(): boolean { return this.speedMode === 'interplanetary'; }
-  get lastTerrainContact() { return this.physics.lastTerrainContact; }
-  /** Seconds of boost held, for a HUD that wants to show the ladder filling. */
-  get boostCharge(): number { return this.boostHeldS; }
 
   update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0): void {
     dt = Math.min(0.06, dt);
-    
-    
-    
+    this.armClockS += dt;
+    if (this.input.consume('KeyV')) this.tapArm();
+    if (!this.input.held('KeyB')) this.megaNeedsBoostRelease = false;
     if (this.input.consume('KeyF')) {
       this.state = this.state === 'Grounded' || this.state === 'Falling' ? 'Hover' : 'Falling';
       if (this.state === 'Hover') {
@@ -152,24 +181,19 @@ export class PlayerController {
     }
     const flying = this.state === 'Hover' || this.state === 'Flight';
     
+    const boosting = this.input.held('KeyB');
     const sprinting = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
     const movementX = Number(this.input.held('KeyD')) - Number(this.input.held('KeyA'));
     const movementZ = Number(this.input.held('KeyS')) - Number(this.input.held('KeyW'));
     const ascent = Number(this.input.held('Space')) - Number(this.input.held('ControlLeft') || this.input.held('ControlRight'));
     const sizeSpeed = Math.sqrt(this.size);
-
-    
-    // Interplanetary needs sky under it; below the atmosphere it is mega, which is what the tier
-    // below it would have given anyway. See FLIGHT.interplanetaryFloorM.
-    
-    // Hold boost and the tier climbs; let go and it resets. See FLIGHT.boostSpoolS for why this
-    // is a spool and not a switch.
-    this.boostHeldS = sprinting && flying ? this.boostHeldS + dt : 0;
-    this.speedMode = flying
-      ? sprinting ? this.boostedTier() : 'normal'
-      : sprinting ? 'fast' : 'ground';
-
-    const speed = this.speedMode === 'ground' ? Math.min(3000, (sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * Math.sqrt(this.size) * this.speedMultiplier) : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
+    this.speedMode = this.localTier(flying, boosting, sprinting);
+    const armedReady = this.armedTier !== 'none' && !this.megaNeedsBoostRelease;
+    const ground = FLIGHT.groundBoostSpeed;
+    const speed = this.speedMode === 'ground'
+      ? Math.min(3000, (boosting ? armedReady ? ground.armed : ground.plain
+        : sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * sizeSpeed * this.speedMultiplier)
+      : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
 
     this.dodge.update(dt);
     if (this.input.consume(this.dodgeKey)) this.requestDodge(flying, movementX, movementZ, cameraYaw, cameraPitch, speed);

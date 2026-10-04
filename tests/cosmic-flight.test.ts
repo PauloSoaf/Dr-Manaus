@@ -256,15 +256,12 @@ test('the brake stops relative to the body, not to the barycentre', () => {
 });
 
 // ------------------------------------------------------------------ flight tier ladder
-test('the boost ladder reaches super, mega and interplanetary', () => {
-  // The regression this guards: the tiers became unreachable and flight topped out at `fast`.
-  const spool = FLIGHT.boostSpoolS;
-  assert.ok(spool.super > spool.fast);
-  assert.ok(spool.mega > spool.super);
-  assert.ok(spool.interplanetary > spool.mega);
+test('flight config defines all tiers with progressive speeds', () => {
   for (const tier of ['fast', 'super', 'mega', 'interplanetary'] as const) {
     assert.ok(FLIGHT.speeds[tier] > 0, `${tier} must have a speed`);
   }
+  assert.ok(FLIGHT.speeds.super > FLIGHT.speeds.fast);
+  assert.ok(FLIGHT.speeds.mega > FLIGHT.speeds.super);
   assert.ok(FLIGHT.speeds.interplanetary > FLIGHT.speeds.mega);
   assert.ok(FLIGHT.maxSpeed >= FLIGHT.speeds.interplanetary, 'the cap must not clip the top tier');
 });

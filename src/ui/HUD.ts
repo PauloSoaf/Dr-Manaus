@@ -13,7 +13,7 @@ import { icon, POWERS } from './icons';
 import { formatDistance, formatDuration, formatSpeed } from './format';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string,source?:NavigationLock['source'])=>string|undefined|void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
 export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; }
 
 /** The body close enough to be a place rather than a point of light. */
 export interface HUDNearbyBody {
@@ -157,11 +157,11 @@ const PAUSE_TABS=[['audio','Áudio'],['video','Vídeo'],['world','Mundo'],['cont
 const CONTROLS: readonly (readonly [string,string])[]=[
   ['F5','Câmera: atrás / ombro / primeira pessoa / frente / olhar para trás'],['X','Alternar energia / combate'],
   ['Clique (combate)','Sequência: jab / direto / uppercut'],['Botão direito (combate)','Sequência: chute frontal / lateral / circular'],
-  ['Espaço (solo)','Pulo duplo / parkour'],['Shift (solo)','Correr'],['B / V + B (solo)','Super / mega corrida'],
+  ['Espaço (solo)','Pulo duplo / parkour'],['Shift (solo)','Correr'],['B (solo)','Impulso / Super — em voo local'],
   ['Z (solo)','Rolamento de esquiva'],['Z (no ar)','Dash aéreo'],
   ['Clique olhando para baixo (no ar)','Soco meteoro: cratera e destruição em massa'],
-  ['W A S D','Mover'],['Mouse','Olhar ao redor'],['F','Alternar voo'],['Espaço','Subir'],
-  ['Ctrl','Descer'],['Shift','Boost · segure para subir de nível até Cosmic Cruise'],['B','Warp · cada toque dobra (1c, 2c, 4c…)'],['X','Freio espacial · desengata o warp'],['Mouse','Direção de voo'],
+  ['W A S D','Mover'],['Mouse','Olhar ao redor'],['F (planeta)','Voar / pousar'],['Espaço','Subir'],
+  ['Ctrl','Descer'],['Shift (planeta)','Voo rápido'],['V (planeta)','Armar Mega / Interplanetário (duplo toque) · depois B'],['F (espaço)','Pousar no corpo próximo: captura e desce sozinho'],['Shift (espaço)','Boost cósmico'],['B (espaço)','Warp · cada toque dobra (1c, 2c, 4c…)'],['X (espaço)','Freio · desengata o warp'],['Mouse','Direção de voo'],
   ['L','Ligar / desligar laser continuo'],['Clique / 1','Emitir energia'],['E','Teleportar à mira'],['Q','Onda de choque'],['R','Reconstruir matéria'],
   ['G','Alternar tamanho até 1 km'],['C','Criar ecos temporários'],['T','Percepção temporal'],
   ['Tab / Shift+Tab (espaço)','Travar alvo / próximo / anterior'],['P (espaço)','Piloto automático: ligar / desligar'],['Backspace (espaço)','Liberar alvo e cancelar piloto'],['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
@@ -181,7 +181,7 @@ export class HUD {
       <div class="toast" id="toast" role="status"></div>
       <div class="location"><span class="eyebrow"><span id="location-domain">MANAUS</span> · <b id="district">AMAZONAS</b></span><h2 id="place-name">Teatro Amazonas</h2><p id="coordinates">3.1303° S &nbsp; 60.0234° O</p><div class="location-line"><i></i><span id="location-state">CENTRO HISTÓRICO</span></div></div>
       <footer class="power-dock"><div class="power-caption"><span>MANIPULAÇÃO CÓSMICA</span><i></i><span id="power-current">EMISSÃO DE ENERGIA</span></div><div class="power-buttons">${POWERS.map(([id,label,key],i)=>`<button class="power ${i===0?'active':''}" data-power="${id}" title="${label} (${key})" aria-label="${label}">${icon(id)}<kbd>${key}</kbd><span>${label}</span></button>`).join('')}</div><div class="control-hint" id="control-hint"><kbd>F</kbd> levitar <i></i><kbd>W A S D</kbd> mover <i></i><span>clique na cena para controlar a câmera</span></div></footer>
-      <aside class="mini-cluster"><div class="space-band" id="space-band" hidden>${icon('flight',11)}<span id="space-label">ALTA ATMOSFERA</span><i></i></div><div class="flight-modes" id="flight-modes"><b data-mode="normal">NORMAL</b><b data-mode="fast">RÁPIDO</b><b data-mode="super">SUPER</b><b data-mode="mega">MEGA</b><b data-mode="interplanetary">INTERPLANETAR</b></div><div class="cruise-block" id="cruise-block" hidden></div><div class="flight-readout">${icon('flight',17)}<span id="flight-state">EM SOLO</span><b id="speed">0</b><small id="speed-unit">km/h</small></div><button class="minimap-button" data-panel="map" aria-label="Abrir mapa da cidade"><canvas id="minimap"></canvas><span class="map-caption">${icon('map',13)} EXPLORAR MANAUS <kbd>M</kbd></span></button><div class="mini-status"><i></i><span id="render-state">MUNDO CONECTADO</span><span id="altitude">38 m</span></div></aside>
+      <aside class="mini-cluster"><div class="space-band" id="space-band" hidden>${icon('flight',11)}<span id="space-label">ALTA ATMOSFERA</span><i></i></div><div class="flight-modes" id="flight-modes"><b data-mode="normal">NORMAL</b><b data-mode="fast">RÁPIDO</b><b data-mode="super">SUPER</b><b data-mode="mega">MEGA</b><b data-mode="interplanetary">INTERPLANETAR</b><em id="flight-tier-label" hidden style="font-style:normal;margin-left:8px;letter-spacing:.08em;font-size:11px;opacity:.9"></em></div><div class="cruise-block" id="cruise-block" hidden></div><div class="flight-readout">${icon('flight',17)}<span id="flight-state">EM SOLO</span><b id="speed">0</b><small id="speed-unit">km/h</small></div><button class="minimap-button" data-panel="map" aria-label="Abrir mapa da cidade"><canvas id="minimap"></canvas><span class="map-caption">${icon('map',13)} EXPLORAR MANAUS <kbd>M</kbd></span></button><div class="mini-status"><i></i><span id="render-state">MUNDO CONECTADO</span><span id="altitude">38 m</span></div></aside>
       <div id="panel-backdrop" class="panel-backdrop" hidden></div>
       <section class="panel pause-panel" id="pause-panel" hidden><div class="pause-layout">
         <nav class="pause-nav"><span class="eyebrow">JOGO PAUSADO</span><h2>DR Manaus</h2>
@@ -327,6 +327,7 @@ export class HUD {
     cruise: 'COSMIC CRUISE',
     braking: 'FRENAGEM',
     approach: 'APROXIMAÇÃO',
+    'landing-capture': 'POUSO · CAPTURA', 'landing-hold': 'POUSO · AGUARDANDO SUPERFÍCIE',
   };
 
   /**
@@ -408,6 +409,7 @@ export class HUD {
     $('#mission-title').textContent=state.title;$('#mission-objective').textContent=state.objective;$('#mission-type').textContent=state.stage>=4?'EXPLORAÇÃO LIVRE':'CAPÍTULO 01';
     const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':(!localMissionActive?'(Fora do alcance de Manaus)':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`);
     $('#control-hint').textContent=state.hint;
+    const tierLabel=$('#flight-tier-label');tierLabel.textContent=state.flightLabel??'';tierLabel.hidden=!state.flightLabel;
     for(const badge of document.querySelectorAll<HTMLElement>('#flight-modes b')){const mode=badge.dataset.mode!;badge.classList.toggle('on',mode===state.speedMode);badge.classList.toggle('armed',(mode==='mega'&&state.megaMode&&state.speedMode!=='mega')||(mode==='interplanetary'&&state.interplanetaryMode&&state.speedMode!=='interplanetary'));}
     // The orbital band only appears once the atmosphere has actually started to thin.
     const band=$('#space-band');band.hidden=presentation.domain==='local'&&state.spaceFactor<=.02;

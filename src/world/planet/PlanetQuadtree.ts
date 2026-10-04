@@ -66,6 +66,34 @@ export class PlanetQuadtree {
     const toCamera: Vec3 = cameraDistance > 0
       ? [cameraFixed.xM / cameraDistance, cameraFixed.yM / cameraDistance, cameraFixed.zM / cameraDistance]
       : [0, 0, 1];
+    const groundTiles = this.groundTiles(toCamera, minimumGroundLevel);
+    const walk = {camera:cameraFixed,cameraDistance,toCamera,horizonDot,radius,sse,target,selected,groundTiles};
+    for (const tile of groundTiles) this.descend(tile,walk);
+
+    // Nearest face first. The tile cap is a hard stop, and descending in face order would let
+    // the first face spend the whole budget while the one under the player got nothing.
+    const roots = CUBE_FACES.map(face => {
+      const address = planetTile(this.body.id, face, 0, 0, 0);
+      const direction = tileCentreDirection(address, [0, 0, 0]);
+      return { address, facing: direction[0] * toCamera[0] + direction[1] * toCamera[1] + direction[2] * toCamera[2] };
+    }).sort((a, b) => b.facing - a.facing);
+
+    for (const root of roots) {
+      this.descend(root.address,walk);
+    }
+    return selected;
+  }
+
+  /**
+   * The small set of tiles that must exist under a body-fixed direction: a 100 m cross at
+   * `minimumGroundLevel`, so footprints straddling a tile or cube-face boundary are covered.
+   * Never more than five tiles, which is what lets a landing patch be prefetched cheaply.
+   */
+  groundTiles(directionFixed: Vec3, minimumGroundLevel: number): PlanetTileAddress[] {
+    const length = Math.hypot(directionFixed[0], directionFixed[1], directionFixed[2]);
+    const toCamera: Vec3 = length > 0
+      ? [directionFixed[0] / length, directionFixed[1] / length, directionFixed[2] / length] : [0, 0, 1];
+    const radius = meanRadiusM(this.body);
     const groundLevel = Math.min(this.options.maxLevel, Math.max(0, minimumGroundLevel));
     const groundTiles: PlanetTileAddress[] = [];
     if (groundLevel > 0) {
@@ -84,21 +112,7 @@ export class PlanetQuadtree {
         if (!groundTiles.some(other=>other.face===tile.face&&other.x===tile.x&&other.y===tile.y)) groundTiles.push(tile);
       }
     }
-    const walk = {camera:cameraFixed,cameraDistance,toCamera,horizonDot,radius,sse,target,selected,groundTiles};
-    for (const tile of groundTiles) this.descend(tile,walk);
-
-    // Nearest face first. The tile cap is a hard stop, and descending in face order would let
-    // the first face spend the whole budget while the one under the player got nothing.
-    const roots = CUBE_FACES.map(face => {
-      const address = planetTile(this.body.id, face, 0, 0, 0);
-      const direction = tileCentreDirection(address, [0, 0, 0]);
-      return { address, facing: direction[0] * toCamera[0] + direction[1] * toCamera[1] + direction[2] * toCamera[2] };
-    }).sort((a, b) => b.facing - a.facing);
-
-    for (const root of roots) {
-      this.descend(root.address,walk);
-    }
-    return selected;
+    return groundTiles;
   }
 
   /**

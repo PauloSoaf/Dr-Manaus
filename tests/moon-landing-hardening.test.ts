@@ -10,6 +10,7 @@ import { PhysicsWorld } from '../src/physics/PhysicsWorld.ts';
 import { PlanetTerrainProvider } from '../src/world/planet/PlanetTerrainProvider.ts';
 import { surfaceGravityMps2, MOON } from '../src/world/planet/PlanetBody.ts';
 import { TravelDomain } from '../src/world/travel/TravelDomain.ts';
+import { PlanetaryLandingIntent } from '../src/world/travel/PlanetaryLanding.ts';
 import { pose } from '../src/world/spatial/SpatialPose.ts';
 import { activeFrame, referenceFrame } from '../src/world/spatial/ReferenceFrame.ts';
 import { DEFAULT_STREAMING_BUDGET } from '../src/world/streaming/StreamingBudget.ts';
@@ -49,7 +50,7 @@ async function fixture(direction?:Vec3,clearanceM=4000) {
   Object.assign(game,{universe,planetProviders:providers,player,input,camera:controller,travelDomain,
     rendering:{camera},viewForward:new Vector3(),physicsDomain:'space',surfaceTerrains:new Map(),
     colliders:[],curvedColliders:[],attackBoxes:[],blastBoxes:[],renderOriginVec:new Vector3(),
-    localRoot:new Group(),actorRoot:new Group(),hud:{notify(){}},warpStep:0});
+    localRoot:new Group(),actorRoot:new Group(),hud:{notify(){}},warpStep:0,landingIntent:new PlanetaryLandingIntent()});
   const loadSite=async()=>{for(const demand of critical)moon.activate(await moon.load(demand));};
   const returnToMoon=()=>{ game.updateTravelDomain(0);assert.equal(travelDomain.transition.kind,'returned');game.finishSurfaceReturn('moon'); };
   const dispose=()=>{PhysicsWorld.setTerrain(null);player.character.dispose();universe.dispose();for(const p of providers.values())p.globe.dispose();};
@@ -161,7 +162,8 @@ for(const name of ['T_MOON_DEPARTURE_RETURNS_INTERPLANETARY','T_MOON_DEPARTURE_B
   test(name,async()=>{
     const f=await fixture();try {
       await f.loadSite();f.returnToMoon();
-      f.edges.add('KeyF');f.held.add('Space');f.held.add('ShiftLeft');
+      f.edges.add('KeyF');f.held.add('Space');f.held.add('KeyB');
+      f.edges.add('KeyV'); f.player.update(0.01, [], 0, 0); f.edges.add('KeyV'); f.player.update(0.01, [], 0, 0);
       for(let i=0;i<2000 && (f.player.position.y<9500 || !f.player.interplanetaryMode);i++)f.player.update(.06,[],0,0);
       assert.ok(f.player.position.y>=9500);assert.ok(f.player.interplanetaryMode);
       f.universe.update(f.player.position.toArray(),f.player.velocity.toArray(),0);

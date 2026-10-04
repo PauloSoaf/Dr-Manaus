@@ -4,6 +4,9 @@ import type { BodyExclusionEnvelope } from './BodyNavigation';
 import type { CelestialContact } from './CelestialContact';
 import { AutopilotCapture } from './AutopilotCapture';
 import { LANDING_SPEED_LIMITS } from './LandingCapture';
+import {
+  type ContactResponseMode, type LandingIntentContext, landingCaptureStep, resolveCelestialContact,
+} from './PlanetaryLanding';
 
 /**
  * Cosmic cruise: crossing a solar system in seconds without leaving the logical frame.
@@ -46,7 +49,8 @@ export interface FlightTelemetry {
   targetBodyId?: string;
   /** The engaged warp step, counting from 1; zero is off. */
   warpStep: number;
-  phase: 'idle' | 'align' | 'acceleration' | 'cruise' | 'braking' | 'capture' | 'approach' | 'arrived';
+  phase: 'idle' | 'align' | 'acceleration' | 'cruise' | 'braking' | 'capture' | 'approach' | 'arrived'
+    | 'landing-capture' | 'landing-hold';
   autopilotActive?: boolean;
   relativeSpeedMps?: number;
   closingSpeedMps?: number;
@@ -61,6 +65,12 @@ export interface CosmicCruiseContext extends TravelContext {
   targetSurfaceClearanceM?: number;
   targetSurfaceReady?: boolean;
   returnAltitudeM?: number;
+  /**
+   * The player pressed F near a landable body. While set, this controller owns the final
+   * capture: manual thrust, warp and autopilot are ignored and the relative velocity is braked
+   * toward the body's own, so there is exactly one velocity controller.
+   */
+  landingIntent?: LandingIntentContext;
   /** Live exclusion spheres for all bodies, so an unselected giant cannot be crossed at warp. */
   exclusionEnvelopes?: readonly BodyExclusionEnvelope[];
   /** Resolved live, in barycentric metres. Absent when nothing is selected. */
@@ -274,8 +284,27 @@ export class CosmicCruiseController {
     const arrivalRadius = target ? target.radiusM + target.arrivalMarginM : 0;
     const remainingDistance = target ? Math.max(0, distanceToTarget - arrivalRadius) : 0;
 
-    if (context.inputBrake && assisted) this.autopilot.cancel();
-    if (assisted && !context.inputBrake) {
+    const landing = context.landingIntent && context.landingIntent.centreM.every(Number.isFinite)
+      && context.landingIntent.velocityMps.every(Number.isFinite) ? context.landingIntent : undefined;
+    if (landing) {
+      // Landing capture owns the velocity. Autopilot would be a second controller fighting it.
+      if (this.autopilot.active) this.autopilot.cancel();
+      const rel: [number, number, number] = [velocityMps[0] - landing.velocityMps[0],
+        velocityMps[1] - landing.velocityMps[1], velocityMps[2] - landing.velocityMps[2]];
+      const offset: [number, number, number] = [positionM[0] - landing.centreM[0],
+        positionM[1] - landing.centreM[1], positionM[2] - landing.centreM[2]];
+      const step = landingCaptureStep(rel, offset, landing.clearanceM, landing.surfaceReady,
+        landing.returnAltitudeM, dt);
+      for (let i = 0; i < 3; i++) {
+        velocityMps[i] = landing.velocityMps[i] + rel[i];
+        relVel[i] = velocityMps[i] - bodyVel[i];
+      }
+      acceleration = step.accelerationMps2;
+      phase = step.phase === 'hold' ? 'landing-hold' : 'landing-capture';
+    } else if (context.inputBrake && assisted) this.autopilot.cancel();
+    if (landing) {
+      // Handled above.
+    } else if (assisted && !context.inputBrake) {
       acceleration = this.autopilot.update(positionM, velocityMps, dt, context, warpSpeed);
       for (let i=0;i<3;i++) relVel[i] = velocityMps[i] - bodyVel[i];
       phase = this.autopilot.phase;
@@ -364,6 +393,10 @@ export class CosmicCruiseController {
       obstacles.push({ bodyId: target.bodyId, velocityMps: target.velocityMps,
         centreM: target.positionM, radiusM: target.radiusM + target.arrivalMarginM });
     }
+    if (landing && !obstacles.some(obstacle => obstacle.bodyId === landing.bodyId)) {
+      obstacles.push({ bodyId: landing.bodyId, velocityMps: landing.velocityMps,
+        centreM: landing.centreM, radiusM: landing.radiusM + margin });
+    }
 
     let earliest: { fraction: number; obstacle: Obstacle } | undefined;
     for (const envelope of obstacles) {
@@ -400,10 +433,15 @@ export class CosmicCruiseController {
         velocityMps[1] - orbital[1], velocityMps[2] - orbital[2]];
       const offset = hitPosition.map((value, i) => value - hitCentre[i]);
       const distance = Math.hypot(...offset) || 1;
+      const assistedContact = (assisted || (context.isAssistedTarget ?? context.inputBoost)) && target?.bodyId === obstacle.bodyId;
+      // Only a request to land, or an assisted capture of a landable target, is a capture. Anything
+      // else is a graze. `future-catastrophic` is reserved and deliberately never chosen here.
+      const responseMode: ContactResponseMode = landing?.bodyId === obstacle.bodyId
+        || (assistedContact && context.targetCanLand === true) ? 'landing-capture' : 'graze';
       this.lastContact = { bodyId: obstacle.bodyId ?? context.bodyId ?? 'unknown', fraction: earliest.fraction,
         contactPositionM: hitPosition, relativeSpeedMps: Math.hypot(...contactRelative),
         radialSpeedMps: contactRelative.reduce((sum, value, i) => sum + value * offset[i] / distance, 0),
-        assisted: (assisted || (context.isAssistedTarget ?? context.inputBoost)) && target?.bodyId === obstacle.bodyId };
+        assisted: assistedContact, responseMode, responseRadialSpeedMps: 0, responseTangentialSpeedMps: 0 };
       const relativeStepLength = Math.hypot(...contactRelative) * dt;
       const fraction = Math.max(0, earliest.fraction - 1 / Math.max(1, relativeStepLength));
       positionM[0] += step[0] * fraction;
@@ -416,7 +454,14 @@ export class CosmicCruiseController {
         positionM[i] += orbital[i] * dt * (1 - fraction);
         finalCentre[i] = obstacle.centreM[i] + orbital[i] * dt;
       }
-      this.removeInwardVelocity(positionM, { centreM: finalCentre, radiusM: obstacle.radiusM }, contactRelative);
+      const outward: [number, number, number] = [positionM[0] - finalCentre[0], positionM[1] - finalCentre[1],
+        positionM[2] - finalCentre[2]];
+      const outwardLength = Math.hypot(...outward);
+      const normal: [number, number, number] = outwardLength > 0
+        ? [outward[0] / outwardLength, outward[1] / outwardLength, outward[2] / outwardLength] : [0, 1, 0];
+      const response = resolveCelestialContact(responseMode, contactRelative, normal);
+      this.lastContact = { ...this.lastContact, responseRadialSpeedMps: response.radialSpeedMps,
+        responseTangentialSpeedMps: response.tangentialSpeedMps };
       for (let i = 0; i < 3; i++) {
         velocityMps[i] = orbital[i] + contactRelative[i];
         relVel[i] = velocityMps[i] - bodyVel[i];
@@ -481,24 +526,5 @@ export class CosmicCruiseController {
     const factor = Math.max(0, speed - accel * dt) / speed;
     relVel[0] *= factor; relVel[1] *= factor; relVel[2] *= factor;
     return accel;
-  }
-
-  /** Removes only the component heading into the obstacle; a grazing pass keeps its speed. */
-  private removeInwardVelocity(
-    positionM: readonly [number, number, number],
-    obstacle: Obstacle,
-    relVel: [number, number, number],
-  ): void {
-    const dx = positionM[0] - finite(obstacle.centreM[0]);
-    const dy = positionM[1] - finite(obstacle.centreM[1]);
-    const dz = positionM[2] - finite(obstacle.centreM[2]);
-    const radius = Math.hypot(dx, dy, dz);
-    if (!(radius > 0)) return;
-    const nx = dx / radius, ny = dy / radius, nz = dz / radius;
-    const into = relVel[0] * nx + relVel[1] * ny + relVel[2] * nz;
-    if (into >= 0) return;
-    relVel[0] -= into * nx;
-    relVel[1] -= into * ny;
-    relVel[2] -= into * nz;
   }
 }

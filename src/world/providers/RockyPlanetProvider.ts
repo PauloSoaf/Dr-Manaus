@@ -1,10 +1,10 @@
 import type { Object3D } from 'three/webgpu';
 import { PlanetGlobe, buildPlanetTileMesh } from '../planet/PlanetGlobe';
 import type { PlanetSurfaceGenerator } from '../planet/PlanetSurface';
-import type { PlanetBody } from '../planet/PlanetBody';
+import { type PlanetBody, surfacePosition } from '../planet/PlanetBody';
 import { PlanetQuadtree } from '../planet/PlanetQuadtree';
 import { DEFAULT_SSE } from '../planet/ScreenSpaceError';
-import { tileExtentM } from '../planet/PlanetTileAddress';
+import { tileCentreDirection, tileExtentM, tileGeometricErrorM } from '../planet/PlanetTileAddress';
 import type { ReferenceFrameGraph } from '../spatial/ReferenceFrameGraph';
 import type { RenderSpaceService } from '../spatial/RenderSpaceService';
 import { cloneQuat, finite, IDENTITY_QUAT, type Quat, type Vec3 } from '../spatial/units';
@@ -22,7 +22,26 @@ export interface PlanetCoverageReadiness {
   readonly fallbackReady: boolean;
   readonly landingRequiredKeys: readonly string[];
   readonly landingMissingKeys: readonly string[];
+  /** Tiles of the gameplay-driven landing prefetch patch. Empty without a prefetch request. */
+  readonly landingPrefetchKeys: readonly string[];
+  readonly landingPrefetchMissingKeys: readonly string[];
+  /**
+   * The minimum safe landing: the coarse fallback plus the small critical patch under the
+   * predicted touchdown. Deliberately independent of every other visible tile.
+   */
+  readonly landingCoverageReady: boolean;
 }
+
+/** Gameplay-driven request: where the player is about to touch down and how soon. */
+export interface LandingPrefetchRequest {
+  /** Body-fixed direction of the predicted touchdown. Never a render-space vector. */
+  readonly directionFixed: Vec3;
+  /** Real, finite estimate. Zero when the player is already holding for the patch. */
+  readonly timeToContactS: number;
+}
+
+/** Same level the surface selection reserves under the player, so the tiles are shared. */
+export const LANDING_PATCH_LEVEL = 8;
 
 export interface RockyPlanetProviderOptions {
   minAltitudeM?: number;
@@ -43,7 +62,9 @@ export class RockyPlanetProvider implements WorldProvider {
   private centreM: Vec3 = [0, 0, 0];
   private distanceM = Number.POSITIVE_INFINITY;
   private streamingMode: 'off' | 'coarse' | 'surface' = 'off';
-  private cachedPlan?: { demands: readonly TileDemand[]; landingKeys: readonly string[]; observer: EcefPosition; radiusM: number; timeS: number };
+  private cachedPlan?: { demands: readonly TileDemand[]; landingKeys: readonly string[]; observer: EcefPosition; radiusM: number; timeS: number; prefetchSignature: string };
+  private landingPrefetch?: LandingPrefetchRequest;
+  private prefetchKeys: readonly string[] = [];
   private playerFrameId = 'solar-system/barycentric';
 
   constructor(
@@ -82,9 +103,14 @@ export class RockyPlanetProvider implements WorldProvider {
     const landingRequiredKeys = this.cachedPlan?.landingKeys ?? [];
     const landingMissingKeys = landingRequiredKeys.filter(key => !this.globe.has(key));
     const fallbackReady = this.globe.fallbackReady;
+    const landingPrefetchKeys = this.landingPrefetch ? this.prefetchKeys : [];
+    const landingPrefetchMissingKeys = landingPrefetchKeys.filter(key => !this.globe.has(key));
+    const landingCoverageReady = landingPrefetchKeys.length > 0 && landingPrefetchMissingKeys.length === 0
+      && fallbackReady && this.streamingMode !== 'off';
     if (!this.cachedPlan || this.cachedPlan.demands.length === 0) {
       return { activeTiles, coarseCoverageReady: fallbackReady, surfaceCoverageReady: false,
-        fallbackReady, landingRequiredKeys, landingMissingKeys };
+        fallbackReady, landingRequiredKeys, landingMissingKeys,
+        landingPrefetchKeys, landingPrefetchMissingKeys, landingCoverageReady };
     }
 
     let allRequiredReady = true;
@@ -100,10 +126,25 @@ export class RockyPlanetProvider implements WorldProvider {
       coarseCoverageReady: fallbackReady || allRequiredReady,
       surfaceCoverageReady: landingRequiredKeys.length > 0 && landingMissingKeys.length === 0 && this.streamingMode === 'surface',
       fallbackReady, landingRequiredKeys, landingMissingKeys,
+      landingPrefetchKeys, landingPrefetchMissingKeys, landingCoverageReady,
     };
   }
 
   coverage(): readonly CoverageClaim[] { return []; }
+
+  /**
+   * Starts, updates or clears the gameplay-driven landing prefetch. Separate from presentation:
+   * the angular LOD rule decides what the Moon looks like, this decides what must exist before
+   * the player can be handed to local physics.
+   */
+  setLandingPrefetch(request: LandingPrefetchRequest | undefined): void {
+    if (!request) {
+      if (this.landingPrefetch) { this.landingPrefetch = undefined; this.prefetchKeys = []; this.cachedPlan = undefined; }
+      return;
+    }
+    if (!request.directionFixed.every(Number.isFinite)) return;
+    this.landingPrefetch = request;
+  }
 
   covers(context: SpatialContext): boolean {
     this.playerFrameId = context.frame.id;
@@ -210,7 +251,14 @@ export class RockyPlanetProvider implements WorldProvider {
           observerFixed.zM - cached.observer.zM,
         )
       : Infinity;
+    // The patch under the predicted touchdown, at most five tiles. Computed from the body-fixed
+    // direction, so it is independent of the render origin.
+    const prefetch = this.landingPrefetch;
+    const prefetchTiles = prefetch ? this.quadtree.groundTiles(prefetch.directionFixed,
+      Math.min(LANDING_PATCH_LEVEL, this.options.maxLevel)) : [];
+    const prefetchSignature = prefetchTiles.map(tile => `${tile.face}:${tile.level}:${tile.x}:${tile.y}`).join('|');
     if (cached
+      && cached.prefetchSignature === prefetchSignature
       && context.spatial.timeS - cached.timeS < this.options.replanIntervalS
       && ecefDist < cached.radiusM) {
       return cached.demands;
@@ -224,6 +272,14 @@ export class RockyPlanetProvider implements WorldProvider {
       targetPx: isCoarse ? 500 : context.quality.sseTargetPx,
       detailFactor: isCoarse ? 0.1 : context.quality.detailFactor,
     }, isCoarse ? 0 : Math.min(8, this.options.maxLevel));
+
+    // Ground tiles under the player are needed as soon as the player can reach them. The ETA is
+    // the prefetch's when there is one, otherwise altitude over speed -- never Infinity, which
+    // told the scheduler the tile was never going to matter.
+    const altitudeM = context.spatial.altitudeM;
+    const speedMps = Math.hypot(...context.spatial.localVelocityMps);
+    const groundEtaS = prefetch ? Math.max(0, prefetch.timeToContactS)
+      : Number.isFinite(altitudeM) && speedMps > 1e-3 ? Math.max(0, altitudeM! / speedMps) : 0;
 
     const demands: TileDemand[] = [];
     const landingKeys: string[] = [];
@@ -246,12 +302,36 @@ export class RockyPlanetProvider implements WorldProvider {
         geometricErrorM: tile.geometricErrorM,
         screenSpaceError: tile.screenSpaceErrorPx,
         distanceM: tile.distanceM,
-        timeToContactS: Number.POSITIVE_INFINITY,
+        timeToContactS: underPlayer ? groundEtaS : Number.POSITIVE_INFINITY,
         gameplayCritical: underPlayer && !isCoarse,
         representation: 'planet',
         centreM: [tile.centre.xM, tile.centre.yM, tile.centre.zM],
       }));
     }
+
+    const prefetchKeys: string[] = [];
+    for (const address of prefetchTiles) {
+      const key: PlanetTileKey = { kind: 'planet', bodyId: this.bodyDef.id, face: address.face,
+        level: address.level, x: address.x, y: address.y };
+      const keyString = tileKeyToString(key);
+      prefetchKeys.push(keyString);
+      const centre = surfacePosition(this.bodyDef, tileCentreDirection(address, [0, 0, 0]), 0);
+      const extentM = tileExtentM(address, this.surface.radiusM);
+      const existing = demands.findIndex(demand => tileKeyToString(demand.key) === keyString);
+      const critical = tileDemand({
+        key, providerId: this.id,
+        geometricErrorM: tileGeometricErrorM(address, this.surface.radiusM),
+        screenSpaceError: 0,
+        distanceM: Math.max(1, Math.hypot(observerFixed.xM - centre.xM, observerFixed.yM - centre.yM,
+          observerFixed.zM - centre.zM) - extentM * 0.75),
+        timeToContactS: Math.max(0, prefetch!.timeToContactS),
+        gameplayCritical: true,
+        representation: 'planet',
+        centreM: [centre.xM, centre.yM, centre.zM],
+      });
+      if (existing >= 0) demands[existing] = critical; else demands.push(critical);
+    }
+    this.prefetchKeys = prefetchKeys;
 
     this.cachedPlan = {
       demands,
@@ -259,6 +339,7 @@ export class RockyPlanetProvider implements WorldProvider {
       observer: observerFixed,
       radiusM: Number.isFinite(finestM) ? Math.max(25, finestM * 0.25) : 25,
       timeS: context.spatial.timeS,
+      prefetchSignature,
     };
     this.globe.setRequiredTiles(demands.map(demand => tileKeyToString(demand.key)));
     return demands;

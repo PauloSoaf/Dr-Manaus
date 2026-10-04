@@ -1,6 +1,16 @@
 export type FlightSpeedMode = 'ground' | 'normal' | 'fast' | 'super' | 'mega' | 'interplanetary';
 
 /**
+ * Which tier the arm key has selected for local planetary flight.
+ *
+ * Local flight is explicit: the player chooses the tier and then asks for it with the boost key.
+ * This is not the same decision as the cosmic gears out in the travel domain, which are warp steps
+ * on a held modifier, and the two must not be collapsed into one ladder -- holding a single key
+ * until a superhero crosses a city at eight kilometres a second is a countdown, not a choice.
+ */
+export type ArmedTier = 'none' | 'mega' | 'interplanetary';
+
+/**
  * Metres per second. Mega and interplanetary both require an arm action before holding boost.
  *
  * Interplanetary is 800 000 km/h, which is 222 222 m/s — roughly twenty times what a spacecraft
@@ -33,18 +43,10 @@ export const FLIGHT = {
    * thing you do from the sky.
    */
   interplanetaryFloorM: 9000,
-  /**
-   * How long boost must be held before each tier is reached, in seconds.
-   *
-   * The tiers used to be armed with a key combination; that scheme was removed and nothing
-   * replaced it, so `super`, `mega` and `interplanetary` became unreachable and flight topped out
-   * at `fast`. This is the replacement: one modifier, and the ladder is climbed by holding it.
-   *
-   * A spool rather than a switch, because eight kilometres a second should not arrive on the
-   * frame a key goes down -- and because a player who taps boost to cross a street must not be
-   * thrown across the city.
-   */
-  boostSpoolS: { fast: 0, super: 1.4, mega: 3.2, interplanetary: 5.0 },
+  /** How quickly the arm key has to be struck twice for the second tap to mean the next tier. */
+  armDoubleTapS: 0.45,
+  /** On foot, boost is a bounded sprint; armed, it is the stride of someone who flies for a living. */
+  groundBoostSpeed: { armed: 650, plain: 120 },
   walkSpeed: 6.5,
   runSpeed: 16,
   groundResponse: 16,
