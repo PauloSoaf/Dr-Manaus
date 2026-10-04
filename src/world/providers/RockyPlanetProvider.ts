@@ -62,7 +62,15 @@ export class RockyPlanetProvider implements WorldProvider {
   private centreM: Vec3 = [0, 0, 0];
   private distanceM = Number.POSITIVE_INFINITY;
   private streamingMode: 'off' | 'coarse' | 'surface' = 'off';
-  private cachedPlan?: { demands: readonly TileDemand[]; landingKeys: readonly string[]; observer: EcefPosition; radiusM: number; timeS: number; prefetchSignature: string };
+  private cachedPlan?: {
+    demands: readonly TileDemand[];
+    landingKeys: readonly string[];
+    observer: EcefPosition;
+    radiusM: number;
+    timeS: number;
+    prefetchSignature: string;
+    prefetchEtaS?: number;
+  };
   private landingPrefetch?: LandingPrefetchRequest;
   private prefetchKeys: readonly string[] = [];
   private playerFrameId = 'solar-system/barycentric';
@@ -138,11 +146,10 @@ export class RockyPlanetProvider implements WorldProvider {
    * the player can be handed to local physics.
    */
   setLandingPrefetch(request: LandingPrefetchRequest | undefined): void {
-    if (!request) {
+    if (!request || !Number.isFinite(request.timeToContactS) || !request.directionFixed.every(Number.isFinite)) {
       if (this.landingPrefetch) { this.landingPrefetch = undefined; this.prefetchKeys = []; this.cachedPlan = undefined; }
       return;
     }
-    if (!request.directionFixed.every(Number.isFinite)) return;
     this.landingPrefetch = request;
   }
 
@@ -261,6 +268,15 @@ export class RockyPlanetProvider implements WorldProvider {
       && cached.prefetchSignature === prefetchSignature
       && context.spatial.timeS - cached.timeS < this.options.replanIntervalS
       && ecefDist < cached.radiusM) {
+      // ETA can fall to zero while the touchdown stays in the same patch. Refresh scheduler
+      // urgency immediately without recomputing the visual quadtree on every capture frame.
+      const prefetchEtaS = prefetch && Math.max(0, prefetch.timeToContactS);
+      if (prefetchEtaS !== undefined && prefetchEtaS !== cached.prefetchEtaS) {
+        const contactKeys = new Set([...cached.landingKeys, ...this.prefetchKeys]);
+        cached.demands = cached.demands.map(demand => contactKeys.has(tileKeyToString(demand.key))
+          ? tileDemand({ ...demand, timeToContactS: prefetchEtaS }) : demand);
+        cached.prefetchEtaS = prefetchEtaS;
+      }
       return cached.demands;
     }
 
@@ -340,6 +356,7 @@ export class RockyPlanetProvider implements WorldProvider {
       radiusM: Number.isFinite(finestM) ? Math.max(25, finestM * 0.25) : 25,
       timeS: context.spatial.timeS,
       prefetchSignature,
+      prefetchEtaS: prefetch && Math.max(0, prefetch.timeToContactS),
     };
     this.globe.setRequiredTiles(demands.map(demand => tileKeyToString(demand.key)));
     return demands;
