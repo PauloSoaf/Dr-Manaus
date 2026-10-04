@@ -22,6 +22,7 @@ import { createAirport } from '../world/realcity/airport';
 import { LANDMARKS, isLand } from '../world/geodata/geodata';
 import { InputController } from '../player/InputController';
 import { PlayerController } from '../player/PlayerController';
+import { FLIGHT } from '../player/flightConfig';
 import { CameraController, cameraFlightAxes } from '../player/CameraController';
 import { PowerSystem } from '../player/powers/PowerSystem';
 import type { CosmicLevel } from '../player/CharacterModel';
@@ -208,16 +209,16 @@ export class Game {
     if(FEATURES.galaxyTravel){
       this.galaxy=new StarSectorProvider(this.celestialRoot);
       this.universe.providers.register(this.galaxy);
-      
+
       const LY_TO_M = 9.4607304725808e15;
-      
+
       // Instantiate Local Group galaxies (except Milky Way which is local)
       for (const galDef of LOCAL_GROUP_CATALOG) {
         if (galDef.id === 'milky_way') continue;
         const galProv = new GalaxyProvider(this.celestialRoot, { galaxy: galDef });
         this.localGroup.push(galProv);
       }
-      
+
       this.sgra = new BlackHoleProvider(this.celestialRoot, {
         blackHole: {
           id: 'sgra',
@@ -232,7 +233,7 @@ export class Game {
           }
         }
       });
-      
+
       this.cosmicWeb = new LargeScaleStructureProvider(this.celestialRoot);
     }
     this.watchGround(this.worldRoot);this.forest=new ForestBackdrop(this.worldRoot);
@@ -372,9 +373,9 @@ export class Game {
         'solar-system/barycentric',
         this.universe.player.position
       );
-      
+
       const velocityMps = this.universe.systemVelocityMps();
-      
+
       this.travelDomain.setState({
         systemId: 'sol',
         positionM: [barycentricPos[0], barycentricPos[1], barycentricPos[2]],
@@ -400,7 +401,7 @@ export class Game {
     // below with its coverage-aware visual handoff.
     this.presentationDomain=manaus?'local':local?'planetary':'orbital';
     this.localRoot.visible = manaus;
-    
+
     // Uncurve position for RealCity legacy logic
     let legacyPos = this.player.position;
     if (FEATURES.curvedManaus && manaus) {
@@ -434,7 +435,7 @@ export class Game {
         this.viewForward,
         this.camera.yaw,
         this.camera.pitch,
-        this.input.held('KeyB')
+        this.cosmicBoostHeld
       );
     }
     this.lap('player');
@@ -444,125 +445,9 @@ export class Game {
       if (local) {
         this.universe.update([this.player.position.x,this.player.position.y,this.player.position.z],[this.player.velocity.x,this.player.velocity.y,this.player.velocity.z],dt,[this.viewForward.x,this.viewForward.y,this.viewForward.z]);
       } else if (this.travelDomain.state) {
-        // We are interplanetary! Zero out local velocity so the player stays put relative to the camera.
-        this.player.velocity.set(0,0,0);
-        
-        // Read input for thrust and brake aligned with camera
-        const { forward: camFwd, right: camRight, up: camUp } = cameraFlightAxes(this.rendering.camera);
-
-        const boostHeld = this.input.held('KeyB');
-        const inputBrake = this.input.held('KeyX');
-
-        if (inputBrake && this.warpStep > 0) this.warpStep = 0;
-
-        const forwardHeld = this.input.held('KeyW');
-        const backHeld = this.input.held('KeyS');
-        const rightInput = (this.input.held('KeyD') ? 1 : 0) - (this.input.held('KeyA') ? 1 : 0);
-        const upInput = (this.input.held('Space') ? 1 : 0) - (this.input.held('ControlLeft') || this.input.held('ControlRight') ? 1 : 0);
-
-        /**
-         * S brakes the forward component before it reverses anything.
-         *
-         * Encoding S as negative W looks equivalent and is not: at cosmic speed a plain reverse
-         * thrust spends the whole burn cancelling a velocity the player can no longer see, and
-         * then keeps going. So while there is forward motion left, S removes it; only once that
-         * component is spent does S push backward.
-         */
-        const relForward = this.relativeForwardSpeed(camFwd);
-        let fwdInput = 0;
-        if (forwardHeld && !backHeld) fwdInput = 1;
-        else if (backHeld && !forwardHeld) {
-          fwdInput = relForward > COSMIC_REVERSE_EPSILON_MPS ? 0 : -1;
-          // Shed the forward component rather than fighting it with reverse thrust.
-          if (relForward > COSMIC_REVERSE_EPSILON_MPS) this.brakeForwardComponent(camFwd, dt);
-        }
-
-        const thrust = new Vector3();
-        if (fwdInput !== 0 || rightInput !== 0 || upInput !== 0) {
-          thrust.addScaledVector(camFwd, fwdInput);
-          thrust.addScaledVector(camRight, rightInput);
-          thrust.addScaledVector(camUp, upInput);
-          thrust.normalize();
-        }
-        // Shift alone is a modifier, never a direction. It used to copy the camera forward here,
-        // so holding it with no movement key flew the player forwards and could enter cosmic
-        // cruise without any forward intent at all.
-        const forwardIntent = fwdInput > 0;
-
-        /**
-         * Both of these cross into `solar-system/barycentric` before anything compares them.
-         *
-         * The camera forward used to be passed through in render space while the thrust was
-         * converted, so the cruise controller's alignment test was a dot product between two
-         * different frames -- it could decide the player was not looking at the Moon when they
-         * were, and the other way round.
-         */
-        const renderFrame = this.universe.renderSpace.currentOrigin.frame;
-        const toBary = (v: Vector3): void => {
-          const out: [number, number, number] = [0, 0, 0];
-          this.universe.frames.convertDirection(renderFrame, 'solar-system/barycentric', [v.x, v.y, v.z], out);
-          v.set(out[0], out[1], out[2]);
-        };
-        if (thrust.lengthSq() > 1e-4) toBary(thrust);
-        const camFwdBary = camFwd.clone();
-        toBary(camFwdBary);
-        if (camFwdBary.lengthSq() > 1e-12) camFwdBary.normalize();
-        
-        if (this.input.consume('Backspace')) this.clearNavigationTarget();
-        if (this.input.consume('Tab')) {
-          const candidates = celestialLockCandidates(this.universe.activeSystem,
-            this.universe.playerSystemPositionM(),[camFwdBary.x,camFwdBary.y,camFwdBary.z],
-            this.celestialController.renderSamples);
-          const id = cycleNavigationTarget(candidates,this.navigationLock?.bodyId,boostHeld);
-          if (id) this.selectNavigationTarget(id,'reticle'); else this.clearNavigationTarget();
-        }
-        if (this.input.consume('KeyP')) {
-          if (this.interplanetary.autopilot.active) this.interplanetary.autopilot.cancel();
-          else if (this.navigationLock) this.interplanetary.autopilot.engage();
-          this.hud.notify(this.interplanetary.autopilot.active ? 'Piloto automático ativo' : 'Piloto automático desligado');
-        }
-        const target = this.resolveNavigationTarget();
-        const targetBody = target && this.universe.activeSystem.bodies.find(b=>b.id===target.bodyId);
-        const t = this.universe.telemetry;
-        const bodyDef = this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody);
-        const bodyVel = this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps ?? [0,0,0];
-        const bodyPos = this.universe.activeSystem.positionOf(t.dominantBody) ?? [0,0,0];
-        
-        const ctx = {
-          altitudeM: t.altitudeM,
-          speedMps: this.currentGameplaySpeedMps(),
-          requested: (this.player.state !== 'Grounded') && boostHeld,
-          nearestColliderM: Number.POSITIVE_INFINITY,
-          bodyRadiusM: bodyDef?.equatorialRadiusM ?? 6378137,
-          bodyPositionM: bodyPos,
-          bodyVelocityMps: bodyVel,
-          bodyId: t.dominantBody,
-          systemId: 'sol',
-          envelopeMarginM: bodyDef?bodyArrivalPolicy(bodyDef).exclusionMarginM:1000,
-          exclusionEnvelopes: bodyExclusionEnvelopes(this.universe.activeSystem, {
-            bodyId:t.dominantBody,observerM:this.universe.playerSystemPositionM(),
-            clearanceM:this.surfaceClearanceM(t.dominantBody),
-          }),
-          maxLocalTerrainSweepMps:this.travelDomain.landingGate.maxLocalTerrainSweepMps,
-          cameraForwardBary: camFwdBary,
-          // Cosmic cruise assistance needs real forward intent, not merely the modifier.
-          inputBoost: boostHeld && forwardIntent,
-          warpStep: this.warpStep,
-          inputBrake,
-          target,
-          targetCanLand:targetBody ? bodyProfile(targetBody).canLand : false,
-          targetSurfaceClearanceM:target ? this.surfaceClearanceM(target.bodyId) : undefined,
-          targetSurfaceReady:target ? this.surfaceReadyForLanding(target.bodyId) : false,
-          returnAltitudeM:this.travelDomain.landingGate.returnAltitudeM,
-          landingIntent:this.landingIntentContext(),
-        };
-        const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, ctx);
-        this.flightTelemetry = this.interplanetary.getTelemetry();
-        this.travelDomain.setState(newState);
-        
-        this.universe.updateSystemPose(newState.positionM, newState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
+        this.updateInterplanetaryFlight(dt);
       }
-      
+
       if (FEATURES.galaxyTravel) {
         const address = this.universe.navigationState;
         const altitude = this.universe.telemetry.altitudeM;
@@ -571,9 +456,9 @@ export class Game {
         this.sgra?.update(address, cpos, altitude);
         this.cosmicWeb?.update(address, cpos, altitude);
       }
-      
+
     }this.lap('universe');
-    
+
     // Landing prefetch is gameplay-driven and separate from the angular presentation rule.
     this.updateLandingPrefetch();
     // Prepare celestial presentation state before streaming
@@ -585,7 +470,7 @@ export class Game {
       viewportHeightPx: this.rendering.renderer.domElement.clientHeight,
       cameraFarM: this.rendering.camera.far,
     });
-    
+
     // Process streaming based on updated presentation state
     this.universe.updateStreaming(dt);
 
@@ -605,7 +490,7 @@ export class Game {
       setTerrainOpacity(this.flatTerrain, state.effectiveLocalWeight);
       const cityVisible = manaus && (state.effectiveLocalWeight > 0 || state.localGroundVisible);
       this.localWorldRoot.visible = cityVisible;
-      
+
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
       // later in the frame, so a `visible` flag written here is gone by the time anything is
       // drawn -- which is why the far pass drew the planet and the shell painted over it.
@@ -650,7 +535,7 @@ export class Game {
     if(manaus){this.landmarks.update(this.player.position,worldDt);this.lap('landmarks');this.population.update(worldDt,this.player.position,this.player.size);this.lap('population');this.missions.update(worldDt,this.player.position);}
     this.camera.inSpace = !local;
     this.camera.update(this.player,this.renderOriginVec,dt,local ? (FEATURES.curvedManaus?this.curvedColliders:this.colliders) : []);this.rendering.camera.updateMatrixWorld();
-    
+
     // Render celestial presentation
     this.celestialController.render({
       camera: this.rendering.camera
@@ -747,13 +632,13 @@ export class Game {
       const out=this.blastBoxes;out.length=0;
       const srcBoxes = FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
       for(const box of srcBoxes)if(!box.id?.startsWith("real:")&&!box.id?.startsWith("landmark:")&&!box.id?.startsWith("largo:")&&!box.id?.startsWith("airport:"))out.push(box);
-      
+
       const legacyOut: Collider[] = [];
       this.realCity.appendBlastColliders(legacyOut,flat,radius);
       this.landmarks.appendBlastColliders(legacyOut,flat,radius);
       this.largo.appendBlastColliders(legacyOut,flat,radius);
       this.airport.appendColliders(legacyOut,flat,radius);
-      
+
       if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
         for (const box of legacyOut) {
           out.push(this.surfaceService.legacyColliderToRenderLocal(box, { id: box.id, x: 0, y: 0, z: 0, width: 0, height: 0, depth: 0 }));
@@ -761,7 +646,7 @@ export class Game {
       } else {
         for (const box of legacyOut) out.push(box);
       }
-      
+
       return out;
     },
     colliders:():readonly Collider[]=>FEATURES.curvedManaus ? this.curvedColliders : this.colliders,
@@ -823,6 +708,133 @@ export class Game {
     }
     return this.player.velocity.length();
   }
+  /** Space Shift owns boost, animation and reverse target cycling. Local B stays local. */
+  private get cosmicBoostHeld(): boolean {
+    return this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+  }
+
+  /** The production space input/controller step, independent of rendering and city simulation. */
+  private updateInterplanetaryFlight(dt:number):void {
+    if (!this.travelDomain.state) return;
+    // We are interplanetary! Zero out local velocity so the player stays put relative to the camera.
+    this.player.velocity.set(0,0,0);
+
+    // Read input for thrust and brake aligned with camera
+    const { forward: camFwd, right: camRight, up: camUp } = cameraFlightAxes(this.rendering.camera);
+
+    const boostHeld = this.cosmicBoostHeld;
+    const inputBrake = this.input.held('KeyX');
+
+    if (inputBrake && this.warpStep > 0) this.warpStep = 0;
+
+    const forwardHeld = this.input.held('KeyW');
+    const backHeld = this.input.held('KeyS');
+    const rightInput = (this.input.held('KeyD') ? 1 : 0) - (this.input.held('KeyA') ? 1 : 0);
+    const upInput = (this.input.held('Space') ? 1 : 0) - (this.input.held('ControlLeft') || this.input.held('ControlRight') ? 1 : 0);
+
+    /**
+     * S brakes the forward component before it reverses anything.
+     *
+     * Encoding S as negative W looks equivalent and is not: at cosmic speed a plain reverse
+     * thrust spends the whole burn cancelling a velocity the player can no longer see, and
+     * then keeps going. So while there is forward motion left, S removes it; only once that
+     * component is spent does S push backward.
+     */
+    const relForward = this.relativeForwardSpeed(camFwd);
+    let fwdInput = 0;
+    if (forwardHeld && !backHeld) fwdInput = 1;
+    else if (backHeld && !forwardHeld) {
+      fwdInput = relForward > COSMIC_REVERSE_EPSILON_MPS ? 0 : -1;
+      // Shed the forward component rather than fighting it with reverse thrust.
+      if (relForward > COSMIC_REVERSE_EPSILON_MPS) this.brakeForwardComponent(camFwd, dt);
+    }
+
+    const thrust = new Vector3();
+    if (fwdInput !== 0 || rightInput !== 0 || upInput !== 0) {
+      thrust.addScaledVector(camFwd, fwdInput);
+      thrust.addScaledVector(camRight, rightInput);
+      thrust.addScaledVector(camUp, upInput);
+      thrust.normalize();
+    }
+    // Shift alone is a modifier, never a direction. It used to copy the camera forward here,
+    // so holding it with no movement key flew the player forwards and could enter cosmic
+    // cruise without any forward intent at all.
+    const forwardIntent = fwdInput > 0;
+
+    /**
+     * Both of these cross into `solar-system/barycentric` before anything compares them.
+     *
+     * The camera forward used to be passed through in render space while the thrust was
+     * converted, so the cruise controller's alignment test was a dot product between two
+     * different frames -- it could decide the player was not looking at the Moon when they
+     * were, and the other way round.
+     */
+    const renderFrame = this.universe.renderSpace.currentOrigin.frame;
+    const toBary = (v: Vector3): void => {
+      const out: [number, number, number] = [0, 0, 0];
+      this.universe.frames.convertDirection(renderFrame, 'solar-system/barycentric', [v.x, v.y, v.z], out);
+      v.set(out[0], out[1], out[2]);
+    };
+    if (thrust.lengthSq() > 1e-4) toBary(thrust);
+    const camFwdBary = camFwd.clone();
+    toBary(camFwdBary);
+    if (camFwdBary.lengthSq() > 1e-12) camFwdBary.normalize();
+
+    if (this.input.consume('Backspace')) this.clearNavigationTarget();
+    if (this.input.consume('Tab')) {
+      const candidates = celestialLockCandidates(this.universe.activeSystem,
+        this.universe.playerSystemPositionM(),[camFwdBary.x,camFwdBary.y,camFwdBary.z],
+        this.celestialController.renderSamples);
+      const id = cycleNavigationTarget(candidates,this.navigationLock?.bodyId,boostHeld);
+      if (id) this.selectNavigationTarget(id,'reticle'); else this.clearNavigationTarget();
+    }
+    if (this.input.consume('KeyP')) {
+      if (this.interplanetary.autopilot.active) this.interplanetary.autopilot.cancel();
+      else if (this.navigationLock) this.interplanetary.autopilot.engage();
+      this.hud.notify(this.interplanetary.autopilot.active ? 'Piloto automático ativo' : 'Piloto automático desligado');
+    }
+    const target = this.resolveNavigationTarget();
+    const targetBody = target && this.universe.activeSystem.bodies.find(b=>b.id===target.bodyId);
+    const t = this.universe.telemetry;
+    const bodyDef = this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody);
+    const bodyVel = this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps ?? [0,0,0];
+    const bodyPos = this.universe.activeSystem.positionOf(t.dominantBody) ?? [0,0,0];
+
+    const ctx = {
+      altitudeM: t.altitudeM,
+      speedMps: this.currentGameplaySpeedMps(),
+      requested: (this.player.state !== 'Grounded') && boostHeld,
+      nearestColliderM: Number.POSITIVE_INFINITY,
+      bodyRadiusM: bodyDef?.equatorialRadiusM ?? 6378137,
+      bodyPositionM: bodyPos,
+      bodyVelocityMps: bodyVel,
+      bodyId: t.dominantBody,
+      systemId: 'sol',
+      envelopeMarginM: bodyDef?bodyArrivalPolicy(bodyDef).exclusionMarginM:1000,
+      exclusionEnvelopes: bodyExclusionEnvelopes(this.universe.activeSystem, {
+        bodyId:t.dominantBody,observerM:this.universe.playerSystemPositionM(),
+        clearanceM:this.surfaceClearanceM(t.dominantBody),
+      }),
+      maxLocalTerrainSweepMps:this.travelDomain.landingGate.maxLocalTerrainSweepMps,
+      cameraForwardBary: camFwdBary,
+      // Cosmic cruise assistance needs real forward intent, not merely the modifier.
+      inputBoost: boostHeld && forwardIntent,
+      warpStep: this.warpStep,
+      inputBrake,
+      target,
+      targetCanLand:targetBody ? bodyProfile(targetBody).canLand : false,
+      targetSurfaceClearanceM:target ? this.surfaceClearanceM(target.bodyId) : undefined,
+      targetSurfaceReady:target ? this.surfaceReadyForLanding(target.bodyId) : false,
+      returnAltitudeM:this.travelDomain.landingGate.returnAltitudeM,
+      landingIntent:this.landingIntentContext(),
+    };
+    const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, ctx);
+    this.flightTelemetry = this.interplanetary.getTelemetry();
+    this.travelDomain.setState(newState);
+
+    this.universe.updateSystemPose(newState.positionM, newState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
+  }
+
   private updateTravelDomain(dt:number){
     let nearest=Number.POSITIVE_INFINITY;
     for(const collider of (FEATURES.curvedManaus ? this.curvedColliders : this.colliders)){
@@ -1293,6 +1305,8 @@ export class Game {
     if(!FEATURES.spatialCore)return{};
     const t=this.universe.telemetry;
     const moon=this.moonLandingState;
+    const landing=this.landingState;
+    const landingEta=landingEtaS(landing.clearanceM,-landing.radialSpeedMps);
     const motion=this.landingMotion(t.dominantBody),gate=this.travelDomain.landingGate;
     const contact=this.interplanetary.lastCelestialContact;
     return{
