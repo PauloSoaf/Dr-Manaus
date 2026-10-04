@@ -6,3 +6,8 @@ artifacts/
 .geodata-venv/
 data/raw-geodata/
 *.zip
+
+# Local checkpoint scratch and machine-specific editor workspaces.
+/diff.patch
+/failed_tests.txt
+*.code-workspace
