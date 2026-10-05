@@ -34,6 +34,8 @@ export const LANDING_POLICY = {
   readyHoldFraction: 0.8,
   /** Hold above the return gate by this much while the surface is still loading. */
   waitingHoldMarginM: 1000,
+  /** Finish a clamped approach before exponential convergence stalls the capture phase. */
+  holdPositionToleranceM: 0.05,
   /**
    * Residual tangential speed left after a LANDING_CAPTURE contact. Half the safe local handoff
    * speed: the player arrives able to be handed to local physics, never carrying a cosmic tangent.
@@ -139,8 +141,9 @@ export function landingCaptureStep(relVel: [number, number, number], offset: Vec
   const distance = Math.hypot(offset[0], offset[1], offset[2]);
   const n: Vec3 = distance > 0 ? [offset[0] / distance, offset[1] / distance, offset[2] / distance] : [0, 1, 0];
   const gap = clearanceM - landingHoldClearanceM(surfaceReady, returnAltitudeM);
+  const approaching = gap > LANDING_POLICY.holdPositionToleranceM;
   const a = LANDING_POLICY.minBrakeMps2;
-  const inward = gap > 0
+  const inward = approaching
     ? Math.min(LANDING_SPEED_LIMITS.approachCaptureSpeedMps, Math.sqrt(2 * a * gap * 0.35), gap / 1.5)
     : 0;
   const delta: Vec3 = [-n[0] * inward - relVel[0], -n[1] * inward - relVel[1], -n[2] * inward - relVel[2]];
@@ -149,7 +152,7 @@ export function landingCaptureStep(relVel: [number, number, number], offset: Vec
   const authority = Math.max(LANDING_POLICY.minBrakeMps2, speed * LANDING_POLICY.brakeRatePerS);
   const factor = change > 0 ? Math.min(1, authority * Math.max(0, dt) / change) : 0;
   for (let i = 0; i < 3; i++) relVel[i] += delta[i] * factor;
-  return { phase: gap > 0 ? 'capture' : 'hold', accelerationMps2: change > 0 ? -Math.min(authority, change / Math.max(dt, 1e-9)) : 0 };
+  return { phase: approaching ? 'capture' : 'hold', accelerationMps2: change > 0 ? -Math.min(authority, change / Math.max(dt, 1e-9)) : 0 };
 }
 
 /**

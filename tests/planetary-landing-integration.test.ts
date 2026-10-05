@@ -102,7 +102,8 @@ for (const bodyId of ['moon', 'mars'] as const) test(`T_${bodyId.toUpperCase()}_
       assert.ok(motion.radialSpeedMps < .1, `capture must not bounce outwards: ${motion.radialSpeedMps}`);
       assert.ok(f.travelDomain.state!.positionM.every(Number.isFinite));
       assert.ok(f.travelDomain.state!.velocityMps.every(Number.isFinite));
-      if (motion.relativeSpeedMps < 1 && Math.abs(f.game.surfaceClearanceM(bodyId) - waitingHeight) < 10) holdFrames++;
+      if (f.interplanetary.getTelemetry().phase === 'landing-hold' && motion.relativeSpeedMps < 1
+        && Math.abs(f.game.surfaceClearanceM(bodyId) - waitingHeight) < 10) holdFrames++;
       if (holdFrames >= 60) break;
     }
     assert.ok(holdFrames >= 60, 'capture must hold close with almost zero body-relative speed while patch is missing');

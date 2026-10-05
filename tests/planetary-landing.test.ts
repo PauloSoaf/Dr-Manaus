@@ -28,6 +28,21 @@ const finite = (v: Vec3) => assert.ok(v.every(Number.isFinite), `finite vector r
 const moon = (over: Partial<LandingBody> = {}): LandingBody =>
   ({ id: 'moon', canLand: true, clearanceM: 100_000, radiusM: RADIUS, ...over });
 
+test('T_LANDING_APPROACH_ENTERS_HOLD_WHILE_PATCH_MISSING', () => {
+  for (const fps of FPS) {
+    const velocity: [number, number, number] = [-8000, 0, 0];
+    let clearance = 15_000, phase: 'capture' | 'hold' = 'capture';
+    for (let frame = 0; frame < fps * 30; frame++) {
+      phase = landingCaptureStep(velocity, [RADIUS + clearance, 0, 0], clearance,
+        false, RETURN_ALTITUDE, 1 / fps).phase;
+      clearance += velocity[0] / fps;
+    }
+    assert.equal(phase, 'hold', `approach at ${fps} FPS must actually enter the waiting phase`);
+    assert.ok(Math.abs(clearance - landingHoldClearanceM(false, RETURN_ALTITUDE)) < .1);
+    assert.ok(Math.hypot(...velocity) < 1e-6);
+  }
+});
+
 test('T_LANDING_CANDIDATE_LOCKED_MOON', () => {
   const earth: LandingBody = { id: 'earth', canLand: true, clearanceM: 50_000, radiusM: 6_378_137 };
   assert.deepEqual(resolveLandingCandidate([earth, moon()], 'earth', 'moon'), { ok: true, bodyId: 'moon' });
