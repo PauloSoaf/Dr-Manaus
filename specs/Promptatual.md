@@ -14,6 +14,7 @@ Contrato implementado, matriz dos 19 corpos, limiares, schema, testes e resultad
 [`17-status-CELESTIAL-IMPACT-POLICY.md`](../docs/world/17-status-CELESTIAL-IMPACT-POLICY.md).
 Typecheck/build/diff PASS; focados 286/286; completos 777/777; browser espacial e local PASS,
 zero erros. O browser preserva Lua/Marte F e verifica os cinco casos C4 com eventos reais.
+GitHub Actions PASS no SHA exato `29220e2`; evidência no relatório canônico.
 **REQUIRES USER MANUAL VALIDATION. PARAR após C4.** Nenhuma destruição, VFX, edição
 de volume, fragmentação, nova biblioteca física ou avanço automático para C5/D0–D5.
 

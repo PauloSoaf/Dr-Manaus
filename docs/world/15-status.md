@@ -12,8 +12,8 @@ lastCelestialImpact and F3. All 19 bodies retain intact CCD and existing capabil
 Canonical schema, thresholds, all-body matrix, lifetime, limits and individual validation:
 [`17-status-CELESTIAL-IMPACT-POLICY.md`](17-status-CELESTIAL-IMPACT-POLICY.md).
 37 new tests; typecheck PASS, focused 286/286, full 777/777, build PASS, space browser PASS,
-local browser PASS (both zero errors), diff check PASS. GitHub Actions is recorded independently
-in the canonical status after push/check-runs inspection.
+local browser PASS (both zero errors), diff check PASS. GitHub Actions PASS on the exact
+implementation/browser checkpoint `29220e2`; its check-run link is in the canonical status.
 **Manual validation remains required. Stop after C4; no destruction, volume edits or VFX.**
 
 ## PLANET-FLIGHT-LANDING-1.1 — 2026-10-04

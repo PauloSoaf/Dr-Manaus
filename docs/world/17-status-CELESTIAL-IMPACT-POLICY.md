@@ -4,6 +4,12 @@
 branch `feat/universe-map`. The latest user attachment accepts PLANET-FLIGHT-LANDING-1.1
 for progression and authorizes C4 only, with documentation, commits and push.
 
+Implementation/test commits: `513381cc745f38f30ae02dedd3c364860427ae11`
+(`feat(travel): classify and emit celestial impact events`) and
+`29220e2a0772b331f8f825335d8f34b152b3de2d`
+(`test(impact): verify browser safety and document C4`). The concluding documentation
+commit records the inspected CI result below without changing source, tests or browser code.
+
 ## Authorities and movement
 
 The audited incoming pipeline was Game input → CosmicCruiseController → earliest analytic
@@ -178,7 +184,13 @@ release hysteresis, stale-contact clearing, all 19 profiles and unchanged volume
 | Space browser | PASS, five C4 cases plus existing Moon/Mars/control/navigation flows; zero errors |
 | Local browser | PASS, city/local controls/departure/orbit/reentry; zero errors |
 | Diff check | PASS |
-| GitHub Actions | Pending push and check-runs inspection |
+| GitHub Actions | PASS on `29220e2a0772b331f8f825335d8f34b152b3de2d`; check-run completed/success |
+
+CI evidence: [Unit, types and build](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/37325750351/job/111815932281).
+The Checks API confirms the exact pushed SHA; unit tests, typecheck and production build
+completed successfully. Browser checks are separate local runs, not part of that workflow.
+The final documentation-only push is checked again and its exact SHA/outcome is reported
+in the completion reply; no runtime validation is inferred from legacy commit statuses.
 
 The space smoke retains the full real-input Moon F hold → actual critical tiles → Falling
 → terrain CCD → Grounded → walk/jump/takeoff, and shortened Mars flow. Added deterministic
