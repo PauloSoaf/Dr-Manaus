@@ -1178,6 +1178,7 @@ export class Game {
   private hudFlight(){
     const telemetry=this.flightTelemetry ?? this.interplanetary.getTelemetry();
     const target=this.resolveNavigationTarget();
+    const local=this.travelDomain.localPhysicsActive;
     const position=this.universe.playerSystemPositionM();
     const velocity=this.travelDomain.state?.velocityMps ?? this.universe.systemVelocityMps();
     const dx=target ? target.positionM[0]-position[0] : 0,dy=target ? target.positionM[1]-position[1] : 0,
@@ -1191,7 +1192,8 @@ export class Game {
       ? CELESTIAL_LABEL_NAMES[target.bodyId] ?? this.universe.activeSystem.bodies.find(b=>b.id===target.bodyId)?.name
       : undefined;
     return {
-      phase:this.interplanetary.autopilot.phase==='arrived' ? 'arrived' : telemetry.targetBodyId===target?.bodyId ? telemetry.phase : 'idle',
+      phase:local ? target?.bodyId===this.universe.telemetry.dominantBody ? 'arrived' : 'idle'
+        :this.interplanetary.autopilot.phase==='arrived' ? 'arrived' : telemetry.targetBodyId===target?.bodyId ? telemetry.phase : 'idle',
       speedMps:telemetry.speedMps,
       accelerationMps2:telemetry.accelerationMps2,
       targetBodyId:target?.bodyId,
@@ -1293,7 +1295,8 @@ export class Game {
     const gate=this.travelDomain.landingGate;
     const missing=readiness?.landingPrefetchKeys.length?readiness.landingPrefetchMissingKeys.length:readiness?.landingMissingKeys.length??0;
     return {intentBodyId:this.landingIntent.bodyId,
-      phase:telemetry.phase==='landing-hold'?'hold' as const:telemetry.phase==='landing-capture'?'capture' as const:'idle' as const,
+      phase:this.travelDomain.localPhysicsActive?'idle' as const
+        :telemetry.phase==='landing-hold'?'hold' as const:telemetry.phase==='landing-capture'?'capture' as const:'idle' as const,
       bodyId:id,clearanceM:this.clearanceOrSphereM(id),relativeSpeedMps:motion.relativeSpeedMps,radialSpeedMps:motion.radialSpeedMps,
       tangentialSpeedMps:motion.tangentialSpeedMps,surfaceMode:provider?.presentationMode??'off',fallbackReady:readiness?.fallbackReady??false,
       requiredTiles:readiness?.landingPrefetchKeys.length||readiness?.landingRequiredKeys.length||0,missingLandingTiles:missing,

@@ -125,6 +125,8 @@ for (const bodyId of ['moon', 'mars'] as const) test(`T_${bodyId.toUpperCase()}_
     const before = f.universe.playerSystemPositionM();
     f.game.finishSurfaceReturn(bodyId);
     assert.equal(f.game.landingIntent.active, false);
+    assert.equal(f.game.landingState.phase, 'idle', 'completed landing cannot keep reporting a pending capture');
+    assert.equal(f.game.hudFlight().phase, 'arrived', 'local destination cannot show a stale surface-loading hold');
     assert.equal(f.universe.player.frame, `${bodyId}/local-enu`);
     assert.equal(f.game.surfacePhysicsState.domain, bodyId);
     assert.ok(f.game.surfaceTerrains.get(bodyId) instanceof PlanetTerrainProvider);
