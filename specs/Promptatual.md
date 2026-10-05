@@ -1,6 +1,23 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — PLANET-FLIGHT-LANDING-1.1 (2026-10-04)
+## Checkpoint atual — C4 / CELESTIAL IMPACT POLICY (2026-10-05)
+
+O último anexo aceita PLANET-FLIGHT-LANDING-1.1 no HEAD
+`9083c8e53936ed71a45b7a6da75acc3d2965ff2d` para progressão e autoriza **somente C4**.
+Contrato: CCD → contato com fatos anteriores à resposta → política pura → evento transitório
+→ consumidor. Classificar com velocidade relativa ao corpo atingido, separar direto/raspão,
+proteger o mesmo alvo com piloto ativo ou intenção F e emitir uma vez por episódio físico.
+Lock manual não impede impacto catastrófico direto ≥1c. Preservar CCD, pouso e streaming.
+Documentação, commit e push continuam autorizados.
+
+Contrato implementado, matriz dos 19 corpos, limiares, schema, testes e resultados individuais:
+[`17-status-CELESTIAL-IMPACT-POLICY.md`](../docs/world/17-status-CELESTIAL-IMPACT-POLICY.md).
+Typecheck/build/diff PASS; focados 286/286; completos 777/777; browser espacial e local PASS,
+zero erros. O browser preserva Lua/Marte F e verifica os cinco casos C4 com eventos reais.
+**REQUIRES USER MANUAL VALIDATION. PARAR após C4.** Nenhuma destruição, VFX, edição
+de volume, fragmentação, nova biblioteca física ou avanço automático para C5/D0–D5.
+
+## Checkpoint anterior — PLANET-FLIGHT-LANDING-1.1 (2026-10-04, aceito para progressão)
 
 O anexo mais recente congela `42a930a8fb5eaa9d4c0f00b3ef198046a495e7bc` e autoriza
 somente estabilização: restaurar Shift cósmico e Shift+Tab, manter B local/B Warp,
@@ -16,7 +33,7 @@ ainda é necessária antes de qualquer avanço.
 
 Contrato e resultados finais individuais:
 [`16-status-PLANET-FLIGHT-LANDING-1.md`](../docs/world/16-status-PLANET-FLIGHT-LANDING-1.md).
-**REQUIRES USER MANUAL VALIDATION. PARAR após 1.1; não iniciar Sprint C4/IMPACT-POLICY.**
+A parada histórica de 1.1 foi substituída pela autorização C4 acima.
 
 ## Checkpoint anterior — NAV-LOCK-1 (2026-10-03)
 

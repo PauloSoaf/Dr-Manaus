@@ -32,6 +32,17 @@ logical sweep
 
 ## Sprint C4 — impact event model
 
+Implemented C4 contract (2026-10-05):
+[`17-status-CELESTIAL-IMPACT-POLICY.md`](../../docs/world/17-status-CELESTIAL-IMPACT-POLICY.md).
+This supersedes the suggested C4 fields/tiers below: events include inward radial speed,
+tangential speed, radial fraction, incidence angle, landing intent, unique ID and contact time.
+Policy is pure; Game supplies context and drains CelestialImpactService once per step.
+Minor ≥120 m/s, major ≥8000 m/s, catastrophic ≥1c with inward fraction ≥0.5; graze fraction
+≤0.1 wins before severity. Same-body F or lock+active autopilot is SAFE_CAPTURE; lock alone
+does not protect. Release is geometric with max(10 m, radius×1e-6) hysteresis. Detection,
+temporary inelastic response and classification remain separate. Events do not execute
+any destruction stage described later in this roadmap. Stop after C4/manual gate.
+
 Introduce a pure `CelestialImpactEvent`.
 
 Suggested fields:

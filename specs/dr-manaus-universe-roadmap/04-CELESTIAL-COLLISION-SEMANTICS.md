@@ -139,6 +139,11 @@ Phase 5/6 must define exclusive coverage ownership.
 
 ## 8. Collision response modes
 
+C4 implementation separates `ContactResponseMode` (existing inelastic graze/capture) from
+`CelestialImpactClassification` (SAFE_CAPTURE/GRAZE/MINOR/MAJOR/CATASTROPHIC). The modes
+below remain future semantic suggestions, not implemented physical consequences.
+See [canonical C4 status](../../docs/world/17-status-CELESTIAL-IMPACT-POLICY.md).
+
 Define response separately from detection.
 
 Suggested enum:

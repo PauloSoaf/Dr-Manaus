@@ -622,6 +622,67 @@ try {
   assert.deepEqual(coastAfter,coast.before);
   results.navigationCancel=coast;
   console.log('NAV-LOCK-1 Jupiter: outside exclusion, no local ground, keyboard cancellation preserves momentum.');
+
+  // C4 fixtures feed the real Game step and analytic CCD. They never fabricate an event,
+  // alter a body/provider, or bypass the policy. Existing asynchronous Moon/Mars F flows above
+  // remain the proof of hold, actual critical loads, handoff and local terrain contact.
+  results.celestialImpacts=[];
+  for(const fixture of [{id:'moon',mode:'pilot'},{id:'moon',mode:'landing'},
+    {id:'earth',mode:'manual'},{id:'jupiter',mode:'manual'},{id:'sun',mode:'manual'}]) {
+    const result=await page.evaluate(({id,mode})=>{
+      const g=window.__DR_MANAUS__,u=g.universe,dt=1/120;
+      g.clearNavigationTarget();g.landingIntent.cancel();g.warpStep=0;
+      // Capture the production envelope list rather than reconstructing radii in this script.
+      const original=g.interplanetary.update;let envelopes;
+      g.interplanetary.update=function(...args){envelopes=args[3].exclusionEnvelopes;return original.apply(this,args);};
+      try {g.updateInterplanetaryFlight(0);} finally {g.interplanetary.update=original;}
+      const envelope=envelopes.find(e=>e.bodyId===id),body=u.activeSystem.bodies.find(b=>b.id===id),
+        centre=u.activeSystem.positionOf(id),orbital=u.activeSystem.stateOf(id).velocityMps,
+        speed=mode==='manual'?299792458*1.001:299792458*256,
+        position=[centre[0],centre[1]+envelope.radiusM+1000,centre[2]],
+        velocity=[orbital[0],orbital[1]-speed,orbital[2]];
+      g.celestialImpacts.clear();g.lastCelestialImpact=undefined;
+      const beforeCount=g.celestialImpacts.emittedCount,catalog=JSON.stringify(u.activeSystem.bodies),
+        volumeBefore={...u.volume.metrics},providersBefore=g.planetProviders.size;
+      g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:velocity,referenceBodyId:id});
+      u.updateSystemPose(position,velocity,0);g.player.position.set(0,0,0);g.player.velocity.set(0,0,0);
+      if(mode!=='manual') {
+        g.selectNavigationTarget(id,'reticle');
+        const code=mode==='pilot'?'KeyP':'KeyF',key=mode==='pilot'?'p':'f';
+        window.dispatchEvent(new KeyboardEvent('keydown',{code,key,bubbles:true}));
+        window.dispatchEvent(new KeyboardEvent('keyup',{code,key,bubbles:true}));
+      }
+      g.warpStep=mode==='manual'?0:9;
+      g.updateTravelDomain(dt);g.updateInterplanetaryFlight(dt);
+      const event=g.lastCelestialImpact,contact=g.interplanetary.lastCelestialContact;
+      const atContact=[...g.travelDomain.state.positionM],finalCentre=u.activeSystem.positionOf(id);
+      for(let i=0;i<120;i++)g.updateInterplanetaryFlight(dt);
+      return {id,mode,event,contact,count:g.celestialImpacts.emittedCount-beforeCount,
+        distance:Math.hypot(...atContact.map((v,i)=>v-finalCentre[i])),radius:envelope.radiusM,
+        onEntrySide:atContact[1]>finalCentre[1],catalogUnchanged:JSON.stringify(u.activeSystem.bodies)===catalog,
+        bodyPresent:u.activeSystem.bodies.includes(body),volumeBefore,volumeAfter:{...u.volume.metrics},
+        providersBefore,providersAfter:g.planetProviders.size,physics:g.surfacePhysicsState};
+    },fixture);
+    assert.ok(result.event,`${fixture.id}/${fixture.mode}: actual CCD event required`);
+    assert.equal(result.event.classification,fixture.mode==='manual'?'CATASTROPHIC_IMPACT':'SAFE_CAPTURE');
+    assert.equal(result.count,1,'one event for the whole contact episode');
+    assert.ok(result.onEntrySide&&result.distance>=result.radius-.1,'CCD keeps entry side and intact envelope');
+    assert.ok(result.catalogUnchanged&&result.bodyPresent,'C4 never mutates/destroys catalog bodies');
+    assert.deepEqual(result.volumeAfter,result.volumeBefore,'impact never allocates or edits volume');
+    assert.equal(result.providersAfter,result.providersBefore);
+    if(fixture.id==='jupiter'||fixture.id==='sun') {
+      assert.equal(result.event.bodyClass,fixture.id==='jupiter'?'gas-giant':'star');
+      assert.equal(result.event.contactBodyFixedM,undefined);
+      assert.equal(result.physics.domain,'space');
+    }
+    results.celestialImpacts.push(result);
+  }
+  await page.keyboard.press('F3');
+  await page.waitForFunction(()=>document.querySelector('#debug-metrics').textContent.includes('IMPACTO CELESTE')
+    &&document.querySelector('#debug-metrics').textContent.includes('CATASTROPHIC_IMPACT'),null,{timeout:15000});
+  results.impactDebug=await page.locator('#debug-metrics').innerText();
+  await page.keyboard.press('F3');
+  console.log('C4 Moon P/F SAFE_CAPTURE; Earth/Jupiter/Sun catastrophic exactly once; CCD/intact bodies/no volume and F3 passed.');
   assert.equal(errors.length,0,errors.join('\n'));
   results.errors=errors;
   await writeFile('artifacts/space-hardening-browser.json',JSON.stringify(results,null,2));

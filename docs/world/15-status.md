@@ -1,5 +1,21 @@
 # Planetary architecture — implementation status
 
+## C4 — CELESTIAL IMPACT POLICY — 2026-10-05
+
+Current checkpoint: event/policy only, based on accepted `9083c8e53936ed71a45b7a6da75acc3d2965ff2d`.
+CCD now supplies pre-response velocities/normal/envelope; a pure body-relative policy classifies
+SAFE_CAPTURE, GRAZE, MINOR, MAJOR or CATASTROPHIC. Direct ≥1c can be catastrophic; same-body
+active autopilot or F landing intent stays safe; lock alone remains manual. Physical episode
+latches with release hysteresis prevent duplicate events. Game drains a transient queue into
+lastCelestialImpact and F3. All 19 bodies retain intact CCD and existing capabilities.
+
+Canonical schema, thresholds, all-body matrix, lifetime, limits and individual validation:
+[`17-status-CELESTIAL-IMPACT-POLICY.md`](17-status-CELESTIAL-IMPACT-POLICY.md).
+37 new tests; typecheck PASS, focused 286/286, full 777/777, build PASS, space browser PASS,
+local browser PASS (both zero errors), diff check PASS. GitHub Actions is recorded independently
+in the canonical status after push/check-runs inspection.
+**Manual validation remains required. Stop after C4; no destruction, volume edits or VFX.**
+
 ## PLANET-FLIGHT-LANDING-1.1 — 2026-10-04
 
 Current checkpoint: stabilization only, based on `42a930a8fb5eaa9d4c0f00b3ef198046a495e7bc`.
@@ -18,7 +34,7 @@ browser space PASS, browser local PASS (both zero console/page errors), diff che
 The space smoke verifies actual F cancellation/capture/hold/readiness and terrain contact
 for Moon and Mars, local tiers/departure and cosmic controls; both landed HUDs say CHEGADA.
 The historical 689/689 claim is superseded by this fresh run; it is not proof for this tree.
-Manual Earth/space/Moon/Mars validation remains required. **Stop before Sprint C4.**
+Historical 1.1 stop gate: the latest user attachment accepts progression to C4 above.
 
 ## NAV-LOCK-1 — 2026-10-03
 
