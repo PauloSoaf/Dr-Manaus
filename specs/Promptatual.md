@@ -1,6 +1,24 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — NAV-LOCK-1 (2026-10-03)
+## Checkpoint atual — PLANET-FLIGHT-LANDING-1.1 (2026-10-04)
+
+O anexo mais recente congela `42a930a8fb5eaa9d4c0f00b3ef198046a495e7bc` e autoriza
+somente estabilização: restaurar Shift cósmico e Shift+Tab, manter B local/B Warp,
+validar captura inelástica e prefetch, testar o fluxo F no browser e remover scratch.
+Preservar PlanetaryLandingIntent, capture/hold, CCD e tiers locais explícitos.
+Documentar, commit e push continuam autorizados por checkpoint.
+
+Implementado e validado: Shift espacial e ciclo reverso restaurados, ETA crítico atualizado,
+hold concluído dentro de 5 cm, HUD encerrando captura após handoff e scratch removido.
+Typecheck/build/diff PASS; focados 248/248; completos 740/740; browser espacial e local PASS
+com zero erros. Os smokes percorrem controles reais e pouso F na Lua/Marte; validação humana
+ainda é necessária antes de qualquer avanço.
+
+Contrato e resultados finais individuais:
+[`16-status-PLANET-FLIGHT-LANDING-1.md`](../docs/world/16-status-PLANET-FLIGHT-LANDING-1.md).
+**REQUIRES USER MANUAL VALIDATION. PARAR após 1.1; não iniciar Sprint C4/IMPACT-POLICY.**
+
+## Checkpoint anterior — NAV-LOCK-1 (2026-10-03)
 
 O usuário aceitou manualmente C0 no HEAD **`386c531a450ab6770b9da454267081f0501989b9`**:
 pouso lento na Lua, colisão de alta velocidade sem atravessar e interceptação celestial.

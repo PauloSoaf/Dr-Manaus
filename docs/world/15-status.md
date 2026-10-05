@@ -1,5 +1,25 @@
 # Planetary architecture — implementation status
 
+## PLANET-FLIGHT-LANDING-1.1 — 2026-10-04
+
+Current checkpoint: stabilization only, based on `42a930a8fb5eaa9d4c0f00b3ef198046a495e7bc`.
+Space Shift again owns cosmic boost, animation and reverse target cycling; space B only steps
+Warp. Local B and explicit V/repress tiers are preserved. Capture now reaches hold within
+5 cm and the HUD clears the captured/waiting phase after local handoff. Dedicated input,
+capture and streaming regressions include all 42 required names and 51 new tests.
+The baseline's missing F3 references were also caught by typecheck and corrected.
+Scratch patches, an intermediate failure dump and a machine-specific workspace were removed.
+Deleted iteration records have no live Markdown links requiring restoration.
+
+Canonical controls, evidence, individual validation results and manual checklist:
+[`16-status-PLANET-FLIGHT-LANDING-1.md`](16-status-PLANET-FLIGHT-LANDING-1.md).
+Final-tree validation: typecheck PASS, focused **248/248**, full **740/740**, build PASS,
+browser space PASS, browser local PASS (both zero console/page errors), diff check PASS.
+The space smoke verifies actual F cancellation/capture/hold/readiness and terrain contact
+for Moon and Mars, local tiers/departure and cosmic controls; both landed HUDs say CHEGADA.
+The historical 689/689 claim is superseded by this fresh run; it is not proof for this tree.
+Manual Earth/space/Moon/Mars validation remains required. **Stop before Sprint C4.**
+
 ## NAV-LOCK-1 — 2026-10-03
 
 Initial HEAD: **`386c531a450ab6770b9da454267081f0501989b9`**, branch `feat/universe-map`.

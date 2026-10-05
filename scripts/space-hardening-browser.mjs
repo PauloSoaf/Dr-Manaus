@@ -85,6 +85,71 @@ try {
   console.log('Desktop map layout, canvas and DPR passed.');
   console.log('SOLAR-12 live map focus, all nine moon targets, canvas selection and unchanged provider count passed.');
 
+  // PLANET-FLIGHT-LANDING-1.1: depart from the actual Manaus spawn with real input.
+  // Retain transient tiers between browser polls; this wrapper never changes the simulation.
+  await page.evaluate(()=>{
+    const g=window.__DR_MANAUS__,update=g.player.update.bind(g.player);
+    window.__DR_LOCAL_TIERS__=[];
+    g.player.update=(...args)=>{
+      const value=update(...args),trace=window.__DR_LOCAL_TIERS__;
+      if(trace.at(-1)?.tier!==g.player.speedMode) trace.push({tier:g.player.speedMode,
+        altitude:g.player.position.y,armed:g.player.armed,domain:g.travelDomain.kind});
+      return value;
+    };
+    const cosmic=g.interplanetary.update.bind(g.interplanetary);
+    window.__DR_COSMIC_INPUTS__=[];
+    g.interplanetary.update=(...args)=>{
+      const value=cosmic(...args),context=args[3],trace=window.__DR_COSMIC_INPUTS__;
+      trace.push({boost:context.inputBoost,warp:context.warpStep,thrust:args[2].length(),
+        w:g.input.held('KeyW'),shift:g.input.held('ShiftLeft')||g.input.held('ShiftRight'),b:g.input.held('KeyB'),
+        velocity:[...value.velocityMps],phase:g.interplanetary.getTelemetry().phase,
+        landing:context.landingIntent?{...g.landingState}:undefined});
+      if(trace.length>4000)trace.shift();
+      return value;
+    };
+    g.camera.pitch=-1.1;
+  });
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.manausSimulationActive),true);
+  await page.keyboard.press('f');
+  await page.keyboard.down('Space');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.position.y>100,null,{timeout:60000});
+  await page.keyboard.up('Space');
+  await page.keyboard.down('w');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.speedMode==='normal',null,{timeout:15000});
+  await page.keyboard.down('ShiftLeft');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.speedMode==='fast',null,{timeout:15000});
+  await page.keyboard.up('ShiftLeft');
+  await page.keyboard.down('b');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.speedMode==='super',null,{timeout:15000});
+  await page.keyboard.press('v');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.armWaitingForBoostRelease,null,{timeout:15000});
+  await page.keyboard.up('b');
+  await page.waitForFunction(()=>!window.__DR_MANAUS__.player.armWaitingForBoostRelease,null,{timeout:15000});
+  await page.keyboard.down('b');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.speedMode==='mega',null,{timeout:15000});
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.position.y>10000,null,{timeout:90000});
+  await page.keyboard.up('b');
+  await page.keyboard.up('w');
+  // The first press disarms the existing Mega; the following two presses arm Interplanetary.
+  await page.keyboard.press('v');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.armed==='none',null,{timeout:15000});
+  await page.keyboard.press('v');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.armed==='mega',null,{timeout:15000});
+  await page.keyboard.press('v');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.player.armed==='interplanetary',null,{timeout:15000});
+  await page.keyboard.down('w');
+  await page.keyboard.down('b');
+  await page.waitForFunction(()=>!window.__DR_MANAUS__.travelDomain.localPhysicsActive,null,{timeout:30000});
+  await page.keyboard.up('b');
+  await page.keyboard.up('w');
+  results.localDeparture=await page.evaluate(()=>({tiers:window.__DR_LOCAL_TIERS__,domain:window.__DR_MANAUS__.travelDomain.kind,
+    body:window.__DR_MANAUS__.universe.telemetry.dominantBody,armed:window.__DR_MANAUS__.player.armed}));
+  for(const tier of ['normal','fast','super','mega'])assert.ok(results.localDeparture.tiers.some(t=>t.tier===tier),tier);
+  assert.equal(results.localDeparture.armed,'interplanetary');
+  assert.equal(results.localDeparture.domain,'interplanetary');
+  assert.equal(results.localDeparture.body,'earth');
+  console.log('PLANET-FLIGHT-LANDING-1.1 real Manaus F/W/Shift/B/V departure passed.');
+
   // A distant system pose exercises automatic level choice and real quaternion input.
   await page.evaluate(()=>{
     const g=window.__DR_MANAUS__,u=g.universe,p=u.activeSystem.positionOf('earth');
@@ -114,6 +179,71 @@ try {
   assert.ok(camera.turned>2 && camera.finite && Math.abs(camera.rightDotUp)<1e-10 && Math.abs(camera.forwardDotRight)<1e-10);
   results.spaceCamera=camera;
   console.log('Space quaternion input and automatic System level passed.');
+
+  // A distant observer keeps several real bodies in the 15-degree reticle cone. Cycling
+  // assertions compare actual keyboard transitions, rather than replacing the candidate list.
+  await page.evaluate(()=>{
+    const g=window.__DR_MANAUS__,u=g.universe,position=[0,0,30_000_000_000_000],velocity=[0,0,0];
+    g.clearNavigationTarget();g.interplanetary.autopilot.cancel();
+    g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:velocity,referenceBodyId:'sun'});
+    u.updateSystemPose(position,velocity,0);
+    const render=u.frames.convertDirection('solar-system/barycentric',u.renderSpace.currentOrigin.frame,[0,0,-1]);
+    const c=g.rendering.camera,V=c.position.constructor;
+    c.lookAt(c.position.clone().add(new V(...render).normalize()));c.updateMatrixWorld();
+    g.camera.inSpace=true;g.camera.wasInSpace=true;g.camera.spaceOrientation.copy(c.quaternion);
+    g.camera.lookPrepared=false;
+    Object.assign(g.input.mouseDelta,{x:0,y:0});g.camera.prepareLook();
+    window.__DR_COSMIC_INPUTS__=[];
+  });
+  await page.waitForFunction(()=>{
+    const g=window.__DR_MANAUS__,view=g.rendering.camera.getWorldDirection(g.player.position.clone());
+    const bary=g.universe.frames.convertDirection(g.universe.renderSpace.currentOrigin.frame,
+      'solar-system/barycentric',view.toArray());
+    return g.input.enabled&&g.celestialController.renderSamples.length>0&&bary[2]<-.99;
+  },null,{timeout:15000});
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(()=>!!window.__DR_MANAUS__.navigationLock,null,{timeout:15000});
+  const firstTarget=await page.evaluate(()=>window.__DR_MANAUS__.navigationLock.bodyId);
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(first=>window.__DR_MANAUS__.navigationLock?.bodyId!==first,firstTarget,{timeout:15000});
+  const secondTarget=await page.evaluate(()=>window.__DR_MANAUS__.navigationLock.bodyId);
+  // Keep the modifier held until Game consumes Tab. A combined press/release can finish
+  // between two software-rendered frames, leaving a Tab edge with Shift already released.
+  await page.keyboard.down('ShiftLeft');
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(first=>window.__DR_MANAUS__.navigationLock?.bodyId===first,firstTarget,{timeout:15000});
+  await page.keyboard.up('ShiftLeft');
+  await page.keyboard.down('b');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.warpStep===1,null,{timeout:15000});
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(second=>window.__DR_MANAUS__.navigationLock?.bodyId===second,secondTarget,{timeout:15000});
+  await page.keyboard.up('b');
+  await page.keyboard.press('Tab');
+  await page.waitForFunction(second=>window.__DR_MANAUS__.navigationLock?.bodyId!==second,secondTarget,{timeout:15000});
+  const thirdTarget=await page.evaluate(()=>window.__DR_MANAUS__.navigationLock.bodyId);
+  assert.notEqual(thirdTarget,firstTarget,'at least three real candidates make reverse cycling distinguishable');
+  results.spaceTargetCycle={firstTarget,secondTarget,thirdTarget,shiftTab:firstTarget,bTab:secondTarget};
+  const bOnly=await page.evaluate(()=>window.__DR_COSMIC_INPUTS__.filter(t=>t.b&&!t.w&&!t.shift));
+  assert.ok(bOnly.length>0&&bOnly.every(t=>!t.boost&&t.thrust===0),'B is only Warp without movement');
+  assert.ok(bOnly.every(t=>Math.hypot(...t.velocity)<1e-8),'holding B cannot synthesize thrust');
+  await page.keyboard.down('x');
+  await page.waitForFunction(()=>window.__DR_MANAUS__.warpStep===0,null,{timeout:15000});
+  await page.keyboard.up('x');
+  await page.keyboard.down('ShiftLeft');
+  await page.waitForFunction(()=>window.__DR_COSMIC_INPUTS__.some(t=>t.shift&&!t.w&&!t.b),null,{timeout:15000});
+  await page.keyboard.down('w');
+  await page.waitForFunction(()=>window.__DR_COSMIC_INPUTS__.some(t=>t.shift&&t.w&&t.boost&&t.phase==='acceleration'),null,{timeout:15000});
+  await page.keyboard.up('ShiftLeft');
+  await page.waitForFunction(()=>window.__DR_COSMIC_INPUTS__.some(t=>t.w&&!t.shift&&!t.b&&!t.boost&&t.thrust>.99),null,{timeout:15000});
+  await page.keyboard.up('w');
+  const controls=await page.evaluate(()=>window.__DR_COSMIC_INPUTS__);
+  const shiftOnly=controls.filter(t=>t.shift&&!t.w&&!t.b);
+  assert.ok(shiftOnly.length>0&&shiftOnly.every(t=>!t.boost&&t.thrust===0),'Shift is a modifier, not W');
+  results.spaceControlInputs={bOnly,shiftOnly,shiftW:controls.find(t=>t.shift&&t.w&&t.boost&&t.phase==='acceleration'),
+    wOnly:controls.find(t=>t.w&&!t.shift&&!t.b&&!t.boost&&t.thrust>.99)};
+  await page.keyboard.press('Backspace');
+  await page.waitForFunction(()=>!window.__DR_MANAUS__.navigationLock,null,{timeout:15000});
+  console.log('SPACE Shift boost/W intent, B Warp only, X, Tab, Shift+Tab and B+Tab passed.');
 
   results.majorMoonApproaches={};
   for(const id of ['europa','titan','triton']) {
@@ -147,6 +277,126 @@ try {
   }
   console.log('SOLAR-12 Europa/Titan/Triton production-render approaches remained bounded without terrain providers.');
 
+  // Delay real high-resolution tile promises, never readiness or the scheduler. The cold
+  // touchdown patch must keep capture in space until its actual meshes are activated.
+  async function delayLandingTiles(id) {
+    await page.evaluate(id=>{
+      const g=window.__DR_MANAUS__,provider=g.planetProviders.get(id),load=provider.load.bind(provider),
+        readiness=provider.readiness.bind(provider);
+      const fixture={released:false,pending:[],loads:[],readiness:[],capture:[]};
+      window.__DR_LANDING_FIXTURES__??={};window.__DR_LANDING_FIXTURES__[id]=fixture;
+      provider.load=demand=>{
+        if(demand.key.level<8||fixture.released)return load(demand);
+        fixture.loads.push({key:{...demand.key},critical:demand.gameplayCritical,eta:demand.timeToContactS});
+        return new Promise(resolve=>fixture.pending.push(()=>resolve(load(demand))));
+      };
+      provider.readiness=()=>{
+        const value=readiness();
+        if(value.landingPrefetchKeys.length) {
+          fixture.readiness.push({...value});
+          if(fixture.readiness.length>2000)fixture.readiness.shift();
+        }
+        return value;
+      };
+      const update=g.interplanetary.update.bind(g.interplanetary);
+      g.interplanetary.update=(...args)=>{
+        const value=update(...args),landing=args[3].landingIntent;
+        if(landing?.bodyId===id) {
+          const offset=value.positionM.map((v,i)=>v-landing.centreM[i]),length=Math.hypot(...offset),
+            relative=value.velocityMps.map((v,i)=>v-landing.velocityMps[i]);
+          fixture.capture.push({phase:g.interplanetary.getTelemetry().phase,clearanceM:landing.clearanceM,
+            speedMps:Math.hypot(...relative),radialMps:relative.reduce((sum,v,i)=>sum+v*offset[i]/length,0),
+            ready:landing.surfaceReady,warp:g.warpStep,autopilot:g.interplanetary.autopilot.active});
+        }
+        return value;
+      };
+    },id);
+  }
+  await delayLandingTiles('moon');
+
+  async function landWithF(id,direction) {
+    await page.keyboard.press('m');
+    await page.locator(`[data-body-target="${id}"]`).evaluate(button=>button.click());
+    await page.locator('#map-panel .close-panel').click();
+    await page.keyboard.press('b');
+    await page.waitForFunction(()=>window.__DR_MANAUS__.warpStep>0,null,{timeout:15000});
+    await page.keyboard.press('p');
+    await page.waitForFunction(()=>window.__DR_MANAUS__.interplanetary.autopilot.active,null,{timeout:15000});
+    const initial=await page.evaluate(({id,direction})=>{
+      const g=window.__DR_MANAUS__,u=g.universe,provider=g.planetProviders.get(id),body=provider.bodyDef;
+      const fixedFrame=u.activeSystem.bodies.find(candidate=>candidate.id===id).frameId;
+      const a=body.semiMajorAxisM,b=a*(1-body.flattening),radius=1/Math.sqrt(
+        (direction[0]**2+direction[1]**2)/(a*a)+direction[2]**2/(b*b));
+      const position=u.frames.convertPosition(fixedFrame,'solar-system/barycentric',
+        direction.map(v=>v*(radius+provider.surface.heightAt(direction)+1200)));
+      const orbital=u.activeSystem.stateOf(id).velocityMps,
+        incoming=u.frames.convertDirection(fixedFrame,'solar-system/barycentric',direction.map(v=>-8000*v)),
+        velocity=orbital.map((v,i)=>v+incoming[i]);
+      g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:velocity,referenceBodyId:id});
+      u.updateSystemPose(position,velocity,0);g.player.position.set(0,0,0);g.player.velocity.set(0,0,0);
+      g.surfaceReturnTrace=undefined;
+      // The same-frame event avoids spending 8 km/s while waiting for a browser round trip.
+      // It goes through InputController; the fixture never calls requestLanding or a handoff.
+      const before={speedMps:Math.hypot(...incoming),warp:g.warpStep,autopilot:g.interplanetary.autopilot.active,
+        lock:g.navigationLock?.bodyId,readiness:provider.readiness()};
+      window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyF',key:'f',bubbles:true}));
+      window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyF',key:'f',bubbles:true}));
+      return before;
+    },{id,direction});
+    assert.equal(initial.lock,id);assert.equal(initial.autopilot,true);assert.ok(initial.warp>0);
+    assert.ok(Math.abs(initial.speedMps-8000)<1e-6);
+    await page.waitForFunction(id=>{
+      const g=window.__DR_MANAUS__,f=window.__DR_LANDING_FIXTURES__[id];
+      return g.landingIntent.bodyId===id&&g.warpStep===0&&!g.interplanetary.autopilot.active
+        &&f.pending.length>0&&f.capture.filter(t=>t.phase==='landing-hold'&&t.speedMps<1).length>=10;
+    },id,{timeout:60000});
+    await page.keyboard.press('F3');
+    await page.waitForFunction(()=>document.querySelector('#debug-metrics').textContent.includes('Pouso'),null,{timeout:15000});
+    const held=await page.evaluate(id=>{
+      const g=window.__DR_MANAUS__,f=window.__DR_LANDING_FIXTURES__[id];
+      return {domain:g.travelDomain.kind,landing:g.landingState,capture:[...f.capture],loads:[...f.loads]};
+    },id);
+    assert.equal(held.domain,'interplanetary');assert.equal(held.landing.surfaceReady,false);
+    assert.ok(held.landing.missingLandingTiles>0);assert.ok(held.landing.fallbackReady);
+    assert.ok(held.landing.clearanceM>=0&&held.landing.clearanceM<2000,'hold stays near the real surface');
+    assert.ok(held.capture.every(t=>t.radialMps<=.001),'capture never reflects incoming motion outward');
+    assert.ok(held.capture.every(t=>t.warp===0&&!t.autopilot));
+    assert.ok(held.capture.at(-1).speedMps<1,'8 km/s is absorbed in the body frame');
+    const critical=held.loads.filter(t=>t.critical);
+    assert.ok(critical.length>0&&critical.every(t=>Number.isFinite(t.eta)));
+    const stationary=held.capture.filter(t=>t.phase==='landing-hold'&&t.speedMps<1).slice(-10);
+    assert.ok(Math.max(...stationary.map(t=>t.clearanceM))-Math.min(...stationary.map(t=>t.clearanceM))<1);
+    await page.screenshot({path:`artifacts/space-hardening-${id}-landing-hold.png`,timeout:90000});
+    await page.keyboard.press('F3');
+    await page.evaluate(id=>{
+      const f=window.__DR_LANDING_FIXTURES__[id];f.released=true;
+      for(const release of f.pending.splice(0))release();
+    },id);
+    await page.waitForFunction(id=>window.__DR_MANAUS__.surfacePhysicsState.domain===id,id,{timeout:90000});
+    const handoff=await page.evaluate(()=>window.__DR_MANAUS__.surfaceReturnTrace);
+    assert.equal(handoff.frameBefore,'solar-system/barycentric');assert.equal(handoff.frameAfter,`${id}/local-enu`);
+    assert.equal(handoff.firstLocalStep.state,'Falling');assert.ok(handoff.surfaceReady);
+    assert.ok(handoff.relativeSpeedMps<=120);assert.ok(handoff.firstLocalStep.position[1]>=handoff.firstLocalStep.terrainHeightM);
+    // No second F, injected local velocity, or direct terrain query moves the player here.
+    // The production player update falls under this body's gravity and contacts its terrain.
+    await page.waitForFunction(()=>window.__DR_MANAUS__.player.state==='Grounded',null,{timeout:240000});
+    await page.waitForFunction(()=>document.querySelector('#cruise-block > b').textContent==='CHEGADA',null,{timeout:15000});
+    const grounded=await page.evaluate(id=>{
+      const g=window.__DR_MANAUS__,f=window.__DR_LANDING_FIXTURES__[id];
+      return {physics:g.surfacePhysicsState,landing:g.moonLandingState,state:g.player.state,
+        position:g.player.position.toArray(),contact:!!g.player.lastTerrainContact,
+        readyPatch:f.readiness.find(r=>r.landingCoverageReady),hudPhase:g.hudFlight().phase,
+        capturePhase:g.landingState.phase};
+    },id);
+    assert.equal(grounded.state,'Grounded');assert.equal(grounded.physics.frame,`${id}/local-enu`);
+    assert.equal(grounded.hudPhase,'arrived');assert.equal(grounded.capturePhase,'idle');
+    assert.ok(grounded.readyPatch?.fallbackReady);assert.ok(grounded.readyPatch.landingPrefetchKeys.length<=5);
+    assert.equal(grounded.readyPatch.landingPrefetchMissingKeys.length,0);assert.ok(grounded.contact);
+    results[`${id}FSpaceLanding`]={initial,held,handoff,grounded};
+    console.log(`${id}: real F cancels Warp/autopilot, absorbs 8 km/s, holds missing patch, then Falling/terrain CCD/Grounded.`);
+    return grounded;
+  }
+
   await page.evaluate(()=>{
     const g=window.__DR_MANAUS__,u=g.universe,m=g.moon;
     const sun=u.frames.convertPosition('solar-system/barycentric','moon/fixed',u.activeSystem.positionOf('sun'));
@@ -174,43 +424,7 @@ try {
   assert.ok(results.moonOrbitalOwnership.globeVisible&&results.moonOrbitalOwnership.fallback&&!results.moonOrbitalOwnership.proxyVisible);
   console.log('One complete physical Moon owns orbital rendering.');
 
-  // Put the incoming state over the measured terrain, stream through the existing scheduler,
-  // and let Game.tick decide the return. No direct handoff or alternate Moon physics.
-  const unsafeMoonGate=await page.evaluate(()=>{
-    const g=window.__DR_MANAUS__,u=g.universe,m=g.moon;
-    const direction=window.__DR_MOON_LANDING_DIRECTION__;
-    const height=m.surface.heightAt(direction),a=m.bodyDef.semiMajorAxisM,b=a*(1-m.bodyDef.flattening);
-    const radius=1/Math.sqrt((direction[0]**2+direction[1]**2)/(a*a)+direction[2]**2/(b*b));
-    const fixed=direction.map(v=>v*(radius+height+400));
-    const position=u.frames.convertPosition('moon/fixed','solar-system/barycentric',fixed);
-    const orbital=u.activeSystem.stateOf('moon').velocityMps;
-    const inward=u.frames.convertDirection('moon/fixed','solar-system/barycentric',direction.map(v=>v*-10000));
-    const velocity=orbital.map((v,i)=>v+inward[i]);
-    g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:velocity,referenceBodyId:'moon'});
-    u.updateSystemPose(position,velocity,0);g.player.position.set(0,0,0);g.player.velocity.set(0,0,0);
-    g.updateTravelDomain(0);
-    const rejected={domain:g.travelDomain.kind,gate:g.travelDomain.landingGate};
-    const safe=orbital.map((v,i)=>v+inward[i]/100);
-    g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:safe,referenceBodyId:'moon'});
-    u.updateSystemPose(position,safe,0);
-    return rejected;
-  });
-  assert.equal(unsafeMoonGate.domain,'interplanetary','10 km/s must not bypass cosmic CCD');
-  assert.ok(['speed','inward-speed','surface-stream'].includes(unsafeMoonGate.gate.blockedReason));
-  results.unsafeMoonGate=unsafeMoonGate;
-  await page.waitForFunction(()=>window.__DR_MANAUS__.surfacePhysicsState.domain==='moon',null,{timeout:60_000});
-  console.log('Game.tick returned into moon/local-enu through streamed landing readiness.');
-  // Descend with the public flight controls; lunar gravity alone takes much longer in a
-  // software-rendered browser because simulation dt is bounded to 60 ms per rendered frame.
-  await page.keyboard.press('f');
-  await page.keyboard.down('ControlLeft');
-  await page.keyboard.down('ShiftLeft');
-  await page.waitForFunction(()=>window.__DR_MANAUS__.player.state==='Grounded',null,{timeout:60_000});
-  await page.keyboard.up('ControlLeft');
-  await page.keyboard.up('ShiftLeft');
-  const landed=await page.evaluate(()=>({physics:window.__DR_MANAUS__.surfacePhysicsState,
-    landing:window.__DR_MANAUS__.moonLandingState,state:window.__DR_MANAUS__.player.state,
-    position:window.__DR_MANAUS__.player.position.toArray()}));
+  const landed=await landWithF('moon',await page.evaluate(()=>window.__DR_MOON_LANDING_DIRECTION__));
   assert.equal(landed.physics.frame,'moon/local-enu');assert.equal(landed.state,'Grounded');
   assert.ok(Math.abs(landed.physics.gravityMps2-1.623)<.01);assert.ok(!landed.physics.manausSimulationActive);
   assert.equal(landed.landing.proxyOpacity,0);assert.ok(landed.landing.fallbackActive);
@@ -253,7 +467,7 @@ try {
   assert.ok(results.fastLocalMoon.position[1]>=results.fastLocalMoon.physics.terrainHeightM-.01);
   assert.equal(results.fastLocalMoon.state,'Grounded');assert.ok(results.fastLocalMoon.grounded);
   assert.ok(Math.abs(results.fastLocalMoon.contact.outwardVelocity)<1e-7);
-  console.log('P0 unsafe Moon handoff, first local frame trace and fast local CCD passed.');
+  console.log('P0 first local frame trace and fast local Moon CCD passed.');
   console.log('Moon ground contact, keyboard walking, jumping and takeoff passed.');
   results.volumeInactive=await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.metrics);
   assert.equal(results.volumeInactive.resident,0);assert.equal(results.volumeInactive.pendingBytes,0);
@@ -265,6 +479,24 @@ try {
   await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.setDebugDemand(false));
   assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.universe.volume.metrics.bytes),0);
   console.log('Explicit Moon volume demand uses bounded resident data and releases it when disabled.');
+  await delayLandingTiles('mars');
+  const marsDirection=await page.evaluate(()=>{
+    const g=window.__DR_MANAUS__,u=g.universe,p=g.planetProviders.get('mars'),
+      fixedFrame=u.activeSystem.bodies.find(body=>body.id==='mars').frameId,
+      sun=u.frames.convertPosition('solar-system/barycentric',fixedFrame,u.activeSystem.positionOf('sun')),
+      direction=sun.map(v=>v/Math.hypot(...sun)),velocity=u.activeSystem.stateOf('mars').velocityMps,
+      position=u.frames.convertPosition(fixedFrame,'solar-system/barycentric',direction.map(v=>v*p.bodyDef.semiMajorAxisM*3));
+    g.travelDomain.update({requested:true,altitudeM:1e9,speedMps:0,nearestColliderM:Infinity,
+      bodyId:'mars',bodyRadiusM:p.bodyDef.semiMajorAxisM,entryPositionM:position,entryVelocityMps:velocity},0);
+    g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:velocity,referenceBodyId:'mars'});
+    u.updateSystemPose(position,velocity,0);g.player.position.set(0,0,0);g.player.velocity.set(0,0,0);
+    return direction;
+  });
+  await page.waitForFunction(()=>window.__DR_MANAUS__.surfacePhysicsState.domain==='space',null,{timeout:30000});
+  await landWithF('mars',marsDirection);
+  await page.keyboard.press('f');
+  await page.waitForFunction(()=>['Hover','Flight'].includes(window.__DR_MANAUS__.player.state),null,{timeout:15000});
+  results.marsLocalTakeoff=true;
   // NAV-LOCK-1: explicit fixtures shorten the trip; every subsequent movement is Game.tick.
   // Instrument the production controller solely to retain phase changes between browser polls.
   await page.evaluate(()=>{
@@ -398,7 +630,10 @@ try {
   results.failureState=await page?.evaluate(()=>{
     const g=window.__DR_MANAUS__;
     return g?{state:g.player.state,position:g.player.position.toArray(),velocity:g.player.velocity.toArray(),
-      physics:g.surfacePhysicsState,landing:g.moonLandingState}:undefined;
+      physics:g.surfacePhysicsState,landing:g.moonLandingState,inputEnabled:g.input.enabled,
+      lock:g.navigationLock,warp:g.warpStep,view:g.rendering.camera.getWorldDirection(g.player.position.clone()).toArray(),
+      viewFrame:g.universe.renderSpace.currentOrigin.frame,samples:g.celestialController.renderSamples,
+      controls:window.__DR_COSMIC_INPUTS__?.slice(-4)}:undefined;
   }).catch(()=>undefined);
   await writeFile('artifacts/space-hardening-browser.json',JSON.stringify({...results,errors,failure:String(error)},null,2));
   throw error;
