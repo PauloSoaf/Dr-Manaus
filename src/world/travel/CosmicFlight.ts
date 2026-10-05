@@ -2,6 +2,8 @@ import { Vector3 } from 'three/webgpu';
 import { type InterplanetaryState, type TravelContext } from './TravelDomain';
 import type { BodyExclusionEnvelope } from './BodyNavigation';
 import type { CelestialContact } from './CelestialContact';
+import { LIGHT_SPEED_MPS } from './TravelConstants';
+export { LIGHT_SPEED_MPS } from './TravelConstants';
 import { AutopilotCapture } from './AutopilotCapture';
 import { LANDING_SPEED_LIMITS } from './LandingCapture';
 import {
@@ -97,9 +99,6 @@ export interface CosmicCruiseContext extends TravelContext {
 function finite(value: number | undefined, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
-
-/** Metres per second. The one constant nothing here is allowed to round. */
-export const LIGHT_SPEED_MPS = 299_792_458;
 
 /**
  * Warp: the player's own faster-than-light gear, in multiples of `c`.
@@ -243,6 +242,7 @@ export class CosmicCruiseController {
     thrustDirectionBary: Vector3,
     context: CosmicCruiseContext,
   ): InterplanetaryState {
+    this.lastContact = undefined;
     const dt = Math.max(0, Math.min(0.25, finite(dtS)));
     const positionM: [number, number, number] = [
       finite(state.positionM[0]), finite(state.positionM[1]), finite(state.positionM[2]),
@@ -432,7 +432,7 @@ export class CosmicCruiseController {
       const contactRelative: [number, number, number] = [velocityMps[0] - orbital[0],
         velocityMps[1] - orbital[1], velocityMps[2] - orbital[2]];
       const offset = hitPosition.map((value, i) => value - hitCentre[i]);
-      const distance = Math.hypot(...offset) || 1;
+      const distance = Math.hypot(...offset);
       const assistedContact = (assisted || (context.isAssistedTarget ?? context.inputBoost)) && target?.bodyId === obstacle.bodyId;
       // Only a request to land, or an assisted capture of a landable target, is a capture. Anything
       // else is a graze. `future-catastrophic` is reserved and deliberately never chosen here.
@@ -440,7 +440,10 @@ export class CosmicCruiseController {
         || (assistedContact && context.targetCanLand === true) ? 'landing-capture' : 'graze';
       this.lastContact = { bodyId: obstacle.bodyId ?? context.bodyId ?? 'unknown', fraction: earliest.fraction,
         contactPositionM: hitPosition, relativeSpeedMps: Math.hypot(...contactRelative),
-        radialSpeedMps: contactRelative.reduce((sum, value, i) => sum + value * offset[i] / distance, 0),
+        impactNormalSystem: distance > 0 ? [offset[0] / distance, offset[1] / distance, offset[2] / distance] : [0, 1, 0],
+        playerVelocityMps: [...velocityMps], bodyVelocityMps: [...orbital],
+        envelopeRadiusM: obstacle.radiusM,
+        radialSpeedMps: contactRelative.reduce((sum, value, i) => sum + value * offset[i] / (distance || 1), 0),
         assisted: assistedContact, responseMode, responseRadialSpeedMps: 0, responseTangentialSpeedMps: 0 };
       const relativeStepLength = Math.hypot(...contactRelative) * dt;
       const fraction = Math.max(0, earliest.fraction - 1 / Math.max(1, relativeStepLength));

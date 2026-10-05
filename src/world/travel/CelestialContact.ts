@@ -1,11 +1,16 @@
 import type { Vec3 } from '../spatial/units';
 import type { ContactResponseMode } from './PlanetaryLanding';
 
-/** Logical CCD result; response stays safe in C0. Future impact policy can consume it. */
+/** Logical CCD facts. C4 classifies the pre-response motion; CCD still resolves it safely. */
 export interface CelestialContact {
   readonly bodyId: string;
   readonly fraction: number;
   readonly contactPositionM: Vec3;
+  readonly impactNormalSystem: Vec3;
+  /** Barycentric velocities at the swept contact, BEFORE the inelastic response. */
+  readonly playerVelocityMps: Vec3;
+  readonly bodyVelocityMps: Vec3;
+  readonly envelopeRadiusM: number;
   readonly relativeSpeedMps: number;
   readonly radialSpeedMps: number;
   readonly assisted: boolean;

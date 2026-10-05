@@ -47,6 +47,8 @@ import { LOCAL_GROUP_CATALOG } from '../world/celestial/GalaxyDefinition';
 
 import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 import { TravelDomain } from '../world/travel/TravelDomain';
+import { CelestialImpactService } from '../world/travel/CelestialImpactService';
+import type { CelestialImpactEvent } from '../world/travel/CelestialImpactEvent';
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
 import { RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
 import { createPlanetProviders } from '../world/providers/PlanetProviderRegistry';
@@ -109,6 +111,9 @@ export class Game {
   /** Which simulation the player is in. Urban physics runs in one of them and not the other. */
   readonly travelDomain=new TravelDomain();
   readonly interplanetary=new CosmicCruiseController();
+  private impactService?: CelestialImpactService;
+  get celestialImpacts(): CelestialImpactService { return this.impactService ??= new CelestialImpactService(); }
+  lastCelestialImpact?: CelestialImpactEvent;
   navigation = new NavigationTargetState();
   get navigationLock(): NavigationLock | undefined { return this.navigation?.lock; }
   get navigationTarget(): NavigationTarget | undefined {
@@ -326,6 +331,7 @@ export class Game {
     this.stressRoute=[];this.camera.skipIntro();
     const destination=new Vector3(landmark.x,landmark.spawnHeight+4,landmark.z);
     this.travelDomain.reset();
+    this.celestialImpacts.clear();this.lastCelestialImpact=undefined;
     this.universe.setPlayerPose(MANAUS_FRAME_ID,[destination.x,destination.y,destination.z]);
     this.bindSurfacePhysics();
     this.player.teleport(destination);
@@ -828,7 +834,28 @@ export class Game {
       returnAltitudeM:this.travelDomain.landingGate.returnAltitudeM,
       landingIntent:this.landingIntentContext(),
     };
+    this.celestialImpacts.updateSeparation(this.travelDomain.state.positionM,ctx.exclusionEnvelopes);
+    // Snapshot command ownership before update can mark arrival/cancel. X disengages safety now.
+    const impactContext = { lockedBodyId:this.navigationLock?.bodyId,
+      autopilotActive:this.interplanetary.autopilot.active && !inputBrake,
+      landingIntentBodyId:ctx.landingIntent?.bodyId,warpStep:this.warpStep,simulationTimeS:this.universe.time };
     const newState = this.interplanetary.update(this.travelDomain.state, dt, thrust, ctx);
+    const contact = this.interplanetary.lastCelestialContact;
+    const contactedBody = contact && this.universe.activeSystem.bodies.find(body=>body.id===contact.bodyId);
+    if (contact && contactedBody) {
+      const elapsed = Math.max(0,Math.min(.25,dt))*contact.fraction;
+      // The sweep linearly advances the body's centre from this frame snapshot. Undo that
+      // translation before the graph converts to its fixed frame; never use a render proxy.
+      const atFrameStart:[number,number,number] = [contact.contactPositionM[0]-contact.bodyVelocityMps[0]*elapsed,
+        contact.contactPositionM[1]-contact.bodyVelocityMps[1]*elapsed,
+        contact.contactPositionM[2]-contact.bodyVelocityMps[2]*elapsed];
+      const fixed = bodyProfile(contactedBody).hasSolidSurface && this.universe.frames.has(contactedBody.frameId)
+        ? this.universe.frames.convertPosition('solar-system/barycentric',contactedBody.frameId,atFrameStart) : undefined;
+      this.celestialImpacts.emit(contact,bodyProfile(contactedBody),
+        {...impactContext,simulationTimeS:impactContext.simulationTimeS+elapsed},fixed);
+    }
+    // C4's sole consumer records diagnostics. A future destruction consumer plugs in here.
+    for (const event of this.celestialImpacts.drain()) this.lastCelestialImpact=event;
     this.flightTelemetry = this.interplanetary.getTelemetry();
     this.travelDomain.setState(newState);
 
@@ -1312,6 +1339,7 @@ export class Game {
     const landingEta=landingEtaS(landing.clearanceM,-landing.radialSpeedMps);
     const motion=this.landingMotion(t.dominantBody),gate=this.travelDomain.landingGate;
     const contact=this.interplanetary.lastCelestialContact;
+    const impact=this.lastCelestialImpact;
     return{
       ...this.universe.volume?.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
@@ -1346,6 +1374,13 @@ export class Game {
       'POUSO · Tiles críticos / Faltando':`${landing.requiredTiles} / ${landing.missingLandingTiles}`,
       'POUSO · ETA / Bloqueio':`${Number.isFinite(landingEta)?landingEta.toFixed(1)+' s':'—'} / ${landing.blockedReason}`,
       'CONTATO CELESTE · Corpo / Modo':contact?`${contact.bodyId} / ${contact.responseMode}`:'—',
+      'IMPACTO CELESTE · Corpo / Tipo':impact?`${impact.bodyId} / ${impact.bodyClass}`:'—',
+      'IMPACTO CELESTE · Classe':impact?.classification??'—',
+      'IMPACTO CELESTE · Relativa / c':impact?`${impact.relativeSpeedMps.toFixed(1)} m/s / ${impact.effectiveC.toFixed(3)}c`:'—',
+      'IMPACTO CELESTE · Radial / Tangente':impact?`${impact.inwardRadialSpeedMps.toFixed(1)} / ${impact.tangentialSpeedMps.toFixed(1)} m/s`:'—',
+      'IMPACTO CELESTE · Direto / Ângulo':impact?`${impact.radialFraction.toFixed(3)} / ${impact.incidenceAngleRad.toFixed(3)} rad`:'—',
+      'IMPACTO CELESTE · Warp / Lock / Piloto / Pouso':impact?`${impact.warpStep} / ${impact.lockedTarget} / ${impact.autopilotActive} / ${impact.landingIntentActive}`:'—',
+      'IMPACTO CELESTE · Evento':impact?.eventId??'—',
       'CONTATO CELESTE · Vel / Radial':contact?`${contact.relativeSpeedMps.toFixed(0)} / ${contact.radialSpeedMps.toFixed(0)} m/s → ${contact.responseRadialSpeedMps.toFixed(2)} / ${contact.responseTangentialSpeedMps.toFixed(2)}`:'—',
       'Lua · Pouso':`${moon.blockedReason} · ${moon.altitudeM.toFixed(0)} m sobre terreno · ${moon.relativeSpeedMps.toFixed(0)} m/s relativos`,
       'Lua · Gates':`retorno ≤ ${moon.returnAltitudeM} m sobre terreno / ${moon.maxRelativeSpeedMps} m/s · superfície ${moon.surfaceReady?'pronta':'aguardando'} (${moon.missingLandingTiles} tiles faltando)`,
