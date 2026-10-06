@@ -1,8 +1,22 @@
 # Planetary architecture — implementation status
 
+## IMPACT-DESTRUCTION-P0 — local Manaus — 2026-10-06
+
+Current checkpoint, explicitly authorized on `267caf5d0a8c6ce435e16270c165965bec7c2445`:
+contact-normal footprint, larger bounded craters, separate core/blast/impulse/reaction zones,
+resident entity queries, complete multipart furniture, NPC states, car impulse and reconstruction.
+Heavy structures retain 16 collapses/frame; cheap entities retire on their own bounded 1,024/frame path.
+Canonical curve, routing, budgets, tests, benchmark and manual gate:
+[19-status-IMPACT-DESTRUCTION-P0.md](19-status-IMPACT-DESTRUCTION-P0.md).
+Typecheck/build PASS; focused 145/145; full 886/886, including 55 new impact cases.
+Browser local/Manaus/space PASS, zero browser errors; implementation and fixture CI PASS.
+The final documentation HEAD is checked after push and reported at delivery.
+STOP for manual acceptance before D1.
+C4 and D0 remain isolated; celestial events do not create volume edits.
+
 ## D0 — PLANET VOLUME COLLISION — 2026-10-06
 
-Current checkpoint: D0 only, explicitly authorized on `4db33426104c9e93d27cbe53a3a3349311e011a8`.
+Previous checkpoint: D0 only, explicitly authorized on `4db33426104c9e93d27cbe53a3a3349311e011a8`.
 Collision shares Phase 3 mesh arrays; deterministic incremental BVHs run under the existing
 scheduler. The bounded cache retains old collision until a valid completed replacement or
 ready EMPTY/SOLID retirement is published at the frame boundary. Local ENU capsule sweeps
@@ -16,7 +30,8 @@ PASS: nine original mesh fixtures plus real player/collision/rebuild on Earth, M
 zero console/page errors. Spatial/local browsers and benchmark PASS; implementation CI PASS
 on `424c54c`. Full individual results and performance tables are in the canonical status.
 Open `/?volumeLab=1&volumeCollision=1` for the isolated floor/wall/ceiling laboratory.
-**Manual validation required; STOP after D0. D1 and gameplay destruction remain unauthorized.**
+The latest local IMPACT-DESTRUCTION-P0 authorization supersedes this historical D0 stop.
+D1 and planetary gameplay destruction remain unauthorized.
 
 ## C4 — CELESTIAL IMPACT POLICY — 2026-10-05
 

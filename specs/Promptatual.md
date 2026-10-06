@@ -1,6 +1,22 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — D0 / PLANET VOLUME COLLISION (2026-10-06)
+## Checkpoint atual — IMPACT-DESTRUCTION-P0 / Manaus local (2026-10-06)
+
+O último anexo aceita o HEAD `267caf5d0a8c6ce435e16270c165965bec7c2445` e autoriza
+o impacto/destruição local antes do D1. Um ImpactFootprint derivado do contato real controla
+cratera, core, blast, impulso, reação, entidades e efeitos. Limites locais: raio 1.200 m,
+profundidade 600 m; consulta apenas inventário residente; filas sem perda, 16 colapsos pesados/frame
+e caminho barato separado de até 1.024 remoções/frame, com prioridade para o núcleo.
+Props, NPCs, carros, árvores e todas as partes do mobiliário participam; reconstrução coerente.
+Contrato, curvas, testes, limites e evidência: [19-status-IMPACT-DESTRUCTION-P0.md](../docs/world/19-status-IMPACT-DESTRUCTION-P0.md).
+Typecheck/build PASS; focados 145/145; completos 886/886. Browsers local/Manaus/espacial PASS,
+zero erros; CI do código e da correção da fixture PASS. O SHA documental final é conferido
+no CI depois do push e informado na entrega.
+Documentar, commit e push seguem autorizados. **PARAR depois deste checkpoint para teste manual.**
+D1, CelestialImpactEvent criando PlanetVolumeEdit, fragmentação e novas features universais
+continuam fora do escopo. C4 e D0 preservados.
+
+## Checkpoint anterior — D0 / PLANET VOLUME COLLISION (2026-10-06)
 
 O anexo mais recente autoriza exclusivamente D0 a partir de
 `4db33426104c9e93d27cbe53a3a3349311e011a8`, após C4. Colisão derivada dos arrays
@@ -11,8 +27,8 @@ Contrato, testes, limites e roteiro: [18-status-VOLUME-COLLISION-D0.md](../docs/
 Typecheck/build/diff PASS; focados 321/321; completos 831/831; browsers volume, espacial
 e local PASS, zero erros; benchmark com nove casos de colisão PASS. CI do código `424c54c`
 PASS; o SHA final de validação/documentação é conferido depois do push e informado na resposta.
-Documentar, commit e push continuam autorizados. **PARAR após D0 para validação manual.**
-Não iniciar D1, impactos criando edits, poderes, mascaramento de heightfield ou destruição.
+A parada histórica D0 foi substituída pela autorização local IMPACT-DESTRUCTION-P0 acima.
+Não iniciar D1 ou impactos celestes criando edits/destruição planetária.
 
 ## Checkpoint anterior — C4 / CELESTIAL IMPACT POLICY (2026-10-05)
 
