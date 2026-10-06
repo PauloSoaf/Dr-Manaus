@@ -11,6 +11,11 @@ import { planetSurfaceRadius } from '../src/world/planet/PlanetSurface.ts';
 import { PlanetVolumeMeshingJob,meshVolumeChunk } from '../src/world/planet/volume/PlanetVolumeMesher.ts';
 import { PlanetVolumeMeshCache } from '../src/world/planet/volume/PlanetVolumeMeshCache.ts';
 import { volumeMeshByteLength,maximumVolumeMeshBytes } from '../src/world/planet/volume/PlanetVolumeMesh.ts';
+import { PlanetVolumeCollisionBuildJob } from '../src/world/planet/volume/PlanetVolumeCollisionBuilder.ts';
+import { PlanetVolumeCollisionCache } from '../src/world/planet/volume/PlanetVolumeCollisionCache.ts';
+import { PlanetVolumeCollisionProvider } from '../src/world/planet/volume/PlanetVolumeCollisionProvider.ts';
+import { ReferenceFrameGraph } from '../src/world/spatial/ReferenceFrameGraph.ts';
+import { referenceFrame } from '../src/world/spatial/ReferenceFrame.ts';
 
 // Deterministic coordinates/edits; timings are observations, never CI thresholds. No generated files.
 const timing = (field,offsetM=0) => {
@@ -24,6 +29,25 @@ const timing = (field,offsetM=0) => {
 };
 const cases=[];
 const meshCases=[];
+const collisionCases=[];
+const measure=fn=>{for(let i=0;i<5;i++)fn();const times=[];let result;
+  for(let i=0;i<21;i++){const start=performance.now();result=fn();times.push(performance.now()-start);}times.sort((a,b)=>a-b);
+  return {medianMs:+times[10].toFixed(4),p95Ms:+times[19].toFixed(4),result};};
+const collisionTiming=(chunk,mesh,scenario,radius)=>{
+  let jobPeakBytes=0;
+  const build=measure(()=>{const job=new PlanetVolumeCollisionBuildJob(mesh,chunk);while(!job.advance(128))jobPeakBytes=Math.max(jobPeakBytes,job.pendingBytes);return job.collider;});
+  const collider=build.result,cache=new PlanetVolumeCollisionCache();cache.insert(collider);
+  const frames=new ReferenceFrameGraph();frames.register(referenceFrame({id:'benchmark-fixed',kind:'body-fixed'}));
+  const provider=new PlanetVolumeCollisionProvider(cache,frames,mesh.key.bodyId,'benchmark-fixed','benchmark-fixed');
+  const query=measure(()=>{provider.resetMetrics();return provider.raycast([radius+300,128,128],[-1,0,0],1000);});
+  const rayCandidates={...provider.metrics};
+  const fastSweep=measure(()=>{provider.resetMetrics();return provider.sweepCapsule([radius+300,128,128],[-1000,0,0],.32,2.1);});
+  collisionCases.push({body:mesh.key.bodyId,scenario,samplesPerAxis:17,triangles:mesh.triangleCount,nodes:collider.bvh.nodeCount,
+    memory:collider.memory,jobPeakBytes,build:{medianMs:build.medianMs,p95Ms:build.p95Ms},
+    raycast:{medianMs:query.medianMs,p95Ms:query.p95Ms,hit:!!query.result,candidateChunks:rayCandidates.candidateChunks,candidateTriangles:rayCandidates.candidateTriangles},
+    fastSweep:{medianMs:fastSweep.medianMs,p95Ms:fastSweep.p95Ms,hit:!!fastSweep.result,fraction:fastSweep.result?.fraction,
+      candidateChunks:provider.metrics.candidateChunks,candidateTriangles:provider.metrics.candidateTriangles}});cache.clearAll();
+};
 const meshTiming=(field,scenario)=>{
   const radius=planetSurfaceRadius(field.surface,[1,0,0]),key=chunkContainingPoint(field.bodyId,[radius,128,128]);
   const chunk=generateVolumeChunk(field,key);
@@ -36,6 +60,7 @@ const meshTiming=(field,scenario)=>{
   }
   times.sort((a,b)=>a-b);meshCases.push({body:field.bodyId,scenario,medianMs:+times[10].toFixed(3),p95Ms:+times[19].toFixed(3),
     vertices:mesh.vertexCount,triangles:mesh.triangleCount,bytes:volumeMeshByteLength(mesh),jobPeakBytes,ambiguousFaces:mesh.ambiguousFaceCount});
+  collisionTiming(chunk,mesh,scenario,radius);
 };
 for(const surface of [EarthSurfaceGenerator,MoonSurfaceGenerator,MarsSurfaceGenerator]) {
   const field=new PlanetVolumeField(surface),radius=planetSurfaceRadius(surface,[1,0,0]);
@@ -76,5 +101,6 @@ const output={lod:DEFAULT_VOLUME_LOD,samplesPerChunk:17**3,bytesPerChunk:17**3*4
   maxResidentBytesAtChunkCap:cache.limits.maxChunks*17**3*4,pendingJobBytes:17**3*12,
   generation:{warmups:5,repetitions:21,cases},meshing:{warmups:5,repetitions:21,cases:meshCases,
     maximumOutputBytes:maximumVolumeMeshBytes(17),maxResidentMeshes:meshes.limits.maxMeshes,maxResidentMeshBytes:meshes.limits.maxBytes},
+  collision:{warmups:5,repetitions:21,maxColliders:8,maxResidentBytes:8*1048576,maxBuildBytes:4*1048576,cases:collisionCases},
   throughEarth:{beforeDemand,stages}};
 cache.dispose();meshes.clearAll();console.log(JSON.stringify(output,null,2));

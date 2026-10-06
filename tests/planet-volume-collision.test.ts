@@ -134,3 +134,14 @@ test('collider build batches are resumable and validate the memory budget',()=>{
   while(!job.advance(1)){}assert.ok(job.collider);
   assert.throws(()=>new PlanetVolumeCollisionBuildJob({...planeMesh(),triangleCount:10000000}),RangeError);
 });
+
+test('volume-only ground ray uses the cavity floor without an implicit zero plane',()=>{const f=cavity();try{
+  const origin=new Vector3(0,1,0),direction=new Vector3(0,-1,0);
+  const actual=PhysicsWorld.raycast(origin,direction,[],10,0,true),expected=f.provider.raycast(origin.toArray(),direction.toArray(),10);
+  assert.ok(actual&&expected);assert.equal(actual.distance,expected.distance);assert.ok(actual.point.y< -1);
+}finally{f.dispose();}});
+
+test('short capsule uses a sphere centred at half the character height',()=>{const f=planeProvider();try{
+  const hit=f.provider.sweepCapsule([0,1,0],[0,-5,0],.5,.6);assert.ok(hit);
+  assert.ok(Math.abs(hit.fraction-(1+.3-.5)/5)<1e-4);
+}finally{f.dispose();}});

@@ -1,6 +1,17 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — C4 / CELESTIAL IMPACT POLICY (2026-10-05)
+## Checkpoint atual — D0 / PLANET VOLUME COLLISION (2026-10-06)
+
+O anexo mais recente autoriza exclusivamente D0 a partir de
+`4db33426104c9e93d27cbe53a3a3349311e011a8`, após C4. Colisão derivada dos arrays
+Phase 3, BVH determinístico incremental no scheduler existente, cache limitado,
+sweep contínuo cápsula/triângulo, piso/parede/teto e troca atômica de revisão.
+Ativação explícita somente no laboratório; terreno normal e eventos C4 preservados.
+Contrato, testes, limites e roteiro: [18-status-VOLUME-COLLISION-D0.md](../docs/world/18-status-VOLUME-COLLISION-D0.md).
+Documentar, commit e push continuam autorizados. **PARAR após D0 para validação manual.**
+Não iniciar D1, impactos criando edits, poderes, mascaramento de heightfield ou destruição.
+
+## Checkpoint anterior — C4 / CELESTIAL IMPACT POLICY (2026-10-05)
 
 O último anexo aceita PLANET-FLIGHT-LANDING-1.1 no HEAD
 `9083c8e53936ed71a45b7a6da75acc3d2965ff2d` para progressão e autoriza **somente C4**.
@@ -15,8 +26,8 @@ Contrato implementado, matriz dos 19 corpos, limiares, schema, testes e resultad
 Typecheck/build/diff PASS; focados 286/286; completos 777/777; browser espacial e local PASS,
 zero erros. O browser preserva Lua/Marte F e verifica os cinco casos C4 com eventos reais.
 GitHub Actions PASS no SHA exato `29220e2`; evidência no relatório canônico.
-**REQUIRES USER MANUAL VALIDATION. PARAR após C4.** Nenhuma destruição, VFX, edição
-de volume, fragmentação, nova biblioteca física ou avanço automático para C5/D0–D5.
+A parada histórica C4 foi substituída pela autorização explícita D0 acima. C4 permanece
+sem destruição, VFX, edição de volume, fragmentação ou nova biblioteca física.
 
 ## Checkpoint anterior — PLANET-FLIGHT-LANDING-1.1 (2026-10-04, aceito para progressão)
 

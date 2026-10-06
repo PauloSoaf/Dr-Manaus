@@ -128,6 +128,14 @@ At >= configured catastrophic threshold the event is emitted exactly once and no
 
 # Sprint D0 — VOLUME-COLLISION
 
+**Current authorized checkpoint (2026-10-06).** Baseline `4db33426104c9e93d27cbe53a3a3349311e011a8`.
+Refined D0 contract/results: [18-status-VOLUME-COLLISION-D0.md](../../docs/world/18-status-VOLUME-COLLISION-D0.md).
+Reuse immutable Phase 3 arrays; incremental bounded BVH under the existing scheduler;
+optional continuous capsule provider; LOD 0 only; old revision retained until atomic publish;
+ready EMPTY/SOLID removal and stale-job rejection. Test real planetary MC cavities in the
+existing lab, all 50 named regressions, production browsers and observational benchmark.
+No C4-to-edit consumer, powers, live craters or heightfield masking. Stop for manual D0 gate.
+
 Priority: P1 for destruction roadmap
 
 Goal:
@@ -144,7 +152,8 @@ Suggested commits:
 
 Gate:
 
-Player can stand inside a test cavity and cannot pass through its wall.
+Player can stand/walk/jump/fall inside a real MC cavity, cannot pass through wall/ceiling at
+high speed, and keeps collision during atomic rebuild on Earth/Moon/Mars. Then STOP.
 
 ---
 

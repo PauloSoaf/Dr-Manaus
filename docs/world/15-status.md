@@ -1,8 +1,25 @@
 # Planetary architecture — implementation status
 
+## D0 — PLANET VOLUME COLLISION — 2026-10-06
+
+Current checkpoint: D0 only, explicitly authorized on `4db33426104c9e93d27cbe53a3a3349311e011a8`.
+Collision shares Phase 3 mesh arrays; deterministic incremental BVHs run under the existing
+scheduler. The bounded cache retains old collision until a valid completed replacement or
+ready EMPTY/SOLID retirement is published at the frame boundary. Local ENU capsule sweeps
+handle faces/edges/vertices continuously; floors ground, walls/ceilings block, inward speed
+is removed without bounce. Only collision LOD 0 participates. Ordinary gameplay stays intact.
+
+Canonical authority, budgets, lifecycle, limits, results and manual checklist:
+[18-status-VOLUME-COLLISION-D0.md](18-status-VOLUME-COLLISION-D0.md).
+Core typecheck PASS; focused 321/321; full 831/831; build PASS. Production volume browser
+PASS: nine original mesh fixtures plus real player/collision/rebuild on Earth, Moon and Mars,
+zero console/page errors. Spatial/local checks and benchmark are recorded in the canonical status.
+Open `/?volumeLab=1&volumeCollision=1` for the isolated floor/wall/ceiling laboratory.
+**Manual validation required; STOP after D0. D1 and gameplay destruction remain unauthorized.**
+
 ## C4 — CELESTIAL IMPACT POLICY — 2026-10-05
 
-Current checkpoint: event/policy only, based on accepted `9083c8e53936ed71a45b7a6da75acc3d2965ff2d`.
+Previous checkpoint: event/policy only, based on accepted `9083c8e53936ed71a45b7a6da75acc3d2965ff2d`.
 CCD now supplies pre-response velocities/normal/envelope; a pure body-relative policy classifies
 SAFE_CAPTURE, GRAZE, MINOR, MAJOR or CATASTROPHIC. Direct ≥1c can be catastrophic; same-body
 active autopilot or F landing intent stays safe; lock alone remains manual. Physical episode
@@ -14,7 +31,7 @@ Canonical schema, thresholds, all-body matrix, lifetime, limits and individual v
 37 new tests; typecheck PASS, focused 286/286, full 777/777, build PASS, space browser PASS,
 local browser PASS (both zero errors), diff check PASS. GitHub Actions PASS on the exact
 implementation/browser checkpoint `29220e2`; its check-run link is in the canonical status.
-**Manual validation remains required. Stop after C4; no destruction, volume edits or VFX.**
+The latest explicit D0 request supersedes C4's historical stop. C4 still creates no destruction, volume edits or VFX.
 
 ## PLANET-FLIGHT-LANDING-1.1 — 2026-10-04
 

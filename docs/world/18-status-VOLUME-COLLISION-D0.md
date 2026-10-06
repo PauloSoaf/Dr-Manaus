@@ -38,7 +38,10 @@ measurements. Shared source bytes are conservatively counted again against this 
 query positions and directions from local ENU to canonical body-fixed via ReferenceFrameGraph,
 subtracts each candidate chunk origin, and transforms only the resulting point/normal back.
 RenderSpace rebases do not transform or invalidate collider arrays/BVH. Earth, Moon and Mars
-use the same provider. Ray hits return distance, point, normal, key, body and contact kind.
+use the same provider. Raycast traverses segment AABBs through both indices and uses
+double-sided Möller–Trumbore with inclusive edge tolerance, selecting the nearest triangle.
+Ray hits return distance, point, normal, key, body and contact kind. Volume-only ground
+raycasts also avoid the legacy implicit zero plane.
 
 PhysicsWorld retains feet-position semantics. Capsule segment centres are feet + radius and
 feet + height − radius when height >= 2 radius; shorter characters use a sphere centred at
@@ -94,13 +97,29 @@ C4 stays event/policy diagnostics only. No event becomes an edit. Lab edits are 
 test fixtures. No gameplay crater, powers integration, heightfield masking, integrity,
 fracture, debris, gas/star volume, persistence or new library belongs to D0.
 
+## Files changed
+
+| Area | Files |
+| --- | --- |
+| Plain physics contract / integration | `src/physics/VolumeCollisionProvider.ts`, `PhysicsWorld.ts`; `src/player/PlayerController.ts` |
+| Collider payload / builder / acceleration | `src/world/planet/volume/PlanetVolumeCollider.ts`, `PlanetVolumeCollisionBuilder.ts`, `PlanetVolumeCollisionBvh.ts` |
+| Cache / geometric queries / frames | `PlanetVolumeCollisionCache.ts`, `PlanetVolumeCollisionGeometry.ts`, `PlanetVolumeCollisionProvider.ts` in that same volume directory |
+| Scheduled lifecycle / opt-in lab settings | `PlanetVolumeRuntime.ts`; `src/world/runtime/UniverseRuntime.ts` |
+| Existing lab entry / dedicated mode / UI | `src/debug/PlanetVolumeLab.ts`, `PlanetVolumeCollisionLab.ts`, `PlanetVolumeLab.css` |
+| Real integration fixtures / regression matrix | `tests/helpers/volume-collision.ts`, `tests/planet-volume-collision.test.ts`, `tests/planet-volume-collision-runtime.test.ts` |
+| Production browser / measurement | `scripts/volume-meshing-browser.mjs`, `scripts/benchmark-volume.mjs` |
+| Current checkpoint / roadmap / status | this file, `docs/world/15-status.md`, `specs/Promptatual.md`, `specs/dr-manaus-universe-roadmap/11-SPRINT-AND-COMMIT-PLAN.md` |
+
 ## Validation
 
 Initial core checks: typecheck PASS; focused volume/terrain/player/celestial/landing/rebase
-regressions **319/319 PASS**, including 52 new D0 tests and all 51 required names. The main
+regressions **321/321 PASS**, including 54 new D0 tests and all 50 required names (checked
+against the actual attachment; none missing). The main
 walking/jumping fixture uses real MC output; authored planes only isolate narrow-phase cases.
 Revision tests prove retained old collision, atomic replacement, stale rejection and ready
-EMPTY/SOLID retirement. Full tests **829/829 PASS**. Build/browser/benchmark results will be recorded below
+EMPTY/SOLID retirement. Tiny deterministic grants additionally pause a real collider build
+and cancel it on a newer edit, retaining the installed old source. Full tests **831/831 PASS**.
+Build/browser/benchmark results will be recorded below
 after the production lab verification. Browser evidence is automated, not human acceptance.
 
 ## Manual gate — stop after D0

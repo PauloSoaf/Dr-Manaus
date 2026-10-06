@@ -20,20 +20,24 @@ const context:StreamingContext={spatial:{timeS:0,player:pose('fixed'),frame:acti
 function fixture(){
   const lod={baseChunkSizeM:16,samplesPerAxis:17,maxLod:0},r=planetSurfaceRadius(EarthSurfaceGenerator,[1,0,0]);
   const key=chunkContainingPoint('earth',[r-256,8,8],0,lod),centre=chunkBoundsBodyFixedM(key,lod).minBodyFixedM.map(v=>v+8) as [number,number,number];
-  const runtime=new PlanetVolumeRuntime({lod,demand:{radiusM:16,radialHalfBandM:16,maxDemands:8,maxVisited:64},clock:()=>0,
+  let ticks=0,clockStep=0;
+  const runtime=new PlanetVolumeRuntime({lod,demand:{radiusM:16,radialHalfBandM:16,maxDemands:8,maxVisited:64},clock:()=>{ticks+=clockStep;return ticks;},
     resolve:()=>({surface:EarthSurfaceGenerator,observerBodyFixedM:centre})});
   runtime.setDebugDemand(true,true);runtime.setDebugCollision(true);
   let edit=runtime.edits.subtractSphere({bodyId:'earth',centerBodyFixedM:centre,radiusM:1.9});
-  const frame=()=>{runtime.covers(context);runtime.advance(100);};
+  const frame=(grant=100)=>{runtime.covers(context);runtime.advance(grant);};
   const until=(predicate:()=>boolean)=>{for(let i=0;i<50&&!predicate();i++)frame();assert.ok(predicate());};
   until(()=>!!runtime.collisionCache.peek(key));const original=runtime.collisionCache.peek(key)!;
-  return {runtime,key,original,frame,until,change(radius=2.2){runtime.edits.remove(edit);edit=runtime.edits.subtractSphere({bodyId:'earth',centerBodyFixedM:centre,radiusM:radius});},
+  return {runtime,key,original,frame,until,cooperative(value=true){clockStep=value?.001:0;},change(radius=2.2){runtime.edits.remove(edit);edit=runtime.edits.subtractSphere({bodyId:'earth',centerBodyFixedM:centre,radiusM:radius});},
     dispose:()=>runtime.dispose()};
 }
 test('T_VOLUME_COLLISION_OLD_REVISION_STAYS_DURING_REBUILD',()=>{const f=fixture();try{
   f.change();assert.equal(f.runtime.collisionCache.peek(f.key),f.original);
-  f.runtime.covers(context);f.runtime.advance(.000001);
+  f.cooperative();for(let i=0;i<4000&&!f.runtime.collisionMetrics.pendingBytes;i++)f.frame(.02);
+  assert.ok(f.runtime.collisionMetrics.pendingBytes>0,'tiny grants leave a real incremental BVH in progress');
   assert.equal(f.runtime.collisionCache.peek(f.key),f.original);
+  f.change(2.5);f.runtime.covers(context);assert.equal(f.runtime.collisionMetrics.pendingBytes,0,'stale in-progress job cancels');
+  assert.equal(f.runtime.collisionCache.peek(f.key),f.original);f.cooperative(false);f.until(()=>f.runtime.collisionCache.peek(f.key)?.sourceRevision===5);
 }finally{f.dispose();}});
 test('T_VOLUME_COLLISION_ATOMIC_REVISION_SWAP',()=>{const f=fixture();try{
   f.change();f.frame();assert.equal(f.runtime.collisionCache.peek(f.key),f.original,'complete BVH is still staged');

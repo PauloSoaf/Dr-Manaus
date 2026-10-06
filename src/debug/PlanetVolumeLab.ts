@@ -8,6 +8,7 @@ import { chunkContainingPoint,chunkKeyToString,chunkBoundsBodyFixedM } from '../
 import type { PlanetVolumeMesh } from '../world/planet/volume/PlanetVolumeMesh';
 import { createVolumeMeshGeometry } from './VolumeMeshGeometry';
 import './PlanetVolumeLab.css';
+import { startPlanetVolumeCollisionLab } from './PlanetVolumeCollisionLab';
 
 type LabBody='earth'|'moon'|'mars';
 type LabScenario='intact'|'sphere'|'capsule';
@@ -24,6 +25,7 @@ declare global {interface Window {__DR_VOLUME_LAB__?:PlanetVolumeLab}}
 
 /** Explicit isolated chunk inspector. It uses the real runtime/scheduler and never starts Game. */
 export function startPlanetVolumeLab(container:HTMLElement):PlanetVolumeLab {
+  if(new URLSearchParams(location.search).has('volumeCollision'))return startPlanetVolumeCollisionLab(container);
   container.innerHTML='';
   const renderer=new WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   renderer.setSize(innerWidth,innerHeight);container.append(renderer.domElement);
@@ -45,7 +47,7 @@ export function startPlanetVolumeLab(container:HTMLElement):PlanetVolumeLab {
     <label><input type="checkbox" data-wireframe> Mostrar triangulação</label>
     <label><input type="checkbox" data-cage checked> Limites do chunk</label>
     <output data-status aria-live="polite">Gerando…</output><pre data-metrics></pre>
-    <p>Geometria de inspeção: ainda sem colisão ou substituição do terreno.</p><a href="${location.pathname}">Voltar ao jogo</a>`;
+    <p>Geometria de inspeção. <a href="?volumeLab=1&volumeCollision=1">Laboratório de colisão</a></p><a href="${location.pathname}">Voltar ao jogo</a>`;
   container.append(panel);
   const bodySelect=panel.querySelector<HTMLSelectElement>('[data-body]')!,scenarioSelect=panel.querySelector<HTMLSelectElement>('[data-scenario]')!;
   const status=panel.querySelector<HTMLOutputElement>('[data-status]')!,info=panel.querySelector<HTMLElement>('[data-metrics]')!;

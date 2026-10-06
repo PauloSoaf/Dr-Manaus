@@ -195,7 +195,7 @@ export class PhysicsWorld {
     if (ground) {
       const distance = this.terrain?.raycast
         ? this.terrain.raycast(origin, direction, nearest)
-        : direction.y < -0.0001 ? -origin.y / direction.y : null;
+        : !this.volume && direction.y < -0.0001 ? -origin.y / direction.y : null;
       if (distance !== null && distance > 0 && distance < nearest) { nearest = distance; hit = null; found = true; }
     }
     const volume=this.volume?.raycast(origin.toArray(),direction.toArray(),nearest);
