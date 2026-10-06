@@ -632,12 +632,23 @@ try {
     const result=await page.evaluate(({id,mode})=>{
       const g=window.__DR_MANAUS__,u=g.universe,dt=1/120;
       g.clearNavigationTarget();g.landingIntent.cancel();g.warpStep=0;
+      const body=u.activeSystem.bodies.find(b=>b.id===id),centre=u.activeSystem.positionOf(id),
+        orbital=u.activeSystem.stateOf(id).velocityMps,
+        seedPosition=[centre[0],centre[1]+body.equatorialRadiusM+1e9,centre[2]];
+      // The preceding asynchronous scenario (or a prior safe capture) may have returned
+      // locally. setState intentionally ignores that domain; enter through its real gate
+      // before sampling the production envelopes. No previous fixture state is assumed.
+      g.travelDomain.update({requested:true,altitudeM:1e9,speedMps:0,nearestColliderM:Infinity,
+        bodyId:id,bodyRadiusM:body.equatorialRadiusM,entryPositionM:seedPosition,
+        entryVelocityMps:orbital},0);
+      g.travelDomain.setState({systemId:'sol',positionM:seedPosition,velocityMps:orbital,referenceBodyId:id});
+      u.updateSystemPose(seedPosition,orbital,0);g.player.position.set(0,0,0);g.player.velocity.set(0,0,0);
       // Capture the production envelope list rather than reconstructing radii in this script.
       const original=g.interplanetary.update;let envelopes;
       g.interplanetary.update=function(...args){envelopes=args[3].exclusionEnvelopes;return original.apply(this,args);};
       try {g.updateInterplanetaryFlight(0);} finally {g.interplanetary.update=original;}
-      const envelope=envelopes.find(e=>e.bodyId===id),body=u.activeSystem.bodies.find(b=>b.id===id),
-        centre=u.activeSystem.positionOf(id),orbital=u.activeSystem.stateOf(id).velocityMps,
+      if(!Array.isArray(envelopes))throw new Error('C4 fixture did not enter the production space step');
+      const envelope=envelopes.find(e=>e.bodyId===id),
         speed=mode==='manual'?299792458*1.001:299792458*256,
         position=[centre[0],centre[1]+envelope.radiusM+1000,centre[2]],
         velocity=[orbital[0],orbital[1]-speed,orbital[2]];
