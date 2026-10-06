@@ -1,4 +1,4 @@
-import { BoxGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, MeshStandardMaterial, SphereGeometry } from 'three/webgpu';
+import { BoxGeometry, CylinderGeometry, Group, InstancedMesh, Matrix4, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three/webgpu';
 import { GeometryBatch } from '../GeometryBatch';
 import { clearance, isPaved, zoneAt, type LargoZone } from './plaza';
 import { LARGO_VENUES, venueDestructionId } from './venues';
@@ -19,6 +19,11 @@ function hash(a: number, b: number): number {
 }
 
 interface Placement { x: number; z: number; angle: number; zone: LargoZone }
+const propId=(family:string,p:{x:number;z:number})=>`largo:${family}:${p.x.toFixed(2)},${p.z.toFixed(2)}`;
+const families:Record<string,string>={'largo-tables':'table','largo-table-legs':'table','largo-chairs':'chair','largo-chair-backs':'chair',
+  'largo-parasol-poles':'parasol','largo-parasols':'parasol','largo-stall-bodies':'stall','largo-stall-roofs':'stall','largo-stall-posts':'stall',
+  'largo-lamp-posts':'lamp','largo-lamp-heads':'lamp','largo-benches':'bench','largo-bench-legs':'bench','largo-bins':'bin',
+  'largo-trunks':'tree','largo-canopies':'tree','largo-planters':'tree'};
 
 /**
  * Candidate positions on a jittered grid, filtered by what the ground actually is. The monument's
@@ -40,26 +45,29 @@ function placements(spacing: number, zones: readonly LargoZone[], margin: number
 }
 
 function instanced(root: Group, name: string, geometry: BoxGeometry | CylinderGeometry | SphereGeometry,
-  material: MeshStandardMaterial, items: readonly { x: number; y: number; z: number; angle: number; scale?: number }[]): void {
+  material: MeshStandardMaterial, items: readonly { x: number; y: number; z: number; angle: number; scale?: number; id?:string }[]): void {
   if (!items.length) return;
   const mesh = new InstancedMesh(geometry, material, items.length);
   mesh.name = name;
   const matrix = new Matrix4();
+  geometry.computeBoundingBox();
+  const bindings=[];
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     matrix.makeRotationY(item.angle);
     if (item.scale && item.scale !== 1) matrix.scale({ x: item.scale, y: item.scale, z: item.scale } as never);
     matrix.setPosition(item.x, item.y, item.z);
     mesh.setMatrixAt(i, matrix);
+    const bounds=geometry.boundingBox!.clone().applyMatrix4(matrix),center=bounds.getCenter(new Vector3()),extent=bounds.getSize(new Vector3());
+    const family=families[name];
+    bindings.push({id:item.id??(family==='tree'?`largo:tree/${item.x.toFixed(2)},${item.z.toFixed(2)}`:propId(family,item)),index:i,
+      collider:{x:center.x,y:center.y,z:center.z,width:extent.x,height:extent.y,depth:extent.z,
+        category:family==='tree'?'vegetation':family==='stall'?'light-structure':'fragile',impactKind:family==='lamp'?'lamp':undefined,blastOnly:name!=='largo-trunks',
+        ...(name==='largo-trunks'?{width:.8,height:7.4,depth:.8,y:3.7}:{})}});
   }
   mesh.castShadow = true; mesh.receiveShadow = true;
   root.add(mesh);
-  if (name === 'largo-trunks' || name === 'largo-canopies' || name === 'largo-planters') {
-    mesh.userData.authoredInstances = items.map((item, index) => ({
-      id: `largo:tree/${item.x.toFixed(2)},${item.z.toFixed(2)}`, index,
-      ...(name === 'largo-trunks' ? { collider: { x: item.x, y: 3.7, z: item.z, width: .8, height: 7.4, depth: .8 } } : {}),
-    }));
-  }
+  mesh.userData.authoredInstances=bindings;
 }
 
 /**
@@ -92,7 +100,7 @@ export function createLargoProps(): Group {
   }
   instanced(root, 'largo-chairs', new BoxGeometry(.44, .05, .44), wood, chairs);
   instanced(root, 'largo-chair-backs', new BoxGeometry(.44, .48, .05), wood,
-    chairs.map(c => ({ x: c.x + Math.cos(c.angle) * .2, y: SEAT + .26, z: c.z + Math.sin(c.angle) * .2, angle: c.angle })));
+    chairs.map(c => ({ id:propId('chair',c),x: c.x + Math.cos(c.angle) * .2, y: SEAT + .26, z: c.z + Math.sin(c.angle) * .2, angle: c.angle })));
 
   // A parasol over every other table.
   const parasols = seating.filter((_, i) => i % 2 === 0);
@@ -109,7 +117,7 @@ export function createLargoProps(): Group {
     vendors.map(p => ({ x: p.x, y: STALL - .2, z: p.z, angle: p.angle })));
   instanced(root, 'largo-stall-posts', new CylinderGeometry(.05, .05, STALL, 5), metal,
     vendors.flatMap(p => [-1, 1].map(side => ({
-      x: p.x + Math.cos(p.angle) * side, y: STALL * .5, z: p.z + Math.sin(p.angle) * side, angle: p.angle,
+      id:propId('stall',p),x: p.x + Math.cos(p.angle) * side, y: STALL * .5, z: p.z + Math.sin(p.angle) * side, angle: p.angle,
     })).filter(post => isPaved(post.x, post.z))));
 
   // Lamp standards, bins and benches down the walkways.
@@ -128,7 +136,7 @@ export function createLargoProps(): Group {
     benches.map(p => ({ x: p.x, y: SEAT, z: p.z, angle: p.angle })));
   instanced(root, 'largo-bench-legs', new BoxGeometry(.12, SEAT, .44), stone,
     benches.flatMap(p => [-.7, .7]
-      .map(o => ({ x: p.x + Math.cos(p.angle) * o, y: SEAT * .5, z: p.z + Math.sin(p.angle) * o, angle: p.angle }))
+      .map(o => ({ id:propId('bench',p),x: p.x + Math.cos(p.angle) * o, y: SEAT * .5, z: p.z + Math.sin(p.angle) * o, angle: p.angle }))
       .filter(leg => isPaved(leg.x, leg.z))));
   instanced(root, 'largo-bins', new CylinderGeometry(.28, .24, .85, 8), metal,
     beside(walk.filter((_, i) => i % 3 === 0), -2.1, 0).map(p => ({ x: p.x, y: .43, z: p.z, angle: p.angle })));

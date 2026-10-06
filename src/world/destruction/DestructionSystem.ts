@@ -1,6 +1,7 @@
 import { Group, type Vector3 } from 'three/webgpu';
 import { DESTRUCTION } from '../../core/config';
 import type { Collider } from '../../core/types';
+import type { ImpactFootprint } from '../../player/combat/MeteorImpact';
 import { DebrisPool } from './DebrisPool';
 import { ScarField } from './ScarField';
 
@@ -14,12 +15,18 @@ export interface DestructibleWorld {
    * Returns false when the id is not destructible (landmarks, terrain, distant LOD).
    */
   destroy(colliderId: string): boolean;
-  deform?(point: Vector3, radius: number, damage: number): boolean;
+  deform?(point: Vector3, radius: number, damage: number, depth?: number): boolean;
 }
 
-interface Damage { amount: number; threshold: number; touched: number }
+interface Damage { amount: number; threshold: number; touched: number; x:number; z:number; width:number; depth:number }
+interface PendingRemoval {box:Collider;amount:number;impact?:LocalImpactStats}
 
 export interface DestructionStats { debris: number; scars: number; destroyed: number; damaged: number }
+export interface LocalImpactStats {
+  footprint: ImpactFootprint; point: Vector3; queried: number; queryMs: number;
+  buildings: number; trees: number; props: number; lamps: number; vehicles: number;
+  npcAffected: number; npcDisabled: number; npcKnocked: number; npcFleeing: number;
+}
 
 /**
  * Accumulated structural damage keyed by collider id, plus the rubble and scorch it produces.
@@ -31,13 +38,17 @@ export class DestructionSystem {
   private readonly group = new Group();
   private readonly debris: DebrisPool;
   private readonly scars: ScarField;
-  private readonly pending=new Map<string,{box:Collider;amount:number}>();
-  get pendingCount(){return this.pending.size;}
+  private readonly pending=new Map<string,PendingRemoval>();
+  private readonly pendingLight=new Map<string,PendingRemoval>();
+  lastImpact: LocalImpactStats | null = null;
+  get pendingCount(){return this.pending.size+this.pendingLight.size;}
   private readonly entries = new Map<string, Damage>();
   /** Retired damage records, reused so a streaming city never churns the heap. */
   private readonly free: Damage[] = [];
   private time = 0;
   private frame = 0;
+  private collapsedThisFrame = 0;
+  private lightRetiredThisFrame = 0;
   private lastDeformation=-Infinity;
   private ploughFrame = -1;
   private ploughCount = 0;
@@ -60,10 +71,12 @@ export class DestructionSystem {
   /** Call once per frame. Drives the high-speed ram, the rubble and the scorch in that order. */
   update(dt: number, playerPosition: Vector3, playerVelocity: Vector3, running = false): void {
     this.frame++;
+    this.collapsedThisFrame = 0;
+    this.lightRetiredThisFrame = 0;
     this.time += dt;
     if (!running) this.plough(playerPosition, playerVelocity, dt);
-    let budget=DESTRUCTION.maxCollapsesPerFrame;
-    for(const [id,queued] of this.pending){if(budget--<=0)break;this.pending.delete(id);this.apply(queued.box,queued.amount,true);}
+    this.drainPending(this.pending,DESTRUCTION.maxCollapsesPerFrame-this.collapsedThisFrame);
+    this.drainPending(this.pendingLight,DESTRUCTION.maxLightRetirementsPerFrame);
     this.debris.update(dt, playerPosition);
     this.scars.update(dt);
     this.evictTimer -= dt;
@@ -71,6 +84,9 @@ export class DestructionSystem {
     this.stats.debris = this.debris.count;
     this.stats.scars = this.scars.count;
     this.stats.damaged = this.entries.size;
+  }
+  private drainPending(queue:Map<string,PendingRemoval>,budget:number):void{
+    for(const [id,queued] of queue){if(budget--<=0)break;queue.delete(id);this.apply(queued.box,queued.amount,true,queued.impact);}
   }
 
   /**
@@ -106,6 +122,50 @@ export class DestructionSystem {
     this.debris.spawn(point.x, point.y, point.z, DESTRUCTION.impactChunks, DESTRUCTION.impactColour, DESTRUCTION.impactEnergy);
     if (point.y <= DESTRUCTION.scarMaxHeight) this.scars.spawn(point.x, point.z, radius * DESTRUCTION.scarRadiusScale, 1);
     return collapsed;
+  }
+
+  /** One footprint drives excavation and an XZ surface shockwave, including tall structures. */
+  impactAt(point: Vector3, footprint: ImpactFootprint): number {
+    const stats: LocalImpactStats = { footprint, point: point.clone(), queried: 0, queryMs: 0,
+      buildings: 0, trees: 0, props: 0, lamps: 0, vehicles: 0,
+      npcAffected: 0, npcDisabled: 0, npcKnocked: 0, npcFleeing: 0 };
+    this.lastImpact = stats;
+    if (footprint.craterRadiusM > 0 && footprint.craterDepthM > 0)
+      this.world.deform?.(point, footprint.craterRadiusM, footprint.structuralDamage, footprint.craterDepthM);
+    const radius = Math.max(footprint.coreDestructionRadiusM, footprint.blastDamageRadiusM);
+    if (radius <= 0) return 0;
+    const started = performance.now();
+    // Snapshot: owner removal can splice its live collider array. Deduplicate multipart IDs.
+    const boxes = [...(this.world.blastColliders?.(point,radius) ?? this.world.colliders())];
+    stats.queryMs = performance.now() - started;
+    const entities = new Map<string,{box:Collider;distance:number}>();
+    for (const box of boxes) {
+      if (!box.id) continue;
+      const distance = Math.hypot(Math.max(0,Math.abs(point.x-box.x)-box.width/2),
+        Math.max(0,Math.abs(point.z-box.z)-box.depth/2));
+      if (distance > radius) continue;
+      const previous=entities.get(box.id);
+      if (!previous || distance<previous.distance) entities.set(box.id,{box,distance});
+    }
+    stats.queried=entities.size;
+    let collapsed = 0;
+    // Core first: cheap trees/furniture disappear before processing the outer shockwave.
+    for (const core of [true,false]) for (const {box,distance} of entities.values()) {
+      if((distance<=footprint.coreDestructionRadiusM)!==core)continue;
+      const amount = core ? Number.MAX_SAFE_INTEGER
+        : footprint.structuralDamage * Math.pow(Math.max(0,1-distance/footprint.blastDamageRadiusM),2);
+      if (this.apply(box,amount,true,stats)) collapsed++;
+    }
+    this.debris.spawn(point.x,point.y,point.z,Math.min(DESTRUCTION.impactChunks,footprint.debrisCount),DESTRUCTION.impactColour,DESTRUCTION.impactEnergy);
+    return collapsed;
+  }
+
+  /** Reconstruction cancels deferred removals as well as accumulated damage. */
+  restoreAt(point: Vector3, radius: number): void {
+    const intersects=(box:{x:number;z:number;width:number;depth:number})=>Math.hypot(
+      Math.max(0,Math.abs(box.x-point.x)-box.width/2),Math.max(0,Math.abs(box.z-point.z)-box.depth/2))<=radius;
+    for(const queue of [this.pending,this.pendingLight])for(const [id,queued] of queue)if(intersects(queued.box))queue.delete(id);
+    for (const [id,entry] of this.entries) if (intersects(entry)) { this.entries.delete(id); this.recycle(entry); }
   }
 
   /**
@@ -176,28 +236,35 @@ export class DestructionSystem {
   }
 
   /** Returns true when this hit brought the building down. */
-  private apply(box: Collider, amount: number, allowCollapse: boolean): boolean {
+  private apply(box: Collider, amount: number, allowCollapse: boolean, impact?: LocalImpactStats): boolean {
     const id = box.id;
     if (id === undefined || amount <= 0) return false;
     let entry = this.entries.get(id);
     if (!entry) {
       if (this.entries.size >= DESTRUCTION.maxEntries) this.evict();
-      entry = this.free.pop() ?? { amount: 0, threshold: 0, touched: 0 };
+      entry = this.free.pop() ?? { amount: 0, threshold: 0, touched: 0, x:0, z:0, width:0, depth:0 };
       entry.amount = 0;
       entry.threshold = Math.min(DESTRUCTION.maxHealth, DESTRUCTION.baseHealth + box.width * box.height * box.depth * DESTRUCTION.healthPerVolume);
+      if (box.category === 'fragile' || box.category === 'vegetation') entry.threshold = Math.min(entry.threshold,80);
+      if (box.category === 'vehicle') entry.threshold = Math.min(entry.threshold,240);
       this.entries.set(id, entry);
     }
+    entry.x=box.x;entry.z=box.z;entry.width=box.width;entry.depth=box.depth;
     entry.touched = this.time;
     entry.amount += amount;
     if(entry.amount<entry.threshold)return false;
-    if(!allowCollapse){
-      if(this.pending.size<65536||this.pending.has(id))this.pending.set(id,{box:{...box},amount:entry.amount});
+    const light=!!impact&&(box.category==='fragile'||box.category==='vegetation'||box.category==='vehicle');
+    if(!allowCollapse || (light?this.lightRetiredThisFrame>=DESTRUCTION.maxLightRetirementsPerFrame:this.collapsedThisFrame>=DESTRUCTION.maxCollapsesPerFrame)){
+      // One entry per queried resident entity; no silent loss when a blast exceeds a budget.
+      const queue=light?this.pendingLight:this.pending;
+      const other=light?this.pending:this.pendingLight,previous=queue.get(id)??other.get(id);
+      other.delete(id);queue.set(id,{box:{...box},amount:entry.threshold,impact:impact??previous?.impact});
       return false;
     }
-    this.pending.delete(id);
+    this.pending.delete(id);this.pendingLight.delete(id);
     if (!this.world.destroy(id)) {
       // Pool slots can hold another car later; a stale hit must not make that slot invulnerable.
-      if(id.startsWith("traffic:")){this.entries.delete(id);this.recycle(entry);return false;}
+      if(box.category==='vehicle'){this.entries.delete(id);this.recycle(entry);return false;}
       // Indestructible. Parking the threshold out of reach stops every later hit from asking
       // again; the record still ages out of the map on the normal eviction pass.
       entry.threshold = Infinity;
@@ -205,20 +272,27 @@ export class DestructionSystem {
     }
     this.entries.delete(id);
     this.recycle(entry);
-    this.collapse(box);
+    if(light)this.lightRetiredThisFrame++;else this.collapsedThisFrame++;
+    this.collapse(box,light);
+    if (impact) {
+      if (box.category === 'vegetation') impact.trees++;
+      else if (box.category === 'vehicle') impact.vehicles++;
+      else if (box.category === 'fragile') { impact.props++; if (box.impactKind === 'lamp') impact.lamps++; }
+      else impact.buildings++;
+    }
     return true;
   }
 
-  private collapse(box: Collider): void {
+  private collapse(box: Collider, light=false): void {
     this.stats.destroyed++;
     const volume = box.width * box.height * box.depth;
     const extent = Math.cbrt(volume);
     const energy = Math.min(DESTRUCTION.maxChunkEnergy, extent);
-    const count = Math.min(DESTRUCTION.maxChunksPerCollapse, Math.round(DESTRUCTION.chunksPerCollapse * (.5 + extent * .12)));
+    const count = Math.min(light?4:DESTRUCTION.maxChunksPerCollapse, Math.round(DESTRUCTION.chunksPerCollapse * (.5 + extent * .12)));
     // Rubble erupts from the lower third: the mass that falls is the mass that was load-bearing.
     this.debris.spawn(box.x, box.y - box.height * .28, box.z, count, this.rubbleColour(box.id ?? ''), energy);
     const base = box.y - box.height * .5;
-    if (base <= DESTRUCTION.scarMaxHeight) this.scars.spawn(box.x, base, box.z, Math.max(box.width, box.depth) * .58, .5);
+    if (!light && base <= DESTRUCTION.scarMaxHeight) this.scars.spawn(box.x, base, box.z, Math.max(box.width, box.depth) * .58, .5);
   }
 
   /** FNV-1a over the collider id: the same building always leaves the same colour of rubble. */
@@ -260,7 +334,7 @@ export class DestructionSystem {
   dispose(): void {
     this.debris.dispose();
     this.scars.dispose();
-    this.entries.clear();this.pending.clear();
+    this.entries.clear();this.pending.clear();this.pendingLight.clear();
     this.free.length = 0;
     this.group.removeFromParent();
   }

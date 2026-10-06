@@ -50,10 +50,12 @@ export class EffectPool {
     return (this.seed & 0xffffff) / 0x1000000;
   }
 
-  burst(position: Vector3, color = 0x70ffd1, size = 1, count = 28): void {
+  burst(position: Vector3, color = 0x70ffd1, size = 1, count = 28, maxSpeed = Infinity, spreadRadius = 0): void {
     for (let i = 0; i < Math.min(count, this.particles.length); i++) {
       const p = this.particles[this.particleCursor++ % this.particles.length];
-      p.position.copy(position); p.velocity.set(this.random() - 0.5, this.random() - 0.3, this.random() - 0.5).normalize().multiplyScalar((4 + this.random() * 12) * size);
+      p.position.copy(position);
+      if(spreadRadius>0){const angle=this.random()*Math.PI*2,radius=Math.sqrt(this.random())*spreadRadius;p.position.x+=Math.cos(angle)*radius;p.position.z+=Math.sin(angle)*radius;}
+      p.velocity.set(this.random() - 0.5, this.random() - 0.3, this.random() - 0.5).normalize().multiplyScalar(Math.min(maxSpeed,(4 + this.random() * 12) * size));
       p.life = p.duration = 0.4 + this.random() * 0.8; p.scale = (0.05 + this.random() * 0.14) * size; p.color.set(color);
     }
   }

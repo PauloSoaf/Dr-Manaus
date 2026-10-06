@@ -1,4 +1,5 @@
 import { BoxGeometry, Color, DynamicDrawUsage, Group, InstancedMesh, Matrix4, MeshStandardMaterial, Object3D, type Vector3 } from 'three/webgpu';
+import { PhysicsWorld } from '../../physics/PhysicsWorld';
 
 export interface DebrisOptions {
   /** Above real gravity on purpose: rubble that hangs in the air reads as polystyrene. */
@@ -127,8 +128,9 @@ export class DebrisPool {
       const half = this.size[i] * .5;
       this.vy[i] -= gravity * dt;
       this.px[i] += this.vx[i] * dt; this.py[i] += this.vy[i] * dt; this.pz[i] += this.vz[i] * dt;
-      if (this.py[i] <= half) {
-        this.py[i] = half;
+      const floor=PhysicsWorld.terrainHeight(this.px[i],this.pz[i])+half;
+      if (this.py[i] <= floor) {
+        this.py[i] = floor;
         this.vy[i] = this.vy[i] < 0 ? -this.vy[i] * restitution : this.vy[i];
         this.vx[i] *= decay; this.vz[i] *= decay;
         this.ax[i] *= decay; this.ay[i] *= decay; this.az[i] *= decay;

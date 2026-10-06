@@ -390,7 +390,7 @@ export class RoadNetwork {
             post(out, px - nx * side * 1.1, 8, pz - nz * side * 1.1, 2.6, .34, .42, mast, 0);
             post(out, px - nx * side * 2, 7.55, pz - nz * side * 2, 1.15, .5, .62, head, 1);
             this.spans.set(lampId, { first, count: out.position.length - first });
-            this.colliders.push({ id: lampId, x: px, y: 4.2, z: pz, width: 3, depth: 3, height: 8.4 });
+            this.colliders.push({ id: lampId, x: px, y: 4.2, z: pz, width: 3, depth: 3, height: 8.4,category:'fragile',impactKind:'lamp' });
           }
           // A street tree between every pair of lamps: never inside a footprint, because a road is not.
           const tx = ax + ux * (t + 19) + nx * (offset + 1.6) * -side;
@@ -402,7 +402,7 @@ export class RoadNetwork {
             canopy(out, tx, 4.6 + tint * 1.4, tz, 2.5 + tint * 1.3, 2.4 + tint * 1.1,
               [.20 + tint * .10, .38 + tint * .12, .19 + tint * .07]);
             this.spans.set(treeId, { first, count: out.position.length - first });
-            this.colliders.push({ id: treeId, x: tx, y: height * .5, z: tz, width, depth: width, height });
+            this.colliders.push({ id: treeId, x: tx, y: height * .5, z: tz, width, depth: width, height,category:'vegetation' });
           }
         }
       }

@@ -68,6 +68,20 @@ export class WorldStreamer {
   }
 
   get colliders(): Collider[] { return this.colliderList; }
+  /** Resident detailed chunks only: a blast never generates an unloaded neighborhood. */
+  appendBlastColliders(out: Collider[], point: Vector3, radius: number): void {
+    for (const chunk of this.records.values()) {
+      if (!chunk.group || !chunk.group.visible) continue;
+      if (Math.abs((chunk.cx+.5)*WORLD.chunkSize-point.x)>radius+WORLD.chunkSize ||
+          Math.abs((chunk.cz+.5)*WORLD.chunkSize-point.z)>radius+WORLD.chunkSize) continue;
+      for (const box of chunk.colliders) {
+        const tree = box.id?.includes('/tree/');
+        const width = tree ? box.width*2 : box.width, depth = tree ? box.depth*2 : box.depth;
+        if (Math.hypot(Math.max(0,Math.abs(box.x-point.x)-width/2),Math.max(0,Math.abs(box.z-point.z)-depth/2))<=radius)
+          out.push({...box,width,depth,category:tree?'vegetation':'building'});
+      }
+    }
+  }
   get activeKeys(): ReadonlySet<string> { return this.active; }
   get destroyedIds(): ReadonlySet<string> { return this.destroyed; }
   get destroyedBounds(): ReadonlyMap<string, Collider> { return this.destroyedLocations; }

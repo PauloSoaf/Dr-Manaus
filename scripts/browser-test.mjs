@@ -1,6 +1,7 @@
 import { chromium } from '@playwright/test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { createServer } from 'vite';
+import { localImpactCheckpoint } from './local-impact-browser-checkpoint.mjs';
 
 const host = '127.0.0.1';
 const port = Number(process.env.DR_MANAUS_TEST_PORT ?? 4173);
@@ -274,6 +275,8 @@ try {
   if(destructionCoverage.depth>=-3||destructionCoverage.surfaces<3||!destructionCoverage.removed||!destructionCoverage.restored)throw new Error(`Destruction coverage failed: ${JSON.stringify(destructionCoverage)}`);
   console.log(`  authored destruction + crater: ${JSON.stringify(destructionCoverage)}`);
   checkpoints.destruction = destructionCoverage;
+  stage = 'local-impact-p0';
+  checkpoints.localImpact = await localImpactCheckpoint(page);
 
   // Visual validation: Scenario 1 - Ground Golden Hour (climb to ~100m, clear weather, horizon view)
   console.log('  taking off and climbing to 100m for Golden Hour visual validation...');

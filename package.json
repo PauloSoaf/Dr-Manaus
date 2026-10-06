@@ -14,6 +14,7 @@
     "test:browser:space": "node scripts/space-hardening-browser.mjs",
     "test:browser:volume": "node scripts/volume-meshing-browser.mjs",
     "benchmark:volume": "node --import tsx scripts/benchmark-volume.mjs",
+    "benchmark:impact": "node --import tsx scripts/benchmark-impact.mjs",
     "profile": "node scripts/profile-flight.mjs",
     "assets:player": "node scripts/build-player-character.mjs",
     "validate:player": "node scripts/validate-player-glb.mjs"

@@ -62,7 +62,7 @@ export class AuthoredDestruction {
           bounds.min.set(box.x - box.width / 2, box.y - box.height / 2, box.z - box.depth / 2);
           bounds.max.set(box.x + box.width / 2, box.y + box.height / 2, box.z + box.depth / 2);
           bounds.applyMatrix4(transform); bounds.getCenter(point);
-          this.addCollider({ id: resolve(entity.id), x: point.x + origin.x, y: point.y, z: point.z + origin.z, width: bounds.max.x - bounds.min.x, height: bounds.max.y - bounds.min.y, depth: bounds.max.z - bounds.min.z });
+          this.addCollider({ ...box, id: resolve(entity.id), x: point.x + origin.x, y: point.y, z: point.z + origin.z, width: bounds.max.x - bounds.min.x, height: bounds.max.y - bounds.min.y, depth: bounds.max.z - bounds.min.z });
         }
       }
       if (!(object instanceof Mesh)) return;
@@ -128,10 +128,10 @@ export class AuthoredDestruction {
     return restored;
   }
 
-  appendColliders(target: Collider[], player: Vector3, radius: number): void {
+  appendColliders(target: Collider[], player: Vector3, radius: number, blast = false): void {
     for (const entry of this.records.values()) {
       if (entry.destroyed || !entry.bindings.size) continue;
-      for (const box of entry.colliders) if (Math.abs(box.x - player.x) <= radius + box.width / 2 && Math.abs(box.z - player.z) <= radius + box.depth / 2) target.push(box);
+      for (const box of entry.colliders) if ((blast || !box.blastOnly) && Math.abs(box.x - player.x) <= radius + box.width / 2 && Math.abs(box.z - player.z) <= radius + box.depth / 2) target.push(box);
     }
   }
   dispose(): void { this.groups.clear(); this.records.clear(); this.destroyed.clear(); }

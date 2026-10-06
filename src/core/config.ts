@@ -57,6 +57,7 @@ export const DESTRUCTION = {
   chunksPerCollapse: 9, maxChunksPerCollapse: 46, maxChunkEnergy: 26,
   /** Bounds the cost of a single frame: surplus damage collapses the rest on the next one. */
   maxCollapsesPerFrame: 16,
+  maxLightRetirementsPerFrame: 1024,
   /** Debris pool. `maxDebris` is the hard instance cap; `debrisPerParticle` scales it by preset. */
   maxDebris: 420, debrisPerParticle: .7, debrisGravity: 26, debrisBounce: .26, debrisFriction: 3.2,
   debrisLifetime: 4.5, debrisSpeed: 1, debrisSize: 1, debrisCullRadius: 1400,

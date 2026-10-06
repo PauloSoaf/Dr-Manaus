@@ -48,8 +48,11 @@ export function resolveImpact(speed:number,size=1,slam=false,excavationGain=1):I
  * energy but excavates less. Ordinary step/jump fallback retains the 12 m/s landing gate. */
 export function resolveContactImpact(v:{x:number;y:number;z:number},n:{x:number;y:number;z:number},size=1,slam=false,swept=true):ImpactResult {
   const length=Math.hypot(n.x,n.y,n.z);if(!Number.isFinite(length)||length<1e-12)return resolveImpact(0,size,slam);
-  const dot=(v.x*n.x+v.y*n.y+v.z*n.z)/length,normal=Math.max(0,-dot),
-    tangent=Math.hypot(v.x-n.x/length*dot,v.y-n.y/length*dot,v.z-n.z/length*dot);
+  if(!Number.isFinite(v.x)||!Number.isFinite(v.y)||!Number.isFinite(v.z))return resolveImpact(0,size,slam);
+  const nx=n.x/length,ny=n.y/length,nz=n.z/length;
+  const dot=v.x*nx+v.y*ny+v.z*nz,normal=Math.max(0,-dot),
+    tangent=Math.hypot(v.x-nx*dot,v.y-ny*dot,v.z-nz*dot);
+  if(!Number.isFinite(normal)||!Number.isFinite(tangent))return resolveImpact(0,size,slam);
   const speed=(swept?normal>=IMPACT.minSweptNormal:normal>=IMPACT.minDescent)?normal+tangent*IMPACT.obliqueTransfer:0;
   const gain=swept?Math.min(1,Math.sqrt(normal/IMPACT.minDescent)):1;
   return {...resolveImpact(speed,size,slam,gain),normalImpactSpeed:normal,tangentialSpeed:tangent};

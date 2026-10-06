@@ -49,6 +49,8 @@ import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 import { TravelDomain } from '../world/travel/TravelDomain';
 import { CelestialImpactService } from '../world/travel/CelestialImpactService';
 import type { CelestialImpactEvent } from '../world/travel/CelestialImpactEvent';
+import type { ImpactResult } from '../player/combat/MeteorImpact';
+import { impactCategory, impactKind } from '../world/destruction/ImpactCategories';
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
 import { RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
 import { createPlanetProviders } from '../world/providers/PlanetProviderRegistry';
@@ -260,6 +262,7 @@ export class Game {
       hit:(id,force)=>{if(this.manausSimulationActive)this.missions.hit(id,force)||this.population.hit(id,force);},
       reconstruct:(position,radius)=>{
         if(!this.manausSimulationActive)return 0;
+        this.destruction.restoreAt(position,radius);
         let flat = position;
         if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
           flat = this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z);
@@ -272,8 +275,9 @@ export class Game {
         if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
           flat = this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z);
         }
-        this.population.impulse(flat,radius,force);this.camera.shake(.45);
+        this.population.impulse(flat,radius,force);this.traffic?.impulse(flat,radius,force);this.camera.shake(.45);
       },
+      impact:(point,footprint)=>this.applyLocalImpact(point,footprint),
       damage:(point,radius,amount,deform)=>this.manausSimulationActive?this.destruction.damageAt(point,radius,amount,deform):0,prepare:destination=>this.manausSimulationActive?this.streamer.prepare(destination):Promise.resolve(),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
@@ -634,7 +638,6 @@ export class Game {
       if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
         flat = this.surfaceService.renderLocalToLegacyPoint(point.x, point.y, point.z);
       }
-      if(radius<80)return FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
       const out=this.blastBoxes;out.length=0;
       const srcBoxes = FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
       for(const box of srcBoxes)if(!box.id?.startsWith("real:")&&!box.id?.startsWith("landmark:")&&!box.id?.startsWith("largo:")&&!box.id?.startsWith("airport:"))out.push(box);
@@ -644,6 +647,8 @@ export class Game {
       this.landmarks.appendBlastColliders(legacyOut,flat,radius);
       this.largo.appendBlastColliders(legacyOut,flat,radius);
       this.airport.appendColliders(legacyOut,flat,radius);
+      this.streamer.appendBlastColliders(legacyOut,flat,radius);
+      this.population.appendBlastColliders(legacyOut,flat,radius);
 
       if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
         for (const box of legacyOut) {
@@ -653,19 +658,35 @@ export class Game {
         for (const box of legacyOut) out.push(box);
       }
 
+      for (const box of out) { box.category ??= impactCategory(box.id); box.impactKind ??= impactKind(box.id); }
       return out;
     },
     colliders:():readonly Collider[]=>FEATURES.curvedManaus ? this.curvedColliders : this.colliders,
-    destroy:(id:string):boolean=>{if(!this.manausSimulationActive)return false;id=id.replace(/^hlod:/,'');return !!this.traffic?.destroy(id)||this.realCity.destroy(id)||this.streamer.destroy(id)||this.landmarks.destroy(id)||this.largo.destroy(id)||this.airport.destroy(id);},
-    deform:(point:Vector3,radius:number,damage:number)=>{
+    destroy:(id:string):boolean=>{if(!this.manausSimulationActive)return false;id=id.replace(/^hlod:/,'');return !!this.traffic?.destroy(id)||this.population.destroy(id)||this.realCity.destroy(id)||this.streamer.destroy(id)||this.landmarks.destroy(id)||this.largo.destroy(id)||this.airport.destroy(id);},
+    deform:(point:Vector3,radius:number,damage:number,depth?:number)=>{
       if(!this.manausSimulationActive)return false;
       let flat = point;
       if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
         flat = this.surfaceService.renderLocalToLegacyPoint(point.x, point.y, point.z);
       }
-      return this.terrain.damageAt(flat,radius,damage);
+      return this.terrain.damageAt(flat,radius,damage,depth);
     },
   };
+  /** Local Manaus authority; C4 celestial events and D0 volume collision remain isolated. */
+  applyLocalImpact(point: Vector3, footprint: ImpactResult): number {
+    if (!this.manausSimulationActive) return 0;
+    const collapsed = this.destruction.impactAt(point,footprint);
+    const flat = FEATURES.curvedManaus && this.travelDomain.localPhysicsActive
+      ? this.surfaceService.renderLocalToLegacyPoint(point.x,point.y,point.z) : point;
+    const response = this.population.applyImpact(flat,footprint);
+    this.population.impulse(flat,footprint.impulseRadiusM,footprint.impulse);
+    this.traffic?.impulse(flat,footprint.impulseRadiusM,footprint.impulse);
+    const stats = this.destruction.lastImpact;
+    if (stats) { stats.vehicles+=this.traffic?.lastImpulseWrecks??0;
+      stats.npcAffected=response.affected; stats.npcDisabled=response.disabled;
+      stats.npcKnocked=response.knocked; stats.npcFleeing=response.fleeing; }
+    return collapsed;
+  }
   /** Register newly built surfaces once, including streamed roads and plaza LOD changes. */
   private readonly watchedGround=new WeakSet<import('three/webgpu').Object3D>();
   private watchGround(object:import('three/webgpu').Object3D,ground=false):void{
@@ -1340,6 +1361,7 @@ export class Game {
     const motion=this.landingMotion(t.dominantBody),gate=this.travelDomain.landingGate;
     const contact=this.interplanetary.lastCelestialContact;
     const impact=this.lastCelestialImpact;
+    const localImpact=this.destruction.lastImpact, footprint=localImpact?.footprint;
     return{
       ...this.universe.volume?.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
@@ -1381,6 +1403,11 @@ export class Game {
       'IMPACTO CELESTE · Direto / Ângulo':impact?`${impact.radialFraction.toFixed(3)} / ${impact.incidenceAngleRad.toFixed(3)} rad`:'—',
       'IMPACTO CELESTE · Warp / Lock / Piloto / Pouso':impact?`${impact.warpStep} / ${impact.lockedTarget} / ${impact.autopilotActive} / ${impact.landingIntentActive}`:'—',
       'IMPACTO CELESTE · Evento':impact?.eventId??'—',
+      'IMPACTO LOCAL · Velocidade / Normal / Tangente':footprint?`${footprint.impactSpeed.toFixed(1)} / ${footprint.normalImpactSpeed.toFixed(1)} / ${footprint.tangentialSpeed.toFixed(1)} m/s`:'—',
+      'IMPACTO LOCAL · Energia / Raio / Profundidade':footprint?`${footprint.energy.toFixed(0)} / ${footprint.craterRadiusM.toFixed(1)} / ${footprint.craterDepthM.toFixed(1)} m`:'—',
+      'IMPACTO LOCAL · Core / Blast / Impulso / Reação':footprint?`${footprint.coreDestructionRadiusM.toFixed(0)} / ${footprint.blastDamageRadiusM.toFixed(0)} / ${footprint.impulseRadiusM.toFixed(0)} / ${footprint.reactionRadiusM.toFixed(0)} m`:'—',
+      'IMPACTO LOCAL · Consultados / Prédios / Árvores / Props / Lâmpadas / Carros':localImpact?`${localImpact.queried} / ${localImpact.buildings} / ${localImpact.trees} / ${localImpact.props} / ${localImpact.lamps} / ${localImpact.vehicles}`:'—',
+      'IMPACTO LOCAL · NPCs / Pendentes':`${localImpact?.npcAffected??0} / ${this.destruction.pendingCount}`,
       'CONTATO CELESTE · Vel / Radial':contact?`${contact.relativeSpeedMps.toFixed(0)} / ${contact.radialSpeedMps.toFixed(0)} m/s → ${contact.responseRadialSpeedMps.toFixed(2)} / ${contact.responseTangentialSpeedMps.toFixed(2)}`:'—',
       'Lua · Pouso':`${moon.blockedReason} · ${moon.altitudeM.toFixed(0)} m sobre terreno · ${moon.relativeSpeedMps.toFixed(0)} m/s relativos`,
       'Lua · Gates':`retorno ≤ ${moon.returnAltitudeM} m sobre terreno / ${moon.maxRelativeSpeedMps} m/s · superfície ${moon.surfaceReady?'pronta':'aguardando'} (${moon.missingLandingTiles} tiles faltando)`,
