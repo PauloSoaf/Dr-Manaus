@@ -1,6 +1,8 @@
 import { Vector3 } from 'three/webgpu';
 import type { Collider } from '../core/types';
 import { terrainFootHeight, sweepTerrain, removeInwardTerrainVelocity, type TerrainContact } from './TerrainSweep';
+import { VOLUME_CONTACT_POLICY, type VolumeCollisionProvider, type VolumeContact } from './VolumeCollisionProvider';
+import type { Vec3 } from '../world/spatial/units';
 
 export interface RayHit { distance: number; collider: Collider | null; point: Vector3 }
 /** Active physics frame coordinates. The raycast must match the provider's terrain topology. */
@@ -20,9 +22,12 @@ export class PhysicsWorld {
   private readonly terrainTo = new Vector3();
   private readonly terrainContact: TerrainContact = { fraction: 0, position: new Vector3(), heightM: 0, normal: new Vector3() };
   lastTerrainContact: Readonly<TerrainContact> | null = null;
+  lastVolumeContact: Readonly<VolumeContact> | null = null;
   private static terrain: TerrainProvider | null = null;
+  private static volume: VolumeCollisionProvider | null = null;
 
   static setTerrain(provider: TerrainProvider | null): void { this.terrain = provider; }
+  static setVolumeCollision(provider: VolumeCollisionProvider | null): void { this.volume=provider; }
   static terrainHeight(x: number, z: number, radius = 0): number {
     const terrain = this.terrain; if (!terrain) return 0;
     return terrainFootHeight(terrain, x, z, radius);
@@ -33,6 +38,8 @@ export class PhysicsWorld {
 
   move(position: Vector3, velocity: Vector3, dt: number, radius: number, height: number, colliders: readonly Collider[], stepHeight = 0): boolean {
     this.lastTerrainContact = null;
+    this.lastVolumeContact = null;
+    if(PhysicsWorld.volume)return this.moveVolume(position,velocity,dt,radius,height,colliders);
     const deltaX = velocity.x * dt, deltaY = velocity.y * dt, deltaZ = velocity.z * dt;
     const reach = Math.max(Math.abs(deltaX), Math.abs(deltaY), Math.abs(deltaZ)) + height + radius;
     this.nearby.length = 0;
@@ -120,6 +127,47 @@ export class PhysicsWorld {
     return grounded;
   }
 
+  /** Explicit volume mode. Earliest volume/heightfield/box contact wins each bounded iteration.
+   * No implicit y=0 plane in a volume-only cavity; the normal gameplay path above is unchanged. */
+  private moveVolume(position:Vector3,velocity:Vector3,dt:number,radius:number,height:number,colliders:readonly Collider[]):boolean {
+    let remaining=Math.max(0,dt),grounded=false;
+    for(let iteration=0;iteration<VOLUME_CONTACT_POLICY.maxIterations&&remaining>1e-10;iteration++) {
+      const delta:Vec3=[velocity.x*remaining,velocity.y*remaining,velocity.z*remaining];
+      if(Math.hypot(...delta)<1e-10)break;
+      let hit=PhysicsWorld.volume!.sweepCapsule(position.toArray(),delta,radius,height);
+      let fraction=hit?.fraction??1,normal:Vec3|undefined=hit?.normal,terrainHit:TerrainContact|null=null;
+      const terrain=PhysicsWorld.terrain;
+      if(terrain) {
+        this.terrainFrom.copy(position);this.terrainTo.copy(position).add(new Vector3(...delta));
+        const contact=sweepTerrain(terrain,this.terrainFrom,this.terrainTo,radius,this.terrainContact);
+        if(contact&&contact.fraction<=fraction){terrainHit=contact;fraction=contact.fraction;normal=contact.normal.toArray();hit=null;}
+      }
+      for(const box of colliders) {
+        const min:Vec3=[box.x-box.width/2-radius,box.y-box.height/2-height,box.z-box.depth/2-radius],
+          max:Vec3=[box.x+box.width/2+radius,box.y+box.height/2,box.z+box.depth/2+radius];
+        let enter=-Infinity,leave=Infinity,axisHit=-1,sign=0;
+        const from=position.toArray();
+        for(let axis=0;axis<3;axis++) {
+          if(Math.abs(delta[axis])<1e-12){if(from[axis]<min[axis]||from[axis]>max[axis]){leave=-Infinity;break;}continue;}
+          const a=(min[axis]-from[axis])/delta[axis],b=(max[axis]-from[axis])/delta[axis];
+          if(Math.min(a,b)>enter){enter=Math.min(a,b);axisHit=axis;sign=delta[axis]>0?-1:1;}
+          leave=Math.min(leave,Math.max(a,b));
+        }
+        if(enter>=-1e-10&&enter<=leave&&enter<=fraction&&axisHit>=0){fraction=Math.max(0,enter);normal=[0,0,0];normal[axisHit]=sign;hit=null;terrainHit=null;}
+      }
+      if(!normal){position.add(new Vector3(...delta));break;}
+      const inward=velocity.x*normal[0]+velocity.y*normal[1]+velocity.z*normal[2];
+      position.add(new Vector3(...delta).multiplyScalar(fraction));
+      if(terrainHit){position.copy(terrainHit.position);this.lastTerrainContact=terrainHit;}
+      else position.add(new Vector3(...normal).multiplyScalar(VOLUME_CONTACT_POLICY.skinM));
+      if(hit)this.lastVolumeContact=hit;
+      if(normal[1]>=VOLUME_CONTACT_POLICY.floorNormalY&&inward<0)grounded=true;
+      if(inward<0)velocity.add(new Vector3(...normal).multiplyScalar(-inward));
+      remaining*=Math.max(0,1-fraction);
+    }
+    return grounded;
+  }
+
   static raycast(origin: Vector3, direction: Vector3, colliders: readonly Collider[], maxDistance: number, margin = 0, ground = false): RayHit | null {
     let nearest = maxDistance;
     let hit: Collider | null = null;
@@ -150,6 +198,8 @@ export class PhysicsWorld {
         : direction.y < -0.0001 ? -origin.y / direction.y : null;
       if (distance !== null && distance > 0 && distance < nearest) { nearest = distance; hit = null; found = true; }
     }
+    const volume=this.volume?.raycast(origin.toArray(),direction.toArray(),nearest);
+    if(volume&&volume.distance<nearest){nearest=volume.distance;hit=null;found=true;}
     return found ? { distance: nearest, collider: hit, point: origin.clone().addScaledVector(direction, nearest) } : null;
   }
 

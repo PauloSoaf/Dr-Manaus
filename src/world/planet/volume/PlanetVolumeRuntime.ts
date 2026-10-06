@@ -11,6 +11,12 @@ import { chunkKeyToString, DEFAULT_VOLUME_LOD, type PlanetVolumeLodConfig, type 
 import { PlanetVolumeMeshingJob, MAX_VOLUME_MESH_JOB_BYTES } from './PlanetVolumeMesher';
 import { PlanetVolumeMeshCache } from './PlanetVolumeMeshCache';
 import { maximumVolumeMeshBytes } from './PlanetVolumeMesh';
+import { PlanetVolumeCollisionCache } from './PlanetVolumeCollisionCache';
+import { PlanetVolumeCollisionBuildJob } from './PlanetVolumeCollisionBuilder';
+import type { PlanetVolumeCollider } from './PlanetVolumeCollider';
+import type { PlanetVolumeChunk } from './PlanetVolumeChunk';
+import type { PlanetVolumeMesh } from './PlanetVolumeMesh';
+import type { PlanetVolumeCollisionProvider } from './PlanetVolumeCollisionProvider';
 
 export interface PlanetVolumeRuntimeOptions {
   readonly resolve: (context: StreamingContext) => { surface: PlanetSurfaceGenerator; observerBodyFixedM: BodyFixedPoint } | undefined;
@@ -19,10 +25,11 @@ export interface PlanetVolumeRuntimeOptions {
   readonly demand?: PlanetVolumeDemandConfig;
   readonly cacheLimits?: { maxChunks: number; maxBytes: number };
   readonly meshLimits?: { maxMeshes: number; maxBytes: number };
+  readonly collisionLimits?: { maxColliders: number; maxBytes: number };
   readonly clock?: () => number;
 }
 
-/** Optional resident grids/meshes, owned by the existing scheduler. No scene, physics or power hooks. */
+/** Optional samples/meshes/colliders under the existing scheduler. No scene or power hooks. */
 export class PlanetVolumeRuntime implements ManagedSubsystem {
   readonly id = 'planet/volume';
   readonly edits: PlanetVolumeEditStore;
@@ -30,6 +37,16 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   readonly lod: PlanetVolumeLodConfig;
   readonly demand: PlanetVolumeDemandConfig;
   readonly meshCache: PlanetVolumeMeshCache;
+  readonly collisionCache: PlanetVolumeCollisionCache;
+  private collisionEnabled=false;
+  private collisionWanted:readonly PlanetVolumeChunkKey[]=[];
+  private collisionPending:PlanetVolumeMesh[]=[];
+  private collisionJob?:PlanetVolumeCollisionBuildJob;
+  private collisionStaged:{source:PlanetVolumeChunk;collider?:PlanetVolumeCollider}[]=[];
+  private collisionBuiltThisFrame=0;
+  private collisionBuildMs=0;
+  private collisionUnitMs=.003;
+  private collisionQueries?:PlanetVolumeCollisionProvider['metrics'];
   private readonly clock: () => number;
   private enabled = false;
   private allowInterior = false;
@@ -55,6 +72,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     this.edits = options.edits ?? new PlanetVolumeEditStore();
     this.cache = new PlanetVolumeChunkCache(options.cacheLimits ?? DEFAULT_VOLUME_CACHE_LIMITS,this.edits);
     this.meshCache = new PlanetVolumeMeshCache(options.meshLimits);
+    this.collisionCache = new PlanetVolumeCollisionCache(options.collisionLimits);
     this.lod = Object.freeze({ ...(options.lod ?? DEFAULT_VOLUME_LOD) });
     this.demand = Object.freeze({ ...(options.demand ?? DEFAULT_VOLUME_DEMAND) });
     this.clock = options.clock ?? (()=>performance.now());
@@ -67,15 +85,23 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   /** CPU extraction only; a debug renderer may consume the ready payloads separately. */
   setDebugMeshing(enabled: boolean): void {
     this.meshingEnabled=enabled;
-    if(!enabled) {this.meshCache.clearAll();this.meshJob=undefined;this.meshPending=[];this.meshWanted=[];}
+    if(!enabled) {this.setDebugCollision(false);this.meshCache.clearAll();this.meshJob=undefined;this.meshPending=[];this.meshWanted=[];}
   }
+  /** Explicit D0 activation only. Does not bind PhysicsWorld or change ordinary terrain. */
+  setDebugCollision(enabled:boolean):void {
+    this.collisionEnabled=enabled;if(enabled)this.meshingEnabled=true;
+    else {this.collisionCache.clearAll();this.collisionJob=undefined;this.collisionStaged=[];this.collisionWanted=[];this.collisionPending=[];}
+  }
+  setCollisionDiagnostics(metrics:PlanetVolumeCollisionProvider['metrics']|undefined):void {this.collisionQueries=metrics;}
   get meshes() {this.meshCache.prune(this.cache);return this.meshCache.values();}
   private deactivate(): void {
+    this.collisionCache.clearAll();this.collisionJob=undefined;this.collisionStaged=[];this.collisionWanted=[];this.collisionPending=[];
     this.cache.clearAll(); this.field = undefined; this.observer = undefined;
     this.wanted = []; this.pending = []; this.job = undefined;
     this.meshCache.clearAll();this.meshJob=undefined;this.meshWanted=[];this.meshPending=[];
   }
   covers(context: StreamingContext): boolean {
+    this.commitCollisions();this.collisionBuiltThisFrame=0;this.collisionBuildMs=0;
     this.generatedThisFrame = 0; this.generationMs = 0; this.grantedMs = 0;
     this.meshedThisFrame=0;this.meshingMs=0;
     if (!this.enabled) { this.deactivate(); return false; }
@@ -103,6 +129,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     this.pending = this.wanted.filter(key=>!this.cache.has(key));
     if (this.job && (this.job.obsolete || !ids.has(chunkKeyToString(this.job.key)))) this.job = undefined;
     this.planMeshes();
+    this.planCollisions();
     return this.wanted.length > 0;
   }
   private planMeshes():void {
@@ -116,7 +143,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       ||!wanted.has(chunkKeyToString(this.meshJob.chunk.key)))) this.meshJob=undefined;
   }
   plan(_context: StreamingContext): readonly ManagedDemand[] {
-    const pending=this.pending.length+this.meshPending.length;
+    const pending=this.pending.length+this.meshPending.length+this.collisionPending.length+this.collisionStaged.length;
     return pending ? [{ id: this.id, pending, estimatedMs: pending*4, critical: false }] : [];
   }
   advance(budgetMs: number): void {
@@ -124,14 +151,20 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     this.grantedMs += budgetMs;
     const start = this.clock(), deadline = start + budgetMs;
     if (this.job?.obsolete) this.job = undefined;
+    if (this.meshJob?.obsolete) this.meshJob=undefined;
+    if (this.collisionJob?.obsolete) this.collisionJob=undefined;
     while(this.clock()<deadline) {
       const sampleKey=this.generatedThisFrame<1?this.pending[0]:undefined;
       const meshKey=this.meshedThisFrame<1?this.meshPending[0]:undefined;
-      if(!this.job&&!this.meshJob) {
+      if(!this.job&&!this.meshJob&&!this.collisionJob) {
+        const mesh=this.collisionBuiltThisFrame<1?this.collisionPending[0]:undefined;
+        if(mesh) this.collisionJob=new PlanetVolumeCollisionBuildJob(mesh,this.cache.peek(mesh.key));
+        else {
         if(meshKey&&(!sampleKey||this.wanted.indexOf(meshKey)<=this.wanted.indexOf(sampleKey))) {
           this.meshJob=new PlanetVolumeMeshingJob(this.cache.peek(meshKey)!);
         } else if(sampleKey) this.job=new PlanetVolumeChunkGenerationJob(this.field,sampleKey,this.lod);
         else break;
+        }
       }
       const before=this.clock(),remaining=Math.max(0,deadline-before);
       if(!remaining) break;
@@ -145,6 +178,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
           if(!this.cache.insert(chunk)) this.rejectedChunks++;
           this.pending=this.pending.filter(key=>chunkKeyToString(key)!==chunkKeyToString(chunk.key));
           this.job=undefined;this.generatedThisFrame++;this.planMeshes();
+          this.planCollisions();
         }
       } else if(this.meshJob) {
         const batch=Math.max(1,Math.min(64,Math.floor(target/this.meshingUnitMs)));
@@ -153,11 +187,45 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
         if(done) {
           this.meshCache.insert(this.meshJob.chunk,this.meshJob.mesh!);
           this.meshJob=undefined;this.meshedThisFrame++;this.planMeshes();
+          this.planCollisions();
         }
+      } else if(this.collisionJob) {
+        const batch=Math.max(1,Math.min(128,Math.floor(target/this.collisionUnitMs))),done=this.collisionJob.advance(batch),elapsed=Math.max(0,this.clock()-before);
+        this.collisionBuildMs+=elapsed;this.collisionUnitMs=Math.max(.00001,this.collisionUnitMs*.8+elapsed/batch*.2);
+        if(done) {this.collisionStaged.push({source:this.collisionJob.source!,collider:this.collisionJob.collider});
+          const mesh=this.collisionJob.mesh;this.collisionPending=this.collisionPending.filter(candidate=>candidate!==mesh);
+          this.collisionJob=undefined;this.collisionBuiltThisFrame++;}
       }
     }
   }
-  stats(): ManagedStats { return { id: this.id, pending: this.pending.length+this.meshPending.length, grantedMs: this.grantedMs }; }
+  private commitCollisions():void {
+    // covers() is the frame boundary. Reject obsolete staged results before publication.
+    for(const {source,collider} of this.collisionStaged) {
+      if(source.state!=='ready'||this.cache.peek(source.key)!==source)continue;
+      if(collider)this.collisionCache.insert(collider);else this.collisionCache.remove(source.key);
+    }
+    this.collisionStaged=[];
+  }
+  private planCollisions():void {
+    if(!this.collisionEnabled)return;
+    // One finest LOD only, selected independently of far visual LOD. Existing demand is near-first.
+    this.collisionWanted=this.wanted.filter(key=>key.lod===0).slice(0,this.collisionCache.limits.maxColliders);
+    const wanted=new Set(this.collisionWanted.map(chunkKeyToString));this.collisionCache.prune(wanted);
+    const pending:PlanetVolumeMesh[]=[];
+    for(const key of this.collisionWanted) {
+      const chunk=this.cache.peek(key);if(!chunk||chunk.state!=='ready')continue;
+      if(chunk.classification!=='MIXED') {
+        if(this.collisionCache.peek(key)&&!this.collisionStaged.some(item=>item.source===chunk))this.collisionStaged.push({source:chunk});
+        continue;
+      }
+      const mesh=this.meshCache.get(chunk);if(!mesh||this.collisionCache.peek(key)?.sourceMesh===mesh)continue;
+      if(!this.collisionStaged.some(item=>item.collider?.sourceMesh===mesh))pending.push(mesh);
+    }
+    this.collisionPending=pending;
+    if(this.collisionJob&&(this.collisionJob.obsolete||this.cache.peek(this.collisionJob.mesh.key)!==this.collisionJob.source
+      ||!wanted.has(chunkKeyToString(this.collisionJob.mesh.key))))this.collisionJob=undefined;
+  }
+  stats(): ManagedStats { return { id: this.id, pending: this.pending.length+this.meshPending.length+this.collisionPending.length+this.collisionStaged.length, grantedMs: this.grantedMs }; }
   get metrics() {
     this.meshCache.prune(this.cache);
     const meshes=this.meshCache.stats();
@@ -172,8 +240,11 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       meshJobBytes:this.meshJob?.pendingBytes??0,meshedThisFrame:this.meshedThisFrame,meshingMs:this.meshingMs,
       nearestOverlappingEdits: nearest?.overlappingEditCount ?? 0 };
   }
+  get collisionMetrics(){return {bodyId:this.field?.bodyId,enabled:this.collisionEnabled,...this.collisionCache.stats(),
+    pending:this.collisionPending.length,staged:this.collisionStaged.length,pendingBytes:this.collisionJob?.pendingBytes??0,
+    buildsThisFrame:this.collisionBuiltThisFrame,buildMs:this.collisionBuildMs,...(this.collisionQueries??{queries:0,candidateChunks:0,candidateTriangles:0,contacts:0,lastKind:'—',lastNormal:[0,0,0]})};}
   debugMetrics(): Record<string,string|number> {
-    const m = this.metrics;
+    const m = this.metrics,c=this.collisionMetrics;
     return { 'Volume · Corpo': m.bodyId ?? 'inativo', 'Volume · Residentes / fila / stale': `${m.resident} / ${m.pending} / ${m.stale}`,
       'Volume · MB amostras / job': `${(m.bytes/1048576).toFixed(3)} / ${(m.pendingBytes/1048576).toFixed(3)}`,
       'Volume · Geração / ms': `${m.generatedThisFrame} / ${m.generationMs.toFixed(2)}`,
@@ -185,7 +256,14 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       'Volume · Malhas MiB / job':`${(m.meshBytes/1048576).toFixed(3)} / ${(m.meshJobBytes/1048576).toFixed(3)}`,
       'Volume · Triângulos / vértices':`${m.meshTriangles} / ${m.meshVertices}`,
       'Volume · Mesh geração / ms':`${m.meshedThisFrame} / ${m.meshingMs.toFixed(2)}`,
-      'Volume · Faces ambíguas':m.ambiguousMeshFaces };
+      'Volume · Faces ambíguas':m.ambiguousMeshFaces,
+      'Volume Collision · Body':c.bodyId??'—','Volume Collision · Resident':c.resident,
+      'Volume Collision · Pending':`${c.pending} / ${c.staged}`,'Volume Collision · MB':(c.bytes/1048576).toFixed(3),
+      'Volume Collision · Triangles':c.triangles,'Volume Collision · BVH nodes':c.nodes,
+      'Volume Collision · Builds/frame':c.buildsThisFrame,'Volume Collision · Build ms':c.buildMs.toFixed(3),
+      'Volume Collision · Queries/frame':c.queries,'Volume Collision · Candidate chunks':c.candidateChunks,
+      'Volume Collision · Candidate triangles':c.candidateTriangles,'Volume Collision · Contacts':c.contacts,
+      'Volume Collision · Last contact kind':c.lastKind,'Volume Collision · Last normal':c.lastNormal.join(',') };
   }
   dispose(): void { this.deactivate(); this.cache.dispose(); }
 }

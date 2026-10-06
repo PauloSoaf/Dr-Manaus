@@ -26,7 +26,7 @@ import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { RenderSpaceService } from '../spatial/RenderSpaceService';
 import { createRenderOrigin } from '../spatial/RenderOrigin';
-import { PlanetVolumeRuntime } from '../planet/volume/PlanetVolumeRuntime';
+import { PlanetVolumeRuntime, type PlanetVolumeRuntimeOptions } from '../planet/volume/PlanetVolumeRuntime';
 import { surfaceForBody } from '../planet/BodySurfaceFactory';
 
 /** Observer-centred axes captured from the surface frame at departure. */
@@ -41,6 +41,8 @@ export interface UniverseRuntimeOptions {
   /** Seconds from J2000 the game clock starts at. */
   epochS?: number;
   sse?: ScreenSpaceErrorContext;
+  /** Isolated lab configuration; ordinary gameplay retains all existing defaults. */
+  volume?: Pick<PlanetVolumeRuntimeOptions,'lod'|'demand'|'meshLimits'|'collisionLimits'>;
 }
 
 export interface UniverseTelemetry {
@@ -76,7 +78,7 @@ export class UniverseRuntime {
   readonly renderSpace: RenderSpaceService;
   address: UniverseAddress;
 
-  private readonly options: Required<Omit<UniverseRuntimeOptions, 'sse'>> & { sse: ScreenSpaceErrorContext };
+  private readonly options: Required<Omit<UniverseRuntimeOptions, 'sse'|'volume'>> & { sse: ScreenSpaceErrorContext };
   private readonly playerPose: SpatialPose;
   private readonly velocity: Vec3 = [0, 0, 0];
   /** Where the camera looks, in city metres. Falls back to the direction of travel. */
@@ -115,7 +117,7 @@ export class UniverseRuntime {
       systemId: 'sol',
       bodyId: 'earth'
     };
-    this.volume = new PlanetVolumeRuntime({ resolve: context => {
+    this.volume = new PlanetVolumeRuntime({ ...options.volume, resolve: context => {
       const body = this.activeSystem.bodies.find(candidate=>candidate.id===context.spatial.bodyId);
       if (!body || !bodyProfile(body).supportsVolumeDestruction) return undefined;
       const surface = surfaceForBody(body);

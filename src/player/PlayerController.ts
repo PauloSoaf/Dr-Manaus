@@ -132,6 +132,7 @@ export class PlayerController {
   set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
   get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
   get lastTerrainContact() { return this.physics.lastTerrainContact; }
+  get lastVolumeContact() { return this.physics.lastVolumeContact; }
   /** True while an armed tier waits for the boost key to be let go and pressed again. */
   get armWaitingForBoostRelease(): boolean { return this.megaNeedsBoostRelease; }
 
@@ -531,5 +532,4 @@ export class PlayerController {
     this.poseTime = duration;
   }
 }
-
 
