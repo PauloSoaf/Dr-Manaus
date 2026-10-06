@@ -119,8 +119,87 @@ walking/jumping fixture uses real MC output; authored planes only isolate narrow
 Revision tests prove retained old collision, atomic replacement, stale rejection and ready
 EMPTY/SOLID retirement. Tiny deterministic grants additionally pause a real collider build
 and cancel it on a newer edit, retaining the installed old source. Full tests **831/831 PASS**.
-Build/browser/benchmark results will be recorded below
-after the production lab verification. Browser evidence is automated, not human acceptance.
+Build/browser/benchmark results are recorded below after production verification.
+Browser evidence is automated, not human acceptance.
+
+| Check | Result |
+| --- | --- |
+| Typecheck | PASS |
+| Focused regressions | 321/321 PASS |
+| Full tests | 831/831 PASS (777 baseline + 54 D0) |
+| Production build | PASS; existing bundle-size warning only |
+| Volume browser | PASS: original nine mesh cases plus Earth/Moon/Mars D0 player/contact/revision cases; zero page/console errors |
+| Space browser | PASS: Moon/Mars F landing, lunar movement/departure, Tab/P/map capture, Jupiter standoff, C4 safe/catastrophic events; zero errors |
+| Local browser | PASS: Manaus city/controls/destruction, flight, orbit and reentry; zero page/console errors |
+| Benchmark | PASS: existing generation/meshing/residency plus nine measured 17³ collision scenarios; no timing thresholds |
+| Diff check | PASS on implementation; final docs checked again before push |
+| GitHub Actions | PASS on exact implementation SHA `424c54cd41767adb97e2d457b4255880caa5b892` |
+
+Implementation CI: [Unit, types and build](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/37496841939/job/112383450035).
+The Checks API reports completed/success for that exact SHA. This workflow runs full unit
+tests, types and production build. Browser checks and benchmark are local separate runs.
+The final validation commit records the measurements and targets benchmark queries at real
+mesh contacts (no runtime change). Its exact pushed SHA is checked again; that result is
+reported in the completion reply rather than making the document embed its own hash.
+
+Commits so far:
+
+- `14d96f6` — scheduled continuous planet volume collision, integration and core tests.
+- `424c54c` — real cavity lab/browser, benchmark, refined regressions and current checkpoint docs.
+- Final validation commit — records completed local smoke, measured performance, contact-query benchmark calibration and CI evidence.
+
+The production browser fixture verifies Earth, Moon and Mars separately: each reaches
+Grounded on the real cavity floor, walks with W, jumps with Space into a ceiling, falls back,
+blocks a 3000 m/s sweep at 30/60/120 FPS, returns a floor ray hit with the correct body ID and
+installs an expanded cavity revision while retaining the preceding source. Unit integration
+also walks into a wall, validates local floor normal.y > 0.65, canonical body-fixed direction,
+negative chunk coordinates and adjacent-chunk continuity. Render-origin rebasing preserves
+the hit and BVH identity. These are automated geometric/frame results, not human flight tests.
+
+## Benchmark results
+
+`npm run benchmark:volume`: 5 warmups / 21 repetitions per operation, actual 17³ samples.
+Build timing includes constructor and completed incremental work; query timing includes
+frame transforms, both acceleration traversals and narrow phase. Each timed ray starts
+10 m along a real triangle's empty normal and travels 20 m toward it. The fast capsule sweep
+starts 300 m away and travels 1000 m, with its segment midpoint aligned to that triangle.
+All nine representative rays/sweeps hit. The original axial radial corridor probe is retained
+in JSON: Earth/Moon/Mars capsule tunnels and Mars sphere legitimately miss in that one
+resident chunk. This separates an empty corridor from the measured surface-contact path.
+
+| Body / case | Triangles | Live BVH nodes | BVH bytes | Collider bytes | Job array peak bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| earth / intact | 512 | 127 | 7128 | 20464 | 24536 |
+| earth / sphere | 1048 | 303 | 24632 | 50832 | 59192 |
+| earth / capsule | 972 | 255 | 14088 | 38776 | 46216 |
+| moon / intact | 512 | 127 | 7128 | 20464 | 24536 |
+| moon / sphere | 1048 | 303 | 24632 | 50832 | 59192 |
+| moon / capsule | 1084 | 375 | 24776 | 52152 | 60488 |
+| mars / intact | 512 | 127 | 7128 | 20464 | 24536 |
+| mars / sphere | 1092 | 391 | 24808 | 52184 | 60776 |
+| mars / capsule | 860 | 255 | 13640 | 35640 | 42184 |
+
+BVH bytes include full allocated node capacity and triangle references; live node count can
+be smaller than allocated capacity. Collider bytes also include shared source and metadata.
+Job peak is scratch/node/reference array allocation, without the already owned shared mesh;
+the 4 MiB construction admission check additionally includes that mesh.
+
+| Body / case | Build median / p95 ms | Ray median / p95 ms | Fast sweep median / p95 ms | Candidate triangles ray / sweep |
+| --- | ---: | ---: | ---: | ---: |
+| earth / intact | 0.3095 / 4.0583 | 0.0652 / 0.1701 | 0.2939 / 0.5122 | 24 / 24 |
+| earth / sphere | 0.4889 / 0.8380 | 0.0681 / 0.3130 | 0.1684 / 0.3377 | 21 / 21 |
+| earth / capsule | 0.2552 / 0.5293 | 0.0129 / 0.0200 | 0.0893 / 0.2735 | 15 / 15 |
+| moon / intact | 0.1131 / 0.1596 | 0.0140 / 0.0181 | 0.0581 / 0.1144 | 16 / 16 |
+| moon / sphere | 0.3063 / 0.3746 | 0.0133 / 0.0149 | 0.0711 / 0.1052 | 21 / 21 |
+| moon / capsule | 0.2843 / 0.3919 | 0.0156 / 0.0191 | 0.0605 / 0.1558 | 8 / 8 |
+| mars / intact | 0.1951 / 0.5231 | 0.0098 / 0.0135 | 0.0654 / 0.1717 | 8 / 8 |
+| mars / sphere | 0.5126 / 0.7304 | 0.0202 / 0.0275 | 0.1599 / 0.2178 | 17 / 17 |
+| mars / capsule | 0.2151 / 0.5348 | 0.0186 / 0.0621 | 0.0983 / 0.2061 | 20 / 20 |
+
+All cases visit one candidate chunk. These machine-specific observations are not frame-time
+guarantees or CI assertions. The full-build p95 can exceed the adaptive 0.35 ms batch target;
+production work resumes across grants while the old collider stays active. The checked
+benchmark script is reproducible; the local JSON/stdout and browser artifacts remain ignored.
 
 ## Manual gate — stop after D0
 
@@ -128,7 +207,7 @@ Open the collision lab. On Earth, Moon and Mars: stand on the cavity floor (Grou
 hit its wall, jump into the ceiling, fall back to the floor, try the fast-wall button and
 expand/rebuild while standing. Verify no hole during rebuild, no bounce, stable contact
 after the atomic swap and proper internal rendering. Repeat a tunnel and inspect counters.
-Then verify ordinary Manaus streets and normal Moon/Mars landing remain intact in the game.
+Ordinary Manaus and Moon/Mars gameplay regressions are covered by the separate automated smokes.
 
 **REQUIRES USER MANUAL VALIDATION. STOP AFTER D0.** The next stage is D1/local impact edits;
 it requires a new explicit request after this gate. No feature expansion is authorized here.

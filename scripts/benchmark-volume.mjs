@@ -39,11 +39,22 @@ const collisionTiming=(chunk,mesh,scenario,radius)=>{
   const collider=build.result,cache=new PlanetVolumeCollisionCache();cache.insert(collider);
   const frames=new ReferenceFrameGraph();frames.register(referenceFrame({id:'benchmark-fixed',kind:'body-fixed'}));
   const provider=new PlanetVolumeCollisionProvider(cache,frames,mesh.key.bodyId,'benchmark-fixed','benchmark-fixed');
-  const query=measure(()=>{provider.resetMetrics();return provider.raycast([radius+300,128,128],[-1,0,0],1000);});
+  // Record the radial corridor too: a capsule tunnel may legitimately be empty along it.
+  const radialProbe={rayHit:!!provider.raycast([radius+300,128,128],[-1,0,0],1000),
+    sweepHit:!!provider.sweepCapsule([radius+300,128,128],[-1000,0,0],.32,2.1)};
+  // Time actual mesh contact in every scenario, using a real triangle centroid/empty normal.
+  const point=[...mesh.originBodyFixedM],normal=[0,0,0],triangle=Math.floor(mesh.triangleCount/2);
+  for(let corner=0;corner<3;corner++){const index=mesh.indices[triangle*3+corner]*3;
+    for(let axis=0;axis<3;axis++){point[axis]+=mesh.positions[index+axis]/3;normal[axis]+=mesh.normals[index+axis];}}
+  const length=Math.hypot(...normal);for(let axis=0;axis<3;axis++)normal[axis]/=length;
+  const rayStart=point.map((v,i)=>v+normal[i]*10),direction=normal.map(v=>-v),
+    sweepStart=point.map((v,i)=>v+normal[i]*300-(i===1?1.05:0)),delta=normal.map(v=>-v*1000);
+  const query=measure(()=>{provider.resetMetrics();return provider.raycast(rayStart,direction,20);});
   const rayCandidates={...provider.metrics};
-  const fastSweep=measure(()=>{provider.resetMetrics();return provider.sweepCapsule([radius+300,128,128],[-1000,0,0],.32,2.1);});
+  const fastSweep=measure(()=>{provider.resetMetrics();return provider.sweepCapsule(sweepStart,delta,.32,2.1);});
+  if(!query.result||!fastSweep.result)throw new Error(`representative collision query missed ${mesh.key.bodyId}/${scenario}`);
   collisionCases.push({body:mesh.key.bodyId,scenario,samplesPerAxis:17,triangles:mesh.triangleCount,nodes:collider.bvh.nodeCount,
-    memory:collider.memory,jobPeakBytes,build:{medianMs:build.medianMs,p95Ms:build.p95Ms},
+    memory:collider.memory,jobPeakBytes,radialProbe,build:{medianMs:build.medianMs,p95Ms:build.p95Ms},
     raycast:{medianMs:query.medianMs,p95Ms:query.p95Ms,hit:!!query.result,candidateChunks:rayCandidates.candidateChunks,candidateTriangles:rayCandidates.candidateTriangles},
     fastSweep:{medianMs:fastSweep.medianMs,p95Ms:fastSweep.p95Ms,hit:!!fastSweep.result,fraction:fastSweep.result?.fraction,
       candidateChunks:provider.metrics.candidateChunks,candidateTriangles:provider.metrics.candidateTriangles}});cache.clearAll();

@@ -13,7 +13,8 @@ Canonical authority, budgets, lifecycle, limits, results and manual checklist:
 [18-status-VOLUME-COLLISION-D0.md](18-status-VOLUME-COLLISION-D0.md).
 Core typecheck PASS; focused 321/321; full 831/831; build PASS. Production volume browser
 PASS: nine original mesh fixtures plus real player/collision/rebuild on Earth, Moon and Mars,
-zero console/page errors. Spatial/local checks and benchmark are recorded in the canonical status.
+zero console/page errors. Spatial/local browsers and benchmark PASS; implementation CI PASS
+on `424c54c`. Full individual results and performance tables are in the canonical status.
 Open `/?volumeLab=1&volumeCollision=1` for the isolated floor/wall/ceiling laboratory.
 **Manual validation required; STOP after D0. D1 and gameplay destruction remain unauthorized.**
 

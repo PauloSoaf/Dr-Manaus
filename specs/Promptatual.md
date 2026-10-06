@@ -8,6 +8,9 @@ Phase 3, BVH determinístico incremental no scheduler existente, cache limitado,
 sweep contínuo cápsula/triângulo, piso/parede/teto e troca atômica de revisão.
 Ativação explícita somente no laboratório; terreno normal e eventos C4 preservados.
 Contrato, testes, limites e roteiro: [18-status-VOLUME-COLLISION-D0.md](../docs/world/18-status-VOLUME-COLLISION-D0.md).
+Typecheck/build/diff PASS; focados 321/321; completos 831/831; browsers volume, espacial
+e local PASS, zero erros; benchmark com nove casos de colisão PASS. CI do código `424c54c`
+PASS; o SHA final de validação/documentação é conferido depois do push e informado na resposta.
 Documentar, commit e push continuam autorizados. **PARAR após D0 para validação manual.**
 Não iniciar D1, impactos criando edits, poderes, mascaramento de heightfield ou destruição.
 
