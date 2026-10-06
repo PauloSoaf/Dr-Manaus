@@ -104,7 +104,7 @@ export class PopulationManager {
         }
         if(npc.state==='walking')npc.position.z=npc.base.z+Math.sin(this.elapsed*.07+npc.index)*38;
         this.advance(npc,dt,knocked?.35:1);npc.timer=Math.max(0,npc.timer-dt);
-        if(npc.state==='fleeing'&&npc.timer===0){npc.state='walking';npc.base.copy(npc.position);}
+        if(npc.state==='fleeing'&&npc.timer===0){npc.state='walking';npc.base.copy(npc.position);npc.base.z-=Math.sin(this.elapsed*.07+npc.index)*38;}
       }
       const enabled=(npc.active||knocked)&&npc.index<this.npcCount&&Math.abs(player.y-npc.position.y)<250;
       this.dummy.position.copy(npc.position);this.dummy.rotation.set(0,0,knocked?1.4:Math.sin(this.elapsed*6+npc.index)*.035);this.dummy.scale.setScalar(enabled?1:0);this.dummy.updateMatrix();this.people.setMatrixAt(npc.index,this.dummy.matrix);

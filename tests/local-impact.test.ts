@@ -104,6 +104,14 @@ test('light retirement overflow queues all IDs without consuming the building bu
   const system=new DestructionSystem(new Group(),{colliders:()=>boxes,destroy:id=>{if(removed.has(id))return false;removed.add(id);return true;}});
   try{system.impactAt(zero,resolveImpact(8000));assert.equal(removed.size,1024);assert.equal(system.pendingCount,76);system.update(1/60,zero,zero,true);assert.equal(removed.size,1100);assert.equal(system.pendingCount,0);}finally{system.dispose();}
 });
+test('Game movement, queue update and impact share one animation-frame budget',()=>{
+  const boxes=Array.from({length:80},(_,i)=>({id:`building:${i}`,x:10+i*.01,y:2,z:0,width:4,height:4,depth:4})),removed=new Set<string>();
+  const system=new DestructionSystem(new Group(),{colliders:()=>boxes.filter(b=>!removed.has(b.id)),destroy:id=>{if(removed.has(id))return false;removed.add(id);return true;}});
+  try{system.beginFrame();system.plough(zero,new Vector3(1000,0,0),1/60,true);assert.equal(removed.size,16);
+    system.update(1/60,zero,zero,true);system.impactAt(zero,resolveImpact(8000));assert.equal(removed.size,16,'update cannot reset the budget after movement');
+    system.beginFrame();system.update(1/60,zero,zero,true);assert.equal(removed.size,32);
+  }finally{system.dispose();}
+});
 test('every Largo instance has an owner, and multipart offsets share an entity',()=>{fixture.props.traverse(node=>{if(node instanceof InstancedMesh){assert.equal(node.userData.authoredInstances.length,node.count);assert.ok(node.userData.authoredInstances.every((b:any)=>b.id&&b.collider));}});for(const family of ['chair','parasol','stall']){const parts=fixture.matrices(`largo:${family}:`);assert.ok(parts.length>0);assert.ok(parts.every(p=>p.determinant===0));}});
 test('heavy blast destroys fragile objects beyond crater lip',()=>{const boxes=initial.boxes.filter((b:any)=>b.category==='fragile'&&Math.hypot(b.x,b.z)>fixture.footprint.craterRadiusM&&Math.hypot(b.x,b.z)<fixture.footprint.blastDamageRadiusM*.9);assert.ok(boxes.length>0);const remaining=fixture.query(zero,2000);assert.ok(boxes.every((b:any)=>!remaining.some(c=>c.id===b.id)));});
 test('reconstruction restores tree, furniture, props and NPCs and cancels the queue',()=>{
@@ -118,6 +126,11 @@ test('surviving props and NPCs use crater support instead of the former street h
     const prop=f.population.targets[0],npc=f.population.npcs[0];prop.active=true;npc.active=true;npc.state='fleeing';npc.timer=10;
     for(let i=0;i<240;i++)f.population.update(1/60,zero,1);
     assert.ok(prop.position.y<-100);assert.ok(npc.position.y<-100);assert.equal(f.population.npcs.length,40);assert.equal(f.population.targets.length,48);
+  }finally{f.dispose();}
+});
+test('an NPC resumes walking continuously after the flee timer expires',()=>{
+  const f=localImpactFixture();try{const npc=f.population.npcs[2];npc.state='fleeing';npc.timer=.01;npc.velocity.set(0,0,0);
+    f.population.update(.02,zero,1);const before=npc.position.clone();assert.equal(npc.state,'walking');f.population.update(.02,zero,1);assert.ok(npc.position.distanceTo(before)<1,'no walking-path offset teleport');
   }finally{f.dispose();}
 });
 test('finite extreme impact keeps all effects within fixed budgets',()=>{const f=resolveImpact(1e300,1000);for(const value of Object.values(f))if(typeof value==='number')assert.ok(Number.isFinite(value));assert.ok(f.impulse<=IMPACT.maxImpulse&&f.debrisCount<=IMPACT.maxDebris&&f.shake<=IMPACT.maxShake);});

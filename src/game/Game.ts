@@ -407,6 +407,7 @@ export class Game {
     this.camera.inSpace = !local;
     this.camera.prepareLook();
     const manaus = this.manausSimulationActive;
+    if(manaus)this.destruction.beginFrame();
     // Non-Earth local ENU frames are planetary presentation domains too. Earth refines this
     // below with its coverage-aware visual handoff.
     this.presentationDomain=manaus?'local':local?'planetary':'orbital';

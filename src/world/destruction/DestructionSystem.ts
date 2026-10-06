@@ -49,6 +49,7 @@ export class DestructionSystem {
   private frame = 0;
   private collapsedThisFrame = 0;
   private lightRetiredThisFrame = 0;
+  private frameOpened = false;
   private lastDeformation=-Infinity;
   private ploughFrame = -1;
   private ploughCount = 0;
@@ -68,11 +69,18 @@ export class DestructionSystem {
     });
   }
 
-  /** Call once per frame. Drives the high-speed ram, the rubble and the scorch in that order. */
-  update(dt: number, playerPosition: Vector3, playerVelocity: Vector3, running = false): void {
+  /** Game opens the budget before Player.beforeMove; standalone update callers open it here. */
+  beginFrame():void {
     this.frame++;
     this.collapsedThisFrame = 0;
     this.lightRetiredThisFrame = 0;
+    this.frameOpened = true;
+  }
+
+  /** Call once per frame. Drives the high-speed ram, the rubble and the scorch in that order. */
+  update(dt: number, playerPosition: Vector3, playerVelocity: Vector3, running = false): void {
+    if(!this.frameOpened)this.beginFrame();
+    this.frameOpened=false;
     this.time += dt;
     if (!running) this.plough(playerPosition, playerVelocity, dt);
     this.drainPending(this.pending,DESTRUCTION.maxCollapsesPerFrame-this.collapsedThisFrame);
