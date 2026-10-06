@@ -1,119 +1,56 @@
-/**
- * What happens when the hero meets the ground.
- *
- * A single scalar — impact energy — orders every landing in the game, from stepping off a kerb
- * to a 1 km titan arriving at eight thousand metres a second. Everything the impact does is a
- * continuous function of that scalar; the named tiers exist so the HUD, the sound and the hit
- * stop have something discrete to key off, not because the numbers step.
- */
-
-export type ImpactProfile = 'soft' | 'heavy' | 'shock' | 'meteor' | 'titan';
-
-export interface ImpactTier {
-  readonly profile: ImpactProfile;
-  /** Lower bound of the tier, in impact-energy units. */
-  readonly energy: number;
-  /** Fraction of the computed structural damage this tier is allowed to deal. */
-  readonly damageGain: number;
-  readonly hitStopMs: number;
-  readonly label: string;
-}
-
-/**
- * Thresholds are read in metres per second for a size-1 hero, because that is the only case
- * anyone can check by eye. A stock jump lands at 9.5 m/s and a double jump at 17.4, so `heavy`
- * starts above both — landing from your own jump must never scar the street.
- */
-export const IMPACT_TIERS: readonly ImpactTier[] = [
-  { profile: 'soft',   energy: 0,    damageGain: 0,    hitStopMs: 0,   label: 'Aterrissagem' },
-  // A heavy landing is felt, never dug. The terrain's crater depth is
-  // `radius * 0.36 + sqrt(damage) * 0.32`, with a three-metre floor, so any crater at all is a
-  // pit deeper than the character is tall. Landing off a building must not open a well.
-  { profile: 'heavy',  energy: 26,   damageGain: 0,    hitStopMs: 18,  label: 'Aterrissagem pesada' },
-  { profile: 'shock',  energy: 70,   damageGain: 0.55, hitStopMs: 45,  label: 'Impacto sísmico' },
-  { profile: 'meteor', energy: 260,  damageGain: 1,    hitStopMs: 95,  label: 'Impacto meteórico' },
-  { profile: 'titan',  energy: 1600, damageGain: 1,    hitStopMs: 150, label: 'Impacto titânico' },
+/** Local gameplay policy, independent of celestial events and volume edits. Metres and m/s. */
+export type ImpactProfile='soft'|'heavy'|'shock'|'meteor'|'titan';
+export interface ImpactTier {readonly profile:ImpactProfile;readonly energy:number;readonly damageGain:number;readonly hitStopMs:number;readonly label:string}
+export const IMPACT_TIERS:readonly ImpactTier[]=[
+  {profile:'soft',energy:0,damageGain:0,hitStopMs:0,label:'Aterrissagem'},
+  {profile:'heavy',energy:26,damageGain:0,hitStopMs:18,label:'Aterrissagem pesada'},
+  {profile:'shock',energy:70,damageGain:.55,hitStopMs:45,label:'Impacto sísmico'},
+  {profile:'meteor',energy:260,damageGain:1,hitStopMs:95,label:'Impacto meteórico'},
+  {profile:'titan',energy:1600,damageGain:1,hitStopMs:150,label:'Impacto titânico'},
 ];
-
-export const IMPACT = {
-  /** Size enters the energy, not the radius: a titan's mass is already in how hard it arrives. */
-  sizeExponent: 0.75,
-  /**
-   * The crater's width. It has to grow far faster than the structural damage does, or the bowl
-   * comes out narrower than it is deep: at the first scaling tried here, a twenty-metre fall
-   * asked for a hole 3 m across and 15 m deep, and the player fell into the street.
-   */
-  radiusScale: 0.9,
-  radiusExponent: 0.55,
-  /**
-   * Strength handed to the terrain, separate from the structural damage. Set so the bowl ends up
-   * roughly 0.45 as deep as it is wide, which reads as a crater rather than as a shaft.
-   */
-  deformFromRadius: 0.28,
-  /** A committed downward strike is worth far more than the same speed arrived at by falling. */
-  slamGain: 2.2,
-  maxRadius: 640,
-  maxShake: 3.2,
-  maxImpulse: 4200,
-  maxDebris: 90,
-} as const;
-
-export interface ImpactResult {
-  readonly profile: ImpactProfile;
-  readonly tier: ImpactTier;
-  readonly energy: number;
-  /** Blast radius in metres. Zero for `soft`, which must leave the world untouched. */
-  readonly radius: number;
-  readonly damage: number;
-  /** What the ground is told, as opposed to what the buildings are told. */
-  readonly deform: number;
-  readonly shake: number;
-  readonly hitStopMs: number;
-  readonly impulse: number;
-  readonly debris: number;
-  readonly slam: boolean;
+export const IMPACT={sizeExponent:.75,slamGain:2.2,radiusScale:.0013,radiusExponent:.65,maxRadius:1200,maxDepth:600,
+  obliqueTransfer:.6,minDescent:12,minSweptNormal:.05,coreMultiplier:1.05,blastMultiplier:1.5,
+  impulseMultiplier:2,reactionMultiplier:2.3,maxShake:5,maxImpulse:4200,maxDebris:90,
+  maxFlash:360,maxDustSpeed:180,maxActorSpeed:110} as const;
+export interface ImpactFootprint {
+  readonly energy:number;readonly impactSpeed:number;readonly normalImpactSpeed:number;readonly tangentialSpeed:number;
+  readonly craterRadiusM:number;readonly craterDepthM:number;readonly coreDestructionRadiusM:number;
+  readonly blastDamageRadiusM:number;readonly impulseRadiusM:number;readonly reactionRadiusM:number;
+  readonly structuralDamage:number;readonly impulse:number;readonly debrisCount:number;readonly shake:number;
 }
-
-const finite = (value: number, fallback = 0): number => (Number.isFinite(value) ? value : fallback);
-
-/** Downward speed and size collapsed into one ordering scalar. */
-export function impactEnergy(speed: number, size = 1, slam = false): number {
-  const v = Math.max(0, finite(speed));
-  const s = Math.max(1, finite(size, 1));
-  return v * Math.pow(s, IMPACT.sizeExponent) * (slam ? IMPACT.slamGain : 1);
+export interface ImpactResult extends ImpactFootprint {
+  readonly profile:ImpactProfile;readonly tier:ImpactTier;readonly hitStopMs:number;readonly slam:boolean;
+  /** Compatibility with existing animation/power consumers. These are derived aliases. */
+  readonly radius:number;readonly damage:number;readonly deform:number;readonly debris:number;
 }
-
-export function profileFor(energy: number): ImpactTier {
-  const value = Math.max(0, finite(energy));
-  let tier = IMPACT_TIERS[0];
-  for (const candidate of IMPACT_TIERS) if (value >= candidate.energy) tier = candidate;
-  return tier;
+const finite=(v:number,fallback=0)=>Number.isFinite(v)?v:fallback;
+export function impactEnergy(speed:number,size=1,slam=false):number {
+  const energy=Math.max(0,finite(speed))*Math.pow(Math.max(1,finite(size,1)),IMPACT.sizeExponent)*(slam?IMPACT.slamGain:1);
+  return Math.min(Number.MAX_VALUE,energy);
 }
-
-/**
- * The whole impact, resolved. `radius` and `damage` are fed straight to the destruction system,
- * which digs the crater itself from them — the bowl depth is already `r·0.36 + sqrt(damage)·0.32`
- * over there, so passing a depth as well would only let the two disagree.
- */
-export function resolveImpact(speed: number, size = 1, slam = false): ImpactResult {
-  const energy = impactEnergy(speed, size, slam);
-  const tier = profileFor(energy);
-  if (tier.profile === 'soft') {
-    return { profile: 'soft', tier, energy, radius: 0, damage: 0, deform: 0, shake: Math.min(0.08, energy * 0.004), hitStopMs: 0, impulse: 0, debris: 0, slam };
-  }
-  const radius = Math.min(IMPACT.maxRadius, IMPACT.radiusScale * Math.pow(energy, IMPACT.radiusExponent));
-  const damage = 900 * Math.pow(energy, 0.85) * tier.damageGain;
-  return {
-    profile: tier.profile,
-    tier,
-    energy,
-    radius,
-    damage,
-    deform: damage > 0 ? Math.pow(IMPACT.deformFromRadius * radius, 2) : 0,
-    shake: Math.min(IMPACT.maxShake, 0.06 + Math.pow(energy, 0.45) * 0.055),
-    hitStopMs: tier.hitStopMs,
-    impulse: Math.min(IMPACT.maxImpulse, 30 + Math.pow(energy, 0.6) * 6),
-    debris: Math.round(Math.min(IMPACT.maxDebris, 6 + Math.pow(energy, 0.5) * 1.4)),
-    slam,
-  };
+export function profileFor(energy:number):ImpactTier {
+  let tier=IMPACT_TIERS[0];for(const candidate of IMPACT_TIERS)if(Math.max(0,finite(energy))>=candidate.energy)tier=candidate;return tier;
+}
+export function resolveImpact(speed:number,size=1,slam=false,excavationGain=1):ImpactResult {
+  const energy=impactEnergy(speed,size,slam),tier=profileFor(energy),destructive=tier.damageGain>0;
+  const envelope=destructive?IMPACT.maxRadius*(-Math.expm1(-IMPACT.radiusScale*Math.pow(energy,IMPACT.radiusExponent))):0;
+  const gain=Math.max(0,Math.min(1,finite(excavationGain))),radius=envelope*gain,
+    depth=Math.min(IMPACT.maxDepth,envelope*(.45+.05*envelope/IMPACT.maxRadius)*gain);
+  const damage=900*Math.pow(energy,.85)*tier.damageGain,debris=tier.profile==='soft'?0:Math.round(Math.min(IMPACT.maxDebris,6+Math.sqrt(energy)*1.4));
+  return {profile:tier.profile,tier,energy,impactSpeed:Math.max(0,finite(speed)),normalImpactSpeed:Math.max(0,finite(speed)),tangentialSpeed:0,
+    craterRadiusM:radius,craterDepthM:depth,coreDestructionRadiusM:radius*IMPACT.coreMultiplier,
+    blastDamageRadiusM:envelope*IMPACT.blastMultiplier,impulseRadiusM:envelope*IMPACT.impulseMultiplier,reactionRadiusM:envelope*IMPACT.reactionMultiplier,
+    structuralDamage:damage,impulse:destructive?Math.min(IMPACT.maxImpulse,30+Math.pow(energy,.6)*6):0,
+    debrisCount:debris,shake:tier.profile==='soft'?Math.min(.08,energy*.004):Math.min(IMPACT.maxShake,.06+Math.pow(energy,.45)*.055),
+    hitStopMs:tier.hitStopMs,slam,radius,damage,deform:damage>0?Math.pow(Math.max(0,depth-radius*.36)/.32,2):0,debris};
+}
+/** Pre-response velocity against the actual contact normal; a near tangent transfers blast
+ * energy but excavates less. Ordinary step/jump fallback retains the 12 m/s landing gate. */
+export function resolveContactImpact(v:{x:number;y:number;z:number},n:{x:number;y:number;z:number},size=1,slam=false,swept=true):ImpactResult {
+  const length=Math.hypot(n.x,n.y,n.z);if(!Number.isFinite(length)||length<1e-12)return resolveImpact(0,size,slam);
+  const dot=(v.x*n.x+v.y*n.y+v.z*n.z)/length,normal=Math.max(0,-dot),
+    tangent=Math.hypot(v.x-n.x/length*dot,v.y-n.y/length*dot,v.z-n.z/length*dot);
+  const speed=(swept?normal>=IMPACT.minSweptNormal:normal>=IMPACT.minDescent)?normal+tangent*IMPACT.obliqueTransfer:0;
+  const gain=swept?Math.min(1,Math.sqrt(normal/IMPACT.minDescent)):1;
+  return {...resolveImpact(speed,size,slam,gain),normalImpactSpeed:normal,tangentialSpeed:tangent};
 }

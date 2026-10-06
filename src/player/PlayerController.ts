@@ -12,20 +12,12 @@ import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { TitanGroundSupport } from './physics/TitanGroundSupport';
 import type { FlipDirection } from './animations/types';
 import { DodgeSystem, type DodgeKind } from './movement/DodgeSystem';
-import { resolveImpact, type ImpactResult } from './combat/MeteorImpact';
+import { resolveContactImpact, type ImpactResult } from './combat/MeteorImpact';
 
 /** Fraction of the run speed the somersault throws forward, so the flip travels. */
 const DOUBLE_JUMP_CARRY = 0.45;
 /** How long a committed downward strike stays committed, and how hard it drives. */
 const SLAM = { window: 1.4, accel: 260, entry: 45 } as const;
-/**
- * Metres per second of descent below which a contact is not a landing at all. Without it,
- * clipping a kerb during a 650 m/s boosted run would read as arriving from orbit, because the
- * horizontal speed alone would carry the energy. Skimming the ground at speed is the plough's
- * job; this system only answers for things that came down.
- */
-const MIN_DESCENT = 12;
-
 export interface LandingImpact {
   readonly impact: ImpactResult;
   readonly position: Vector3;
@@ -480,23 +472,21 @@ export class PlayerController {
   }
 
   /**
-   * Turns a contact into an impact. Descent is what digs a crater; a grazing pass at speed still
-   * cracks the ground, but it counts for a third, because most of that energy carries on past.
+   * Uses the swept contact point and pre-response velocity. Contact normal and tangent energy
+   * are resolved by the shared local footprint policy, including its shallow-graze gate.
    */
   private registerImpact(): void {
-    const descent = Math.max(0, -this.impactVelocity.y);
-    const horizontal = Math.hypot(this.impactVelocity.x, this.impactVelocity.z);
-    const arrival = descent < MIN_DESCENT ? 0 : descent + horizontal * 0.25;
+    const contact=this.lastTerrainContact;
     const slam = this.slamTimer > 0;
     this.slamTimer = 0;
-    const impact = resolveImpact(arrival, this.size, slam);
+    const impact = resolveContactImpact(this.impactVelocity,contact?.normal??{x:0,y:1,z:0},this.size,slam,!!contact);
     this.character.animationController.triggerLanding(
       impact.profile === 'titan' ? 'titan'
         : impact.profile === 'meteor' ? 'super'
         : impact.profile === 'soft' ? 'soft' : 'hard',
     );
     if (impact.profile === 'soft') return;
-    this.impactPoint.copy(this.position);
+    this.impactPoint.copy(contact?.position??this.position);
     this.pendingImpact = impact;
   }
 
@@ -532,4 +522,3 @@ export class PlayerController {
     this.poseTime = duration;
   }
 }
-

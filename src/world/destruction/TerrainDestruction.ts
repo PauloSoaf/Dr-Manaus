@@ -8,7 +8,7 @@ import type { TerrainProvider } from '../../physics/PhysicsWorld';
 import { mutationStore } from '../persistence/WorldMutationStore';
 
 export const TERRAIN_DAMAGE = {
-  maxStored: 2048, maxActive: 1024, radiusMin: 3, radiusMax: 640, depthMax: 180,
+  maxStored: 2048, maxActive: 1024, radiusMin: 3, radiusMax: 1200, depthMax: 600,
   span: 512, maxSpan: 4096, cells: 256, recenterStep: 64, surfaceMinY: -1.25, surfaceMaxY: 1.25,
 } as const;
 const GRID = TERRAIN_DAMAGE.cells + 1;
@@ -112,16 +112,16 @@ export class TerrainDestruction implements TerrainProvider {
   }
   get craters(): readonly Readonly<CraterRecord>[] { return this.records; }
 
-  damageAt(point: Vector3, radius: number, damage: number): boolean {
+  damageAt(point: Vector3, radius: number, damage: number, requestedDepth?:number): boolean {
     if (this.disposed || !Number.isFinite(point.x + point.y + point.z + radius + damage) || damage <= 0 || radius <= 0) return false;
     const r = Math.min(TERRAIN_DAMAGE.radiusMax, Math.max(TERRAIN_DAMAGE.radiusMin, radius));
     // A blast above roofs must not punch the ground many metres underneath it.
     if (point.y > r * .55 + 2 || point.y < -TERRAIN_DAMAGE.depthMax - 3) return false;
-    const depth = Math.min(TERRAIN_DAMAGE.depthMax, Math.max(3, r * .36 + Math.sqrt(damage) * .32));
+    const depth = Math.min(TERRAIN_DAMAGE.depthMax, Math.max(3, requestedDepth===undefined?r*.36+Math.sqrt(damage)*.32:finite(requestedDepth)));
     const nearby = this.records.find(record => (record.x - point.x) ** 2 + (record.z - point.z) ** 2 < Math.max(2.2, r * .35) ** 2);
     if (nearby) {
-      nearby.radius = Math.min(TERRAIN_DAMAGE.radiusMax, Math.max(nearby.radius, r));
-      nearby.depth = Math.min(TERRAIN_DAMAGE.depthMax, Math.max(nearby.depth, depth) + Math.min(2, damage * .006));
+      nearby.radius = Math.min(TERRAIN_DAMAGE.radiusMax, Math.cbrt(nearby.radius**3+r**3));
+      nearby.depth = Math.min(TERRAIN_DAMAGE.depthMax, Math.cbrt(nearby.depth**3+depth**3));
       nearby.order = ++this.revision;
     } else {
       this.records.push({ id: this.nextId++, x: point.x, z: point.z, radius: r, depth, order: ++this.revision });
