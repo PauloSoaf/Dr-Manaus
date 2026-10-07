@@ -43,10 +43,16 @@ export class SunMaterial {
         let convection = float(1).sub(lanes.mul(.38)).mul(macro.mul(.25).add(.85));
         if (quality !== 'Low') {
           const fine = mx_noise_float(p.mul(370).add(evolution)).mul(.5).add(.5);
+          // Observation standoff resolves this scale; the much finer layer below is reserved
+          // for the final kilometres and filtered out when it would alias.
+          const observationCoordinate = p.mul(3000);
+          const observationFilter = float(1).sub(smoothstep(.4, 1.2, observationCoordinate.fwidth().length()));
+          const observationCells = mx_noise_float(observationCoordinate.add(evolution));
           const microCoordinate = p.mul(quality === 'Ultra' ? 500000 : 300000);
           const microFilter = float(1).sub(smoothstep(.4, 1.2, microCoordinate.fwidth().length()));
           const microCells = mx_noise_float(microCoordinate.add(evolution));
           convection = convection.mul(fine.mul(.22).add(.82))
+            .mul(float(1).add(observationCells.mul(.7).mul(this.micro).mul(observationFilter)))
             .mul(float(1).add(microCells.mul(.7).mul(this.micro).mul(microFilter)));
         }
         let activity = float(0).add(0), facula = float(0).add(0);
