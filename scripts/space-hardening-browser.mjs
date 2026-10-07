@@ -694,6 +694,55 @@ try {
   results.impactDebug=await page.locator('#debug-metrics').innerText();
   await page.keyboard.press('F3');
   console.log('C4 Moon P/F SAFE_CAPTURE; Earth/Jupiter/Sun catastrophic exactly once; CCD/intact bodies/no volume and F3 passed.');
+  results.rockyDestruction=[];
+  for(const id of ['moon','mars','earth']) {
+    const impact=await page.evaluate(id=>{
+      const g=window.__DR_MANAUS__,u=g.universe,body=u.activeSystem.bodies.find(b=>b.id===id),dt=1/120;
+      g.clearNavigationTarget();g.landingIntent.cancel();g.warpStep=0;g.celestialImpacts.clear();g.lastCelestialImpact=undefined;
+      const centre=u.activeSystem.positionOf(id),orbital=u.activeSystem.stateOf(id).velocityMps;
+      const seed=u.frames.convertPosition(body.frameId,'solar-system/barycentric',[body.equatorialRadiusM+1e9,0,0]);
+      g.travelDomain.update({requested:true,altitudeM:1e9,speedMps:0,nearestColliderM:Infinity,bodyId:id,
+        bodyRadiusM:body.equatorialRadiusM,entryPositionM:seed,entryVelocityMps:orbital},0);
+      g.travelDomain.setState({systemId:'sol',positionM:seed,velocityMps:orbital,referenceBodyId:id});u.updateSystemPose(seed,orbital,0);
+      const original=g.interplanetary.update;let envelopes;
+      g.interplanetary.update=function(...args){envelopes=args[3].exclusionEnvelopes;return original.apply(this,args);};
+      try{g.updateInterplanetaryFlight(0);}finally{g.interplanetary.update=original;}
+      const envelope=envelopes.find(e=>e.bodyId===id),position=u.frames.convertPosition(body.frameId,'solar-system/barycentric',[envelope.radiusM+1,0,0]),
+        radial=position.map((v,i)=>v-centre[i]),length=Math.hypot(...radial),velocity=orbital.map((v,i)=>v-radial[i]/length*8001);
+      const before=u.volume.edits.editCount;
+      g.travelDomain.setState({systemId:'sol',positionM:position,velocityMps:velocity,referenceBodyId:id});u.updateSystemPose(position,velocity,0);
+      g.player.position.set(0,0,0);g.player.velocity.set(0,0,0);g.updateTravelDomain(dt);g.updateInterplanetaryFlight(dt);
+      const event=g.lastCelestialImpact,editId=g.rockyImpactDestruction.last?.editId;
+      return {id,before,after:u.volume.edits.editCount,event,edit:editId&&u.volume.edits.get(editId),diagnostics:g.rockyImpactDestruction.debugMetrics()};
+    },id);
+    assert.equal(impact.event?.classification,'MAJOR_IMPACT');assert.equal(impact.after,impact.before+1);
+    assert.equal(impact.edit.bodyId,id);assert.equal(impact.edit.type,'subtract-sphere');
+    assert.ok(impact.edit.impact.craterRadiusM>430&&impact.edit.impact.craterRadiusM<440);
+    if(id!=='earth') {
+      await page.evaluate(id=>{const g=window.__DR_MANAUS__,u=g.universe;
+        u.handoffTo(id);g.travelDomain.reset();g.bindSurfacePhysics();
+        const p=g.player.position.clone().set(0,g.surfacePhysicsState.terrainHeightM+1,0);
+        g.player.teleport(p);g.player.state='Falling';u.setPlayerPose(`${id}/local-enu`,p.toArray());u.update(p.toArray(),[0,0,0],0);
+      },id);
+      await page.waitForFunction(id=>{const g=window.__DR_MANAUS__,m=g.universe.volume.metrics;
+        return m.bodyId===id&&m.publishedReplacements>0&&g.volumeRenderer.stats.meshes>0;},id,{timeout:180000});
+      const walking=await page.evaluate(()=>{const g=window.__DR_MANAUS__;g.bindSurfacePhysics();
+        const before=g.player.position.y;for(let i=0;i<1800;i++){g.player.update(1/60,g.colliders,0);g.input.endFrame();}
+        return {before,after:g.player.position.toArray(),state:g.player.state,contact:g.player.lastVolumeContact,
+          physics:g.surfacePhysicsState,metrics:g.universe.volume.metrics,collision:g.universe.volume.collisionMetrics,
+          mask:g.planetProviders.get(g.surfacePhysicsState.domain)?.globe.volumeMask.publishedCount};});
+      assert.equal(walking.physics.domain,id);assert.equal(walking.state,'Grounded');assert.ok(walking.after[1]<walking.before-180);
+      assert.ok(walking.contact);assert.equal(walking.physics.terrainHeightM,-Infinity);impact.walking=walking;
+      await page.keyboard.down('KeyW');
+      const walked=await page.evaluate(()=>{const g=window.__DR_MANAUS__,before=g.player.position.toArray();
+        for(let i=0;i<60;i++){g.player.update(1/60,g.colliders,0);g.input.endFrame();}return {before,after:g.player.position.toArray(),state:g.player.state};});
+      await page.keyboard.up('KeyW');assert.ok(Math.hypot(walked.after[0]-walked.before[0],walked.after[2]-walked.before[2])>1);
+      assert.equal(walked.state,'Grounded');impact.walked=walked;
+      await page.screenshot({path:`artifacts/d1-game-${id}-floor.png`,timeout:90000});
+    }
+    results.rockyDestruction.push(impact);
+    console.log(`${id}: actual Game CCD -> C4 MAJOR -> one D1 edit${id==='earth'?' outside Manaus':', production publication and real player crater walking'} passed.`);
+  }
   assert.equal(errors.length,0,errors.join('\n'));
   results.errors=errors;
   await writeFile('artifacts/space-hardening-browser.json',JSON.stringify(results,null,2));

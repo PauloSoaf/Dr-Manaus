@@ -75,9 +75,61 @@ try {
   }
   results.collisionDispose=await page.evaluate(()=>{const lab=window.__DR_VOLUME_LAB__,u=lab.universe;lab.dispose();return u.volume.collisionMetrics;});
   assert.equal(results.collisionDispose.bytes,0);assert.equal(results.collisionDispose.pendingBytes,0);
+  await page.goto('http://127.0.0.1:5188/?impactDestruction=1',{waitUntil:'domcontentloaded'});
+  await page.waitForFunction(()=>window.__DR_IMPACT_LAB__?.ready,null,{timeout:30_000});
+  results.destruction=[];
+  for(const body of ['moon','mars','earth']) {
+    await page.selectOption('[data-body]',body);
+    const before=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());
+    assert.equal(before.body,body);assert.equal(before.mask,0);assert.ok(Number.isFinite(before.intactHeight));
+    if(body==='moon')await page.screenshot({path:'artifacts/d1-moon-before.png'});
+    const pending=await page.evaluate(()=>{const lab=window.__DR_IMPACT_LAB__;lab.impact();return lab.snapshot();});
+    assert.equal(pending.mask,0);assert.equal(pending.editCount,results.destruction.length+1);
+    assert.ok(Number.isFinite(pending.intactHeight),'intact terrain retained until complete publication');
+    if(body==='moon')await page.screenshot({path:'artifacts/d1-moon-pending.png'});
+    await page.waitForFunction(()=>{const s=window.__DR_IMPACT_LAB__.snapshot();
+      return s.metrics.publishedReplacements>0&&s.mask===s.metrics.publishedReplacements&&s.collision.resident>0;},null,{timeout:120_000});
+    const after=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());
+    assert.equal(after.intactHeight,-Infinity);assert.ok(after.presentation.meshes>0);
+    assert.ok(after.metrics.resident<=128&&after.metrics.bytes<=4*1048576);
+    assert.ok(after.metrics.residentMeshes<=128&&after.metrics.meshBytes<=16*1048576);
+    assert.ok(after.collision.resident<=128&&after.collision.bytes<=32*1048576);
+    await page.screenshot({path:`artifacts/d1-${body}-after.png`});
+    // Interior samples avoid an exactly-on-seam CPU Three ray at a six-million-metre body centre.
+    const rays=await page.evaluate(()=>[.125,100.125,200.125,300.125].map(x=>({physical:window.__DR_IMPACT_LAB__.ray(x,.125),visual:window.__DR_IMPACT_LAB__.visualRay(x,.125)})));
+    for(const ray of rays){assert.ok(ray.physical&&ray.visual);assert.ok(Math.abs(ray.physical.point[1]-ray.visual[1])<.15,'production visual/physical floor must agree');}
+    await page.evaluate(()=>{const lab=window.__DR_IMPACT_LAB__;lab.reset();lab.runFrames(960);});
+    const floor=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());
+    assert.equal(floor.player.state,'Grounded');assert.ok(floor.player.position[1]<-180&&floor.player.position[1]>-230);
+    await page.keyboard.down('KeyW');await page.evaluate(()=>window.__DR_IMPACT_LAB__.runFrames(60));await page.keyboard.up('KeyW');
+    const walk=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());
+    assert.ok(Math.abs(walk.player.position[2]-floor.player.position[2])>1);assert.equal(walk.player.state,'Grounded');
+    await page.keyboard.down('Space');await page.evaluate(()=>window.__DR_IMPACT_LAB__.runFrames(1));await page.keyboard.up('Space');
+    const jump=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());assert.ok(jump.player.velocity[1]>0);
+    await page.evaluate(()=>window.__DR_IMPACT_LAB__.runFrames(960));assert.equal((await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot())).player.state,'Grounded');
+    const wall=await page.evaluate(()=>[30,60,120].map(fps=>window.__DR_IMPACT_LAB__.probe([400,-10,0],[3000,0,0],1/fps)));
+    for(const hit of wall){assert.ok(hit.firstContact);assert.ok(hit.firstContact.normal[0]<-.5);
+      assert.ok(hit.position[1]>=hit.floor-.15,'wall response must keep capsule outside solid terrain');assert.ok(hit.velocity.every(Number.isFinite));}
+    await page.evaluate(()=>window.__DR_IMPACT_LAB__.view(true));await page.screenshot({path:`artifacts/d1-${body}-inside.png`});
+    await page.evaluate(()=>window.__DR_IMPACT_LAB__.view());await page.screenshot({path:`artifacts/d1-${body}-above.png`});
+    results.destruction.push({body,before,pending,after,rays,floor,walk,jump,wall});
+    console.log(`${body}: D1 production mask/mesh/collider publication, real player floor/walk/jump, wall CCD and visual/physical rays passed.`);
+  }
+  await page.selectOption('[data-body]','moon');
+  await page.waitForFunction(()=>{const s=window.__DR_IMPACT_LAB__.snapshot();return s.body==='moon'&&s.mask>0&&s.collision.resident>0;},null,{timeout:120_000});
+  const returned=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());assert.equal(returned.editCount,3);assert.equal(returned.intactHeight,-Infinity);
+  const rebuilding=await page.evaluate(()=>{const lab=window.__DR_IMPACT_LAB__,before=lab.snapshot();lab.impact(10_000);
+    return {before,immediate:lab.snapshot()};});
+  assert.equal(rebuilding.before.metrics.replacementGeneration,rebuilding.immediate.metrics.replacementGeneration);
+  assert.equal(rebuilding.before.mask,rebuilding.immediate.mask);assert.equal(rebuilding.immediate.editCount,4);
+  await page.waitForFunction(generation=>window.__DR_IMPACT_LAB__.snapshot().metrics.replacementGeneration>generation,
+    rebuilding.before.metrics.replacementGeneration,{timeout:120_000});
+  results.destructionReturn={returned,rebuilding,after:await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot())};
+  const d1Dispose=await page.evaluate(()=>{const lab=window.__DR_IMPACT_LAB__,u=lab.universe;lab.dispose();return {samples:u.volume.metrics.bytes,colliders:u.volume.collisionMetrics.bytes};});
+  assert.equal(d1Dispose.samples,0);assert.equal(d1Dispose.colliders,0);
   assert.equal(results.errors.length,0,results.errors.join('\n'));
-  console.log('PHASE-3 + D0 volume lab production browser checks passed.');
-} catch(error) {results.failure=String(error);throw error;}
+  console.log('PHASE-3 + D0 + D1 production browser checks passed.');
+} catch(error) {results.failure=String(error);results.d1FailureState=await page?.evaluate(()=>window.__DR_IMPACT_LAB__?.snapshot()).catch(()=>undefined);throw error;}
 finally {
   await writeFile('artifacts/volume-meshing-browser.json',JSON.stringify(results,null,2));
   await browser?.close();await new Promise((resolve,reject)=>server.httpServer.close(error=>error?reject(error):resolve()));
