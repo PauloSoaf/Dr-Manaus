@@ -47,8 +47,8 @@ export async function startPlanetImpactDestructionLab(container:HTMLElement) {
     <div><button data-view="above">Vista superior</button><button data-view="inside">Vista interna</button></div>
     <output data-status></output><pre data-metrics></pre><p>Fixture explícita com componentes de produção. <a href="${location.pathname}">Voltar ao jogo</a></p>`;
   container.append(panel);
-  const view=(inside=false)=>{camera.position.set(...(inside?[0,-140,100]:[0,650,1000]) as Vec3);
-    controls.target.set(0,inside?-180:-70,0);controls.update();};
+  const view=(inside=false)=>{camera.position.set(...(inside?[0,-140,50]:[0,650,1000]) as Vec3);
+    controls.target.set(0,inside?-50:-70,inside?-440:0);controls.update();};
   const reset=(position:Vec3=[0,1,0])=>{input.clear();player.teleport(new Vector3(...position));player.velocity.set(0,0,0);player.state='Falling';};
   const bind=()=>{PhysicsWorld.setTerrain(terrain);PhysicsWorld.setVolumeCollision(runtime.replacement.bodyId===body?volume:null);};
   const configure=()=>{

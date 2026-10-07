@@ -159,10 +159,21 @@ high speed, and keeps collision during atomic rebuild on Earth/Moon/Mars. Then S
 
 # Sprint D1 — LOCAL-IMPACT-DESTRUCTION
 
+Current authorization: `02df01c542c7e9917f01534c1fbf78244381ce49`, 2026-10-07 user attachment.
+Implement D1 only, document/commit/push, then stop before D2 for manual acceptance.
+Contract, implementation evidence, budgets and manual gate:
+[20-status-LOCAL-IMPACT-DESTRUCTION-D1.md](../../docs/world/20-status-LOCAL-IMPACT-DESTRUCTION-D1.md).
+Implemented: focused 407/407, full 964/964, typecheck/build, all four browsers (zero errors),
+fresh-Game crater acceptance and all three benchmarks PASS. Code/test HEAD `61f8094` CI PASS.
+Delivery SHA/CI are verified after final push. Human acceptance remains the gate before D2.
+
 Goal:
 
 - low/major rocky impact creates sparse volume edit
 - async chunk + mesh + collider rebuild
+- production visual/collider/intact suppression publish together
+- preserve local P0; controlled Earth outside authored Manaus
+- no SAFE/GRAZE/CATASTROPHIC, gas, star or proxy volume edit
 
 Suggested commits:
 

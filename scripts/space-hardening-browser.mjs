@@ -8,7 +8,9 @@ import { chromium } from '@playwright/test';
 const server=await preview({preview:{host:'127.0.0.1',port:5187,strictPort:true}});
 let browser;
 let page;
-const results={};
+const d1Only=process.env.DR_D1_ONLY==='1';
+const resultPath=`artifacts/${d1Only?'space-hardening-d1-fresh':'space-hardening-browser'}.json`;
+const results={scope:d1Only?'D1 fresh Game':'full space regressions'};
 const errors=[];
 try {
   browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--ignore-gpu-blocklist','--enable-webgl']});
@@ -18,6 +20,8 @@ try {
   await page.goto('http://127.0.0.1:5187/?webgl=1',{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.__DR_MANAUS__?.ready,null,{timeout:60_000});
   await mkdir('artifacts',{recursive:true});
+  // Optional fresh-Game D1 acceptance run; the default still executes every regression.
+  if(!d1Only) {
   await page.keyboard.press('m');
   await page.locator('[data-map-level="system"]').click();
   const map=await page.evaluate(()=>{
@@ -628,7 +632,7 @@ try {
   // remain the proof of hold, actual critical loads, handoff and local terrain contact.
   results.celestialImpacts=[];
   for(const fixture of [{id:'moon',mode:'pilot'},{id:'moon',mode:'landing'},
-    {id:'earth',mode:'manual'},{id:'jupiter',mode:'manual'},{id:'sun',mode:'manual'}]) {
+    {id:'earth',mode:'manual'},{id:'moon',mode:'manual'},{id:'jupiter',mode:'manual'},{id:'sun',mode:'manual'}]) {
     const result=await page.evaluate(({id,mode})=>{
       const g=window.__DR_MANAUS__,u=g.universe,dt=1/120;
       g.clearNavigationTarget();g.landingIntent.cancel();g.warpStep=0;
@@ -668,6 +672,9 @@ try {
       const event=g.lastCelestialImpact,contact=g.interplanetary.lastCelestialContact;
       const atContact=[...g.travelDomain.state.positionM],finalCentre=u.activeSystem.positionOf(id);
       for(let i=0;i<120;i++)g.updateInterplanetaryFlight(dt);
+      // The normal frame binds after streaming; this synchronous step fixture must also
+      // bind the new logical domain before reading physics inherited from a prior case.
+      g.bindSurfacePhysics();
       return {id,mode,event,contact,count:g.celestialImpacts.emittedCount-beforeCount,
         distance:Math.hypot(...atContact.map((v,i)=>v-finalCentre[i])),radius:envelope.radiusM,
         onEntrySide:atContact[1]>finalCentre[1],catalogUnchanged:JSON.stringify(u.activeSystem.bodies)===catalog,
@@ -694,6 +701,7 @@ try {
   results.impactDebug=await page.locator('#debug-metrics').innerText();
   await page.keyboard.press('F3');
   console.log('C4 Moon P/F SAFE_CAPTURE; Earth/Jupiter/Sun catastrophic exactly once; CCD/intact bodies/no volume and F3 passed.');
+  }
   results.rockyDestruction=[];
   for(const id of ['moon','mars','earth']) {
     const impact=await page.evaluate(id=>{
@@ -719,25 +727,49 @@ try {
     assert.equal(impact.edit.bodyId,id);assert.equal(impact.edit.type,'subtract-sphere');
     assert.ok(impact.edit.impact.craterRadiusM>430&&impact.edit.impact.craterRadiusM<440);
     if(id!=='earth') {
-      await page.evaluate(id=>{const g=window.__DR_MANAUS__,u=g.universe;
+      const handoff=await page.evaluate(id=>{const g=window.__DR_MANAUS__,u=g.universe;
         u.handoffTo(id);g.travelDomain.reset();g.bindSurfacePhysics();
-        const p=g.player.position.clone().set(0,g.surfacePhysicsState.terrainHeightM+1,0);
+        const heightM=g.surfacePhysicsState.terrainHeightM,p=g.player.position.clone().set(0,heightM+1,0);
         g.player.teleport(p);g.player.state='Falling';u.setPlayerPose(`${id}/local-enu`,p.toArray());u.update(p.toArray(),[0,0,0],0);
+        return {heightM,frame:u.player.frame};
       },id);
       await page.waitForFunction(id=>{const g=window.__DR_MANAUS__,m=g.universe.volume.metrics;
         return m.bodyId===id&&m.publishedReplacements>0&&g.volumeRenderer.stats.meshes>0;},id,{timeout:180000});
-      const walking=await page.evaluate(()=>{const g=window.__DR_MANAUS__;g.bindSurfacePhysics();
+      if(id==='moon') {
+        const rimStart=await page.evaluate(heightM=>{const g=window.__DR_MANAUS__;g.bindSurfacePhysics();
+          const V=g.player.position.constructor,P=g.player.physics.constructor,radius=g.rockyImpactDestruction.last.plan.craterRadiusM,
+            ray=P.raycast(new V(radius+12,heightM+10,0),new V(0,-1,0),[],1200,0,true);
+          if(!ray)throw new Error('D1 Game rim has no actual floor');
+          g.player.teleport(new V(radius+12,ray.point.y+.05,0));g.player.state='Falling';return {radius,position:g.player.position.toArray()};
+        },handoff.heightM);
+        await page.keyboard.down('KeyA');
+        const crossed=await page.evaluate(()=>{const g=window.__DR_MANAUS__;for(let i=0;i<480;i++){g.player.update(1/60,g.colliders,0);g.input.endFrame();}
+          return {position:g.player.position.toArray(),contact:g.player.lastVolumeContact,state:g.player.state};});await page.keyboard.up('KeyA');
+        assert.ok(crossed.position[0]<rimStart.radius-10);assert.ok(crossed.position[1]<handoff.heightM-20);
+        assert.ok(crossed.contact);impact.rim={rimStart,crossed};
+      }
+      const walking=await page.evaluate(heightM=>{const g=window.__DR_MANAUS__;g.bindSurfacePhysics();
+        g.player.teleport(g.player.position.clone().set(0,heightM+1,0));g.player.state='Falling';
         const before=g.player.position.y;for(let i=0;i<1800;i++){g.player.update(1/60,g.colliders,0);g.input.endFrame();}
+        const P=g.player.physics.constructor,V=g.player.position.constructor,
+          floor=P.raycast(new V(0,heightM+10,0),new V(0,-1,0),[],1200,0,true),
+          wall=P.volume.sweepCapsule([0,heightM-10,0],[1000,0,0],.32,2.1);
         return {before,after:g.player.position.toArray(),state:g.player.state,contact:g.player.lastVolumeContact,
           physics:g.surfacePhysicsState,metrics:g.universe.volume.metrics,collision:g.universe.volume.collisionMetrics,
-          mask:g.planetProviders.get(g.surfacePhysicsState.domain)?.globe.volumeMask.publishedCount};});
+          floor:floor&&{distance:floor.distance,point:floor.point.toArray()},wall,
+          mask:g.planetProviders.get(g.surfacePhysicsState.domain)?.globe.volumeMask.publishedCount};},handoff.heightM);
       assert.equal(walking.physics.domain,id);assert.equal(walking.state,'Grounded');assert.ok(walking.after[1]<walking.before-180);
       assert.ok(walking.contact);assert.equal(walking.physics.terrainHeightM,-Infinity);impact.walking=walking;
+      assert.ok(walking.floor&&Math.abs(walking.after[1]-walking.floor.point[1])<1);
+      assert.ok(walking.wall&&walking.wall.fraction<.5&&walking.wall.normal[0]<-.5);
       await page.keyboard.down('KeyW');
       const walked=await page.evaluate(()=>{const g=window.__DR_MANAUS__,before=g.player.position.toArray();
         for(let i=0;i<60;i++){g.player.update(1/60,g.colliders,0);g.input.endFrame();}return {before,after:g.player.position.toArray(),state:g.player.state};});
       await page.keyboard.up('KeyW');assert.ok(Math.hypot(walked.after[0]-walked.before[0],walked.after[2]-walked.before[2])>1);
       assert.equal(walked.state,'Grounded');impact.walked=walked;
+      await page.waitForTimeout(500);
+      const live=await page.evaluate(()=>{const g=window.__DR_MANAUS__;return {state:g.player.state,position:g.player.position.toArray(),physics:g.surfacePhysicsState};});
+      assert.equal(live.state,'Grounded');assert.ok(live.position[1]<handoff.heightM-180,'normal Game frames retain the excavated floor');impact.live=live;
       await page.screenshot({path:`artifacts/d1-game-${id}-floor.png`,timeout:90000});
     }
     results.rockyDestruction.push(impact);
@@ -745,8 +777,8 @@ try {
   }
   assert.equal(errors.length,0,errors.join('\n'));
   results.errors=errors;
-  await writeFile('artifacts/space-hardening-browser.json',JSON.stringify(results,null,2));
-  console.log('SPACE-HARDENING browser checks passed.');
+  await writeFile(resultPath,JSON.stringify(results,null,2));
+  console.log(`${d1Only?'D1 fresh Game':'SPACE-HARDENING'} browser checks passed.`);
 } catch(error) {
   results.failureState=await page?.evaluate(()=>{
     const g=window.__DR_MANAUS__;
@@ -756,6 +788,6 @@ try {
       viewFrame:g.universe.renderSpace.currentOrigin.frame,samples:g.celestialController.renderSamples,
       controls:window.__DR_COSMIC_INPUTS__?.slice(-4)}:undefined;
   }).catch(()=>undefined);
-  await writeFile('artifacts/space-hardening-browser.json',JSON.stringify({...results,errors,failure:String(error)},null,2));
+  await writeFile(resultPath,JSON.stringify({...results,errors,failure:String(error)},null,2));
   throw error;
 } finally {await browser?.close();await new Promise((resolve,reject)=>server.httpServer.close(error=>error?reject(error):resolve()));}

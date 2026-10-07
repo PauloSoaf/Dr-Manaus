@@ -1,8 +1,22 @@
 # Planetary architecture — implementation status
 
+## LOCAL-IMPACT-DESTRUCTION-D1 — 2026-10-07
+
+Current checkpoint, explicitly authorized on `02df01c542c7e9917f01534c1fbf78244381ce49`:
+eligible rocky C4 MINOR/MAJOR contacts create one sparse sphere edit. Production residency,
+MC presentation, D0 collision and intact visual/heightfield suppression publish as one coherent
+transaction. Moon/Mars have physical crater floors; controlled Earth excludes authored Manaus.
+SAFE/GRAZE/CATASTROPHIC and gas/star/proxy bodies remain without D1 edits; local P0 is retained.
+Contract, cap sign correction, memory limits, evidence, benchmark and manual gate:
+[20-status-LOCAL-IMPACT-DESTRUCTION-D1.md](20-status-LOCAL-IMPACT-DESTRUCTION-D1.md).
+Typecheck/build/diff PASS; focused 407/407; full 964/964 (78 new D1 cases).
+All four required browsers PASS with zero errors; fresh-Game crater acceptance and all three
+benchmarks PASS. Exact code/test HEAD `61f8094` CI PASS; delivery HEAD is checked after push.
+This authorization supersedes historical stops before D1. **Stop for human acceptance before D2.**
+
 ## IMPACT-DESTRUCTION-P0 — local Manaus — 2026-10-06
 
-Current checkpoint, explicitly authorized on `267caf5d0a8c6ce435e16270c165965bec7c2445`:
+Previous checkpoint, explicitly authorized on `267caf5d0a8c6ce435e16270c165965bec7c2445`:
 contact-normal footprint, larger bounded craters, separate core/blast/impulse/reaction zones,
 resident entity queries, complete multipart furniture, NPC states, car impulse and reconstruction.
 Heavy structures retain 16 collapses/frame; cheap entities retire on their own bounded 1,024/frame path.

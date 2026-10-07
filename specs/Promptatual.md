@@ -1,6 +1,21 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — IMPACT-DESTRUCTION-P0 / Manaus local (2026-10-06)
+## Checkpoint atual — LOCAL-IMPACT-DESTRUCTION-D1 (2026-10-07)
+
+O anexo atual aceita `02df01c542c7e9917f01534c1fbf78244381ce49` e autoriza exclusivamente D1,
+com documentação, commit e push. MINOR/MAJOR em superfícies rochosas capazes geram um único
+subtract-sphere; demanda de produção, MC, collider D0 e supressão do intacto publicam juntos.
+Lua/Marte devem ter crateras físicas caminháveis; Terra controlada fora de Manaus. SAFE/GRAZE/
+CATASTROPHIC, gigantes e Sol permanecem sem edits. P0 local e CCD/pouso preservados.
+Contrato, correção do sinal da calota, budgets e aceitação:
+[20-status-LOCAL-IMPACT-DESTRUCTION-D1.md](../docs/world/20-status-LOCAL-IMPACT-DESTRUCTION-D1.md).
+Typecheck/build/diff PASS; focados 407/407; completos 964/964. Browsers volume/espacial/local/
+Manaus PASS, zero erros; aceitação com Game novo e três benchmarks PASS. CI do código/testes
+`61f8094` PASS; SHA/CI da entrega final são conferidos depois do push e informados na resposta.
+**Parar para aceitação manual depois de D1; não iniciar D2, integridade ou fragmentação.**
+As paradas históricas anteriores a D1 abaixo foram substituídas por esta autorização.
+
+## Checkpoint anterior — IMPACT-DESTRUCTION-P0 / Manaus local (2026-10-06)
 
 O último anexo aceita o HEAD `267caf5d0a8c6ce435e16270c165965bec7c2445` e autoriza
 o impacto/destruição local antes do D1. Um ImpactFootprint derivado do contato real controla
