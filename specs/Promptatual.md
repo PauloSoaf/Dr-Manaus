@@ -1,6 +1,22 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — SUN-APPROACH-P0 (2026-10-07)
+## Checkpoint atual — D1.1: parada no gate de fidelidade (2026-10-07)
+
+Novo anexo autoriza o hardening D1.1 sobre o Sol entregue em `644e2def54fe39213f1be6b4053749b8ecc305c0`.
+O gate foi medido antes das mudanças funcionais: limite de 8 m no raio e min(4 m, 15%) na
+profundidade, sem relaxamento posterior. O erro de raio chegou a 13,075 m; cinco de seis
+fixtures Lua/Marte/Terra excedem o limite. **`npm run check:impact-fidelity` retorna 1**.
+Medição cruza collider/mesh publicados e contorno analítico da CSG/relevo; inclui footprint
+de substituição e diagnóstico JSON. Testes de medição passando não significam aceitação.
+O anexo exige STOP quando a tolerância é excedida: **D1.1 NÃO concluído; D1.2 HIGH-RES IMPACT
+CORE necessário antes de D2**. Residência múltipla, iluminação solar dos volumes, frustum,
+máscaras por tile e otimização de publicação continuam pendentes. Sol/D1/P0 preservados.
+Resultados, baseline e pendências: [22-status-D1.1-FIDELITY-GATE.md](../docs/world/22-status-D1.1-FIDELITY-GATE.md).
+Typecheck/build/diff PASS; focados 361/361; completos 1.003/1.003; browsers volume/espacial/local
+PASS, zero erros; benchmark baseline 12/12 PASS. Gate de fidelidade FAIL continua separado.
+Documentação, commit e push continuam autorizados. Não alterar a tolerância para esconder o erro.
+
+## Checkpoint anterior — SUN-APPROACH-P0 (2026-10-07)
 
 O novo anexo autoriza corrigir o Sol sobre o D1 já entregue em `b1ab6a8`.
 O limite manual deixa de ser 2R: fotosfera + 100 km de margem CCD. Autopiloto separado para

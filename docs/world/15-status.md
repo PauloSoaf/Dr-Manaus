@@ -1,5 +1,19 @@
 # Planetary architecture — implementation status
 
+## D1.1 — failed fidelity stop gate — 2026-10-07
+
+The new attachment authorizes hardening on solar delivery `644e2def54fe39213f1be6b4053749b8ecc305c0`,
+preserving all Sun changes. Its explicit STOP condition was reached in an early quantitative
+measurement: radius error up to 13.075 m exceeds the declared 8 m tolerance in five of six
+Moon/Mars/Earth small-crater fixtures. Depth passes in these canonical fixtures. Mesh/collider
+agreement and an independent analytic CSG/relief contour confirm coarse extraction smearing.
+`npm run check:impact-fidelity` deliberately returns failure; measurement tests passing are
+not accuracy acceptance. **D1.1 remains incomplete; D1.2 HIGH-RES IMPACT CORE is required
+before D2.** Multi-region residency, volume solar lighting, culling, per-tile masking and commit
+optimization remain pending. No production renderer/physics/destruction/Sun authority changed.
+Reproduction, tolerances, footprint, benchmark baseline and validation:
+[22-status-D1.1-FIDELITY-GATE.md](22-status-D1.1-FIDELITY-GATE.md).
+
 ## SUN-APPROACH-P0 — 2026-10-07
 
 Current user-authorized checkpoint on delivered D1 HEAD `b1ab6a8`: remove the solar 2R wall,

@@ -16,6 +16,7 @@
     "benchmark:volume": "node --import tsx scripts/benchmark-volume.mjs",
     "benchmark:impact": "node --import tsx scripts/benchmark-impact.mjs",
     "benchmark:impact-volume": "node --import tsx scripts/benchmark-impact-volume.mjs",
+    "check:impact-fidelity": "node --import tsx scripts/measure-crater-fidelity.mjs",
     "profile": "node scripts/profile-flight.mjs",
     "assets:player": "node scripts/build-player-character.mjs",
     "validate:player": "node scripts/validate-player-glb.mjs"
