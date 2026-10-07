@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { preview } from 'vite';
 import { chromium } from '@playwright/test';
+import { solarApproachChecks } from './solar-approach-browser.mjs';
 
 // Uses the repository's existing Playwright/Chromium. Near-arrival fixtures are explicit;
 // this is automated coverage of the gameplay handoff, not a claimed manual Earth–Moon journey.
@@ -9,8 +10,9 @@ const server=await preview({preview:{host:'127.0.0.1',port:5187,strictPort:true}
 let browser;
 let page;
 const d1Only=process.env.DR_D1_ONLY==='1';
-const resultPath=`artifacts/${d1Only?'space-hardening-d1-fresh':'space-hardening-browser'}.json`;
-const results={scope:d1Only?'D1 fresh Game':'full space regressions'};
+const sunOnly=process.env.DR_SUN_ONLY==='1';
+const resultPath=`artifacts/${sunOnly?'sun-approach-browser':d1Only?'space-hardening-d1-fresh':'space-hardening-browser'}.json`;
+const results={scope:sunOnly?'SUN-APPROACH-P0 fresh Game':d1Only?'D1 fresh Game':'full space regressions'};
 const errors=[];
 try {
   browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--ignore-gpu-blocklist','--enable-webgl']});
@@ -21,7 +23,7 @@ try {
   await page.waitForFunction(()=>window.__DR_MANAUS__?.ready,null,{timeout:60_000});
   await mkdir('artifacts',{recursive:true});
   // Optional fresh-Game D1 acceptance run; the default still executes every regression.
-  if(!d1Only) {
+  if(!d1Only&&!sunOnly) {
   await page.keyboard.press('m');
   await page.locator('[data-map-level="system"]').click();
   const map=await page.evaluate(()=>{
@@ -702,6 +704,8 @@ try {
   await page.keyboard.press('F3');
   console.log('C4 Moon P/F SAFE_CAPTURE; Earth/Jupiter/Sun catastrophic exactly once; CCD/intact bodies/no volume and F3 passed.');
   }
+  if(!d1Only) await solarApproachChecks(page,results);
+  if(!sunOnly) {
   results.rockyDestruction=[];
   for(const id of ['moon','mars','earth']) {
     const impact=await page.evaluate(id=>{
@@ -775,10 +779,11 @@ try {
     results.rockyDestruction.push(impact);
     console.log(`${id}: actual Game CCD -> C4 MAJOR -> one D1 edit${id==='earth'?' outside Manaus':', production publication and real player crater walking'} passed.`);
   }
+  }
   assert.equal(errors.length,0,errors.join('\n'));
   results.errors=errors;
   await writeFile(resultPath,JSON.stringify(results,null,2));
-  console.log(`${d1Only?'D1 fresh Game':'SPACE-HARDENING'} browser checks passed.`);
+  console.log(`${sunOnly?'SUN-APPROACH-P0 fresh Game':d1Only?'D1 fresh Game':'SPACE-HARDENING'} browser checks passed.`);
 } catch(error) {
   results.failureState=await page?.evaluate(()=>{
     const g=window.__DR_MANAUS__;
