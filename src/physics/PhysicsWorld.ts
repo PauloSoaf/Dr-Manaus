@@ -165,6 +165,19 @@ export class PhysicsWorld {
       if(inward<0)velocity.add(new Vector3(...normal).multiplyScalar(-inward));
       remaining*=Math.max(0,1-fraction);
     }
+    // At high FPS gravity may move less than the collision skin. Retain grounded support
+    // through a short real capsule sweep, never an implicit plane or a fabricated normal.
+    if(!grounded&&velocity.y<=0) {
+      const distance=VOLUME_CONTACT_POLICY.skinM*2,
+        support=PhysicsWorld.volume!.sweepCapsule(position.toArray(),[0,-distance,0],radius,height);
+      if(support&&support.normal[1]>=VOLUME_CONTACT_POLICY.floorNormalY) {
+        position.y-=distance*support.fraction;
+        position.add(new Vector3(...support.normal).multiplyScalar(VOLUME_CONTACT_POLICY.skinM));
+        const inward=velocity.x*support.normal[0]+velocity.y*support.normal[1]+velocity.z*support.normal[2];
+        if(inward<0)velocity.add(new Vector3(...support.normal).multiplyScalar(-inward));
+        this.lastVolumeContact=support;grounded=true;
+      }
+    }
     return grounded;
   }
 

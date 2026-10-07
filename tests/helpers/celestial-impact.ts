@@ -9,6 +9,7 @@ import { PlanetaryLandingIntent } from '../../src/world/travel/PlanetaryLanding.
 import { bodyExclusionEnvelopes } from '../../src/world/travel/BodyNavigation.ts';
 import type { CelestialContact } from '../../src/world/travel/CelestialContact.ts';
 import type { Vec3 } from '../../src/world/spatial/units.ts';
+import { RockyImpactDestructionService } from '../../src/world/destruction/RockyImpactDestructionService.ts';
 
 export function contact(relative: Vec3 = [0, -LIGHT_SPEED_MPS, 0], bodyId = 'earth',
   orbital: Vec3 = [12_000, 29_000, -300]): CelestialContact {
@@ -38,6 +39,8 @@ export function impactFixture(id = 'earth', speed = LIGHT_SPEED_MPS, fps = 60) {
     player: { state: 'Flight', velocity: new Vector3(), position: new Vector3() },
     rendering: { camera: new PerspectiveCamera() }, viewForward: new Vector3(0, -1, 0),
     planetProviders: new Map(), hud: { notify() {} } });
+  game.rockyImpactDestruction=new RockyImpactDestructionService({edits:universe.volume.edits,
+    body:id=>system.bodies.find(b=>b.id===id),requestRegion:(id,plan)=>universe.volume.requestImpactRegion(id,plan)});
   const step = (dt = 1 / fps) => game.updateInterplanetaryFlight(dt);
   const place = (distance: number, inwardSpeed = 0) => {
     const centre = system.positionOf(id)!, v = system.stateOf(id)!.velocityMps;

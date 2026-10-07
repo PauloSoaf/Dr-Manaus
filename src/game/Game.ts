@@ -48,6 +48,13 @@ import { LOCAL_GROUP_CATALOG } from '../world/celestial/GalaxyDefinition';
 import { StarSectorProvider } from '../world/providers/StarSectorProvider';
 import { TravelDomain } from '../world/travel/TravelDomain';
 import { CelestialImpactService } from '../world/travel/CelestialImpactService';
+import { RockyImpactDestructionService } from '../world/destruction/RockyImpactDestructionService';
+import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
+import { IMPACT_VOLUME_LIMITS } from '../world/planet/volume/PlanetVolumeImpactDemand';
+import { PlanetVolumeTerrainProvider } from '../world/planet/volume/PlanetVolumeTerrainProvider';
+import { PlanetVolumeCollisionProvider } from '../world/planet/volume/PlanetVolumeCollisionProvider';
+import { MANAUS_COVERAGE } from '../world/providers/EarthProvider';
+import { bodyFixedToGeodetic } from '../world/planet/PlanetBody';
 import type { CelestialImpactEvent } from '../world/travel/CelestialImpactEvent';
 import type { ImpactResult } from '../player/combat/MeteorImpact';
 import { impactCategory, impactKind } from '../world/destruction/ImpactCategories';
@@ -106,6 +113,8 @@ export class Game {
    * With `FEATURES.planetStreaming` off it observes and reports without touching the scene.
    */
   readonly universe:UniverseRuntime;
+  readonly rockyImpactDestruction:RockyImpactDestructionService;
+  readonly volumeRenderer:PlanetVolumeSurfaceRenderer;
   readonly galaxy?:StarSectorProvider;
   readonly sgra?:BlackHoleProvider;
   readonly localGroup:GalaxyProvider[] = [];
@@ -166,6 +175,7 @@ export class Game {
   readonly celestialLabels: CelestialLabelLayer;
   private readonly surfaceTerrains = new Map<string, PlanetTerrainProvider>();
   private physicsDomain = 'manaus';
+  private volumePhysicsGeneration=-1;
   /** The generalized flat backdrop. It stands down once the globe becomes the ground. */
   private readonly flatTerrain:import('three/webgpu').Group;
   ready=false;frame:FrameSample={fps:0,cpu:0,drawCalls:0,triangles:0,geometries:0,textures:0,active:0,cached:0,queued:0,loadedMB:0,streamMs:0,x:0,z:0};
@@ -190,7 +200,7 @@ export class Game {
     // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
     this.space=new SpaceLayer(this.celestialRoot,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
     this.celestialRoot.add(this.celestialVisuals.root);
-    this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe});
+    this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe,volume:IMPACT_VOLUME_LIMITS});
     if(FEATURES.earthGlobe){
       this.earth=new EarthProvider(this.planetRoot,this.universe.frames,{cityOwnsGround:!FEATURES.curvedManaus,renderSpace:this.universe.renderSpace});
       this.universe.providers.register(this.earth);
@@ -202,6 +212,22 @@ export class Game {
     }
     this.planetProviders=FEATURES.solarSystem
       ?createPlanetProviders(this.planetRoot,this.universe):new Map();
+    this.volumeRenderer=new PlanetVolumeSurfaceRenderer(this.planetRoot,this.universe.frames,this.universe.renderSpace,
+      id=>bodyProfile(this.universe.activeSystem.bodies.find(b=>b.id===id)!),entries=>{
+        this.earth?.globe.volumeMask.update(entries);
+        for(const provider of this.planetProviders.values())provider.globe.volumeMask.update(entries);
+      });
+    this.universe.volume.setImpactPublication(this.volumeRenderer);
+    this.rockyImpactDestruction=new RockyImpactDestructionService({edits:this.universe.volume.edits,
+      body:id=>this.universe.activeSystem.bodies.find(b=>b.id===id),
+      requestRegion:(id,plan)=>this.universe.volume.requestImpactRegion(id,plan),
+      defer:plan=>{
+        if(FEATURES.curvedManaus||plan.bodyId!==MANAUS_COVERAGE.bodyId)return;
+        const geo=bodyFixedToGeodetic(EARTH,{xM:plan.surfaceContactBodyFixedM[0],yM:plan.surfaceContactBodyFixedM[1],zM:plan.surfaceContactBodyFixedM[2]}),
+          lat=geo.latRad*180/Math.PI,lon=geo.lonRad*180/Math.PI,margin=(plan.craterRadiusM+512)/110000;
+        return lat>=MANAUS_COVERAGE.minLatDeg-margin&&lat<=MANAUS_COVERAGE.maxLatDeg+margin
+          &&lon>=MANAUS_COVERAGE.minLonDeg-margin&&lon<=MANAUS_COVERAGE.maxLonDeg+margin?'authored-manaus-authority':undefined;
+      }});
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -577,6 +603,7 @@ export class Game {
       this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     }
     if(manaus){this.terrain.update(this.player.position,this.renderOriginVec);this.forest.update(this.player.position);}
+    this.bindSurfacePhysics();this.volumeRenderer.update();
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
@@ -876,8 +903,9 @@ export class Game {
       this.celestialImpacts.emit(contact,bodyProfile(contactedBody),
         {...impactContext,simulationTimeS:impactContext.simulationTimeS+elapsed},fixed);
     }
-    // C4's sole consumer records diagnostics. A future destruction consumer plugs in here.
-    for (const event of this.celestialImpacts.drain()) this.lastCelestialImpact=event;
+    for (const event of this.celestialImpacts.drain()) {
+      this.lastCelestialImpact=event;this.rockyImpactDestruction.consume(event);
+    }
     this.flightTelemetry = this.interplanetary.getTelemetry();
     this.travelDomain.setState(newState);
 
@@ -1106,9 +1134,12 @@ export class Game {
   private bindSurfacePhysics():void {
     const bodyId=this.universe.navigationState.bodyId;
     const provider=bodyId?this.surfaceProvider(bodyId):undefined;
+    const body=this.universe.activeSystem.bodies.find(b=>b.id===bodyId),surface=provider?.surface??(body&&surfaceForBody(body));
     const domain=this.manausSimulationActive?'manaus':
-      this.travelDomain.localPhysicsActive&&provider&&this.universe.player.frame===`${bodyId}/local-enu`?bodyId!:'space';
-    if(domain===this.physicsDomain)return;
+      this.travelDomain.localPhysicsActive&&surface&&this.universe.player.frame===`${bodyId}/local-enu`?bodyId!:'space';
+    const replacementGeneration=this.universe.volume.replacement.generation;
+    if(domain===this.physicsDomain&&replacementGeneration===this.volumePhysicsGeneration)return;
+    this.volumePhysicsGeneration=replacementGeneration;
     this.physicsDomain=domain;
     this.colliders.length=0;
     this.curvedColliders.length=0;
@@ -1116,18 +1147,25 @@ export class Game {
     this.blastBoxes.length=0;
     this.attackTime=-Infinity;
     if(domain==='manaus'){
+      PhysicsWorld.setVolumeCollision(null);
       PhysicsWorld.setTerrain(this.terrain);
       this.player.setSurfaceGravity(surfaceGravityMps2(EARTH));
-    }else if(provider&&domain!=='space'){
+    }else if(surface&&domain!=='space'){
       let terrain=this.surfaceTerrains.get(domain);
       if(!terrain){
-        terrain=new PlanetTerrainProvider(this.universe.frames,provider.bodyDef,provider.surface);
+        terrain=new PlanetTerrainProvider(this.universe.frames,surface.body,surface);
         this.surfaceTerrains.set(domain,terrain);
       }
-      PhysicsWorld.setTerrain(terrain);
-      this.player.setSurfaceGravity(surfaceGravityMps2(provider.bodyDef));
-      this.district=provider.bodyDef.id.toUpperCase();
+      PhysicsWorld.setTerrain(new PlanetVolumeTerrainProvider(terrain,this.universe.volume.replacement,
+        this.universe.frames,domain,`${domain}/fixed`,`${domain}/local-enu`));
+      const volume=new PlanetVolumeCollisionProvider(this.universe.volume.collisionCache,this.universe.frames,
+        domain,`${domain}/fixed`,`${domain}/local-enu`);
+      PhysicsWorld.setVolumeCollision(this.universe.volume.replacement.bodyId===domain?volume:null);
+      this.universe.volume.setCollisionDiagnostics(volume.metrics);
+      this.player.setSurfaceGravity(surfaceGravityMps2(surface.body));
+      this.district=surface.body.id.toUpperCase();
     }else{
+      PhysicsWorld.setVolumeCollision(null);
       PhysicsWorld.setTerrain(null);
       this.player.setSurfaceGravity(0);
       this.district='ESPAÇO';
@@ -1365,6 +1403,7 @@ export class Game {
     const localImpact=this.destruction.lastImpact, footprint=localImpact?.footprint;
     return{
       ...this.universe.volume?.debugMetrics(),
+      ...this.rockyImpactDestruction.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
       'Geo · Altitude':`${t.altitudeM.toFixed(1)} m`,
       'Frame · Ativo':`${t.frame} · corpo ${t.dominantBody}`,
