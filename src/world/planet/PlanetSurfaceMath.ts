@@ -14,4 +14,3 @@ export function surfaceOutwardNormal(surface: PlanetSurfaceGenerator, fixed: Vec
   const length = Math.hypot(...normal);
   return length > 1e-12 ? [normal[0] / length, normal[1] / length, normal[2] / length] : [1, 0, 0];
 }
-

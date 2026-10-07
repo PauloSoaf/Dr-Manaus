@@ -254,6 +254,7 @@ the excavated bowl and inside rim, with the simple bounded material described ab
 | `npm run benchmark:impact-volume` | PASS, 12 coherent bounded replacements |
 | `git diff --check` | PASS |
 | GitHub Actions code/test HEAD | PASS, run 37652982334 linked below |
+| GitHub Actions acceptance/documentation HEAD | PASS, run 37656014994 linked below |
 | GitHub Actions delivery HEAD | Checked after final push; exact SHA/run reported at delivery |
 
 ## Commits and files
@@ -261,6 +262,11 @@ the excavated bowl and inside rim, with the simple bounded material described ab
 Implementation/test HEAD: `61f809421d72076a0163803cfc050bf41f68ca4d`.
 GitHub Actions PASS on that exact code/test HEAD:
 [Validation run 37652982334](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/37652982334).
+Acceptance/documentation HEAD `c880f42facb80e0bc5fe78728a6b6b71796574c6` also passed
+[Validation run 37656014994](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/37656014994).
+The Git push and REST object endpoints returned HTTP 500; the GitHub GraphQL commit API
+published the exact tested file tree with the expected parent and a normal expected-head
+branch update. Local/remote trees were verified identical before synchronizing the checkout.
 
 1. `89f5b381addfbf897061996ec6789dffa044c124` — pure rocky policy/service,
    unchanged neutral P0 footprint, actual surface normal and authoritative edit metadata/demand.
@@ -273,8 +279,10 @@ GitHub Actions PASS on that exact code/test HEAD:
 5. Acceptance/documentation closure — bind the real physics domain in synchronous C4 browser
    fixtures, cover the lunar catastrophic no-edit case and actual Game rim/wall/floor flow,
    improve the inside fixture camera to show wall/rim, and close this report/status/prompt/roadmap.
+6. Final verification record — record the successful acceptance CI and remove one extra EOF
+   blank line found by checking the entire diff against the baseline. No behavior change.
 
-The fifth commit's exact delivery SHA and its matching GitHub Actions URL are reported after
+The final commit's exact delivery SHA and its matching GitHub Actions URL are reported after
 commit/push. No success from a different HEAD is substituted for final CI. Generated artifacts,
 screenshots, logs, machine workspace files and ZIPs remain ignored and uncommitted.
 
