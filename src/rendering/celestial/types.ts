@@ -2,6 +2,8 @@ import type { Quat, Vec3 } from '../../world/spatial/units';
 import type { CelestialBodyProfile } from '../../world/celestial/CelestialBodyProfile';
 
 export interface CelestialRenderSample {
+  /** Simulation clock for deterministic stellar evolution; catalog frames own rotation. */
+  solarTimeS?: number;
   bodyId: string;
   parentId?: string;
   profile?: CelestialBodyProfile;

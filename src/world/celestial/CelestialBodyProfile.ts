@@ -80,14 +80,17 @@ export function bodyProfile(body: CelestialBody): CelestialBodyProfile {
 export interface BodyArrivalPolicy {
   readonly arrivalMarginM: number;
   readonly exclusionMarginM: number;
+  /** Navigation standoff only; optical corona is owned by the visual profile. */
+  readonly observationMarginM?: number;
 }
 
 /** Gameplay clearances, derived from class and physical radius; not atmospheric simulation. */
 export function bodyArrivalPolicy(body: CelestialBody): BodyArrivalPolicy {
   const profile = bodyProfile(body);
   if (profile.bodyClass === 'star') {
-    const marginM = body.equatorialRadiusM;
-    return { arrivalMarginM: marginM, exclusionMarginM: marginM };
+    const observationMarginM = body.equatorialRadiusM * .03;
+    return { arrivalMarginM: observationMarginM, observationMarginM,
+      exclusionMarginM: Math.max(100_000, body.equatorialRadiusM * 1e-4) };
   }
   if (!profile.hasSolidSurface) {
     const marginM = Math.max(1_000_000, body.equatorialRadiusM * 0.25);

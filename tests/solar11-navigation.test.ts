@@ -74,7 +74,10 @@ test('arrival clearances scale by capabilities and dominant-body telemetry remai
     const policy = bodyArrivalPolicy(body);
     const position = system.positionOf(body.id)!;
     if (bodyProfile(body).hasSolidSurface) assert.ok(policy.arrivalMarginM >= 50_000);
-    else assert.ok(policy.arrivalMarginM >= body.equatorialRadiusM * 0.25);
+    else if(bodyProfile(body).bodyClass==='star') {
+      assert.equal(policy.arrivalMarginM,body.equatorialRadiusM*.03);
+      assert.ok(policy.exclusionMarginM<policy.arrivalMarginM);
+    } else assert.ok(policy.arrivalMarginM >= body.equatorialRadiusM * 0.25);
     const near: [number, number, number] = [position[0], position[1] + body.equatorialRadiusM * 1.5, position[2]];
     // Small close-in moons can have less absolute acceleration than their parent (Enceladus).
     const strongest = [...system.bodies].sort((a, b) => {

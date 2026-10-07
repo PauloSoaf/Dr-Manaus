@@ -5,10 +5,13 @@ import type { CelestialRenderSample } from './types';
 import { SOLAR_SYSTEM_BODIES } from '../../world/celestial/CelestialBody';
 import { bodyProfile } from '../../world/celestial/CelestialBodyProfile';
 import { GeographicBodyVisual } from './GeographicBodyVisual';
+import type { QualityPreset } from '../../core/config';
 
 export class CelestialBodyVisualLayer {
   readonly root = new Group();
   private readonly sun = new SunVisual();
+  get solarDiagnostics() { return this.sun.diagnostics; }
+  setQuality(quality: QualityPreset) { this.sun.setQuality(quality); }
   private readonly planets = new Map<string, PlanetVisual>();
   private readonly geographic = new Map<string, GeographicBodyVisual>();
 
@@ -43,7 +46,7 @@ export class CelestialBodyVisualLayer {
 
     for (const sample of samples) {
       if (sample.bodyId === 'sun') {
-        this.sun.update(sample, camera.position);
+        this.sun.update(sample, camera);
         foundSun = true;
       } else {
         const visual = this.planets.get(sample.bodyId);

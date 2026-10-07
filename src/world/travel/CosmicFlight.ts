@@ -35,6 +35,8 @@ export interface NavigationTarget {
 
 /** The same target, resolved against the current ephemeris. Built fresh each update. */
 export interface ResolvedTarget {
+  /** Physical contact epsilon, separate from autopilot observation clearance. */
+  readonly exclusionMarginM?: number;
   readonly velocityMps?: readonly [number, number, number];
   readonly bodyId: string;
   /** Live position in `solar-system/barycentric`. */
@@ -391,7 +393,7 @@ export class CosmicCruiseController {
     }
     if (target && target.bodyId !== context.bodyId && !obstacles.some(obstacle => obstacle.bodyId === target.bodyId)) {
       obstacles.push({ bodyId: target.bodyId, velocityMps: target.velocityMps,
-        centreM: target.positionM, radiusM: target.radiusM + target.arrivalMarginM });
+        centreM: target.positionM, radiusM: target.radiusM + (target.exclusionMarginM ?? target.arrivalMarginM) });
     }
     if (landing && !obstacles.some(obstacle => obstacle.bodyId === landing.bodyId)) {
       obstacles.push({ bodyId: landing.bodyId, velocityMps: landing.velocityMps,

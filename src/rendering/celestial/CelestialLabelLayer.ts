@@ -53,7 +53,8 @@ export function projectCelestialLabel(sample: CelestialRenderSample, camera: Per
 /** Selected physical globes retain labels even when their proxy has retired. */
 export function celestialLabelOpacity(sample: CelestialRenderSample, context: CelestialLabelContext,
   screen: { x: number; y: number }): number {
-  if (sample.bodyId === context.selectedBodyId) return 0.9;
+  if (sample.bodyId === context.selectedBodyId) return sample.profile?.bodyClass === 'star'
+    ? .9 * (1-smoothRange(sample.physicalProjectedDiameterPx??Infinity,60,180)) : 0.9;
   const diameter = sample.physicalProjectedDiameterPx ?? Infinity;
   if (!sample.visible || !Number.isFinite(diameter)) return 0;
   if (sample.bodyId === 'earth') return context.inTravel ? 0.7 * (1 - smoothRange(diameter, 6, 18)) : 0;
@@ -69,7 +70,8 @@ export function celestialLabelOpacity(sample: CelestialRenderSample, context: Ce
     return nearby ? 0.65 * smoothRange(diameter, 2, 8) : 0;
   }
   if (sample.profile?.bodyClass === 'star') {
-    return context.inTravel && diameter < 80 ? 0.55 * smoothRange(Math.hypot(screen.x, screen.y), 0.35, 0.6) : 0;
+    return context.inTravel ? 0.55 * (1-smoothRange(diameter,60,180))
+      * smoothRange(Math.hypot(screen.x, screen.y), 0.35, 0.6) : 0;
   }
   const priority = sample.profile?.visual.labelPriority ?? 0;
   return 0.6 * smoothRange(diameter, 12 + (10 - priority), 30);

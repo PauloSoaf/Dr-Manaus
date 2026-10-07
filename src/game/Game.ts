@@ -87,6 +87,7 @@ import { MANAUS_FRAME_ID } from '../world/spatial/ManausFrameAdapter';
 import { CelestialBodyVisualLayer } from '../rendering/celestial/CelestialBodyVisualLayer';
 import { CelestialPresentationController } from '../rendering/celestial/CelestialPresentationController';
 import { CelestialLabelLayer } from '../rendering/celestial/CelestialLabelLayer';
+import { solarDiagnostics } from '../rendering/celestial/solarPresentation';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   surfaceReturnTrace?: {
@@ -353,6 +354,7 @@ export class Game {
     const distance=145*(1-level*.14);Object.assign(this.atmosphere.sun.shadow.camera,{left:-distance,right:distance,top:distance,bottom:-distance});this.atmosphere.sun.shadow.camera.updateProjectionMatrix();
   }
   applySettings(settings:Settings){this.save.data.settings=settings;this.save.save();this.rendering.setQuality(settings.quality);
+    this.celestialVisuals.setQuality(settings.quality);
     this.rendering.setShadows(settings.shadows);this.camera.baseFov=settings.fov;this.camera.sensitivity=settings.sensitivity;this.camera.invertY=settings.invertY;
     this.audio.setVolumes(settings.masterVolume,settings.ambienceVolume,settings.effectsVolume);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.destruction.setQuality(QUALITY[settings.quality].particles);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');this.realCity.setNight(settings.time==='Night');this.realCity.setDetail(settings.quality!=='Low');}
   async travel(id:string,debug=false){
@@ -577,6 +579,7 @@ export class Game {
     this.celestialController.render({
       camera: this.rendering.camera
     });
+    this.space.setSolarPresentation(this.celestialController.renderSamples.find(sample=>sample.profile?.bodyClass==='star'));
     this.celestialLabels.update(this.celestialController.renderSamples, this.rendering.camera, {
       selectedBodyId: this.navigationLock?.bodyId,
       inTravel: this.travelDomain.kind === 'interplanetary',
@@ -1293,6 +1296,9 @@ export class Game {
       warpStep:telemetry.warpStep,
       warpLabel:warpLabel(telemetry.warpStep),
       distanceToTargetM:target ? distance : undefined,
+      photosphereClearanceM:target?.bodyId==='sun' ? distance-target.radiusM : undefined,
+      angularDiameterDeg:target?.bodyId==='sun' ? solarDiagnostics(target.radiusM,distance,
+        this.rendering.camera.fov*Math.PI/180,innerHeight).angularDiameterDeg : undefined,
       timeToTargetS:closing>0 ? Math.max(0,distance-arrivalRadius)/closing : undefined,
     };
   }
@@ -1391,6 +1397,32 @@ export class Game {
       blockedReason:this.travelDomain.localPhysicsActive?'local':gate.blockedReason};
   }
 
+  get solarApproachState() {
+    const sun=this.universe.activeSystem.bodies.find(body=>bodyProfile(body).bodyClass==='star');
+    const centre=sun&&this.universe.activeSystem.positionOf(sun.id);
+    if(!sun||!centre)return undefined;
+    const observer=this.universe.playerSystemPositionM();
+    const distance=Math.hypot(...observer.map((v,i)=>v-centre[i]));
+    const policy=bodyArrivalPolicy(sun);
+    return {...solarDiagnostics(sun.equatorialRadiusM,distance,this.rendering.camera.fov*Math.PI/180,
+      typeof innerHeight==='number'?innerHeight:900),ccdRadiusM:sun.equatorialRadiusM+policy.exclusionMarginM,
+      ccdMarginM:policy.exclusionMarginM,autopilotStandoffM:policy.arrivalMarginM,
+      coronaExtentR:bodyProfile(sun).visual.solarGlow?.outerScale??1,
+      contact:this.interplanetary.lastCelestialContact?.bodyId===sun.id,
+      visual:this.celestialVisuals?.solarDiagnostics};
+  }
+
+  private solarDebug():Record<string,string|number>{
+    const s=this.solarApproachState;if(!s)return{};
+    return {'SOL · Distância ao centro':s.distanceM,'SOL · Distância à fotosfera':s.photosphereClearanceM,
+      'SOL · Raio físico':s.radiusM,'SOL · Diâmetro angular':s.angularDiameterDeg,
+      'SOL · Diâmetro projetado px':s.projectedDiameterPx,'SOL · CCD radius':s.ccdRadiusM,
+      'SOL · CCD margin':s.ccdMarginM,'SOL · Autopilot standoff':s.autopilotStandoffM,
+      'SOL · Corona visual extent':`${s.coronaExtentR}R angular (óptico)`,
+      'SOL · Contato CCD':s.contact?'SIM':'NÃO',
+      'SOL · Visual / Draws / Triângulos':`${s.visual?.mode??'—'} / ${s.visual?.drawCalls??0} / ${s.visual?.triangles??0}`};
+  }
+
   private universeDebug(nav=this.hudFlight()):Record<string,string|number>{
     if(!FEATURES.spatialCore)return{};
     const t=this.universe.telemetry;
@@ -1402,6 +1434,7 @@ export class Game {
     const impact=this.lastCelestialImpact;
     const localImpact=this.destruction.lastImpact, footprint=localImpact?.footprint;
     return{
+      ...this.solarDebug(),
       ...this.universe.volume?.debugMetrics(),
       ...this.rockyImpactDestruction.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,

@@ -95,13 +95,14 @@ test('T_SUN_PHYSICAL_DISC_UNCHANGED and T_SUN_CORONA_PRESENTATION_ONLY', () => {
     assert.equal(s.presentationProxyRadiusM, s.proxyRadiusM);
     const visual = new SunVisual();
     try {
-      visual.update(s, new Vector3());
+      const solarCamera=camera();solarCamera.lookAt(new Vector3(...s.directionRender));solarCamera.updateMatrixWorld();
+      visual.update(s, solarCamera);
       const quad = visual.group.children[0] as Mesh;
-      assert.equal(quad.scale.x, s.proxyRadiusM * glow.outerScale);
-      assert.equal(quad.scale.x / glow.outerScale, s.proxyRadiusM);
+      assert.ok(quad.scale.toArray().every(Number.isFinite));
+      assert.equal((visual as any).shader.ratio.value,s.physicalRadiusM/s.logicalDistanceM);
       assert.equal(glow.innerScale, 2);
       assert.equal(glow.outerScale, 5);
-      assert.ok(s.proxyDistanceM + quad.scale.x < options.cameraFarM);
+      assert.ok(visual.group.position.length() < options.cameraFarM);
     } finally { visual.dispose(); }
   });
 });
@@ -139,12 +140,12 @@ test('point floor, glow and disc regimes transition continuously and stay finite
   assert.equal(bodyPresentation(0.1, profile, options.fovRad, 1080).pointMix, 0);
 });
 
-test('T_LABEL_SELECTED_BODY_VISIBLE: every selected body, including a retired physical proxy, is eligible', () => {
+test('T_LABEL_SELECTED_BODY_VISIBLE: selected bodies remain eligible; a large Sun label fades into HUD', () => {
   for (const id of Object.keys(SOLAR_BODY_PROFILES)) {
     const s = { ...sample(id), visible: false, angularRadiusRad: 1, physicalProjectedDiameterPx: 300 };
     const projected = projectCelestialLabel(s, camera())!;
     assert.ok(projected);
-    assert.equal(celestialLabelOpacity(s, { selectedBodyId: id }, projected), 0.9);
+    assert.equal(celestialLabelOpacity(s, { selectedBodyId: id }, projected),id==='sun'?0:0.9);
     assert.ok(CELESTIAL_LABEL_NAMES[id]);
   }
   assert.equal(CELESTIAL_LABEL_NAMES.mercury, 'MERCÚRIO');

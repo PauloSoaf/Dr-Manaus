@@ -1,82 +1,68 @@
-import { AdditiveBlending, Group, Mesh, MeshBasicNodeMaterial, PlaneGeometry, Vector3 } from 'three/webgpu';
-import { float, mix, positionLocal, smoothstep, uniform, vec3, vec4 } from 'three/tsl';
+import { Group, Matrix4, Mesh, PerspectiveCamera, PlaneGeometry, Quaternion } from 'three/webgpu';
 import type { CelestialRenderSample } from './types';
-import { SOLAR_BODY_PROFILES } from '../../world/celestial/CelestialBodyProfile';
+import type { QualityPreset } from '../../core/config';
+import { SunMaterial } from './SunMaterial';
+import { solarPresentation } from './solarPresentation';
+import { smoothRange } from './presentation';
 
+/** Bounded viewport quad. The physical edge is a ray/sphere intersection, never tan(90°) geometry. */
 export class SunVisual {
   readonly group = new Group();
-  private readonly disc: Mesh;
-  private readonly material: MeshBasicNodeMaterial;
-  private readonly uOpacity = uniform(1);
-  private readonly glow = SOLAR_BODY_PROFILES.sun.visual.solarGlow!;
-
+  private shader = new SunMaterial('High');
+  private readonly disc = new Mesh(new PlaneGeometry(2, 2), this.shader.material);
+  private readonly rotation = new Quaternion();
+  private readonly matrix = new Matrix4();
+  private quality: QualityPreset = 'High';
+  private mode = 'DISTANT';
   constructor() {
     this.group.name = 'SunVisual';
-    // Use a simple quad. The shader will draw a circle and corona.
-    const geometry = new PlaneGeometry(2, 2); 
-    
-    this.material = new MeshBasicNodeMaterial({
-      transparent: true,
-      depthWrite: false,
-      depthTest: true, 
-      blending: AdditiveBlending,
-      fog: false,
-    });
-
-    // UV-based shader for the sun disc and corona
-    // positionLocal is in [-1, 1] range for a 2x2 plane
-    const radius = positionLocal.xy.length();
-    
-    const discRadius = 1 / this.glow.outerScale;
-    const disc = float(1).sub(smoothstep(float(discRadius * 0.95), float(discRadius), radius));
-    
-    // Optical inner halo and corona are separate from the physical angular disc.
-    const innerDrop = radius.sub(discRadius).max(0).div(discRadius * (this.glow.innerScale - 1));
-    const innerGlow = float(1).sub(innerDrop).max(0).pow(1.5).mul(0.8);
-    
-    const outerDrop = radius.sub(discRadius).max(0).div(1 - discRadius);
-    const outerCorona = float(1).sub(outerDrop).max(0).pow(3.0).mul(0.4);
-    
-    // Core is very bright white-yellow, corona is warmer/softer
-    const coreColor = vec3(1.0, 0.98, 0.95).mul(2.5);
-    const innerColor = vec3(1.0, 0.9, 0.7).mul(1.5);
-    const coronaColor = vec3(1.0, 0.6, 0.2).mul(0.8);
-    
-    // Blend them
-    const finalColor = mix(
-      mix(coronaColor, innerColor, innerGlow),
-      coreColor,
-      disc
-    );
-    const alpha = disc.add(innerGlow).add(outerCorona).saturate().mul(this.uOpacity);
-
-    this.material.colorNode = vec4(finalColor, alpha);
-    
-    this.disc = new Mesh(geometry, this.material);
     this.disc.frustumCulled = false;
+    this.disc.renderOrder = -7;
     this.group.add(this.disc);
   }
-
-  update(sample: CelestialRenderSample, cameraPos: Vector3): void {
+  setQuality(quality: QualityPreset) {
+    if (quality === this.quality) return;
+    this.shader.dispose(); this.shader = new SunMaterial(quality);
+    this.disc.material = this.shader.material; this.quality = quality;
+  }
+  update(sample: CelestialRenderSample, camera: PerspectiveCamera): void {
     this.group.visible = sample.visible;
-    if (!this.group.visible) return;
-
-    // Only the optical quad expands; the disc's radius remains proxyRadiusM.
-    const scale = sample.proxyRadiusM * this.glow.outerScale;
-    this.uOpacity.value = Math.max(0, Math.min(1, sample.opacity));
-    
-    this.disc.scale.setScalar(scale);
-
-    // Place the proxy in the sky
-    const dir = sample.directionRender;
-    this.group.position.set(dir[0], dir[1], dir[2]).multiplyScalar(sample.proxyDistanceM);
-    
-    // Look at camera so it's a billboard
-    this.group.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(...dir).negate().normalize());
+    if (!sample.visible) return;
+    const presentation = solarPresentation(sample.angularRadiusRad, this.quality);
+    this.mode = presentation.mode;
+    const tangent = Math.tan(camera.fov * Math.PI / 360);
+    const distance = Math.max(camera.near * 4, Math.min(100_000, camera.far * .9));
+    camera.getWorldQuaternion(this.rotation);
+    this.group.quaternion.copy(this.rotation);
+    this.shader.direction.value.set(...sample.directionRender).applyQuaternion(this.rotation.clone().invert()).normalize();
+    const dir=this.shader.direction.value;
+    let cx=0,cy=0,hx=1,hy=1;
+    // Small discs rasterize only their conservative optical rectangle. Close views use the
+    // complete viewport; neither representation ever creates a tan(near-90°) mesh.
+    if(sample.angularRadiusRad<.02) {
+      if(dir.z>=0){this.group.visible=false;return;}
+      const x=dir.x/(-dir.z*tangent*camera.aspect),y=dir.y/(-dir.z*tangent);
+      const extent=Math.tan(sample.angularRadiusRad)*5*1.3/(dir.z*dir.z);
+      const left=Math.max(-1,x-extent/(tangent*camera.aspect)),right=Math.min(1,x+extent/(tangent*camera.aspect));
+      const bottom=Math.max(-1,y-extent/tangent),top=Math.min(1,y+extent/tangent);
+      if(right<=left||top<=bottom){this.group.visible=false;return;}
+      cx=(left+right)/2;cy=(bottom+top)/2;hx=(right-left)/2;hy=(top-bottom)/2;
+    }
+    this.shader.screenCentre.value.set(cx,cy);this.shader.screenHalf.value.set(hx,hy);
+    this.group.position.set(cx*distance*tangent*camera.aspect,cy*distance*tangent,-distance).applyQuaternion(this.rotation);
+    this.disc.scale.set(hx*distance*tangent*camera.aspect,hy*distance*tangent,1);
+    this.shader.ratio.value = Math.max(1e-8, Math.min(1, sample.physicalRadiusM / Math.max(1, sample.logicalDistanceM)));
+    this.shader.tangent.value.set(tangent * camera.aspect, tangent);
+    this.shader.detail.value = presentation.detail;
+    this.shader.micro.value = smoothRange(sample.angularRadiusRad, .9, 1.4);
+    this.shader.prominence.value = presentation.prominence;
+    this.shader.opacity.value = Math.max(0, Math.min(1, sample.opacity));
+    this.shader.clock.value = (sample.solarTimeS ?? 0) % 1_000_000;
+    const body = new Quaternion(...(sample.bodyOrientationRender ?? [0, 0, 0, 1]));
+    this.matrix.makeRotationFromQuaternion(body.invert().multiply(this.rotation));
+    this.shader.cameraToBody.value.setFromMatrix4(this.matrix);
   }
-
-  dispose(): void {
-    this.disc.geometry.dispose();
-    this.material.dispose();
-  }
+  get diagnostics() { return { mode: this.mode, quality: this.quality, drawCalls: this.group.visible ? 1 : 0,
+    triangles: this.group.visible ? 2 : 0, materials: 1, coronaExtentR: 5 }; }
+  dispose(): void { this.disc.geometry.dispose(); this.shader.dispose(); }
 }

@@ -42,6 +42,7 @@ export function resolveBodyDestination(system: CelestialSystemRuntime,
   const positionM = body && system.positionOf(body.id);
   if (!body || !positionM?.every(Number.isFinite)) return undefined;
   return { bodyId: body.id, positionM, radiusM: body.equatorialRadiusM,
+    exclusionMarginM: bodyArrivalPolicy(body).exclusionMarginM,
     arrivalMarginM: bodyArrivalPolicy(body).arrivalMarginM,
     velocityMps: system.stateOf(body.id)?.velocityMps };
 }

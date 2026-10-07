@@ -3,7 +3,7 @@ import type { UniverseRuntime } from '../../world/runtime/UniverseRuntime';
 import type { EarthProvider } from '../../world/providers/EarthProvider';
 import type { RockyPlanetProvider } from '../../world/providers/RockyPlanetProvider';
 import { bodyProfile } from '../../world/celestial/CelestialBodyProfile';
-import { normalizeVec3, quatFromAxisAngle, type Vec3 } from '../../world/spatial/units';
+import { normalizeVec3, quatFromAxisAngle, multiplyQuat, type Vec3 } from '../../world/spatial/units';
 import { CelestialBodyVisualLayer } from './CelestialBodyVisualLayer';
 import type { CelestialRenderSample } from './types';
 import { angularRadiusRad, boundedCelestialProxy, projectedDiameterPx } from './math';
@@ -78,7 +78,10 @@ export class CelestialPresentationController {
       // Fixed frames currently omit axial obliquity. Apply the catalog tilt to the visual pole
       // only, preserving the existing Earth/Manaus frame contract.
       const bodyOrientationRender = universe.frames.convertOrientation(body.frameId, renderFrame,
-        quatFromAxisAngle([1, 0, 0], body.axialTiltRad ?? 0));
+        multiplyQuat(quatFromAxisAngle([1, 0, 0], body.axialTiltRad ?? 0),
+          profile.bodyClass === 'star' && body.rotationPeriodS
+            ? quatFromAxisAngle([0, 1, 0], (system.time % body.rotationPeriodS) * 2 * Math.PI / body.rotationPeriodS)
+            : [0, 0, 0, 1]));
       const bodyFixedOrientationRender = universe.frames.convertOrientation(body.frameId, renderFrame, [0, 0, 0, 1]);
       const presentation = bodyPresentation(angle, profile.visual, ctx.fovRad, ctx.viewportHeightPx);
       const proxy = boundedCelestialProxy(presentation.physicalTangent, presentation.extentTangent, ctx.cameraFarM ?? 100_000);
@@ -104,7 +107,7 @@ export class CelestialPresentationController {
       if (profile.surfaceKind === 'earth' && earth && phaseLightDirection) {
         earth.setSunDirection(phaseLightDirection, renderFrame, renderFrame);
       }
-      return { bodyId: body.id, parentId: body.parentId, profile, logicalDistanceM: distance, physicalRadiusM: body.equatorialRadiusM,
+      return { solarTimeS: system.time, bodyId: body.id, parentId: body.parentId, profile, logicalDistanceM: distance, physicalRadiusM: body.equatorialRadiusM,
         angularRadiusRad: angle, directionRender: direction, proxyDistanceM: proxy.distanceM,
         proxyRadiusM: physicalProxyRadiusM, presentationProxyRadiusM, glowProxyRadiusM,
         physicalProjectedDiameterPx: presentation.physicalProjectedDiameterPx,

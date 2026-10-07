@@ -43,6 +43,8 @@ export interface HUDBody {
 
 /** What the cruise controller knows, as the HUD needs to show it. */
 export interface HUDFlightTelemetry {
+  readonly photosphereClearanceM?: number;
+  readonly angularDiameterDeg?: number;
   readonly phase: FlightTelemetry['phase'];
   readonly relativeSpeedMps?: number;
   readonly closingSpeedMps?: number;
@@ -352,7 +354,8 @@ export class HUD {
       +`<span>LOCK<i>${flight.lockActive?'ATIVO':'—'}</i></span><span>PILOTO<i>${flight.autopilotActive?'ATIVO':'MANUAL'}</i></span>`
       +(flight.warpLabel?`<span>WARP<i class="warp">${flight.warpLabel}</i></span>`:'')
       +`<span>DESTINO<i>${flight.targetName??flight.targetBodyId??'—'}</i></span>`
-      +`<span>DISTÂNCIA<i>${flight.distanceToTargetM===undefined?'—':formatDistance(flight.distanceToTargetM)}</i></span>`
+      +`<span>${flight.photosphereClearanceM===undefined?'DISTÂNCIA':'FOTOSFERA'}<i>${flight.distanceToTargetM===undefined?'—':formatDistance(flight.photosphereClearanceM??flight.distanceToTargetM)}</i></span>`
+      +(flight.photosphereClearanceM===undefined?'':`<span>CENTRO<i>${formatDistance(flight.distanceToTargetM!)}</i></span><span>DIÂMETRO ANGULAR<i>${flight.angularDiameterDeg?.toFixed(2)}°</i></span>`)
       +`<span>VELOCIDADE<i>${speed.value} ${speed.unit}</i></span>`
       +`<span>ACELERAÇÃO<i>${accel}</i></span>`
       +`<span>RELATIVA<i>${formatSpeed(flight.relativeSpeedMps??0).value} ${formatSpeed(flight.relativeSpeedMps??0).unit}</i></span>`

@@ -2,6 +2,7 @@ import { AdditiveBlending, BackSide, BufferGeometry, Color, Float32BufferAttribu
 import { attribute, float, mix, positionLocal, sin, smoothstep, time, uniform, uv } from 'three/tsl';
 import { FEATURES, SPACE } from '../core/config';
 import { PLANET_LAYER } from './domains/RenderDomains';
+import type { CelestialRenderSample } from './celestial/types';
 /** The rig rides the camera, so these are viewing distances, not world extents. Far plane is 260 km. */
 const STAR_RADIUS = 150000, SHELL_RADIUS = 170000, SUN_DISTANCE = 120000, SUN_QUAD = SUN_DISTANCE * .0968;
 const FIELD_STARS = 2200, BAND_STARS = 1200, STARS = FIELD_STARS + BAND_STARS;
@@ -53,6 +54,10 @@ export class SpaceLayer {
   private uSpace = uniform(0);
   private uVisible = uniform(0);
   private uSun = uniform(new Vector3(0, 1, 0));
+  private uStellarDirection = uniform(new Vector3(0, 1, 0));
+  private uStellarGlareOuterCos = uniform(1);
+  private uStellarGlareInnerCos = uniform(1);
+  private uStellarGlareStrength = uniform(0);
   private uBand = uniform(new Vector3().copy(BAND_AXIS));
   private uLimb = uniform(0);
   private uRimWidth = uniform(.17);
@@ -90,6 +95,14 @@ export class SpaceLayer {
   }
   /** 0 on the ground, .62 at the Karman line, 1 from orbit up. Smoothed, so the HUD can show it raw. */
   get spaceFactor() { return this.factor; }
+  /** Angular optical masking only; looking away preserves the sky. */
+  setSolarPresentation(sample: CelestialRenderSample | undefined) {
+    const angle = sample?.angularRadiusRad ?? 0;
+    this.uStellarGlareStrength.value = sample?.visible ? 1 : 0;
+    if (sample) this.uStellarDirection.value.set(...sample.directionRender);
+    this.uStellarGlareInnerCos.value = Math.cos(Math.min(Math.PI / 2, angle * 1.05));
+    this.uStellarGlareOuterCos.value = Math.cos(Math.min(Math.PI * .7, Math.max(.02, angle * 1.5)));
+  }
 
   /**
    * Stands the fake planet down while the real one is being drawn.
@@ -236,7 +249,10 @@ export class SpaceLayer {
     const direction = positionLocal.normalize();
     const spaceLift = FEATURES.earthGlobe ? float(1.0) : smoothstep(this.uLimb.sub(.01), this.uLimb.add(.05), direction.y);
     const lift = mix(smoothstep(-.02, .26, direction.y), spaceLift, this.uSpace);
-    const glare = float(1).sub(smoothstep(.75, .995, direction.dot(this.uSun)).mul(float(1).sub(this.uSpace.mul(.45))));
+    const atmosphericGlare = float(1).sub(smoothstep(.75, .995, direction.dot(this.uSun)).mul(float(1).sub(this.uSpace.mul(.45))));
+    const stellarGlare = float(1).sub(smoothstep(this.uStellarGlareOuterCos, this.uStellarGlareInnerCos,
+      direction.dot(this.uStellarDirection)).mul(this.uStellarGlareStrength));
+    const glare = atmosphericGlare.mul(stellarGlare);
     this.starMaterial.colorNode = tint.mul(glint.x).mul(float(1).add(twinkle)).mul(lift).mul(glare);
     this.starMaterial.opacityNode = shape.mul(glint.x).mul(this.uVisible).mul(lift).mul(glare).saturate();
   }
