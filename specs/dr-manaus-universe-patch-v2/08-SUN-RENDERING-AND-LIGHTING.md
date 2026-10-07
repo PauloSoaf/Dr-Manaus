@@ -1,5 +1,17 @@
 # Sol, iluminacao e representacao estelar
 
+## SUN-APPROACH-P0 entregue sobre D1 — 2026-10-07
+
+O catálogo mantém R solar 695.700.000 m e R terrestre 6.378.137 m. A antiga margem estelar
+R criava colisão em 2R. Agora CCD usa fotosfera + max(100.000 m, R×0,0001), enquanto o
+autopiloto usa observação a 0,03R. Corona e glow não participam da física.
+SunMaterial reconstrói esfera analítica em coordenadas relativas à câmera, com granulação,
+limb darkening, manchas/faculae, corona assimétrica e seis arcos High/Ultra. Uma quad limitada,
+1 draw, 2 triângulos, 1 material ativo; recorte óptico distante e tela cheia apenas de perto.
+Sem novo pós-processamento bloom, landing, heat gameplay ou volume. Exigir aceitação manual.
+Relatório atual: [21-status-SUN-APPROACH-P0.md](../../docs/world/21-status-SUN-APPROACH-P0.md).
+O baseline e as tasks abaixo são contexto histórico; o código atual e esse relatório prevalecem.
+
 Baseline congelada deste pacote:
 
 ```text

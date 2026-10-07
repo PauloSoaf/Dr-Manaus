@@ -1,6 +1,18 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — LOCAL-IMPACT-DESTRUCTION-D1 (2026-10-07)
+## Checkpoint atual — SUN-APPROACH-P0 (2026-10-07)
+
+O novo anexo autoriza corrigir o Sol sobre o D1 já entregue em `b1ab6a8`.
+O limite manual deixa de ser 2R: fotosfera + 100 km de margem CCD. Autopiloto separado para
+0,03R = 20.871 km acima da fotosfera. Raios físicos e distâncias preservados. Fotosfera procedural,
+corona óptica, LOD angular, detalhe ligado à orientação/rotação solar, glare direcional, HUD/F3.
+Sol continua sem pouso, terreno, volume rochoso ou destruição. D1 existente preservado.
+Contrato e aceitação: [21-status-SUN-APPROACH-P0.md](../docs/world/21-status-SUN-APPROACH-P0.md).
+Typecheck/build/diff PASS; focados 189/189; completos 1.000/1.000; browser espacial/local e
+sessão solar nova PASS, zero erros. CI de implementação `95de682` PASS; SHA final conferido após push.
+**PARAR para aceitação manual solar; não expandir D1 nem iniciar D2/D5.**
+
+## Checkpoint anterior — LOCAL-IMPACT-DESTRUCTION-D1 (2026-10-07)
 
 O anexo atual aceita `02df01c542c7e9917f01534c1fbf78244381ce49` e autoriza exclusivamente D1,
 com documentação, commit e push. MINOR/MAJOR em superfícies rochosas capazes geram um único

@@ -1,5 +1,16 @@
 # Planetary architecture — implementation status
 
+## SUN-APPROACH-P0 — 2026-10-07
+
+Current user-authorized checkpoint on delivered D1 HEAD `b1ab6a8`: remove the solar 2R wall,
+retain real radii, separate photosphere CCD epsilon (100 km) from autopilot observation margin
+(20,871 km), and add bounded analytic photosphere/corona presentation, quality modes and F3.
+Solar contacts still use C4; no landing/rocky volume/stellar destruction. Existing D1 is preserved.
+Contract, evidence and manual gate: [21-status-SUN-APPROACH-P0.md](21-status-SUN-APPROACH-P0.md).
+Typecheck/build/diff PASS; focused 189/189, full 1,000/1,000. Space/local browsers and fresh solar
+Game PASS with zero errors. Implementation CI `95de682` PASS; final exact-SHA CI is checked after push.
+**Stop for manual solar acceptance; no D2 or automatic D1 expansion.**
+
 ## LOCAL-IMPACT-DESTRUCTION-D1 — 2026-10-07
 
 Current checkpoint, explicitly authorized on `02df01c542c7e9917f01534c1fbf78244381ce49`:
