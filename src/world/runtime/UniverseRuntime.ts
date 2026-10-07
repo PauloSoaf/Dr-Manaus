@@ -42,7 +42,7 @@ export interface UniverseRuntimeOptions {
   epochS?: number;
   sse?: ScreenSpaceErrorContext;
   /** Isolated lab configuration; ordinary gameplay retains all existing defaults. */
-  volume?: Pick<PlanetVolumeRuntimeOptions,'lod'|'demand'|'meshLimits'|'collisionLimits'>;
+  volume?: Pick<PlanetVolumeRuntimeOptions,'lod'|'demand'|'cacheLimits'|'meshLimits'|'collisionLimits'>;
 }
 
 export interface UniverseTelemetry {

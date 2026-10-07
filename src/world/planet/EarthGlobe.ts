@@ -15,6 +15,7 @@ import { surfaceColour } from './EarthLandMask';
 import { surfaceHeightAt, surfaceNormalEnu } from './EarthElevation';
 import { enuBasis } from '../spatial/ENU';
 import { faceUvToDirection } from './CubeSphere';
+import { PlanetVolumeSurfaceMask } from '../../rendering/PlanetVolumeSurfaceMask';
 
 export function parseTileKey(key: string): PlanetTileAddress | undefined {
   const parts = key.split(':');
@@ -226,6 +227,7 @@ function windingIsOutward(positions: Float32Array, normals: Float32Array, size: 
  * and puts the continents in their real shapes rather than an invented pattern.
  */
 export class EarthGlobe {
+  readonly volumeMask=new PlanetVolumeSurfaceMask('earth');
   readonly group = new Group();
   /** Planetary geometry only. The Manaus anchor remains live when this sub-tree is hidden. */
   readonly surfaceGroup = new Group();
@@ -298,6 +300,7 @@ export class EarthGlobe {
       // fighting a refined tile for the same depth samples.
       const mesh = buildTileMesh(tileAddr, -COARSE_FALLBACK_INSET_M);
       const obj = new Mesh(mesh.geometry, this.fallbackMaterial);
+      this.volumeMask.attach(obj,[mesh.centre.xM,mesh.centre.yM,mesh.centre.zM]);
       obj.name = `earth-fallback-face-${face}`;
       obj.position.set(mesh.centre.xM, mesh.centre.yM, mesh.centre.zM);
       obj.frustumCulled = false;
@@ -479,6 +482,7 @@ export class EarthGlobe {
   add(key: string, mesh: TileMesh, positionM?: Vec3, orientation?: Quat): Mesh {
     this.remove(key);
     const object = new Mesh(mesh.geometry, this.material);
+    this.volumeMask.attach(object,[mesh.centre.xM,mesh.centre.yM,mesh.centre.zM]);
     object.name = `globe-${key}`;
     const pos = positionM ?? [mesh.centre.xM, mesh.centre.yM, mesh.centre.zM];
     object.position.set(pos[0], pos[1], pos[2]);
@@ -519,11 +523,13 @@ export class EarthGlobe {
     const index = existing.geometry.getIndex();
     this.triangles -= index ? index.count / 3 : 0;
     existing.removeFromParent();
+    this.volumeMask.detach(existing);
     existing.geometry.dispose();
     this.meshes.delete(key);
   }
 
   dispose(): void {
+    this.volumeMask.dispose();
     for (const key of [...this.meshes.keys()]) this.remove(key);
     for (const child of [...this.fallbackGroup.children]) {
       if ((child as Mesh).geometry) (child as Mesh).geometry.dispose();

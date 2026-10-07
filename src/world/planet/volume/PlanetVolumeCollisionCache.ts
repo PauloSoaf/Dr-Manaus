@@ -12,7 +12,7 @@ export class PlanetVolumeCollisionCache {
   private bytes=0;
   readonly limits:Readonly<{maxColliders:number;maxBytes:number}>;
   constructor(limits:{maxColliders:number;maxBytes:number}=DEFAULT_VOLUME_COLLISION_LIMITS){
-    if(!Number.isSafeInteger(limits.maxColliders)||limits.maxColliders<1||limits.maxColliders>64
+    if(!Number.isSafeInteger(limits.maxColliders)||limits.maxColliders<1||limits.maxColliders>128
       ||!Number.isSafeInteger(limits.maxBytes)||limits.maxBytes<1)throw new RangeError('invalid collision cache limits');
     this.limits=Object.freeze({...limits});
   }
@@ -30,6 +30,13 @@ export class PlanetVolumeCollisionCache {
     }
     this.bytes-=old?.memory.bytes??0;this.entries.delete(id);this.entries.set(id,c);this.bytes+=c.memory.bytes;
     this.reindex();return true;
+  }
+  /** One synchronous validated window swap and one spatial-index rebuild. */
+  replaceAll(colliders:readonly PlanetVolumeCollider[]):boolean {
+    const ids=new Set(colliders.map(c=>chunkKeyToString(c.key))),bytes=colliders.reduce((sum,c)=>sum+c.memory.bytes,0);
+    if(ids.size!==colliders.length||colliders.length>this.limits.maxColliders||bytes>this.limits.maxBytes)return false;
+    this.entries.clear();for(const c of colliders)this.entries.set(chunkKeyToString(c.key),c);
+    this.bytes=bytes;this.reindex();return true;
   }
   remove(key:PlanetVolumeChunkKey){const id=chunkKeyToString(key),old=this.entries.get(id);if(!old)return false;
     this.bytes-=old.memory.bytes;this.entries.delete(id);this.reindex();return true;}

@@ -9,6 +9,7 @@ import { planetTile, type PlanetTileAddress, tileBounds, tileCentreDirection } f
 import { planetSurfaceRadius, type PlanetSurfaceGenerator } from './PlanetSurface';
 import { polarRadiusM } from './PlanetBody';
 import type { Quat, Vec3 } from '../spatial/units';
+import { PlanetVolumeSurfaceMask } from '../../rendering/PlanetVolumeSurfaceMask';
 
 export const PLANET_TILE_RESOLUTION = 17;
 export const PLANET_FALLBACK_INSET_M = 4;
@@ -115,6 +116,7 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
 }
 
 export class PlanetGlobe {
+  readonly volumeMask:PlanetVolumeSurfaceMask;
   readonly root = new Group();
   readonly fallbackGroup = new Group();
   
@@ -126,6 +128,7 @@ export class PlanetGlobe {
   private requiredKeys?: ReadonlySet<string>;
 
   constructor(bodyId: string) {
+    this.volumeMask=new PlanetVolumeSurfaceMask(bodyId);
     this.root.name = `${bodyId}Globe`;
     this.root.layers.set(PLANET_LAYER);
     this.fallbackGroup.name = `${bodyId}-coarse-fallback`;
@@ -173,6 +176,7 @@ export class PlanetGlobe {
       const tile = buildPlanetTileMesh(planetTile(surface.body.id, face as 0, 0, 0, 0), surface, false,
         PLANET_FALLBACK_INSET_M, surface.coarseResolution);
       const mesh = new Mesh(tile.geometry, this.material);
+      this.volumeMask.attach(mesh,tile.centre);
       mesh.name = `${surface.body.id}-fallback-face-${face}`;
       mesh.position.set(...tile.centre);
       mesh.layers.set(PLANET_LAYER);
@@ -184,7 +188,7 @@ export class PlanetGlobe {
   }
 
   releaseFallback(): void {
-    for (const child of this.fallbackGroup.children) (child as Mesh).geometry.dispose();
+    for (const child of this.fallbackGroup.children) {this.volumeMask.detach(child as Mesh);(child as Mesh).geometry.dispose();}
     this.fallbackGroup.clear();
   }
 
@@ -224,6 +228,7 @@ export class PlanetGlobe {
   add(key: string, mesh: PlanetTileMesh): void {
     if (this.tiles.has(key)) return;
     const tileMesh = new Mesh(mesh.geometry, this.material);
+    this.volumeMask.attach(tileMesh,mesh.centre);
     tileMesh.layers.set(PLANET_LAYER);
     tileMesh.position.set(mesh.centre[0], mesh.centre[1], mesh.centre[2]);
     tileMesh.visible = !this.requiredKeys || this.requiredKeys.has(key);
@@ -235,11 +240,13 @@ export class PlanetGlobe {
     const tile = this.tiles.get(key);
     if (!tile) return;
     this.tiles.delete(key);
+    this.volumeMask.detach(tile);
     this.root.remove(tile);
     tile.geometry.dispose();
   }
 
   dispose(): void {
+    this.volumeMask.dispose();
     this.releaseFallback();
     this.material.dispose();
     for (const tile of this.tiles.values()) {
