@@ -20,6 +20,11 @@ export interface SubtractSphereEdit {
   readonly type: 'subtract-sphere';
   readonly centerBodyFixedM: BodyFixedPoint;
   readonly radiusM: number;
+  /** Serializable production demand metadata; the sphere remains the CSG authority. */
+  readonly impact?: {
+    readonly surfaceContactBodyFixedM: BodyFixedPoint; readonly surfaceNormalBodyFixed: BodyFixedPoint;
+    readonly craterRadiusM: number; readonly craterDepthM: number;
+  };
 }
 
 export interface SubtractCapsuleEdit {
@@ -67,6 +72,7 @@ export function parsePlanetVolumeEdit(value: unknown): PlanetVolumeEdit {
       id, bodyId, type: source.type,
       centerBodyFixedM: frozenPoint(source.centerBodyFixedM, 'centerBodyFixedM'),
       radiusM,
+      ...(source.impact ? { impact: parseImpactMetadata(source.impact) } : {}),
     });
   }
   if (source.type === 'subtract-capsule') {
@@ -78,6 +84,13 @@ export function parsePlanetVolumeEdit(value: unknown): PlanetVolumeEdit {
     });
   }
   throw new TypeError(`unsupported planet volume edit type: ${String(source.type)}`);
+}
+
+function parseImpactMetadata(value:unknown):NonNullable<SubtractSphereEdit['impact']> {
+  const source=value as Record<string,unknown>;
+  return Object.freeze({surfaceContactBodyFixedM:frozenPoint(source.surfaceContactBodyFixedM,'surface contact'),
+    surfaceNormalBodyFixed:frozenPoint(source.surfaceNormalBodyFixed,'surface normal'),
+    craterRadiusM:positiveRadius(source.craterRadiusM),craterDepthM:positiveRadius(source.craterDepthM)});
 }
 
 /** Conservative body-fixed AABB used by the edit index. */

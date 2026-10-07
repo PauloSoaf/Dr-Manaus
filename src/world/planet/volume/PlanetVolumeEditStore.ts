@@ -12,6 +12,7 @@ export interface SubtractSphereInput {
   readonly bodyId: string;
   readonly centerBodyFixedM: BodyFixedPoint;
   readonly radiusM: number;
+  readonly impact?: Extract<PlanetVolumeEdit,{type:'subtract-sphere'}>['impact'];
 }
 
 export interface SubtractCapsuleInput {
@@ -71,6 +72,7 @@ export class PlanetVolumeEditStore {
       type: 'subtract-sphere',
       centerBodyFixedM: input.centerBodyFixedM,
       radiusM: input.radiusM,
+      ...(input.impact ? {impact:input.impact} : {}),
     });
   }
 
