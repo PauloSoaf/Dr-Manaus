@@ -7,7 +7,7 @@ type ChunkNode={bounds:PlanetVolumeBounds;left?:ChunkNode;right?:ChunkNode;colli
 /** Single authority per chunk; old collider ownership survives scalar/visual invalidation.
  * Spatial chunk tree changes only on install/retirement, never scans all chunks per query. */
 export class PlanetVolumeCollisionCache {
-  private readonly entries=new Map<string,PlanetVolumeCollider>();
+  private entries=new Map<string,PlanetVolumeCollider>();
   private tree?: ChunkNode;
   private bytes=0;
   readonly limits:Readonly<{maxColliders:number;maxBytes:number}>;
@@ -35,10 +35,14 @@ export class PlanetVolumeCollisionCache {
   }
   /** One synchronous validated window swap and one spatial-index rebuild. */
   replaceAll(colliders:readonly PlanetVolumeCollider[]):boolean {
+    const commit=this.prepareReplacement(colliders);if(!commit)return false;commit();return true;
+  }
+  /** Build the chunk index before the authority boundary; the closure only swaps references. */
+  prepareReplacement(colliders:readonly PlanetVolumeCollider[]):(()=>void)|undefined {
     const ids=new Set(colliders.map(c=>physicalChunkKeyToString(c.key))),bytes=colliders.reduce((sum,c)=>sum+c.memory.bytes,0);
-    if(ids.size!==colliders.length||colliders.length>this.limits.maxColliders||bytes>this.limits.maxBytes)return false;
-    this.entries.clear();for(const c of colliders)this.entries.set(chunkKeyToString(c.key),c);
-    this.bytes=bytes;this.reindex();return true;
+    if(ids.size!==colliders.length||colliders.length>this.limits.maxColliders||bytes>this.limits.maxBytes)return undefined;
+    const entries=new Map(colliders.map(c=>[chunkKeyToString(c.key),c])),tree=this.buildIndex([...colliders]);
+    return ()=>{this.entries=entries;this.bytes=bytes;this.tree=tree;};
   }
   remove(key:PlanetVolumeChunkKey){const id=chunkKeyToString(key),old=this.entries.get(id);if(!old)return false;
     this.bytes-=old.memory.bytes;this.entries.delete(id);this.reindex();return true;}
@@ -57,7 +61,8 @@ export class PlanetVolumeCollisionCache {
     for(const c of this.entries.values()){triangles+=c.triangleCount;nodes+=c.bvh.nodeCount;sharedBytes+=c.memory.sharedBytes;
       nodeBytes+=c.memory.nodeBytes;referenceBytes+=c.memory.referenceBytes;metadataBytes+=c.memory.metadataBytes;}
     return {resident:this.entries.size,bytes:this.bytes,triangles,nodes,sharedBytes,nodeBytes,referenceBytes,metadataBytes};}
-  private reindex(){
+  private reindex(){this.tree=this.buildIndex(this.values());}
+  private buildIndex(colliders:PlanetVolumeCollider[]):ChunkNode|undefined {
     const build=(colliders:PlanetVolumeCollider[]):ChunkNode=>{
       if(colliders.length===1)return {bounds:colliders[0].boundsBodyFixedM,collider:colliders[0]};
       const min:[number,number,number]=[Infinity,Infinity,Infinity],max:[number,number,number]=[-Infinity,-Infinity,-Infinity];
@@ -67,6 +72,6 @@ export class PlanetVolumeCollisionCache {
         ||chunkKeyToString(a.key).localeCompare(chunkKeyToString(b.key)));
       const mid=Math.floor(colliders.length/2);return {bounds:{minBodyFixedM:min,maxBodyFixedM:max},left:build(colliders.slice(0,mid)),right:build(colliders.slice(mid))};
     };
-    const colliders=this.values();this.tree=colliders.length?build(colliders):undefined;
+    return colliders.length?build(colliders):undefined;
   }
 }

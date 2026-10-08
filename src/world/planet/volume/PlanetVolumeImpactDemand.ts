@@ -31,6 +31,11 @@ export function nearestImpactEdit(edits:PlanetVolumeEditStore,bodyId:string,obse
 export function selectImpactVolumeDemand(edits:PlanetVolumeEditStore,bodyId:string,observer:BodyFixedPoint,
   lod:PlanetVolumeLodConfig,capacity:number):readonly PlanetVolumeChunkKey[] {
   const edit=nearestImpactEdit(edits,bodyId,observer);if(!edit)return [];
+  return impactVolumeWindow(edit,observer,lod,capacity);
+}
+export function impactVolumeWindow(edit:SubtractSphereEdit,observer:BodyFixedPoint,
+  lod:PlanetVolumeLodConfig,capacity:number):readonly PlanetVolumeChunkKey[] {
+  const bodyId=edit.bodyId;
   const profile=selectImpactSamplingProfile(edit);
   const {surfaceContactBodyFixedM:p,surfaceNormalBodyFixed:n,craterRadiusM:a,craterDepthM:h}=edit.impact!;
   // Centre the local window on the observer's tangent-plane projection, clamped to the opening.

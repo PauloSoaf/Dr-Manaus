@@ -28,6 +28,7 @@ export function serializePlanetVolumeEdits(store: PlanetVolumeEditStore, bodyId:
         id: edit.id, type: edit.type,
         centerBodyFixedM: edit.centerBodyFixedM,
         radiusM: edit.radiusM,
+        ...(edit.impact ? {impact:edit.impact} : {}),
       };
     }
     return {

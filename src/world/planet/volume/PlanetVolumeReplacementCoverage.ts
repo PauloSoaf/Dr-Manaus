@@ -9,6 +9,7 @@ export interface PlanetVolumeReplacement {
 }
 /** Renderer-independent publication boundary. prepare may fail; commit must be synchronous. */
 export interface PlanetVolumePublication {
+  isPrepared?(replacements:readonly PlanetVolumeReplacement[]):boolean;
   prepareOne?(replacement:PlanetVolumeReplacement):boolean;
   retainStaged?(keys:ReadonlySet<string>):void;
   prepare(replacements:readonly PlanetVolumeReplacement[]):boolean;
@@ -21,9 +22,12 @@ export class PlanetVolumeReplacementCoverage {
   generation=0;
   get entries(){return this.active;}
   publish(entries:readonly PlanetVolumeReplacement[]):void {
+    this.prepare(entries)();
+  }
+  prepare(entries:readonly PlanetVolumeReplacement[]):()=>void {
     if(new Set(entries.map(e=>physicalChunkKeyToString(e.source.key))).size!==entries.length)
       throw new Error('overlapping sampling profiles in replacement publication');
-    this.active=[...entries];this.generation++;
+    const prepared=[...entries];return ()=>{this.active=prepared;this.generation++;};
   }
   clear():void {if(this.active.length){this.active=[];this.generation++;}}
   contains(bodyId:string,point:BodyFixedPoint):boolean {

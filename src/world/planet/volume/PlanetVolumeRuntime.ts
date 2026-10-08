@@ -18,11 +18,12 @@ import type { PlanetVolumeChunk } from './PlanetVolumeChunk';
 import { chunkByteLength } from './PlanetVolumeChunk';
 import type { PlanetVolumeMesh } from './PlanetVolumeMesh';
 import type { PlanetVolumeCollisionProvider } from './PlanetVolumeCollisionProvider';
-import { selectImpactVolumeDemand,nearestImpactEdit,selectImpactSamplingProfile } from './PlanetVolumeImpactDemand';
+import { nearestImpactEdit,selectImpactSamplingProfile } from './PlanetVolumeImpactDemand';
 import { MAX_COLLISION_BUILD_BYTES,requiredVolumeCollisionBuildBytes } from './PlanetVolumeCollisionBvh';
 import { PlanetVolumeReplacementCoverage, type PlanetVolumePublication, type PlanetVolumeReplacement } from './PlanetVolumeReplacementCoverage';
 import { volumeMeshByteLength } from './PlanetVolumeMesh';
 import type { RockyImpactEditPlan } from '../../destruction/RockyImpactDestructionPolicy';
+import {selectImpactResidency,type ImpactResidentRegion} from './PlanetImpactResidency';
 
 export interface PlanetVolumeRuntimeOptions {
   readonly resolve: (context: StreamingContext) => { surface: PlanetSurfaceGenerator; observerBodyFixedM: BodyFixedPoint } | undefined;
@@ -51,11 +52,20 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   private publicationMs=0;
   private renderPreparationMs=0;
   private publicationBlocked='';
+  private admissionBlocked='';
   private impactProfile='standard';
   private impactRadiusM=0;
   private impactDepthM=0;
   private impactCapacity=0;
   private readonly blockedHighSources=new WeakSet<PlanetVolumeChunk>();
+  private selectedRegions:readonly ImpactResidentRegion[]=[];
+  private publishedRegions:readonly ImpactResidentRegion[]=[];
+  private readonly blockedRegions=new Set<string>();
+  private blockedRevision=-1;
+  private preparationMs=0;
+  private footprint:readonly {editId:string;requestedRadiusM:number;replacementRadiusM:number;overshootM:number}[]=[];
+  private prepared?:{entries:readonly PlanetVolumeReplacement[];regions:readonly ImpactResidentRegion[];collision:()=>void;coverage:()=>void;
+    footprint:PlanetVolumeRuntime['footprint'];revision:number};
   requestImpactRegion(editId:string,_plan:RockyImpactEditPlan):void {this.requestedImpact=editId;}
   setImpactPublication(publication:PlanetVolumePublication):void {this.publication=publication;}
   private collisionEnabled=false;
@@ -115,8 +125,10 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   setCollisionDiagnostics(metrics:PlanetVolumeCollisionProvider['metrics']|undefined):void {this.collisionQueries=metrics;}
   get meshes() {this.meshCache.prune(this.cache);return this.meshCache.values();}
   private deactivate(): void {
+    this.selectedRegions=[];this.publishedRegions=[];this.blockedRegions.clear();this.blockedRevision=-1;this.prepared=undefined;this.footprint=[];
     this.replacement.clear();this.publication?.clear();this.productionActive=false;
     this.publicationBlocked='';this.impactProfile='standard';this.impactRadiusM=0;this.impactDepthM=0;this.impactCapacity=0;
+    this.admissionBlocked='';
     this.collisionCache.clearAll();this.collisionJob=undefined;this.collisionStaged=[];this.collisionWanted=[];this.collisionPending=[];
     this.cache.clearAll(); this.field = undefined; this.observer = undefined;
     this.wanted = []; this.pending = []; this.job = undefined;
@@ -127,6 +139,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     this.generatedThisFrame = 0; this.generationMs = 0; this.grantedMs = 0;
     this.meshedThisFrame=0;this.meshingMs=0;
     this.renderPreparationMs=0;
+    this.preparationMs=0;
     if(!this.enabled&&!this.edits.editsForBody(context.spatial.bodyId??'').some(edit=>edit.type==='subtract-sphere'&&edit.impact)) {
       this.deactivate();return false;
     }
@@ -150,14 +163,24 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     this.impactCapacity=Math.min(capacity,this.meshCache.limits.maxMeshes,this.collisionCache.limits.maxColliders,
       ...(profile==='impact-high'?[Math.floor(this.meshCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES),
         Math.floor(this.collisionCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES)]:[]));
-    const impact=selectImpactVolumeDemand(this.edits,field.bodyId,this.observer,this.lod,this.impactCapacity);
+    const revision=this.edits.revision(field.bodyId);if(revision!==this.blockedRevision){this.blockedRevision=revision;this.blockedRegions.clear();}
+    const regionPlan=selectImpactResidency(this.edits,field.bodyId,this.observer,this.lod,
+      {maxChunks:Math.min(this.cache.limits.maxChunks,this.meshCache.limits.maxMeshes,this.collisionCache.limits.maxColliders),
+        maxScalarBytes:this.cache.limits.maxBytes,standardCapacity:Math.min(Math.floor(this.cache.limits.maxBytes/(this.lod.samplesPerAxis**3*4)),
+          this.cache.limits.maxChunks,this.meshCache.limits.maxMeshes,this.collisionCache.limits.maxColliders),
+        highCapacity:Math.min(this.impactCapacity,Math.floor(this.meshCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES),
+          Math.floor(this.collisionCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES))},this.publishedRegions,this.blockedRegions);
+    const impact=regionPlan.keys;this.selectedRegions=regionPlan.regions;this.admissionBlocked=regionPlan.blocked;
     this.productionActive=!!edit;
-    if(this.productionActive&&!impact.length){this.publicationBlocked=profile==='impact-high'?'high-res-budget':'impact-window-budget';
+    if(this.productionActive&&!impact.length){this.publicationBlocked=regionPlan.blocked||(profile==='impact-high'?'high-res-budget':'impact-window-budget');
+      this.prepared=undefined;
       this.wanted=[];this.pending=[];this.meshWanted=[];this.meshPending=[];this.collisionWanted=[];this.collisionPending=[];
       this.job=undefined;this.meshJob=undefined;this.collisionJob=undefined;this.collisionStaged=[];
       this.publication?.retainStaged?.(new Set());return false;}
     if(!this.productionActive && (!this.enabled || (!this.allowInterior&&Math.abs(field.baseSignedDistance(this.observer))>2048))){this.deactivate();return false;}
     this.wanted=this.productionActive?impact:selectVolumeChunkDemand(field.bodyId,this.observer,this.lod,this.demand,!this.allowInterior).slice(0,capacity).map(d=>d.key);
+    if(this.prepared&&(this.prepared.entries.length!==this.wanted.length
+      ||this.wanted.some(k=>!this.prepared!.entries.some(e=>chunkKeyToString(e.source.key)===chunkKeyToString(k)))))this.prepared=undefined;
     if(this.wanted.some(key=>{const source=this.cache.peek(key);return source?.state==='ready'&&this.blockedHighSources.has(source);})){this.publicationBlocked='high-res-budget';
       this.pending=[];this.meshPending=[];this.collisionPending=[];this.collisionStaged=[];
       this.job=undefined;this.meshJob=undefined;this.collisionJob=undefined;return false;}
@@ -231,6 +254,10 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
           if(this.productionActive&&samplingProfileOf(this.meshJob.chunk.key)==='impact-high'
             &&requiredVolumeCollisionBuildBytes(this.meshJob.mesh!)>MAX_COLLISION_BUILD_BYTES){
             this.blockedHighSources.add(this.meshJob.chunk);this.publicationBlocked='high-res-budget';this.meshJob=undefined;return;}
+          if(this.productionActive){const otherMeshes=this.meshWanted.filter(k=>chunkKeyToString(k)!==chunkKeyToString(this.meshJob!.chunk.key))
+            .map(k=>this.cache.peek(k)).flatMap(c=>c?[this.meshCache.get(c)].filter((m):m is PlanetVolumeMesh=>!!m):[]);
+            if(otherMeshes.reduce((s,m)=>s+volumeMeshByteLength(m),volumeMeshByteLength(this.meshJob.mesh!))>this.meshCache.limits.maxBytes){
+              this.blockLowestRegion();this.meshJob=undefined;return;}}
           this.meshCache.insert(this.meshJob.chunk,this.meshJob.mesh!);
           this.meshJob=undefined;this.meshedThisFrame++;this.planMeshes();
           this.planCollisions();
@@ -238,7 +265,10 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       } else if(this.collisionJob) {
         const batch=Math.max(1,Math.min(128,Math.floor(target/this.collisionUnitMs))),done=this.collisionJob.advance(batch),elapsed=Math.max(0,this.clock()-before);
         this.collisionBuildMs+=elapsed;this.collisionUnitMs=Math.max(.00001,this.collisionUnitMs*.8+elapsed/batch*.2);
-        if(done) {this.collisionStaged.push({source:this.collisionJob.source!,collider:this.collisionJob.collider});
+        if(done) {if(this.productionActive){const bytes=this.collisionWanted.filter(k=>chunkKeyToString(k)!==chunkKeyToString(this.collisionJob!.mesh.key)).reduce((sum,k)=>{const staged=this.collisionStaged.find(e=>chunkKeyToString(e.source.key)===chunkKeyToString(k));
+            return sum+(staged?.collider?.memory.bytes??this.collisionCache.peek(k)?.memory.bytes??0);},this.collisionJob.collider?.memory.bytes??0);
+            if(bytes>this.collisionCache.limits.maxBytes){this.blockLowestRegion();this.collisionJob=undefined;return;}}
+          this.collisionStaged.push({source:this.collisionJob.source!,collider:this.collisionJob.collider});
           if(this.productionActive){const renderStart=this.clock();
             this.publication?.prepareOne?.({source:this.collisionJob.source!,mesh:this.collisionJob.mesh,collider:this.collisionJob.collider});
             this.renderPreparationMs+=Math.max(0,this.clock()-renderStart);}
@@ -246,7 +276,11 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
           this.collisionJob=undefined;this.collisionBuiltThisFrame++;}
       }
     }
+    if(this.productionActive&&!this.job&&!this.meshJob&&!this.collisionJob&&!this.pending.length&&!this.meshPending.length&&!this.collisionPending.length
+      &&this.clock()<deadline)this.prepareImpactReplacement();
   }
+  private blockLowestRegion():void {const last=this.selectedRegions.at(-1);if(last)this.blockedRegions.add(last.editId);
+    this.prepared=undefined;this.publicationBlocked='replacement-byte-budget';}
   private commitCollisions():void {
     if(this.productionActive){this.commitImpactReplacement();return;}
     // covers() is the frame boundary. Reject obsolete staged results before publication.
@@ -275,8 +309,9 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     if(this.collisionJob&&(this.collisionJob.obsolete||this.cache.peek(this.collisionJob.mesh.key)!==this.collisionJob.source
       ||!wanted.has(chunkKeyToString(this.collisionJob.mesh.key))))this.collisionJob=undefined;
   }
-  private commitImpactReplacement():void {
+  private prepareImpactReplacement():void {
     if(!this.publication||!this.wanted.length)return;
+    if(this.prepared)return;
     const entries:PlanetVolumeReplacement[]=[];
     for(const key of this.wanted) {
       const source=this.cache.peek(key);if(!source||source.state!=='ready')return;
@@ -288,15 +323,34 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       entries.push({source,mesh,collider});
     }
     const old=this.replacement.entries;
-    if(old.length===entries.length&&entries.every(entry=>old.some(prior=>prior.source===entry.source)))return;
+    if(old.length===entries.length&&entries.every(entry=>old.some(prior=>prior.source===entry.source))
+      &&this.selectedRegions.length===this.publishedRegions.length&&this.selectedRegions.every(r=>this.publishedRegions.some(p=>p.editId===r.editId)))return;
     if(entries.reduce((sum,e)=>sum+(e.collider?.memory.bytes??0),0)>this.collisionCache.limits.maxBytes
-      ||entries.reduce((sum,e)=>sum+(e.mesh?volumeMeshByteLength(e.mesh):0),0)>this.meshCache.limits.maxBytes){this.publicationBlocked='replacement-byte-budget';return;}
+      ||entries.reduce((sum,e)=>sum+(e.mesh?volumeMeshByteLength(e.mesh):0),0)>this.meshCache.limits.maxBytes){this.blockLowestRegion();return;}
     const before=this.clock();
     if(!this.publication.prepare(entries)){this.publicationBlocked='render-not-ready';return;}
+    const collision=this.collisionCache.prepareReplacement(entries.flatMap(entry=>entry.collider?[entry.collider]:[]));if(!collision)return;
+    const entriesByKey=new Map(entries.map(e=>[chunkKeyToString(e.source.key),e]));
+    const footprint=this.selectedRegions.map(region=>{const edit=this.edits.get(region.editId);if(edit?.type!=='subtract-sphere'||!edit.impact)return undefined;
+      const {surfaceContactBodyFixedM:p,surfaceNormalBodyFixed:n,craterRadiusM:r}=edit.impact;let extent=0;
+      for(const key of region.keys){const bounds=entriesByKey.get(chunkKeyToString(key))!.source.boundsBodyFixedM;
+        for(let mask=0;mask<8;mask++){const dx=(mask&1?bounds.maxBodyFixedM[0]:bounds.minBodyFixedM[0])-p[0],
+          dy=(mask&2?bounds.maxBodyFixedM[1]:bounds.minBodyFixedM[1])-p[1],dz=(mask&4?bounds.maxBodyFixedM[2]:bounds.minBodyFixedM[2])-p[2],
+          dot=dx*n[0]+dy*n[1]+dz*n[2];extent=Math.max(extent,Math.sqrt(Math.max(0,dx*dx+dy*dy+dz*dz-dot*dot)));}}
+      return {editId:edit.id,requestedRadiusM:r,replacementRadiusM:extent,overshootM:Math.max(0,extent-r)};
+    }).filter((value):value is NonNullable<typeof value>=>!!value);
+    this.prepared={entries,regions:this.selectedRegions,collision,coverage:this.replacement.prepare(entries),footprint,revision:this.edits.revision(this.field!.bodyId)};
+    this.preparationMs=Math.max(0,this.clock()-before);
+  }
+  private commitImpactReplacement():void {
+    const plan=this.prepared;if(!plan)return;
+    if(this.publication?.isPrepared?.(plan.entries)===false||plan.revision!==this.edits.revision(this.field!.bodyId)||plan.entries.some(e=>e.source.state!=='ready'||this.cache.peek(e.source.key)!==e.source
+      ||e.mesh&&e.mesh!==this.meshCache.get(e.source))){this.prepared=undefined;return;}
+    const before=this.clock();
     // All sources, MC geometry, BVHs and render representations are ready. No async callback
     // or physics/render query runs inside this synchronous frame-boundary transaction.
-    if(!this.collisionCache.replaceAll(entries.flatMap(entry=>entry.collider?[entry.collider]:[])))return;
-    this.replacement.publish(entries);this.publication.commit(entries);
+    plan.collision();plan.coverage();this.publication!.commit(plan.entries);
+    this.publishedRegions=plan.regions;this.footprint=plan.footprint;this.prepared=undefined;
     this.collisionStaged=[];this.publicationBlocked='';this.publicationMs=Math.max(0,this.clock()-before);
   }
   stats(): ManagedStats { return { id: this.id, pending: this.pending.length+this.meshPending.length+this.collisionPending.length+this.collisionStaged.length, grantedMs: this.grantedMs }; }
@@ -315,11 +369,15 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       meshVertices:meshes.vertices,meshTriangles:meshes.triangles,
       ambiguousMeshFaces:meshes.ambiguousFaces,pendingMeshes:this.meshPending.length,
       productionActive:this.productionActive,publishedReplacements:this.replacement.entries.length,
-      publishedSamplingProfile:this.replacement.entries.length?samplingProfileOf(this.replacement.entries[0].source.key):'intact',
+      publishedSamplingProfile:new Set(this.replacement.entries.map(e=>samplingProfileOf(e.source.key))).size>1?'separated-profiles':
+        this.replacement.entries.length?samplingProfileOf(this.replacement.entries[0].source.key):'intact',
       replacementGeneration:this.replacement.generation,publicationMs:this.publicationMs,publicationBlocked:this.publicationBlocked,
       renderPreparationMs:this.renderPreparationMs,
       retainedPublishedSampleBytes:this.replacement.entries.reduce((sum,e)=>sum+(this.cache.peek(e.source.key)===e.source?0:chunkByteLength(e.source)),0),
       requestedImpact:this.requestedImpact,
+      selectedRegions:this.selectedRegions.length,publishedRegions:this.publishedRegions.length,publishedRegionIds:this.publishedRegions.map(r=>r.editId),
+      preparationMs:this.preparationMs,replacementFootprints:this.footprint,
+      regionAdmissionBlocked:this.admissionBlocked,
       samplingProfile:this.impactProfile,samplesPerAxis:config.samplesPerAxis,spacingM,impactCapacity:this.impactCapacity,
       impactRadiusM:this.impactRadiusM,impactDepthM:this.impactDepthM,diameterCells:2*this.impactRadiusM/spacingM,depthCells:this.impactDepthM/spacingM,
       highChunks:scalarStats.profileCounts['impact-high']??0,highScalarBytes:scalarStats.profileBytes['impact-high']??0,
@@ -328,6 +386,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       nearestOverlappingEdits: nearest?.overlappingEditCount ?? 0 };
   }
   get collisionMetrics(){return {bodyId:this.field?.bodyId,enabled:this.collisionEnabled||this.productionActive,...this.collisionCache.stats(),
+    stagedBytes:this.collisionStaged.reduce((sum,e)=>sum+(e.collider?.memory.bytes??0),0),
     pending:this.collisionPending.length,staged:this.collisionStaged.length,pendingBytes:this.collisionJob?.pendingBytes??0,
     buildsThisFrame:this.collisionBuiltThisFrame,buildMs:this.collisionBuildMs,...(this.collisionQueries??{queries:0,candidateChunks:0,candidateTriangles:0,contacts:0,lastKind:'—',lastNormal:[0,0,0]})};}
   debugMetrics(): Record<string,string|number> {
@@ -348,6 +407,9 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       'Planet Destruction · Production / blocked':`${m.productionActive} / ${m.publicationBlocked||'—'}`,
       'Planet Destruction · Publication ms':m.publicationMs.toFixed(3),
       'Planet Destruction · Render prepare ms / retained sample MiB':`${m.renderPreparationMs.toFixed(3)} / ${(m.retainedPublishedSampleBytes/1048576).toFixed(3)}`,
+      'Planet Destruction · Regions selected published / prepare ms':`${m.selectedRegions} ${m.publishedRegions} / ${m.preparationMs.toFixed(3)}`,
+      'Planet Destruction · Region admission blocked':m.regionAdmissionBlocked||'—',
+      'Planet Destruction · Replacement radius overshoot m':m.replacementFootprints.map(f=>`${f.replacementRadiusM.toFixed(2)} / ${f.overshootM.toFixed(2)}`).join(' · ')||'—',
       'Planet Destruction · Sampling desired published / axis / spacing':`${m.samplingProfile} ${m.publishedSamplingProfile} / ${m.samplesPerAxis} / ${m.spacingM} m`,
       'Planet Destruction · High chunks / scalar mesh collider MiB':`${m.highChunks} / ${(m.highScalarBytes/1048576).toFixed(3)} / ${(m.highMeshBytes/1048576).toFixed(3)} / ${(m.highColliderBytes/1048576).toFixed(3)}`,
       'Planet Destruction · Requested R D / diameter depth cells':`${m.impactRadiusM.toFixed(2)} ${m.impactDepthM.toFixed(2)} m / ${m.diameterCells.toFixed(2)} ${m.depthCells.toFixed(2)}`,
