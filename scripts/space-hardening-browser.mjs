@@ -289,8 +289,21 @@ try {
     await page.evaluate(id=>{
       const g=window.__DR_MANAUS__,provider=g.planetProviders.get(id),load=provider.load.bind(provider),
         readiness=provider.readiness.bind(provider);
-      const fixture={released:false,pending:[],loads:[],readiness:[],capture:[]};
+      const fixture={released:false,pending:[],loads:[],readiness:[],capture:[],terrainContacts:[]};
       window.__DR_LANDING_FIXTURES__??={};window.__DR_LANDING_FIXTURES__[id]=fixture;
+      // TerrainSweep contact belongs to one physics step. Observe the actual touchdown
+      // before subsequent grounded support steps clear it; never alter the player result.
+      const playerUpdate=g.player.update.bind(g.player);
+      g.player.update=(...args)=>{
+        const value=playerUpdate(...args),contact=g.player.lastTerrainContact;
+        if(g.surfacePhysicsState.domain===id&&contact) {
+          fixture.terrainContacts.push({state:g.player.state,frame:g.surfacePhysicsState.frame,
+            fraction:contact.fraction,heightM:contact.heightM,point:contact.position.toArray(),
+            normal:contact.normal.toArray()});
+          if(fixture.terrainContacts.length>32)fixture.terrainContacts.shift();
+        }
+        return value;
+      };
       provider.load=demand=>{
         if(demand.key.level<8||fixture.released)return load(demand);
         fixture.loads.push({key:{...demand.key},critical:demand.gameplayCritical,eta:demand.timeToContactS});
@@ -390,14 +403,19 @@ try {
     const grounded=await page.evaluate(id=>{
       const g=window.__DR_MANAUS__,f=window.__DR_LANDING_FIXTURES__[id];
       return {physics:g.surfacePhysicsState,landing:g.moonLandingState,state:g.player.state,
-        position:g.player.position.toArray(),contact:!!g.player.lastTerrainContact,
+        position:g.player.position.toArray(),terrainContacts:[...f.terrainContacts],
         readyPatch:f.readiness.find(r=>r.landingCoverageReady),hudPhase:g.hudFlight().phase,
         capturePhase:g.landingState.phase};
     },id);
     assert.equal(grounded.state,'Grounded');assert.equal(grounded.physics.frame,`${id}/local-enu`);
     assert.equal(grounded.hudPhase,'arrived');assert.equal(grounded.capturePhase,'idle');
     assert.ok(grounded.readyPatch?.fallbackReady);assert.ok(grounded.readyPatch.landingPrefetchKeys.length<=5);
-    assert.equal(grounded.readyPatch.landingPrefetchMissingKeys.length,0);assert.ok(grounded.contact);
+    assert.equal(grounded.readyPatch.landingPrefetchMissingKeys.length,0);
+    const touchdown=grounded.terrainContacts.find(c=>c.state==='Grounded'&&c.frame===`${id}/local-enu`);
+    assert.ok(touchdown,'actual terrain CCD contact observed during grounded transition');
+    assert.ok(touchdown.fraction>=0&&touchdown.fraction<=1);
+    assert.ok([...touchdown.point,...touchdown.normal,touchdown.heightM].every(Number.isFinite));
+    assert.ok(Math.abs(Math.hypot(...touchdown.normal)-1)<1e-6);
     results[`${id}FSpaceLanding`]={initial,held,handoff,grounded};
     console.log(`${id}: real F cancels Warp/autopilot, absorbs 8 km/s, holds missing patch, then Falling/terrain CCD/Grounded.`);
     return grounded;

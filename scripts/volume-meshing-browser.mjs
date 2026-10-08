@@ -160,6 +160,31 @@ try {
   const highReturned=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());assert.equal(highReturned.editCount,1);assert.equal(highReturned.metrics.spacingM,8);
   results.highResolution={pending:highPending,ready:highReady,rays:highRays,walking:highWalk,evicted:highEvicted,returned:highReturned};
   console.log('D1.2: real HIGH 33^3 crater, rim walk/floor/wall/rays/outer boundary and eviction/regeneration passed.');
+  const multiPending=await page.evaluate(()=>{const l=window.__DR_IMPACT_LAB__;l.impact(260,500);return l.snapshot();});
+  assert.equal(multiPending.editCount,2);assert.equal(multiPending.mask,4);
+  await page.waitForFunction(()=>{const s=window.__DR_IMPACT_LAB__.snapshot();return s.metrics.publishedRegions===2&&s.mask===8;},null,{timeout:180_000});
+  const multiReady=await page.evaluate(()=>{const l=window.__DR_IMPACT_LAB__;l.view();return {snapshot:l.snapshot(),
+    probes:[.125,500.125].map(x=>({physical:l.ray(x,.125),visual:l.visualRay(x,.125),terrain:l.surfaceProbe(x,.125)}))};});
+  for(const p of multiReady.probes){assert.ok(p.physical&&p.visual);assert.equal(p.terrain.heightfield,-Infinity);
+    assert.ok(p.physical.point[1]<-25);assert.ok(Math.abs(p.physical.point[1]-p.visual[1])<.15);}
+  const generation=multiReady.snapshot.metrics.replacementGeneration;
+  await page.evaluate(()=>window.__DR_IMPACT_LAB__.reset([500,1,0]));
+  await page.waitForFunction(()=>window.__DR_IMPACT_LAB__.snapshot().player.position[0]===500);
+  await page.waitForTimeout(500);assert.equal((await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot())).metrics.replacementGeneration,generation);
+  await page.evaluate(()=>{const l=window.__DR_IMPACT_LAB__;l.reset();l.setSolarDirection([0,1,0]);l.view();});
+  await page.waitForFunction(()=>window.__DR_IMPACT_LAB__.snapshot().volumeDrawCalls>0);
+  const onCamera=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());await page.screenshot({path:'artifacts/d11-final-moon-two-day.png'});
+  await page.evaluate(()=>window.__DR_IMPACT_LAB__.setSolarDirection([0,-1,0]));await page.waitForTimeout(150);
+  const night=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());await page.screenshot({path:'artifacts/d11-final-moon-two-night.png'});
+  assert.notDeepEqual(onCamera.presentation.lights.moon,night.presentation.lights.moon);
+  await page.evaluate(()=>window.__DR_IMPACT_LAB__.lookAway());
+  await page.waitForFunction(()=>window.__DR_IMPACT_LAB__.snapshot().volumeDrawCalls===0);
+  const offCamera=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());
+  assert.equal(offCamera.metrics.publishedRegions,2);assert.equal(offCamera.mask,8);
+  assert.ok(onCamera.presentation.masks.maxBounds<=onCamera.mask);assert.ok(onCamera.presentation.masks.averageBounds<onCamera.mask);
+  assert.ok(onCamera.presentation.masks.zeroTiles>=2,'unaffected physical tiles must perform zero mask comparisons');
+  results.finalHardening={pending:multiPending,ready:multiReady,onCamera,night,offCamera};
+  console.log('D1.1 FINAL: two HIGH craters 500 m apart remain physical/visible/masked; solar day/night, tile masks and actual off-camera volume draws=0 passed.');
   assert.equal(results.errors.length,0,results.errors.join('\n'));
   console.log('PHASE-3 + D0 + D1 production browser checks passed.');
 } catch(error) {results.failure=String(error);results.d1FailureState=await page?.evaluate(()=>window.__DR_IMPACT_LAB__?.snapshot()).catch(()=>undefined);throw error;}

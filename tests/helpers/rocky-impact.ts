@@ -12,6 +12,7 @@ import { PlanetVolumeTerrainProvider } from '../../src/world/planet/volume/Plane
 import { PlanetVolumeCollisionProvider } from '../../src/world/planet/volume/PlanetVolumeCollisionProvider.ts';
 import { PlanetTerrainProvider } from '../../src/world/planet/PlanetTerrainProvider.ts';
 import { PlanetVolumeSurfaceRenderer } from '../../src/rendering/PlanetVolumeSurfaceRenderer.ts';
+import {bodySolarDirection} from '../../src/rendering/PlanetVolumeLighting.ts';
 import { RockyImpactDestructionService } from '../../src/world/destruction/RockyImpactDestructionService.ts';
 import { PhysicsWorld } from '../../src/physics/PhysicsWorld.ts';
 import { classifyCelestialImpact } from '../../src/world/travel/CelestialImpactPolicy.ts';
@@ -42,7 +43,9 @@ export function impactFixture(id='moon',speed=8000,phaseM=0) {
   universe.frames.register(referenceFrame({id:local,parentId:`${id}/fixed`,kind:'surface-enu',originInParent:point,
     rotationToParent:quatFromBasis([0,1,0],[1,0,0],[0,0,-1])}));
   const scene=new Group(),renderer=new PlanetVolumeSurfaceRenderer(scene,universe.frames,universe.renderSpace,
-    bodyId=>bodyProfile(universe.activeSystem.bodies.find(b=>b.id===bodyId)!),()=>{});
+    bodyId=>bodyProfile(universe.activeSystem.bodies.find(b=>b.id===bodyId)!),()=>{},
+    {solarDirection:bodyId=>bodySolarDirection(universe.activeSystem,universe.frames,bodyId,universe.renderSpace.currentOrigin.frame),
+      surface:bodyId=>surfaceForBody(universe.activeSystem.bodies.find(b=>b.id===bodyId)!)});
   runtime.setImpactPublication(renderer);let observer:[number,number,number]=[...point];
   const context=():StreamingContext=>{const player=pose(`${id}/fixed`,observer);return {spatial:{timeS:0,bodyId:id,player,
     frame:activeFrame(referenceFrame({id:`${id}/fixed`,kind:'body-fixed'}),player),localVelocityMps:[0,0,0],

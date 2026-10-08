@@ -8,12 +8,13 @@ import {logicalImpactChunkCount} from '../src/world/planet/volume/PlanetVolumeIm
 const rows=[];
 for(const body of ['moon','mars','earth'])for(const speed of [260,800,8000,50000]) {
   const f=impactFixture(body,speed),editId=f.consume(),plan=f.service.last.plan,edit=f.runtime.edits.get(editId);
-  let frames=0,samplingMs=0,meshingMs=0,colliderMs=0,renderPreparationMs=0,peakSampleJob=0,peakMeshJob=0,peakColliderJob=0;
+  let frames=0,samplingMs=0,meshingMs=0,colliderMs=0,renderPreparationMs=0,publicationPreparationMs=0,peakSampleJob=0,peakMeshJob=0,peakColliderJob=0;
   const start=performance.now();
   while(!f.runtime.replacement.entries.length&&frames<2400) {
     f.frame(2);const m=f.runtime.metrics,c=f.runtime.collisionMetrics;
     samplingMs+=m.generationMs;meshingMs+=m.meshingMs;colliderMs+=c.buildMs;
     renderPreparationMs+=m.renderPreparationMs;
+    publicationPreparationMs+=m.preparationMs;
     peakSampleJob=Math.max(peakSampleJob,m.pendingBytes);peakMeshJob=Math.max(peakMeshJob,m.meshJobBytes);peakColliderJob=Math.max(peakColliderJob,c.pendingBytes);frames++;
   }
   assert.ok(f.runtime.replacement.entries.length,`${body}/${speed}: coherent replacement required`);
@@ -26,7 +27,7 @@ for(const body of ['moon','mars','earth'])for(const speed of [260,800,8000,50000
     sphereRadiusM:plan.sphereRadiusM,logicalChunks:logicalImpactChunkCount(edit,f.runtime.lod),
     activeChunks:m.publishedReplacements,sampleBytes:m.bytes,meshes:m.residentMeshes,meshBytes:m.meshBytes,
     vertices:m.meshVertices,triangles:m.meshTriangles,colliders:c.resident,colliderBytes:c.bytes,
-    frames,elapsedMs:performance.now()-start,samplingMs,meshingMs,colliderMs,renderPreparationMs,publicationMs:m.publicationMs,
+    frames,elapsedMs:performance.now()-start,samplingMs,meshingMs,colliderMs,renderPreparationMs,publicationPreparationMs,publicationMs:m.publicationMs,
     peakSampleJob,peakMeshJob,peakColliderJob,presentation:f.renderer.stats,floor:f.ray()?.point};
   rows.push(row);f.dispose();
 }
