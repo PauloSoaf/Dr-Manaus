@@ -1,5 +1,5 @@
 import type { PlanetVolumeCollider } from './PlanetVolumeCollider';
-import { chunkKeyToString, type PlanetVolumeChunkKey } from './PlanetVolumeChunkKey';
+import { chunkKeyToString,physicalChunkKeyToString, type PlanetVolumeChunkKey } from './PlanetVolumeChunkKey';
 import { planetVolumeBoundsIntersect, type PlanetVolumeBounds } from './PlanetVolumeEdit';
 export const DEFAULT_VOLUME_COLLISION_LIMITS=Object.freeze({maxColliders:8,maxBytes:8*1024*1024});
 type ChunkNode={bounds:PlanetVolumeBounds;left?:ChunkNode;right?:ChunkNode;collider?:PlanetVolumeCollider};
@@ -29,11 +29,13 @@ export class PlanetVolumeCollisionCache {
       this.entries.delete(other);this.bytes-=entry.memory.bytes;required-=entry.memory.bytes;
     }
     this.bytes-=old?.memory.bytes??0;this.entries.delete(id);this.entries.set(id,c);this.bytes+=c.memory.bytes;
+    for(const [other,entry] of this.entries)if(other!==id&&physicalChunkKeyToString(entry.key)===physicalChunkKeyToString(c.key)){
+      this.entries.delete(other);this.bytes-=entry.memory.bytes;}
     this.reindex();return true;
   }
   /** One synchronous validated window swap and one spatial-index rebuild. */
   replaceAll(colliders:readonly PlanetVolumeCollider[]):boolean {
-    const ids=new Set(colliders.map(c=>chunkKeyToString(c.key))),bytes=colliders.reduce((sum,c)=>sum+c.memory.bytes,0);
+    const ids=new Set(colliders.map(c=>physicalChunkKeyToString(c.key))),bytes=colliders.reduce((sum,c)=>sum+c.memory.bytes,0);
     if(ids.size!==colliders.length||colliders.length>this.limits.maxColliders||bytes>this.limits.maxBytes)return false;
     this.entries.clear();for(const c of colliders)this.entries.set(chunkKeyToString(c.key),c);
     this.bytes=bytes;this.reindex();return true;

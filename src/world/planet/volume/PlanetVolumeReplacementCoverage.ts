@@ -2,6 +2,7 @@ import { planetVolumeBoundsContainPoint, type BodyFixedPoint } from './PlanetVol
 import type { PlanetVolumeChunk } from './PlanetVolumeChunk';
 import type { PlanetVolumeCollider } from './PlanetVolumeCollider';
 import type { PlanetVolumeMesh } from './PlanetVolumeMesh';
+import { physicalChunkKeyToString } from './PlanetVolumeChunkKey';
 
 export interface PlanetVolumeReplacement {
   readonly source:PlanetVolumeChunk; readonly mesh?:PlanetVolumeMesh; readonly collider?:PlanetVolumeCollider;
@@ -19,7 +20,11 @@ export class PlanetVolumeReplacementCoverage {
   private active:readonly PlanetVolumeReplacement[]=[];
   generation=0;
   get entries(){return this.active;}
-  publish(entries:readonly PlanetVolumeReplacement[]):void {this.active=[...entries];this.generation++;}
+  publish(entries:readonly PlanetVolumeReplacement[]):void {
+    if(new Set(entries.map(e=>physicalChunkKeyToString(e.source.key))).size!==entries.length)
+      throw new Error('overlapping sampling profiles in replacement publication');
+    this.active=[...entries];this.generation++;
+  }
   clear():void {if(this.active.length){this.active=[];this.generation++;}}
   contains(bodyId:string,point:BodyFixedPoint):boolean {
     return this.active.some(entry=>entry.source.key.bodyId===bodyId&&planetVolumeBoundsContainPoint(entry.source.boundsBodyFixedM,point));

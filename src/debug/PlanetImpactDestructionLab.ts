@@ -88,9 +88,13 @@ export async function startPlanetImpactDestructionLab(container:HTMLElement) {
     globe.setOrientation(universe.frames.convertOrientation(fixed,universe.renderSpace.currentOrigin.frame,IDENTITY_QUAT));
   };
   const lab={get ready(){return !disposed;},universe,impact,
+    viewCrater(){const plan=service.last?.plan;if(!plan)return;
+      const r=plan.craterRadiusM;camera.position.set(r*.3,r*1.8,r*2.5);controls.target.set(0,-plan.craterDepthM*.3,0);controls.update();},
     pause(value=true){paused=value;},reset,view,setBody(next:'earth'|'moon'|'mars'){body=next;configure();},
     runFrames(count:number,dt=1/60){for(let i=0;i<count;i++)step(dt);},
     ray(x=0,z=0){return volume.raycast([x,10,z],[0,-1,0],1200);},
+    surfaceProbe(x:number,z=0){return {intact:terrain.intact.heightAt(x,z),heightfield:terrain.heightAt(x,z),
+      floor:volume.raycast([x,10,z],[0,-1,0],1200)?.point[1]??terrain.heightAt(x,z)};},
     visualRay(x=0,z=0){scene.updateMatrixWorld(true);const ray=new Raycaster(new Vector3(x,10,z),new Vector3(0,-1,0),0,1200);
       ray.layers.enableAll();return ray.intersectObjects(presentation.root.children,false)[0]?.point.toArray();},
     probe(feet:Vec3,velocity:Vec3,dt:number){bind();const p=new Vector3(...feet),v=new Vector3(...velocity),physics=new PhysicsWorld();

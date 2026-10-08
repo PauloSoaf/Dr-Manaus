@@ -7,17 +7,19 @@ import { PlanetVolumeField } from './PlanetVolumeField';
 import { PlanetVolumeChunkCache, DEFAULT_VOLUME_CACHE_LIMITS } from './PlanetVolumeChunkCache';
 import { PlanetVolumeChunkGenerationJob } from './PlanetVolumeChunkGenerator';
 import { selectVolumeChunkDemand, DEFAULT_VOLUME_DEMAND, type PlanetVolumeDemandConfig } from './PlanetVolumeChunkDemand';
-import { chunkKeyToString, DEFAULT_VOLUME_LOD, type PlanetVolumeLodConfig, type PlanetVolumeChunkKey } from './PlanetVolumeChunkKey';
-import { PlanetVolumeMeshingJob, MAX_VOLUME_MESH_JOB_BYTES } from './PlanetVolumeMesher';
+import { chunkKeyToString, DEFAULT_VOLUME_LOD,samplingConfigForKey,samplingProfileOf, type PlanetVolumeLodConfig, type PlanetVolumeChunkKey } from './PlanetVolumeChunkKey';
+import { PlanetVolumeMeshingJob, volumeMeshJobByteLimit } from './PlanetVolumeMesher';
 import { PlanetVolumeMeshCache } from './PlanetVolumeMeshCache';
 import { maximumVolumeMeshBytes } from './PlanetVolumeMesh';
 import { PlanetVolumeCollisionCache } from './PlanetVolumeCollisionCache';
 import { PlanetVolumeCollisionBuildJob } from './PlanetVolumeCollisionBuilder';
 import type { PlanetVolumeCollider } from './PlanetVolumeCollider';
 import type { PlanetVolumeChunk } from './PlanetVolumeChunk';
+import { chunkByteLength } from './PlanetVolumeChunk';
 import type { PlanetVolumeMesh } from './PlanetVolumeMesh';
 import type { PlanetVolumeCollisionProvider } from './PlanetVolumeCollisionProvider';
-import { selectImpactVolumeDemand } from './PlanetVolumeImpactDemand';
+import { selectImpactVolumeDemand,nearestImpactEdit,selectImpactSamplingProfile } from './PlanetVolumeImpactDemand';
+import { MAX_COLLISION_BUILD_BYTES,requiredVolumeCollisionBuildBytes } from './PlanetVolumeCollisionBvh';
 import { PlanetVolumeReplacementCoverage, type PlanetVolumePublication, type PlanetVolumeReplacement } from './PlanetVolumeReplacementCoverage';
 import { volumeMeshByteLength } from './PlanetVolumeMesh';
 import type { RockyImpactEditPlan } from '../../destruction/RockyImpactDestructionPolicy';
@@ -49,6 +51,11 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   private publicationMs=0;
   private renderPreparationMs=0;
   private publicationBlocked='';
+  private impactProfile='standard';
+  private impactRadiusM=0;
+  private impactDepthM=0;
+  private impactCapacity=0;
+  private readonly blockedHighSources=new WeakSet<PlanetVolumeChunk>();
   requestImpactRegion(editId:string,_plan:RockyImpactEditPlan):void {this.requestedImpact=editId;}
   setImpactPublication(publication:PlanetVolumePublication):void {this.publication=publication;}
   private collisionEnabled=false;
@@ -109,6 +116,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   get meshes() {this.meshCache.prune(this.cache);return this.meshCache.values();}
   private deactivate(): void {
     this.replacement.clear();this.publication?.clear();this.productionActive=false;
+    this.publicationBlocked='';this.impactProfile='standard';this.impactRadiusM=0;this.impactDepthM=0;this.impactCapacity=0;
     this.collisionCache.clearAll();this.collisionJob=undefined;this.collisionStaged=[];this.collisionWanted=[];this.collisionPending=[];
     this.cache.clearAll(); this.field = undefined; this.observer = undefined;
     this.wanted = []; this.pending = []; this.job = undefined;
@@ -132,13 +140,27 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     const field = this.field!;
     this.observer = [...resolved.observerBodyFixedM] as [number,number,number];
     // A demand larger than the cache would constantly evict and regenerate itself. Bound it by both caps.
-    const chunkBytes = this.lod.samplesPerAxis**3*Float32Array.BYTES_PER_ELEMENT;
+    const edit=nearestImpactEdit(this.edits,field.bodyId,this.observer),profile=edit?selectImpactSamplingProfile(edit):'standard';
+    this.impactProfile=profile;this.impactRadiusM=edit?.impact?.craterRadiusM??0;this.impactDepthM=edit?.impact?.craterDepthM??0;
+    const config=profile==='impact-high'?{...this.lod,samplesPerAxis:33}:this.lod;
+    const chunkBytes = (config.samplesPerAxis**3+(profile==='impact-high'?6*config.samplesPerAxis**2:0))*Float32Array.BYTES_PER_ELEMENT;
     const capacity = Math.min(this.cache.limits.maxChunks,Math.floor(this.cache.limits.maxBytes/chunkBytes));
-    const impact=selectImpactVolumeDemand(this.edits,field.bodyId,this.observer,this.lod,
-      Math.min(capacity,this.meshCache.limits.maxMeshes,this.collisionCache.limits.maxColliders));
-    this.productionActive=impact.length>0;
+    // An admitted BVH build (shared mesh + scratch + nodes) is <=4 MiB. Thus its retained
+    // mesh and collider are each <=4 MiB too. Use that conservative per-chunk bound for HIGH.
+    this.impactCapacity=Math.min(capacity,this.meshCache.limits.maxMeshes,this.collisionCache.limits.maxColliders,
+      ...(profile==='impact-high'?[Math.floor(this.meshCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES),
+        Math.floor(this.collisionCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES)]:[]));
+    const impact=selectImpactVolumeDemand(this.edits,field.bodyId,this.observer,this.lod,this.impactCapacity);
+    this.productionActive=!!edit;
+    if(this.productionActive&&!impact.length){this.publicationBlocked=profile==='impact-high'?'high-res-budget':'impact-window-budget';
+      this.wanted=[];this.pending=[];this.meshWanted=[];this.meshPending=[];this.collisionWanted=[];this.collisionPending=[];
+      this.job=undefined;this.meshJob=undefined;this.collisionJob=undefined;this.collisionStaged=[];
+      this.publication?.retainStaged?.(new Set());return false;}
     if(!this.productionActive && (!this.enabled || (!this.allowInterior&&Math.abs(field.baseSignedDistance(this.observer))>2048))){this.deactivate();return false;}
     this.wanted=this.productionActive?impact:selectVolumeChunkDemand(field.bodyId,this.observer,this.lod,this.demand,!this.allowInterior).slice(0,capacity).map(d=>d.key);
+    if(this.wanted.some(key=>{const source=this.cache.peek(key);return source?.state==='ready'&&this.blockedHighSources.has(source);})){this.publicationBlocked='high-res-budget';
+      this.pending=[];this.meshPending=[];this.collisionPending=[];this.collisionStaged=[];
+      this.job=undefined;this.meshJob=undefined;this.collisionJob=undefined;return false;}
     const ids = new Set(this.wanted.map(chunkKeyToString));
     this.publication?.retainStaged?.(ids);
     if(this.productionActive)this.collisionStaged=this.collisionStaged.filter(entry=>ids.has(chunkKeyToString(entry.source.key)));
@@ -152,8 +174,9 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     return this.wanted.length > 0;
   }
   private planMeshes():void {
-    const maximum=maximumVolumeMeshBytes(this.lod.samplesPerAxis);
-    const supported=this.lod.samplesPerAxis**3*28+96+maximum*2<=MAX_VOLUME_MESH_JOB_BYTES;
+    const config=this.wanted[0]?samplingConfigForKey(this.wanted[0],this.lod):this.lod;
+    const maximum=maximumVolumeMeshBytes(config.samplesPerAxis);
+    const supported=config.samplesPerAxis**3*28+96+maximum*2<=volumeMeshJobByteLimit({key:this.wanted[0]??{bodyId:'',lod:0,x:0,y:0,z:0}});
     const capacity=(this.meshingEnabled||this.productionActive)&&supported?(this.productionActive?this.meshCache.limits.maxMeshes:
       Math.min(this.meshCache.limits.maxMeshes,Math.floor(this.meshCache.limits.maxBytes/maximum))):0;
     this.meshWanted=this.wanted.filter(key=>{const c=this.cache.peek(key);return c?.state==='ready'&&c.classification==='MIXED';}).slice(0,capacity);
@@ -205,6 +228,9 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
         const done=this.meshJob.advance(batch),elapsed=Math.max(0,this.clock()-before);
         this.meshingMs+=elapsed;this.meshingUnitMs=Math.max(.00001,this.meshingUnitMs*.8+elapsed/batch*.2);
         if(done) {
+          if(this.productionActive&&samplingProfileOf(this.meshJob.chunk.key)==='impact-high'
+            &&requiredVolumeCollisionBuildBytes(this.meshJob.mesh!)>MAX_COLLISION_BUILD_BYTES){
+            this.blockedHighSources.add(this.meshJob.chunk);this.publicationBlocked='high-res-budget';this.meshJob=undefined;return;}
           this.meshCache.insert(this.meshJob.chunk,this.meshJob.mesh!);
           this.meshJob=undefined;this.meshedThisFrame++;this.planMeshes();
           this.planCollisions();
@@ -278,6 +304,9 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     this.meshCache.prune(this.cache);
     const meshes=this.meshCache.stats();
     const nearest = this.wanted[0] && this.cache.peek(this.wanted[0]);
+    const config=this.impactProfile==='impact-high'?{...this.lod,samplesPerAxis:33}:this.lod,
+      spacingM=config.baseChunkSizeM/(config.samplesPerAxis-1),scalarStats=this.cache.stats(),highMeshes=this.meshCache.values().filter(m=>samplingProfileOf(m.key)==='impact-high'),
+      highColliders=this.collisionCache.values().filter(c=>samplingProfileOf(c.key)==='impact-high');
     return { bodyId: this.field?.bodyId, revision: this.field ? this.edits.revision(this.field.bodyId) : 0,
       ...this.cache.stats(), pending: this.pending.length, pendingBytes: this.job?.pendingBytes ?? 0,
       generatedThisFrame: this.generatedThisFrame, generationMs: this.generationMs, grantedMs: this.grantedMs,
@@ -286,10 +315,15 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       meshVertices:meshes.vertices,meshTriangles:meshes.triangles,
       ambiguousMeshFaces:meshes.ambiguousFaces,pendingMeshes:this.meshPending.length,
       productionActive:this.productionActive,publishedReplacements:this.replacement.entries.length,
+      publishedSamplingProfile:this.replacement.entries.length?samplingProfileOf(this.replacement.entries[0].source.key):'intact',
       replacementGeneration:this.replacement.generation,publicationMs:this.publicationMs,publicationBlocked:this.publicationBlocked,
       renderPreparationMs:this.renderPreparationMs,
-      retainedPublishedSampleBytes:this.replacement.entries.reduce((sum,e)=>sum+(this.cache.peek(e.source.key)===e.source?0:e.source.distances.byteLength+(e.source.materials?.byteLength??0)),0),
+      retainedPublishedSampleBytes:this.replacement.entries.reduce((sum,e)=>sum+(this.cache.peek(e.source.key)===e.source?0:chunkByteLength(e.source)),0),
       requestedImpact:this.requestedImpact,
+      samplingProfile:this.impactProfile,samplesPerAxis:config.samplesPerAxis,spacingM,impactCapacity:this.impactCapacity,
+      impactRadiusM:this.impactRadiusM,impactDepthM:this.impactDepthM,diameterCells:2*this.impactRadiusM/spacingM,depthCells:this.impactDepthM/spacingM,
+      highChunks:scalarStats.profileCounts['impact-high']??0,highScalarBytes:scalarStats.profileBytes['impact-high']??0,
+      highMeshBytes:highMeshes.reduce((s,m)=>s+volumeMeshByteLength(m),0),highColliderBytes:highColliders.reduce((s,c)=>s+c.memory.bytes,0),
       meshJobBytes:this.meshJob?.pendingBytes??0,meshedThisFrame:this.meshedThisFrame,meshingMs:this.meshingMs,
       nearestOverlappingEdits: nearest?.overlappingEditCount ?? 0 };
   }
@@ -314,6 +348,9 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
       'Planet Destruction · Production / blocked':`${m.productionActive} / ${m.publicationBlocked||'—'}`,
       'Planet Destruction · Publication ms':m.publicationMs.toFixed(3),
       'Planet Destruction · Render prepare ms / retained sample MiB':`${m.renderPreparationMs.toFixed(3)} / ${(m.retainedPublishedSampleBytes/1048576).toFixed(3)}`,
+      'Planet Destruction · Sampling desired published / axis / spacing':`${m.samplingProfile} ${m.publishedSamplingProfile} / ${m.samplesPerAxis} / ${m.spacingM} m`,
+      'Planet Destruction · High chunks / scalar mesh collider MiB':`${m.highChunks} / ${(m.highScalarBytes/1048576).toFixed(3)} / ${(m.highMeshBytes/1048576).toFixed(3)} / ${(m.highColliderBytes/1048576).toFixed(3)}`,
+      'Planet Destruction · Requested R D / diameter depth cells':`${m.impactRadiusM.toFixed(2)} ${m.impactDepthM.toFixed(2)} m / ${m.diameterCells.toFixed(2)} ${m.depthCells.toFixed(2)}`,
       'Volume Collision · Body':c.bodyId??'—','Volume Collision · Resident':c.resident,
       'Volume Collision · Pending':`${c.pending} / ${c.staged}`,'Volume Collision · MB':(c.bytes/1048576).toFixed(3),
       'Volume Collision · Triangles':c.triangles,'Volume Collision · BVH nodes':c.nodes,
