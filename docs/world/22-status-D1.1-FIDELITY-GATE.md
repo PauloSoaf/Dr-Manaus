@@ -1,5 +1,10 @@
 # D1.1 — fidelity gate blocks further hardening — 2026-10-07
 
+Historical diagnosis at `9e02dbe`. On 2026-10-08 the user authorized the separate D1.2
+prerequisite, which makes the current fidelity command pass without relaxing its tolerance.
+See [23-status-D1.2-HIGH-RES-IMPACT-CORE.md](23-status-D1.2-HIGH-RES-IMPACT-CORE.md).
+The 16 m measurements below remain the original evidence; D1.1 hardening remains pending.
+
 Initial HEAD: `644e2def54fe39213f1be6b4053749b8ecc305c0`, branch `feat/universe-map`.
 This is the delivered SUN-APPROACH-P0 on top of D1 (`b1ab6a8`). All four solar commits,
 the separated photosphere CCD/autopilot radii, procedural presentation and diagnostics are preserved.

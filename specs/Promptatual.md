@@ -1,6 +1,22 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — D1.1: parada no gate de fidelidade (2026-10-07)
+## Checkpoint atual — D1.2 HIGH-RES IMPACT CORE (2026-10-08)
+
+Novo anexo autoriza exclusivamente D1.2 sobre `9e02dbed21a91cdea5db7c50c12c89a8673af7a6`.
+Perfil padrão preservado 256 m / 17³ / 16 m; impactos pequenos/médios usam perfil explícito
+`impact-high` 256 m / 33³ / 8 m, identidade diferente, assinaturas de geração e faces externas
+para normais contínuas. Região HIGH inteira sem redução de raio; limites por bytes/count,
+preparo incremental no scheduler e troca conjunta mesh/collider/máscara. Budget insuficiente
+mantém autoridade antiga com `high-res-budget`. Sem Transvoxel/LOD misto; sem perfil 4 m.
+**`npm run check:impact-fidelity` PASS: 24/24 Lua/Marte/Terra × 260/800 × fases 0/2/4/6 m**,
+sem mudar tolerâncias; erro máximo de raio 7,248 m e profundidade 0,2134 m.
+Typecheck/build/diff PASS; focados 410/410, completos 1.052/1.052, browsers volume/espacial
+curto com Game real PASS, zero erros; benchmarks padrão/alta resolução e 12 impactos PASS.
+Arquitetura, custos, testes e aceitação: [23-status-D1.2-HIGH-RES-IMPACT-CORE.md](../docs/world/23-status-D1.2-HIGH-RES-IMPACT-CORE.md).
+Sol/Manaus/C4 preservados. Documentar, commit e push autorizados.
+**PARAR depois de D1.2 para validação manual; não retomar D1.1 automaticamente nem iniciar D2.**
+
+## Checkpoint anterior — D1.1: parada no gate de fidelidade (2026-10-07)
 
 Novo anexo autoriza o hardening D1.1 sobre o Sol entregue em `644e2def54fe39213f1be6b4053749b8ecc305c0`.
 O gate foi medido antes das mudanças funcionais: limite de 8 m no raio e min(4 m, 15%) na

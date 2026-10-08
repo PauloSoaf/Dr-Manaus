@@ -1,5 +1,19 @@
 # Planetary architecture — implementation status
 
+## D1.2 — high-resolution impact core — 2026-10-08
+
+The user authorized the fidelity prerequisite on `9e02dbed21a91cdea5db7c50c12c89a8673af7a6`.
+Production small/medium impacts use explicit `impact-high` 256 m / 33³ / 8 m keys; defaults
+remain 17³ / 16 m. Whole HIGH windows never shrink and publish mesh/collider/mask together;
+insufficient budgets keep old authority and expose `high-res-budget`. Shared exterior samples
+make ordinary high-resolution boundary normals agree. No 4 m profile was needed.
+The unchanged fidelity tolerance now passes all six canonical cases and 24 grid-phase fixtures,
+maximum radius error 7.248 m and depth error 0.2134 m. Typecheck/build/diff PASS; focused
+410/410, full 1,052/1,052, volume and short real Game space browsers PASS, zero errors, benchmarks PASS.
+Architecture, memory/cost measurements, source identity, fidelity and manual gate:
+[23-status-D1.2-HIGH-RES-IMPACT-CORE.md](23-status-D1.2-HIGH-RES-IMPACT-CORE.md).
+Sun/Manaus/C4 unchanged. **Stop for manual acceptance. Do not automatically resume D1.1 or D2.**
+
 ## D1.1 — failed fidelity stop gate — 2026-10-07
 
 The new attachment authorizes hardening on solar delivery `644e2def54fe39213f1be6b4053749b8ecc305c0`,
