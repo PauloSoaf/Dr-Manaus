@@ -62,6 +62,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   private publishedRegions:readonly ImpactResidentRegion[]=[];
   private readonly blockedRegions=new Set<string>();
   private blockedRevision=-1;
+  private blockedPriority='';
   private preparationMs=0;
   private footprint:readonly {editId:string;requestedRadiusM:number;replacementRadiusM:number;overshootM:number}[]=[];
   private prepared?:{entries:readonly PlanetVolumeReplacement[];regions:readonly ImpactResidentRegion[];collision:()=>void;coverage:()=>void;
@@ -125,7 +126,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   setCollisionDiagnostics(metrics:PlanetVolumeCollisionProvider['metrics']|undefined):void {this.collisionQueries=metrics;}
   get meshes() {this.meshCache.prune(this.cache);return this.meshCache.values();}
   private deactivate(): void {
-    this.selectedRegions=[];this.publishedRegions=[];this.blockedRegions.clear();this.blockedRevision=-1;this.prepared=undefined;this.footprint=[];
+    this.selectedRegions=[];this.publishedRegions=[];this.blockedRegions.clear();this.blockedRevision=-1;this.blockedPriority='';this.prepared=undefined;this.footprint=[];
     this.replacement.clear();this.publication?.clear();this.productionActive=false;
     this.publicationBlocked='';this.impactProfile='standard';this.impactRadiusM=0;this.impactDepthM=0;this.impactCapacity=0;
     this.admissionBlocked='';
@@ -163,13 +164,19 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     this.impactCapacity=Math.min(capacity,this.meshCache.limits.maxMeshes,this.collisionCache.limits.maxColliders,
       ...(profile==='impact-high'?[Math.floor(this.meshCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES),
         Math.floor(this.collisionCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES)]:[]));
-    const revision=this.edits.revision(field.bodyId);if(revision!==this.blockedRevision){this.blockedRevision=revision;this.blockedRegions.clear();}
-    const regionPlan=selectImpactResidency(this.edits,field.bodyId,this.observer,this.lod,
-      {maxChunks:Math.min(this.cache.limits.maxChunks,this.meshCache.limits.maxMeshes,this.collisionCache.limits.maxColliders),
+    const revision=this.edits.revision(field.bodyId);if(revision!==this.blockedRevision){this.blockedRevision=revision;this.blockedRegions.clear();this.blockedPriority='';}
+    const residencyBudget={maxChunks:Math.min(this.cache.limits.maxChunks,this.meshCache.limits.maxMeshes,this.collisionCache.limits.maxColliders),
         maxScalarBytes:this.cache.limits.maxBytes,standardCapacity:Math.min(Math.floor(this.cache.limits.maxBytes/(this.lod.samplesPerAxis**3*4)),
           this.cache.limits.maxChunks,this.meshCache.limits.maxMeshes,this.collisionCache.limits.maxColliders),
         highCapacity:Math.min(this.impactCapacity,Math.floor(this.meshCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES),
-          Math.floor(this.collisionCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES))},this.publishedRegions,this.blockedRegions);
+          Math.floor(this.collisionCache.limits.maxBytes/MAX_COLLISION_BUILD_BYTES))};
+    let regionPlan=selectImpactResidency(this.edits,field.bodyId,this.observer,this.lod,residencyBudget,this.publishedRegions);
+    if(this.blockedRegions.size) {
+      // Stable demand keeps byte-pressure decisions. A changed priority/window retries
+      // complete regions so returning to an evicted site never requires another edit.
+      if(this.regionPrioritySignature(regionPlan.regions)!==this.blockedPriority){this.blockedRegions.clear();this.blockedPriority='';}
+      else regionPlan=selectImpactResidency(this.edits,field.bodyId,this.observer,this.lod,residencyBudget,this.publishedRegions,this.blockedRegions);
+    }
     const impact=regionPlan.keys;this.selectedRegions=regionPlan.regions;this.admissionBlocked=regionPlan.blocked;
     this.productionActive=!!edit;
     if(this.productionActive&&!impact.length){this.publicationBlocked=regionPlan.blocked||(profile==='impact-high'?'high-res-budget':'impact-window-budget');
@@ -279,7 +286,13 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
     if(this.productionActive&&!this.job&&!this.meshJob&&!this.collisionJob&&!this.pending.length&&!this.meshPending.length&&!this.collisionPending.length
       &&this.clock()<deadline)this.prepareImpactReplacement();
   }
-  private blockLowestRegion():void {const last=this.selectedRegions.at(-1);if(last)this.blockedRegions.add(last.editId);
+  private regionPrioritySignature(regions:readonly ImpactResidentRegion[]):string {
+    // Chunk traversal order changes with sub-cell movement; only identity matters.
+    return JSON.stringify(regions.map(r=>[r.editId,r.keys.map(chunkKeyToString).sort()]));
+  }
+  private blockLowestRegion():void {const last=this.selectedRegions.at(-1);if(last){
+      if(!this.blockedRegions.size)this.blockedPriority=this.regionPrioritySignature(this.selectedRegions);
+      this.blockedRegions.add(last.editId);}
     this.prepared=undefined;this.publicationBlocked='replacement-byte-budget';}
   private commitCollisions():void {
     if(this.productionActive){this.commitImpactReplacement();return;}

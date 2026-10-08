@@ -49,6 +49,31 @@ test(name('EVICTED_EDIT_REGENERATES'),()=>{const f=impactFixture('moon',260);try
   f.observer([...f.point]);for(let i=0;i<2400&&!f.runtime.metrics.publishedRegionIds.includes(first);i++)f.frame();
   assert.ok(f.runtime.metrics.publishedRegionIds.includes(first));assert.ok(f.ray()!.point[1]<-25);assert.equal(f.runtime.edits.editCount,3);
 }finally{f.dispose();}});
+test('D1.1 geometry-byte eviction is stable until demand changes and returning restores the other crater',()=>{
+  const f=impactFixture('moon',8000);try{
+    (f.runtime.meshCache as any).limits={maxMeshes:128,maxBytes:450000};
+    const first=f.consume();f.ready();
+    const event=rockyEvent(f.body,8000),second=f.service.consume({...event,eventId:'byte-pressure-B',
+      contactBodyFixedM:[f.point[0]+1000,1600,0]});
+    for(let i=0;i<2400;i++){f.frame();if(f.runtime.metrics.regionAdmissionBlocked==='replacement-byte-budget'
+      &&f.runtime.metrics.publishedRegions===1&&!f.runtime.metrics.pendingMeshes)break;}
+    assert.ok(f.runtime.metrics.publishedRegionIds.includes(first));
+    assert.equal(f.runtime.metrics.regionAdmissionBlocked,'replacement-byte-budget');
+    const stable=f.runtime.replacement.entries;
+    f.observer([f.point[0],1,1]);let repeatedBuilds=0;
+    for(let i=0;i<20;i++){f.frame();repeatedBuilds+=f.runtime.metrics.generatedThisFrame
+      +f.runtime.metrics.meshedThisFrame+f.runtime.collisionMetrics.buildsThisFrame;}
+    assert.equal(f.runtime.replacement.entries,stable);assert.equal(repeatedBuilds,0);
+    f.observer([f.point[0],1600,0]);
+    for(let i=0;i<2400&&!f.runtime.metrics.publishedRegionIds.includes(second);i++)f.frame();
+    assert.ok(f.runtime.metrics.publishedRegionIds.includes(second),'return must reconsider byte-evicted region');
+    assert.ok(f.ray(1600)!.point[1]<-180);assert.equal(f.runtime.edits.editCount,2);
+    assert.ok(f.runtime.metrics.meshBytes<=450000);
+    f.observer([...f.point]);
+    for(let i=0;i<2400&&!f.runtime.metrics.publishedRegionIds.includes(first);i++)f.frame();
+    assert.ok(f.runtime.metrics.publishedRegionIds.includes(first));assert.ok(f.ray()!.point[1]<-180);
+  }finally{f.dispose();}
+});
 test(name('VOLUME_LIGHT_USES_SOLAR_DIRECTION'),()=>{multi.renderer.update();const expected=bodySolarDirection(multi.universe.activeSystem,multi.universe.frames,'moon',multi.universe.renderSpace.currentOrigin.frame)!;
   const actual=multi.renderer.stats.lights.moon;for(let i=0;i<3;i++)assert.ok(Math.abs(actual[i]-expected[i])<1e-12);});
 test(name('VOLUME_NIGHT_SIDE_DARK'),()=>{assert.equal(planetDirectLight(-1),.05);assert.equal(planetDirectLight(1),1);
