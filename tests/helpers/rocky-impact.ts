@@ -31,10 +31,13 @@ export function rockyEvent(body:CelestialBody,speed=8000,id='unit-impact',kind?:
     eventId:id,bodyId:body.id,contactBodyFixedM:contact.contactPositionM,contactSystemPositionM:contact.contactPositionM,simulationTimeS:0,
     ...(kind?{classification:kind}:{})};
 }
-export function impactFixture(id='moon',speed=8000) {
+export function impactFixture(id='moon',speed=8000,phaseM=0) {
   const universe=new UniverseRuntime({streaming:true,volume:IMPACT_VOLUME_LIMITS}),runtime=universe.volume,
-    body=universe.activeSystem.bodies.find(b=>b.id===id)!,surface=surfaceForBody(body)!,event=rockyEvent(body,speed),
-    radius=planetSurfaceRadius(surface,[1,0,0]),point:[number,number,number]=[radius,0,0],local=`${id}/local-enu`;
+    body=universe.activeSystem.bodies.find(b=>b.id===id)!,surface=surfaceForBody(body)!,baseEvent=rockyEvent(body,speed),
+    radius=planetSurfaceRadius(surface,[1,0,0]),length=Math.hypot(radius,phaseM,phaseM),
+    direction:[number,number,number]=[radius/length,phaseM/length,phaseM/length],
+    point=direction.map(v=>v*planetSurfaceRadius(surface,direction)) as [number,number,number],local=`${id}/local-enu`,
+    event={...baseEvent,contactBodyFixedM:direction.map(v=>v*(Math.hypot(...point)+1000)) as [number,number,number]};
   if(!universe.frames.has(`${id}/fixed`))universe.frames.register(referenceFrame({id:`${id}/fixed`,parentId:body.frameId,kind:'body-fixed'}));
   universe.frames.register(referenceFrame({id:local,parentId:`${id}/fixed`,kind:'surface-enu',originInParent:point,
     rotationToParent:quatFromBasis([0,1,0],[1,0,0],[0,0,-1])}));

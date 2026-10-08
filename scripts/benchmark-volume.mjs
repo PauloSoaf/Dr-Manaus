@@ -16,6 +16,8 @@ import { PlanetVolumeCollisionCache } from '../src/world/planet/volume/PlanetVol
 import { PlanetVolumeCollisionProvider } from '../src/world/planet/volume/PlanetVolumeCollisionProvider.ts';
 import { ReferenceFrameGraph } from '../src/world/spatial/ReferenceFrameGraph.ts';
 import { referenceFrame } from '../src/world/spatial/ReferenceFrame.ts';
+import {benchmarkImpactSampling} from './benchmark-impact-sampling.mjs';
+import {mkdir,writeFile} from 'node:fs/promises';
 
 // Deterministic coordinates/edits; timings are observations, never CI thresholds. No generated files.
 const timing = (field,offsetM=0) => {
@@ -114,4 +116,6 @@ const output={lod:DEFAULT_VOLUME_LOD,samplesPerChunk:17**3,bytesPerChunk:17**3*4
     maximumOutputBytes:maximumVolumeMeshBytes(17),maxResidentMeshes:meshes.limits.maxMeshes,maxResidentMeshBytes:meshes.limits.maxBytes},
   collision:{warmups:5,repetitions:21,maxColliders:8,maxResidentBytes:8*1048576,maxBuildBytes:4*1048576,cases:collisionCases},
   throughEarth:{beforeDemand,stages}};
-cache.dispose();meshes.clearAll();console.log(JSON.stringify(output,null,2));
+cache.dispose();meshes.clearAll();output.impactSampling=benchmarkImpactSampling();
+await mkdir('artifacts',{recursive:true});await writeFile('artifacts/benchmark-volume.json',JSON.stringify(output,null,2));
+console.log(JSON.stringify(output,null,2));

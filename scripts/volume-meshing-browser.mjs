@@ -127,6 +127,39 @@ try {
   results.destructionReturn={returned,rebuilding,after:await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot())};
   const d1Dispose=await page.evaluate(()=>{const lab=window.__DR_IMPACT_LAB__,u=lab.universe;lab.dispose();return {samples:u.volume.metrics.bytes,colliders:u.volume.collisionMetrics.bytes};});
   assert.equal(d1Dispose.samples,0);assert.equal(d1Dispose.colliders,0);
+  // Fresh real production impact path: the earlier large edits must not determine a small
+  // crater's geometry. No debug sampling/meshing flags are enabled for this acceptance.
+  await page.goto('http://127.0.0.1:5188/?impactDestruction=1',{waitUntil:'domcontentloaded'});
+  await page.waitForFunction(()=>window.__DR_IMPACT_LAB__?.ready,null,{timeout:30_000});
+  const highPending=await page.evaluate(()=>{const lab=window.__DR_IMPACT_LAB__;lab.pause();lab.impact(260);return lab.snapshot();});
+  assert.equal(highPending.editCount,1);assert.equal(highPending.mask,0);assert.ok(Number.isFinite(highPending.intactHeight));
+  await page.waitForFunction(()=>{const s=window.__DR_IMPACT_LAB__.snapshot();return s.metrics.samplingProfile==='impact-high'
+    &&s.metrics.samplesPerAxis===33&&s.mask===4&&s.collision.resident>0;},null,{timeout:180_000});
+  const highReady=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());
+  assert.equal(highReady.metrics.spacingM,8);assert.equal(highReady.metrics.highChunks,4);assert.equal(highReady.intactHeight,-Infinity);
+  assert.ok(highReady.metrics.bytes<=4*1048576&&highReady.metrics.meshBytes<=16*1048576&&highReady.collision.bytes<=32*1048576);
+  const highRays=await page.evaluate(()=>[.125,20.125,40.125,70.125].map(x=>({physical:window.__DR_IMPACT_LAB__.ray(x,.125),
+    visual:window.__DR_IMPACT_LAB__.visualRay(x,.125)})));
+  for(const r of highRays){assert.ok(r.physical&&r.visual);assert.equal(r.physical.key.samplingProfile,'impact-high');assert.ok(Math.abs(r.physical.point[1]-r.visual[1])<.15);}
+  await page.evaluate(()=>window.__DR_IMPACT_LAB__.viewCrater());await page.screenshot({path:'artifacts/d12-moon-high-crater.png'});
+  await page.evaluate(()=>{const l=window.__DR_IMPACT_LAB__;l.reset([68,1,0]);l.runFrames(120);});
+  await page.keyboard.down('KeyA');await page.evaluate(()=>window.__DR_IMPACT_LAB__.runFrames(400));await page.keyboard.up('KeyA');
+  const highWalk=await page.evaluate(()=>{const l=window.__DR_IMPACT_LAB__,entered=l.snapshot();l.reset();l.runFrames(960);
+    return {entered,floor:l.snapshot(),walls:[30,60,120].map(fps=>l.probe([35,-10,0],[3000,0,0],1/fps)),
+      outer:[255.875,256.125].map(x=>l.surfaceProbe(x,.125))};});
+  assert.ok(highWalk.entered.player.position[0]<56&&highWalk.entered.player.position[1]<-.5);
+  assert.equal(highWalk.floor.player.state,'Grounded');assert.ok(Math.abs(highWalk.floor.player.position[1]+25.58)<.1);
+  for(const wall of highWalk.walls){assert.ok(wall.firstContact&&wall.firstContact.normal[0]<-.3);assert.ok(wall.velocity.every(Number.isFinite));}
+  assert.ok(Math.abs(highWalk.outer[0].floor-highWalk.outer[0].intact)<.03);
+  assert.ok(Math.abs(highWalk.outer[0].floor-highWalk.outer[1].floor)<.03,'HIGH meets intact surface without a physical height jump');
+  await page.evaluate(()=>window.__DR_IMPACT_LAB__.reset([0,100000,0]));
+  await page.waitForFunction(()=>window.__DR_IMPACT_LAB__.snapshot().metrics.bytes===0,null,{timeout:30_000});
+  const highEvicted=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());assert.equal(highEvicted.editCount,1);assert.equal(highEvicted.mask,0);
+  await page.evaluate(()=>window.__DR_IMPACT_LAB__.reset());
+  await page.waitForFunction(()=>{const s=window.__DR_IMPACT_LAB__.snapshot();return s.metrics.samplingProfile==='impact-high'&&s.mask===4;},null,{timeout:180_000});
+  const highReturned=await page.evaluate(()=>window.__DR_IMPACT_LAB__.snapshot());assert.equal(highReturned.editCount,1);assert.equal(highReturned.metrics.spacingM,8);
+  results.highResolution={pending:highPending,ready:highReady,rays:highRays,walking:highWalk,evicted:highEvicted,returned:highReturned};
+  console.log('D1.2: real HIGH 33^3 crater, rim walk/floor/wall/rays/outer boundary and eviction/regeneration passed.');
   assert.equal(results.errors.length,0,results.errors.join('\n'));
   console.log('PHASE-3 + D0 + D1 production browser checks passed.');
 } catch(error) {results.failure=String(error);results.d1FailureState=await page?.evaluate(()=>window.__DR_IMPACT_LAB__?.snapshot()).catch(()=>undefined);throw error;}

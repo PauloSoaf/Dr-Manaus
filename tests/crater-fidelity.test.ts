@@ -14,9 +14,9 @@ test('T_D11_SMALL_CRATER_RADIUS_ERROR_MEASURED',()=>{
 });
 test('T_D11_SMALL_CRATER_DEPTH_ERROR_MEASURED',()=>{
   for(const row of rows) {
-    assert.equal(row.spacingM,16);
-    assert.equal(row.cellsAcrossDiameter,2*row.requestedRadiusM/16);
-    assert.equal(row.cellsAcrossDepth,row.requestedDepthM/16);
+    assert.equal(row.spacingM,8);
+    assert.equal(row.cellsAcrossDiameter,2*row.requestedRadiusM/row.spacingM);
+    assert.equal(row.cellsAcrossDepth,row.requestedDepthM/row.spacingM);
     assert.equal(row.depthErrorM,Math.abs(row.measuredDepthM-row.requestedDepthM));
     assert.equal(row.depthToleranceM,Math.min(4,row.requestedDepthM*.15));
     assert.ok(Number.isFinite(row.measuredDepthM)&&row.measuredDepthM>0);

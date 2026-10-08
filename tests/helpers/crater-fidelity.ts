@@ -7,8 +7,8 @@ import { createRenderOrigin } from '../../src/world/spatial/RenderOrigin.ts';
 // Declared before extraction: at most half a 16 m voxel at the rim, and <=15%/4 m
 // depth error. The 0.25 m contour threshold excludes numerical terrain/ray noise.
 export const CRATER_FIDELITY_TOLERANCE = Object.freeze({radiusM:8,depthFraction:.15,depthM:4,contourDepthM:.25});
-export function measureCraterFidelity(body='moon',speed=260) {
-  const f=impactFixture(body,speed);
+export function measureCraterFidelity(body='moon',speed=260,phaseM=0) {
+  const f=impactFixture(body,speed,phaseM);
   try {
     f.consume();f.ready();
     const {craterRadiusM:radius,craterDepthM:depth}=f.service.last!.plan!;
@@ -43,7 +43,7 @@ export function measureCraterFidelity(body='moon',speed=260) {
       const p=f.universe.renderSpace.renderToLogical(visual.point.toArray() as Vec3,f.local);
       visualErrors.push(Math.abs(p[1]-f.ray(x,z)!.point[1]));
     }
-    const spacing=f.runtime.lod.baseChunkSizeM/(f.runtime.lod.samplesPerAxis-1);
+    const spacing=f.runtime.replacement.entries[0].source.spacingM;
     const tangentCorners=f.runtime.replacement.entries.flatMap(({source})=>{
       const b=source.boundsBodyFixedM;
       return [0,1,2,3,4,5,6,7].map(mask=>{
@@ -53,7 +53,9 @@ export function measureCraterFidelity(body='moon',speed=260) {
       });
     });
     const replacementFootprintRadiusBoundM=Math.max(...tangentCorners.map(([x,z])=>Math.hypot(x,z)));
-    return {body,speedMps:speed,requestedRadiusM:radius,requestedDepthM:depth,spacingM:spacing,
+    return {body,speedMps:speed,phaseM,samplingProfile:f.runtime.metrics.samplingProfile,
+      samplesPerAxis:f.runtime.replacement.entries[0].source.samplesPerAxis,
+      phaseBodyFixedM:[f.point[1],f.point[2]],requestedRadiusM:radius,requestedDepthM:depth,spacingM:spacing,
       cellsAcrossDiameter:2*radius/spacing,cellsAcrossDepth:depth/spacing,measuredDepthM,
       nominalSamplesAcrossDiameter:1+2*radius/spacing,nominalSamplesAcrossDepth:1+depth/spacing,
       replacementFootprintRadiusBoundM,replacementOvershootBoundM:replacementFootprintRadiusBoundM-radius,

@@ -22,6 +22,7 @@ for(const body of ['moon','mars','earth'])for(const speed of [260,800,8000,50000
   assert.equal(plan.craterRadiusM,edit.impact.craterRadiusM,'residency must not shrink the logical crater');
   const row={body,speedMps:speed,logicalEditCount:f.runtime.edits.editCount,grantedBudgetMs:2,
     craterRadiusM:plan.craterRadiusM,craterDepthM:plan.craterDepthM,
+    samplingProfile:m.samplingProfile,samplesPerAxis:m.samplesPerAxis,spacingM:m.spacingM,impactCapacity:m.impactCapacity,
     sphereRadiusM:plan.sphereRadiusM,logicalChunks:logicalImpactChunkCount(edit,f.runtime.lod),
     activeChunks:m.publishedReplacements,sampleBytes:m.bytes,meshes:m.residentMeshes,meshBytes:m.meshBytes,
     vertices:m.meshVertices,triangles:m.meshTriangles,colliders:c.resident,colliderBytes:c.bytes,
