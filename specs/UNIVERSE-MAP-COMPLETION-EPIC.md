@@ -1,0 +1,63 @@
+# Universe Map completion epic — 2026-10-08
+
+User decision after D1.2 (`c92249bc221c9f4ec16c6840f0823d77ffb9454f`): finish D1.1 hardening,
+then freeze destruction at functional D1 and prioritize the playable universe. This order supersedes
+the old automatic D2→D5 progression. Each checkpoint still requires its own implementation,
+validation, documentation, commit/push and manual gate. This document is a plan, not delivery of U0.
+
+## Starting point, audited locally
+
+`UniverseAddress` already uses BigInt 100 ly sectors and bounded local offsets. `StarSector`,
+`SystemGenerator` and `ProceduralSystemRuntime` exist. `GalaxyDefinition` contains Milky Way
+and Andromeda, including `sgra` and `m31_smbh` definitions. `GalaxyProvider`, `StarSectorProvider`
+and `LargeScaleStructureProvider` supply presentation foundations; `FEATURES.galaxyTravel` is
+true. A flag and macro visuals do not establish playable galaxy arrival or universal navigation.
+
+`NavigationTargetState` still owns a `bodyId` validated against `activeSystem`. The existing
+Solar flight tiers remain Solar/interplanetary travel. `BlackHoleProvider` computes a visual
+Schwarzschild radius and draws a black sphere/orange torus; its update currently assumes
+Milky Way. It does not implement gravity, capture, lensing, traversals or destination preparation.
+
+## Checkpoint order and acceptance
+
+| Checkpoint | Deliverable | Gate |
+| --- | --- | --- |
+| D1.1-FINAL | Multiple coherent crater regions, retention, real solar lighting, volume culling, per-tile masks, prepared publication | Craters A/B about 500 m apart remain physical and masked; constrained three-region eviction is whole and deterministic; D1.2 fidelity stays green |
+| U0 | Universal target/address shared by HUD, map and travel; `galaxy → sector → system → body`, including non-body targets | Lock Moon, a procedural star, Sgr A* and Andromeda using one authority; unloaded targets retain identity |
+| U1 | Deterministic procedural sectors and materialized playable star systems | Approach/select a star, install its real bodies/orbits; leave/unload, return/regenerate identically; no duplicate providers |
+| U2 | `GalaxyDescriptor`/`GalaxyRuntime`; Milky Way and Andromeda use one architecture; curated Local Group overrides | Real arrival in Andromeda changes galaxy/runtime/address together; Triangulum/other overrides use the same descriptor contract |
+| U3 | Separate interstellar/intergalactic hypercruise domain | Spool, acceleration, continuous progress, cruise, braking, prepared destination and safe handoff; no instantaneous teleport |
+| U4 | Seeded galaxies from `universeSeed + cosmic cell` | Query spiral/barred/elliptical/irregular descriptors on demand, unload/regenerate; no repository growth proportional to galaxy count |
+| BH0 | `BlackHoleDescriptor`/runtime with mass, spin, horizon scale, accretion disk, photon ring and lensing presentation | Sgr A* first, M31 next, procedural descriptors afterward; no ordinary rocky sphere/bounce authority |
+| BH1 | Gravity, trajectory bending, capture/horizon state and inspired interior transit presentation | Increasing attraction; escape/cancel with X before crossing if physically/gameplay feasible; capture after crossing |
+| BH2 | Deterministic black-hole destination network and emergence | `universeSeed + sourceBlackHoleId + traversalCounter` gives a persistent exit address; prepare galaxy/sector/destination before safe emergence |
+| U5 | Runtime-backed searchable/clickable Universal Map | System → stellar sector → galaxy → Local Group → cluster → cosmic web → observable universe; every actionable marker resolves to the same target/address authority |
+| U6 | Cosmological travel and exploration | Hierarchical addresses remain precise at distant structures; observer-relative observable horizon, never a physical wall or universal centre |
+
+The requested U3 pacing is a **gameplay design target**, not an implemented feature: another star
+in seconds, a Milky Way crossing in roughly 10–25 s, Milky Way→Andromeda in roughly 15–30 s.
+Physical target distances remain authoritative. Do not simulate this by multiplying the existing
+256c Solar control indefinitely or converting cosmological absolute metres into a `Vector3`.
+
+## Shared contracts to establish before black-hole transit
+
+Universal identity precedes streamed materialization. Providers draw/query the descriptor/runtime;
+they do not own independent destinations. Readiness controls address/frame/runtime handoff.
+There is one target authority, one travel-domain authority and one destination preparation path.
+
+`GalaxyDescriptor.centralBlackHole?: BlackHoleDescriptor` supports SMBHs. A stellar sector may
+also contain rare seeded stellar-mass black holes. Save the traversal counter and selected exit
+identity; save/reload must not reroll the same traversal. A prepared exit has its gravity/horizon
+runtime, nearby presentation and an emergence pose outside the destination horizon with safe motion.
+The interior transition is fictional gameplay inspired by higher-dimensional travel, rather than
+a claim about physical transit through an astrophysical event horizon.
+
+## Deferred destruction roadmap
+
+D2 penetration/tunnels, D3 integrity/fracture, D4 disruption/debris and D5 body-class destruction
+remain preserved in [06-PLANET-VOLUME-NEXT-PHASES.md](dr-manaus-universe-roadmap/06-PLANET-VOLUME-NEXT-PHASES.md)
+and the historical [sprint plan](dr-manaus-universe-roadmap/11-SPRINT-AND-COMMIT-PLAN.md).
+They are deferred features, not part of the Universe completion gate. Preserve D0/D1/D1.2,
+Sun approach, C4, Manaus, navigation and landing throughout U0–U6/BH0–BH2.
+
+**After D1.1-FINAL validation, STOP for manual acceptance. U0 is next, not automatic in this delivery.**

@@ -1,5 +1,9 @@
 # D1.1 — fidelity gate blocks further hardening — 2026-10-07
 
+Remaining hardening was later authorized and implemented in
+[24-status-D1.1-FINAL-HARDENING.md](24-status-D1.1-FINAL-HARDENING.md). Pending rows below
+describe this historical stop, not the current D1.1 status.
+
 Historical diagnosis at `9e02dbe`. On 2026-10-08 the user authorized the separate D1.2
 prerequisite, which makes the current fidelity command pass without relaxing its tolerance.
 See [23-status-D1.2-HIGH-RES-IMPACT-CORE.md](23-status-D1.2-HIGH-RES-IMPACT-CORE.md).

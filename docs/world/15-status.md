@@ -1,5 +1,21 @@
 # Planetary architecture — implementation status
 
+## Current checkpoint — D1.1-FINAL (2026-10-08)
+
+D1.2 accepted; final D1 hardening is implemented: deterministic whole-region multi-crater
+residency/128 m retention, live solar direction/shared intact light response and vertex albedo,
+volume frustum culling, per-tile masks and prepared collider/coverage/render/mask publication.
+Two HIGH impacts ~500 m apart stay physical/visible/masked; eviction preserves edits and save/load
+now preserves demand metadata. Byte-pressure eviction retries after priority/window changes,
+without repeated work under stable demand. Typecheck/build/diff PASS; 28 new tests, focused 373, full 1,080;
+fidelity 24/24 unchanged; volume/full and short real Game space/local browsers PASS. Controlled large Moon
+atomic publication 2.532→0.046 ms; added albedo/preparation cost is documented, not hidden.
+Details/limits/manual gate: [24-status-D1.1-FINAL-HARDENING.md](24-status-D1.1-FINAL-HARDENING.md).
+**Destruction frozen at D1; D2–D5 deferred. Next after manual gate: U0 universal target/address.**
+New branch priority: [Universe Map completion epic](../../specs/UNIVERSE-MAP-COMPLETION-EPIC.md).
+This current decision supersedes historical checkpoint stops/priorities below; no U0 implementation
+is included. Document/commit/push remain authorized; final exact-SHA CI reported after delivery.
+
 ## D1.2 — high-resolution impact core — 2026-10-08
 
 The user authorized the fidelity prerequisite on `9e02dbed21a91cdea5db7c50c12c89a8673af7a6`.

@@ -3,8 +3,12 @@
 Implements the addressing and generation parts of `11-GALAXY-AND-OBSERVABLE-UNIVERSE.md`. Code:
 `src/world/celestial/StarSector.ts`, `src/world/spatial/UniverseAddress.ts`.
 
-**Status: addressing and star generation are implemented and tested. Nothing is rendered and there
-is no travel mode.** `FEATURES.galaxyTravel` is off.
+**Status updated 2026-10-08:** addressing, deterministic generators and a procedural system runtime
+exist. Galaxy/star-sector/cosmic-structure presentation foundations are wired with
+`FEATURES.galaxyTravel = true`. Playable galaxy arrival, universal targets, hypercruise and black-hole
+transit remain pending. The previous “nothing rendered / flag off” description was stale.
+After final D1.1 hardening, the branch prioritizes the
+[Universe Map completion epic](../../specs/UNIVERSE-MAP-COMPLETION-EPIC.md); D2–D5 are deferred.
 
 ## Addressing — `UniverseAddress.ts`
 
@@ -47,8 +51,12 @@ the repository holds the generator, not the galaxy.
 Real catalogues enter only as **subsets**, where a named star is worth having. None are ingested
 yet.
 
-## Not built
+## Remaining gameplay
 
-- No star, sector or galaxy is rendered.
-- No system materialisation on approach.
-- No cosmic travel mode, no galaxy-level sectors, no observable-universe representation.
+- Promote existing macro/star-sector presentation and procedural system foundations to streamed,
+  playable materialization and deterministic unload/return.
+- Replace the active-system `bodyId`-only lock with universal target/address identity.
+- Implement galaxy runtime/Andromeda arrival and separate interstellar/intergalactic hypercruise.
+- Replace black-hole sphere/torus scaffolds with gravity/horizon/lensing/capture/transit runtimes.
+- Make the map consume actual runtime descriptors across galaxy/cosmological scales. The observable
+  horizon scaffold is presentation, not a physical boundary or completed cosmological travel.

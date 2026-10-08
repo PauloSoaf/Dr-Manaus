@@ -1,6 +1,25 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — D1.2 HIGH-RES IMPACT CORE (2026-10-08)
+## Checkpoint atual — D1.1-FINAL-HARDENING (2026-10-08)
+
+O último anexo aceita D1.2 no HEAD `c92249bc221c9f4ec16c6840f0823d77ffb9454f` e muda a prioridade:
+fechar D1.1, congelar destruição em D1 e avançar depois para o Universe Map.
+Contrato: [D1.1-FINAL-HARDENING.md](D1.1-FINAL-HARDENING.md).
+Implementado: regiões completas múltiplas com histerese, direção solar real/modelo intacto/albedo
+compartilhados, frustum culling, máscaras filtradas por tile, preparo de índices/cobertura/máscaras
+antes do commit atômico; saves preservam metadados opcionais de impacto. Sem mudança em MC,
+D0, C4, Sol ou destruição local de Manaus. HIGH 33³/8 m e STANDARD 17³/16 m preservados.
+Evicção por bytes permite retorno após mudança de prioridade/janela, sem repetir trabalho estável.
+Typecheck/build/diff PASS; novos 28, focados 373, completos 1.080; fidelidade 24/24 PASS sem mudar
+tolerâncias; browsers volume/espacial completo e curto Game/local PASS; benchmark antes/depois 12/12 PASS.
+Resultados, custos, limites e validação manual:
+[24-status-D1.1-FINAL-HARDENING.md](../docs/world/24-status-D1.1-FINAL-HARDENING.md).
+Roadmap novo: [UNIVERSE-MAP-COMPLETION-EPIC.md](UNIVERSE-MAP-COMPLETION-EPIC.md),
+U0→U1→U2→U3→U4→BH0→BH1→BH2→U5→U6. D2–D5 preservados e adiados.
+Documentação/commit/push autorizados. **PARAR para aceitação manual depois de D1.1-FINAL;
+U0 é o próximo checkpoint, não uma implementação automática nesta entrega.**
+
+## Checkpoint anterior — D1.2 HIGH-RES IMPACT CORE (2026-10-08)
 
 Novo anexo autoriza exclusivamente D1.2 sobre `9e02dbed21a91cdea5db7c50c12c89a8673af7a6`.
 Perfil padrão preservado 256 m / 17³ / 16 m; impactos pequenos/médios usam perfil explícito

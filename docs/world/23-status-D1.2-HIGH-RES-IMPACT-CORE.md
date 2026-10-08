@@ -1,5 +1,9 @@
 # D1.2 — HIGH-RES IMPACT CORE — 2026-10-08
 
+Historical D1.2 checkpoint. A later user attachment explicitly authorizes the remaining D1.1:
+see [24-status-D1.1-FINAL-HARDENING.md](24-status-D1.1-FINAL-HARDENING.md) for its completion,
+current manual gate and Universe-first priority. The measurements and original STOP below are historical.
+
 Initial HEAD: `9e02dbed21a91cdea5db7c50c12c89a8673af7a6`, branch `feat/universe-map`.
 The user accepted the D1.1 fidelity stop and explicitly authorized this prerequisite alone.
 D1.1 stopped because the 16 m MC lattice expanded small openings by up to 13.075 m against

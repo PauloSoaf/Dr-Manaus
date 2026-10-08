@@ -1,5 +1,11 @@
 # Sprint and commit plan
 
+Current priority (2026-10-08): finish [D1.1-FINAL-HARDENING](../D1.1-FINAL-HARDENING.md) after
+the accepted D1.2, freeze destruction at D1, then follow the
+[Universe Map completion epic](../UNIVERSE-MAP-COMPLETION-EPIC.md): U0→U1→U2→U3→U4→BH0→BH1→BH2→U5→U6.
+The D2–D5 sequence below is preserved but **deferred**. Historical “current checkpoint” labels
+are historical records; the current prompt and this priority override them. Stop at each manual gate.
+
 ## Rules
 
 Every sprint has:
