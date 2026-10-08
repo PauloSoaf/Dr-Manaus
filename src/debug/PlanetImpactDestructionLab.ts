@@ -34,9 +34,11 @@ export async function startPlanetImpactDestructionLab(container:HTMLElement) {
   const input=new InputController(renderer.domElement),player=new PlayerController(new Group(),input);
   let body:'earth'|'moon'|'mars'='moon',globe:PlanetGlobe,local:string,fixed:string,
     terrain:PlanetVolumeTerrainProvider,volume:PlanetVolumeCollisionProvider,point:Vec3,
-    paused=true,disposed=false;
+    paused=true,disposed=false,solarDirection:Vec3=[0,1,0],volumeDrawCalls=0;
   const presentation=new PlanetVolumeSurfaceRenderer(scene,universe.frames,universe.renderSpace,
-    id=>bodyProfile(universe.activeSystem.bodies.find(b=>b.id===id)!),entries=>globe?.volumeMask.update(entries));
+    id=>bodyProfile(universe.activeSystem.bodies.find(b=>b.id===id)!),entries=>globe?.volumeMask.update(entries),
+    {solarDirection:()=>solarDirection,surface:id=>surfaceForBody(universe.activeSystem.bodies.find(b=>b.id===id)!),
+      prepareMasks:entries=>globe.volumeMask.prepareUpdate(entries),maskStats:()=>globe.volumeMask.stats});
   runtime.setImpactPublication(presentation);
   const impacts=new CelestialImpactService(),service=new RockyImpactDestructionService({edits:runtime.edits,
     body:id=>universe.activeSystem.bodies.find(b=>b.id===id),requestRegion:(id,plan)=>runtime.requestImpactRegion(id,plan)});
@@ -63,19 +65,19 @@ export async function startPlanetImpactDestructionLab(container:HTMLElement) {
     volume=new PlanetVolumeCollisionProvider(runtime.collisionCache,universe.frames,body,fixed,local);
     runtime.setCollisionDiagnostics(volume.metrics);player.setSurfaceGravity(surfaceGravityMps2(surface.body));
     reset();universe.setPlayerPose(local,[0,1,0]);universe.update([0,1,0],[0,0,0],0);
-    // Four real globe tiles around +X; local coordinates preserve the same precision as Game.
+    // Four real tiles around +X and two unaffected neighbours for mask/culling diagnostics.
     globe=new PlanetGlobe(body);scene.add(globe.root);
     const level=Math.ceil(Math.log2(surface.body.semiMajorAxisM/1600)),mid=2**(level-1);
-    for(const x of [mid-1,mid])for(const y of [mid-1,mid]){
+    for(const [x,y] of [[mid-1,mid-1],[mid-1,mid],[mid,mid-1],[mid,mid],[mid+4,mid],[mid+5,mid]]){
       const address=planetTile(body,0,level,x,y);globe.add(`${x}:${y}`,buildPlanetTileMesh(address,surface));}
     globe.setSunDirection([0,1,0]);bind();view();
   };
-  const impact=(speed=8000)=>{
+  const impact=(speed=8000,offsetM=0)=>{
     const celestial=universe.activeSystem.bodies.find(b=>b.id===body)!;
     impacts.clear();const event=impacts.emit({bodyId:body,fraction:1,envelopeRadiusM:point[0]+1000,
-      contactPositionM:[point[0]+1000,0,0],impactNormalSystem:[1,0,0],playerVelocityMps:[-speed,0,0],bodyVelocityMps:[0,0,0],
+      contactPositionM:[point[0]+1000,offsetM,0],impactNormalSystem:[1,0,0],playerVelocityMps:[-speed,0,0],bodyVelocityMps:[0,0,0],
       relativeSpeedMps:speed,radialSpeedMps:-speed,assisted:false,responseMode:'graze',responseRadialSpeedMps:0,responseTangentialSpeedMps:0},
-      bodyProfile(celestial),{autopilotActive:false,warpStep:0,simulationTimeS:0},[point[0]+1000,0,0])!;
+      bodyProfile(celestial),{autopilotActive:false,warpStep:0,simulationTimeS:0},[point[0]+1000,offsetM,0])!;
     impacts.drain();return service.consume(event);
   };
   const step=(dt=1/60)=>{bind();player.update(dt,[],0);input.endFrame();};
@@ -88,6 +90,8 @@ export async function startPlanetImpactDestructionLab(container:HTMLElement) {
     globe.setOrientation(universe.frames.convertOrientation(fixed,universe.renderSpace.currentOrigin.frame,IDENTITY_QUAT));
   };
   const lab={get ready(){return !disposed;},universe,impact,
+    setSolarDirection(direction:Vec3){solarDirection=[...direction];globe.setSunDirection(direction);presentation.update();},
+    lookAway(){controls.target.copy(camera.position).add(new Vector3(0,0,1000));controls.update();},
     viewCrater(){const plan=service.last?.plan;if(!plan)return;
       const r=plan.craterRadiusM;camera.position.set(r*.3,r*1.8,r*2.5);controls.target.set(0,-plan.craterDepthM*.3,0);controls.update();},
     pause(value=true){paused=value;},reset,view,setBody(next:'earth'|'moon'|'mars'){body=next;configure();},
@@ -103,7 +107,7 @@ export async function startPlanetImpactDestructionLab(container:HTMLElement) {
       return {grounded,position:p.toArray(),velocity:v.toArray(),contact:physics.lastVolumeContact,firstContact,
         floor:volume.raycast([p.x,10,p.z],[0,-1,0],1200)?.point[1]};},
     snapshot(){return {body,editCount:runtime.edits.editCount,revision:runtime.edits.revision(body),metrics:runtime.metrics,
-      collision:runtime.collisionMetrics,presentation:presentation.stats,mask:globe.volumeMask.publishedCount,
+      collision:runtime.collisionMetrics,presentation:presentation.stats,mask:globe.volumeMask.publishedCount,volumeDrawCalls,
       intactHeight:terrain.heightAt(0,0),service:service.debugMetrics(),player:{position:player.position.toArray(),velocity:player.velocity.toArray(),
         state:player.state,contact:player.lastVolumeContact}};},
     dispose(){if(disposed)return;disposed=true;renderer.setAnimationLoop(null);input.dispose();player.character.dispose();controls.dispose();
@@ -118,7 +122,10 @@ export async function startPlanetImpactDestructionLab(container:HTMLElement) {
   panel.querySelector<HTMLButtonElement>('[data-view="above"]')!.onclick=()=>view();
   panel.querySelector<HTMLButtonElement>('[data-view="inside"]')!.onclick=()=>view(true);
   configure();window.__DR_IMPACT_LAB__=lab;
-  renderer.setAnimationLoop(()=>{update();controls.update();renderer.render(scene,camera);
+  const countVolumeDraw=()=>{volumeDrawCalls++;};
+  renderer.setAnimationLoop(()=>{update();controls.update();volumeDrawCalls=0;
+    for(const mesh of presentation.root.children)mesh.onBeforeRender=countVolumeDraw;
+    renderer.render(scene,camera);
     panel.querySelector('output')!.textContent=`${body} · ${player.state} · ${runtime.metrics.publishedReplacements} chunks publicados`;
     panel.querySelector('pre')!.textContent=Object.entries({...service.debugMetrics(),...runtime.debugMetrics()}).map(([k,v])=>`${k}: ${v}`).join('\n');});
   return lab;

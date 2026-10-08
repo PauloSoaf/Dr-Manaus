@@ -50,6 +50,7 @@ import { TravelDomain } from '../world/travel/TravelDomain';
 import { CelestialImpactService } from '../world/travel/CelestialImpactService';
 import { RockyImpactDestructionService } from '../world/destruction/RockyImpactDestructionService';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
+import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
 import { IMPACT_VOLUME_LIMITS } from '../world/planet/volume/PlanetVolumeImpactDemand';
 import { PlanetVolumeTerrainProvider } from '../world/planet/volume/PlanetVolumeTerrainProvider';
 import { PlanetVolumeCollisionProvider } from '../world/planet/volume/PlanetVolumeCollisionProvider';
@@ -217,7 +218,15 @@ export class Game {
       id=>bodyProfile(this.universe.activeSystem.bodies.find(b=>b.id===id)!),entries=>{
         this.earth?.globe.volumeMask.update(entries);
         for(const provider of this.planetProviders.values())provider.globe.volumeMask.update(entries);
-      });
+      },{solarDirection:id=>bodySolarDirection(this.universe.activeSystem,this.universe.frames,id,this.universe.renderSpace.currentOrigin.frame),
+        surface:id=>{const body=this.universe.activeSystem.bodies.find(b=>b.id===id);return body?surfaceForBody(body):undefined;},
+        prepareMasks:entries=>{const masks=[...(this.earth?[this.earth.globe.volumeMask]:[]),
+          ...[...this.planetProviders.values()].map(p=>p.globe.volumeMask)],commits=masks.map(m=>m.prepareUpdate(entries));
+          return ()=>{for(const commit of commits)commit();};},
+        maskStats:()=>{const stats=[...(this.earth?[this.earth.globe.volumeMask.stats]:[]),
+          ...[...this.planetProviders.values()].map(p=>p.globe.volumeMask.stats)],tiles=stats.reduce((s,m)=>s+m.tiles,0);
+          return {averageBounds:tiles?stats.reduce((s,m)=>s+m.averageBounds*m.tiles,0)/tiles:0,
+            maxBounds:Math.max(0,...stats.map(m=>m.maxBounds)),zeroTiles:stats.reduce((s,m)=>s+m.zeroTiles,0),maskedTiles:stats.reduce((s,m)=>s+m.maskedTiles,0)};}});
     this.universe.volume.setImpactPublication(this.volumeRenderer);
     this.rockyImpactDestruction=new RockyImpactDestructionService({edits:this.universe.volume.edits,
       body:id=>this.universe.activeSystem.bodies.find(b=>b.id===id),
@@ -1436,6 +1445,7 @@ export class Game {
     return{
       ...this.solarDebug(),
       ...this.universe.volume?.debugMetrics(),
+      'Planet Destruction · Tile masks avg max / zero masked':`${this.volumeRenderer.stats.masks?.averageBounds.toFixed(2)??'0'} ${this.volumeRenderer.stats.masks?.maxBounds??0} / ${this.volumeRenderer.stats.masks?.zeroTiles??0} ${this.volumeRenderer.stats.masks?.maskedTiles??0}`,
       ...this.rockyImpactDestruction.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
       'Geo · Altitude':`${t.altitudeM.toFixed(1)} m`,

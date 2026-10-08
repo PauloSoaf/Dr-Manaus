@@ -2,7 +2,7 @@ import {
   BufferAttribute, BufferGeometry, FrontSide, Group, Mesh, MeshBasicNodeMaterial,
   type Object3D, Vector3,
 } from 'three/webgpu';
-import { attribute, normalWorld, smoothstep, uniform } from 'three/tsl';
+import { attribute, normalWorld, uniform } from 'three/tsl';
 import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { faceUvToDirection } from './CubeSphere';
 import { planetTile, type PlanetTileAddress, tileBounds, tileCentreDirection } from './PlanetTileAddress';
@@ -10,6 +10,7 @@ import { planetSurfaceRadius, type PlanetSurfaceGenerator } from './PlanetSurfac
 import { polarRadiusM } from './PlanetBody';
 import type { Quat, Vec3 } from '../spatial/units';
 import { PlanetVolumeSurfaceMask } from '../../rendering/PlanetVolumeSurfaceMask';
+import { planetDirectLightNode } from '../../rendering/PlanetVolumeLighting';
 
 export const PLANET_TILE_RESOLUTION = 17;
 export const PLANET_FALLBACK_INSET_M = 4;
@@ -146,8 +147,7 @@ export class PlanetGlobe {
     });
 
     const sunDotNormal = normalWorld.dot(this.uSunDirectionRender);
-    const terminator = smoothstep(-0.1, 0.1, sunDotNormal);
-    const lit = attribute('color', 'vec3').mul(terminator.mix(0.05, 1.0));
+    const lit = attribute('color', 'vec3').mul(planetDirectLightNode(sunDotNormal));
     this.material.colorNode = lit;
     this.material.opacityNode = this.uTileOpacity;
   }

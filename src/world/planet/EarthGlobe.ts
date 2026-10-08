@@ -16,6 +16,7 @@ import { surfaceHeightAt, surfaceNormalEnu } from './EarthElevation';
 import { enuBasis } from '../spatial/ENU';
 import { faceUvToDirection } from './CubeSphere';
 import { PlanetVolumeSurfaceMask } from '../../rendering/PlanetVolumeSurfaceMask';
+import {earthDirectLightNode,earthNightAmbientNode} from '../../rendering/PlanetVolumeLighting';
 
 export function parseTileKey(key: string): PlanetTileAddress | undefined {
   const parts = key.split(':');
@@ -64,8 +65,6 @@ export const EARTH_GLOBE_RENDER_LIMIT_M = 20_000_000;
 /** Vertices per tile edge. 17 gives 512 triangles: fine enough to read as curved, cheap to build. */
 export const TILE_RESOLUTION = 17;
 
-/** How hard the Sun drives the surface, against a tone mapper set for a city at golden hour. */
-const SUN_GAIN = 1.45;
 /** Rayleigh blue, near enough. The limb of the Earth from orbit is this colour. */
 const ATMOSPHERE = uniform(new Color(0.29, 0.53, 0.93));
 // The surface and shell both contribute air at the limb. Keep each subtle so their sum never
@@ -380,10 +379,8 @@ export class EarthGlobe {
      * atmosphere carries light past the geometric horizon. A hard `max(0)` gives a knife edge that
      * reads as a shading bug, so the lambert term is faded across a few degrees either side.
      */
-    const daylight = smoothstep(-0.10, 0.25, incidence).mul(incidence.max(0).add(0.12));
     // Not black at night: very subtle blue ambient to maintain readability without looking like a hole.
-    const nightAmbient = vec3(0.004, 0.008, 0.018);
-    const lit = surface.mul(daylight.mul(SUN_GAIN)).add(nightAmbient);
+    const lit = surface.mul(earthDirectLightNode(incidence)).add(earthNightAmbientNode());
 
     /**
      * The atmosphere, seen edge on.
