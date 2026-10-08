@@ -1,6 +1,6 @@
 import { planetVolumeBoundsIntersect, type BodyFixedPoint, type PlanetVolumeBounds } from './PlanetVolumeEdit';
 import { chunkByteLength, type PlanetVolumeChunk } from './PlanetVolumeChunk';
-import { chunkKeyToString, type PlanetVolumeChunkKey } from './PlanetVolumeChunkKey';
+import { chunkKeyToString,samplingProfileOf, type PlanetVolumeChunkKey } from './PlanetVolumeChunkKey';
 import type { PlanetVolumeEditStore } from './PlanetVolumeEditStore';
 
 export const DEFAULT_VOLUME_CACHE_LIMITS = Object.freeze({ maxChunks: 64, maxBytes: 2 * 1024 * 1024 });
@@ -76,14 +76,17 @@ export class PlanetVolumeChunkCache {
   stats(bodyId?: string) {
     let resident = 0, stale = 0, distanceBytes = 0, materialBytes = 0;
     const lodCounts: Record<number, number> = {};
+    const profileCounts:Record<string,number>={},profileBytes:Record<string,number>={};
     for (const chunk of this.entries.values()) {
       if (bodyId !== undefined && chunk.key.bodyId !== bodyId) continue;
-      resident++; stale += Number(chunk.state === 'stale'); distanceBytes += chunk.distances.byteLength;
+      resident++; stale += Number(chunk.state === 'stale'); distanceBytes += chunk.distances.byteLength+(chunk.boundaryDistances?.byteLength??0);
       materialBytes += chunk.materials?.byteLength ?? 0;
       lodCounts[chunk.key.lod] = (lodCounts[chunk.key.lod] ?? 0) + 1;
+      const profile=samplingProfileOf(chunk.key);profileCounts[profile]=(profileCounts[profile]??0)+1;
+      profileBytes[profile]=(profileBytes[profile]??0)+chunkByteLength(chunk);
     }
     return { resident, stale, bytes: distanceBytes + materialBytes, distanceBytes, materialBytes,
-      hits: this.hits, misses: this.misses, evictions: this.evictions, lodCounts };
+      hits: this.hits, misses: this.misses, evictions: this.evictions, lodCounts,profileCounts,profileBytes };
   }
   dispose(): void { this.unsubscribe?.(); this.clearAll(); }
 }

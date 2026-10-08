@@ -9,6 +9,10 @@ export interface PlanetVolumeCollisionBvh {
 }
 export const COLLISION_LEAF_TRIANGLES=8;
 export const MAX_COLLISION_BUILD_BYTES=4*1024*1024;
+export function requiredVolumeCollisionBuildBytes(mesh:PlanetVolumeMesh):number {
+  const n=mesh.triangleCount,leaves=2**Math.ceil(Math.log2(Math.max(1,Math.ceil(n/COLLISION_LEAF_TRIANGLES)))),capacity=2*leaves-1;
+  return n*36+capacity*40+1024+mesh.positions.byteLength+mesh.indices.byteLength+mesh.normals.byteLength;
+}
 const spread=(v: number)=>{v=(v|(v<<16))&0x030000ff;v=(v|(v<<8))&0x0300f00f;v=(v|(v<<4))&0x030c30c3;v=(v|(v<<2))&0x09249249;return v;};
 
 /** Bounded radix/Morton ordering then balanced median tree. Each advance unit handles one
@@ -33,7 +37,7 @@ export class PlanetVolumeCollisionBvhJob {
     const n=mesh.triangleCount,leaves=2**Math.ceil(Math.log2(Math.max(1,Math.ceil(n/COLLISION_LEAF_TRIANGLES)))),capacity=2*leaves-1;
     if(!Number.isSafeInteger(n)||n<0||mesh.indices.length!==n*3||mesh.positions.length!==mesh.vertexCount*3
       ||mesh.normals.length!==mesh.positions.length||!mesh.originBodyFixedM.every(Number.isFinite)
-      ||n*36+capacity*40+1024+mesh.positions.byteLength+mesh.indices.byteLength+mesh.normals.byteLength>MAX_COLLISION_BUILD_BYTES)
+      ||requiredVolumeCollisionBuildBytes(mesh)>MAX_COLLISION_BUILD_BYTES)
       throw new RangeError('invalid or over-budget volume collision source');
     this.triangleBounds=new Float32Array(n*6);this.codes=new Uint32Array(n);this.order=new Uint32Array(n);this.scratch=new Uint32Array(n);
     this.bounds=new Float32Array(n?capacity*6:0);this.nodes=new Int32Array(n?capacity*4:0);this.nodes.fill(-1);

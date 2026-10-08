@@ -18,7 +18,8 @@ export class PlanetVolumeMeshCache {
   get(source:PlanetVolumeChunk):PlanetVolumeMesh|undefined {
     const id=chunkKeyToString(source.key),entry=this.entries.get(id);
     if(!entry) return undefined;
-    if(entry.source!==source||source.state!=='ready'||entry.mesh.sourceRevision!==source.sourceRevision) {
+    if(entry.source!==source||source.state!=='ready'||entry.mesh.sourceRevision!==source.sourceRevision
+      ||entry.mesh.generationSignature!==source.generationSignature) {
       this.remove(source.key);return undefined;
     }
     this.entries.delete(id);this.entries.set(id,entry);return entry.mesh;
@@ -26,6 +27,7 @@ export class PlanetVolumeMeshCache {
   insert(source:PlanetVolumeChunk,mesh:PlanetVolumeMesh):boolean {
     const size=volumeMeshByteLength(mesh);
     if(source.state!=='ready'||source.sourceRevision!==mesh.sourceRevision
+      ||source.generationSignature!==mesh.generationSignature
       ||chunkKeyToString(source.key)!==chunkKeyToString(mesh.key)||size>this.limits.maxBytes) return false;
     this.remove(source.key);
     while(this.entries.size>=this.limits.maxMeshes||this.bytes+size>this.limits.maxBytes) this.remove(this.entries.values().next().value!.source.key);

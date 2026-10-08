@@ -1,11 +1,17 @@
 import { MARCHING_CUBES_TRIANGLES } from './MarchingCubesTable';
 import type { PlanetVolumeChunk } from './PlanetVolumeChunk';
 import { maximumVolumeMeshBytes, type PlanetVolumeMesh } from './PlanetVolumeMesh';
+import { samplingProfileOf } from './PlanetVolumeChunkKey';
 
 const CORNERS = [[0,0,0],[1,0,0],[1,1,0],[0,1,0],[0,0,1],[1,0,1],[1,1,1],[0,1,1]] as const;
 const EDGES = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]] as const;
 const FACES = [[0,1,2,3],[4,5,6,7],[0,1,5,4],[3,2,6,7],[0,3,7,4],[1,2,6,5]] as const;
 export const MAX_VOLUME_MESH_JOB_BYTES = 2 * 1024 * 1024;
+// 33^3 scratch (1,006,332 B) + worst-case output/copy (8,950,272 B) = 9,956,604 B.
+export const MAX_HIGH_VOLUME_MESH_JOB_BYTES = 10 * 1024 * 1024;
+export function volumeMeshJobByteLimit(chunk:Pick<PlanetVolumeChunk,'key'>):number {
+  return samplingProfileOf(chunk.key)==='impact-high'?MAX_HIGH_VOLUME_MESH_JOB_BYTES:MAX_VOLUME_MESH_JOB_BYTES;
+}
 
 /** Pure classic Marching Cubes at iso=0. Negative solid; winding and gradients point toward empty. */
 export class PlanetVolumeMeshingJob {
@@ -36,13 +42,14 @@ export class PlanetVolumeMeshingJob {
     this.sampleCount = this.n**3; this.cellCount = this.cells**3;
     this.sourceRevision = chunk.sourceRevision;
     if (chunk.state !== 'ready' || !Number.isInteger(this.n) || this.n<2 || this.n>33
+      ||(samplingProfileOf(chunk.key)==='impact-high'&&(this.n!==33||chunk.boundaryDistances?.length!==6*this.n**2))
       || chunk.cellsPerAxis !== this.cells || chunk.distances.length !== this.sampleCount
       || !Number.isFinite(chunk.spacingM) || chunk.spacingM<=0 || !chunk.originBodyFixedM.every(Number.isFinite)) {
       throw new RangeError('invalid ready volume grid');
     }
     const scratch = this.sampleCount*28 + 8*12;
     // Include compact result copies in the worst-case live-array bound, not just retained output.
-    if (chunk.classification === 'MIXED' && scratch + maximumVolumeMeshBytes(this.n)*2 > MAX_VOLUME_MESH_JOB_BYTES) {
+    if (chunk.classification === 'MIXED' && scratch + maximumVolumeMeshBytes(this.n)*2 > volumeMeshJobByteLimit(chunk)) {
       throw new RangeError('volume meshing job exceeds typed-array budget');
     }
     const count = chunk.classification === 'MIXED' ? this.sampleCount : 0;
@@ -102,7 +109,10 @@ export class PlanetVolumeMeshingJob {
     for(let axis=0;axis<3;axis++) {
       const stride=axis===0?1:axis===1?n:n*n, coordinate=axis===0?x:axis===1?y:z;
       const lo=coordinate>0?i-stride:i,hi=coordinate<n-1?i+stride:i;
-      const value=(values[hi]-values[lo])/((coordinate===0||coordinate===n-1?1:2)*this.chunk.spacingM);
+      const halo=this.chunk.boundaryDistances,faceIndex=axis===0?y+n*z:axis===1?x+n*z:x+n*y;
+      const a=coordinate===0&&halo?halo[(axis*2)*n*n+faceIndex]:values[lo],
+        b=coordinate===n-1&&halo?halo[(axis*2+1)*n*n+faceIndex]:values[hi];
+      const value=(b-a)/((halo||coordinate>0&&coordinate<n-1?2:1)*this.chunk.spacingM);
       if(!Number.isFinite(value)) throw new RangeError('non-finite volume mesh gradient');
       this.gradients[i*3+axis]=value;
       if(!Number.isFinite(this.gradients[i*3+axis])) throw new RangeError('volume mesh gradient exceeds Float32');
@@ -159,6 +169,7 @@ export class PlanetVolumeMeshingJob {
   private finish(): void {
     if(!this.indexCount) this.vertexCount=0;
     this.result={key:this.chunk.key,originBodyFixedM:this.chunk.originBodyFixedM,sourceRevision:this.sourceRevision,
+      generationSignature:this.chunk.generationSignature,
       positions:this.positions.slice(0,this.vertexCount*3),normals:this.normals.slice(0,this.vertexCount*3),
       indices:this.indices.slice(0,this.indexCount),triangleCount:this.indexCount/3,vertexCount:this.vertexCount,
       droppedDegenerateTriangles:this.dropped,ambiguousFaceCount:this.ambiguousFaces};

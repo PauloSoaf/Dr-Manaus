@@ -6,6 +6,7 @@ export interface PlanetVolumeMesh {
   readonly key: PlanetVolumeChunkKey;
   readonly originBodyFixedM: BodyFixedPoint;
   readonly sourceRevision: number;
+  readonly generationSignature?:string;
   readonly positions: Float32Array;
   readonly normals: Float32Array;
   readonly indices: Uint32Array;

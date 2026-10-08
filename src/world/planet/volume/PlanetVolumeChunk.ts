@@ -11,8 +11,11 @@ export interface PlanetVolumeChunk {
   readonly samplesPerAxis: number;
   readonly cellsPerAxis: number;
   readonly spacingM: number;
+  readonly generationSignature:string;
   /** X + N * (Y + N * Z). Negative solid, positive empty, zero boundary. */
   readonly distances: Float32Array;
+  /** HIGH-only exterior faces for identical central gradients at chunk seams. */
+  readonly boundaryDistances?:Float32Array;
   readonly materials?: Uint8Array;
   readonly intactMaterial: string;
   readonly sourceRevision: number;
@@ -22,5 +25,5 @@ export interface PlanetVolumeChunk {
   state: 'ready' | 'stale';
 }
 export function chunkByteLength(chunk: PlanetVolumeChunk): number {
-  return chunk.distances.byteLength + (chunk.materials?.byteLength ?? 0);
+  return chunk.distances.byteLength + (chunk.boundaryDistances?.byteLength??0) + (chunk.materials?.byteLength ?? 0);
 }
