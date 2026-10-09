@@ -199,13 +199,13 @@ test('Solar adapter rejects a coincident body name in another sector or system',
     const t=createUniversalTarget({...target('mars'),systemId:address.systemId,address});assert.equal(solarNavigationTarget(t,f.universe),undefined);
   }
 });
-test('Materialized procedural target resolves live system coordinates; its future travel stays gated',()=>{
+test('Materialized procedural body resolves live coordinates and permits intra-system travel',()=>{
   const f=fixture(),p=catalog.proceduralDescriptor('milky_way',sector,star.id)!,t=proc('body');
   f.universe.activeSystem=new ProceduralSystemRuntime(p.system,9000);f.universe.address=p.address;
   f.universe.playerSystemPositionM=()=>[10,20,30];
   const r=f.resolver.resolve(t),position=f.universe.activeSystem.positionOf(t.bodyId!)!;
   assert.equal(r.materialized,true);assert.equal(r.distanceM,Math.hypot(position[0]-10,position[1]-20,position[2]-30));
-  assert.equal(r.travelCapability,'interstellar-future');assert.equal(solarNavigationTarget(t,f.universe),undefined);
+  assert.equal(r.travelCapability,'intra-system');assert.equal(solarNavigationTarget(t,f.universe),undefined);
 });
 test('Malformed or nonexistent generated bodies never resolve through a valid star descriptor',()=>{
   const f=fixture(),t=proc('body'),bad=createUniversalTarget({...t,objectId:'imaginary',bodyId:'imaginary',address:{...(t.address as any),bodyId:'imaginary'}});

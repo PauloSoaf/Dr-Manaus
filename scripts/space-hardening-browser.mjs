@@ -1,3 +1,4 @@
+import {proceduralSystemCheckpoint} from './procedural-system-browser-checkpoint.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { preview } from 'vite';
@@ -841,6 +842,7 @@ try {
   console.log('D1.2: actual unlocked Game MINOR contact creates one HIGH edit, coherent mesh/collider, no ghost ground and walkable Moon floor.');
   }
   assert.equal(errors.length,0,errors.join('\n'));
+  if(!d1Only&&!sunOnly)results.proceduralSystem=await proceduralSystemCheckpoint(page);
   results.errors=errors;
   await writeFile(resultPath,JSON.stringify(results,null,2));
   console.log(`${sunOnly?'SUN-APPROACH-P0 fresh Game':d1Only?'D1 fresh Game':'SPACE-HARDENING'} browser checks passed.`);
