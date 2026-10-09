@@ -53,7 +53,14 @@ export async function universalTargetCheckpoint(page) {
     const andromeda=await identity();assert.equal(andromeda.kind,'galaxy');assert.equal(andromeda.materialized,false);
     assert.ok(Math.abs(andromeda.distanceM/9.4607304725808e15-2.5e6)<2000);
     await close();await page.keyboard.press('p');
-    await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('intergaláctica'),null,{timeout:15000});
+    await page.waitForFunction(()=>window.__DR_MANAUS__.universalTravel.state?.phase==='spool',null,{timeout:5000});
+    await page.keyboard.press('x');
+    await page.waitForFunction(()=>!window.__DR_MANAUS__.universalTravel.active||window.__DR_MANAUS__.universalTravel.state.phase==='coasting',null,{timeout:5000});
+    if(await page.evaluate(()=>window.__DR_MANAUS__.universalTravel.active)){
+      await page.evaluate(()=>window.__DR_MANAUS__.selectNavigationTarget('sol'));await page.keyboard.press('p');
+      await page.waitForFunction(()=>!window.__DR_MANAUS__.universalTravel.active,null,{timeout:10000});
+      await page.evaluate(()=>window.__DR_MANAUS__.selectNavigationTarget('andromeda'));
+    }
     assert.equal((await identity()).autopilot,false);await open();
     await page.waitForFunction(()=>document.querySelector('[data-universal-target="galaxy/andromeda"]').getAttribute('aria-pressed')==='true',null,{timeout:15000});
     const persisted=await identity();assert.equal(persisted.key,andromeda.key);
@@ -62,7 +69,7 @@ export async function universalTargetCheckpoint(page) {
     const diagnostics=await page.evaluate(()=>{const g=window.__DR_MANAUS__;return g.universeDebug(g.hudFlight());});
     assert.equal(diagnostics['Universal Target · Name'],'Andromeda');assert.equal(diagnostics['Universal Target · Kind'],'galaxy');
     assert.equal(diagnostics['Universal Target · Galaxy'],'andromeda');assert.equal(diagnostics['Universal Target · Distance'],'2.50 Mly');
-    assert.equal(diagnostics['Universal Target · Materialized'],'não');assert.equal(diagnostics['Universal Target · Capability'],'intergalactic-future');
+    assert.equal(diagnostics['Universal Target · Materialized'],'não');assert.equal(diagnostics['Universal Target · Capability'],'intergalactic');
     await page.keyboard.press('F3');await open();
     const rebase=await page.evaluate(()=>{
       const g=window.__DR_MANAUS__,t=g.universalNavigationTarget,r=g.universalTargetResolver.resolve(t),u=g.universe,

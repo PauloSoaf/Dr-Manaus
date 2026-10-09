@@ -331,7 +331,7 @@ export class UniversalMapPanel {
     }
 
     html += `</table>`;
-    if(loc.transit)html=`<h3>LOCALIZAÇÃO · EM TRÂNSITO</h3>${hypercruiseTelemetry(loc.transit,this.flight?.universalTarget?.target.displayName)}<small>Runtime de origem preservado até a chegada atômica.</small>`;
+    if(loc.transit)html=`<h3>LOCALIZAÇÃO · EM TRÂNSITO</h3><div class="cruise-block hypercruise-map">${hypercruiseTelemetry(loc.transit,this.flight?.universalTarget?.target.displayName)}</div>`;
 
     const resolved=this.flight?.universalTarget;
     html+=`<section id="universal-target-card"><h3>ALVO DE NAVEGAÇÃO</h3>`;

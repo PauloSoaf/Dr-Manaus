@@ -32,7 +32,7 @@ export async function proceduralSystemCheckpoint(page,options={}) {
   if(u2){await page.locator('[data-map-level="galaxy"]').click();await page.locator('[data-universal-target="galaxy/andromeda"]').evaluate(b=>b.click());}
   else await page.locator('[data-u1-test="select"]').click();
   const selected=await snapshot();
-  assert.equal(selected.address.systemId,'sol');assert.equal(selected.capability,u2?'intergalactic-future':'interstellar-future');
+  assert.equal(selected.address.systemId,'sol');assert.equal(selected.capability,u2?'intergalactic':'interstellar');
   await page.keyboard.press('m');await page.keyboard.press('p');
   assert.equal((await snapshot()).address.systemId,'sol','T_U1_NO_NORMAL_P_INTERSTELLAR_TELEPORT');
   results.checks.push('T_U1_NO_NORMAL_P_INTERSTELLAR_TELEPORT');
@@ -67,7 +67,10 @@ export async function proceduralSystemCheckpoint(page,options={}) {
     assert.ok(results.blackHoles.m31.distance/9.4607304725808e15<22000);assert.equal(results.blackHoles.m31.materialized,true);
     assert.ok(results.blackHoles.sgra.distance/9.4607304725808e15>2.4e6);assert.equal(results.blackHoles.sgra.materialized,false);
     await page.keyboard.press('m');await page.keyboard.press('p');await page.waitForTimeout(200);
-    assert.equal((await snapshot()).galaxy,'andromeda');assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.interplanetary.autopilot.active),false);
+    assert.equal((await snapshot()).galaxy,'andromeda');
+    assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.universalTravel.state?.phase),'spool');
+    await page.keyboard.press('x');
+    await page.waitForFunction(()=>!window.__DR_MANAUS__.universalTravel.active,null,{timeout:3000});assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.interplanetary.autopilot.active),false);
     results.checks.push('T_U2_NORMAL_P_DOES_NOT_INTERGALACTIC_TELEPORT','T_U2_TARGET_SELECTION_DOES_NOT_MOVE_PLAYER','T_U2_TEST_ARRIVAL_ANDROMEDA');
     await page.evaluate(()=>{const g=window.__DR_MANAUS__,delta=g.localGroup[0].group.position.clone().sub(g.rendering.camera.position).normalize();g.camera.setLocalView(delta.toArray());g.camera.inSpace=true;});
     await page.waitForTimeout(300);await page.screenshot({path:'artifacts/u2-milky-way-external.png'});
@@ -77,12 +80,16 @@ export async function proceduralSystemCheckpoint(page,options={}) {
   }
   await page.evaluate(()=>{
     const g=window.__DR_MANAUS__,c=g.universalTargetCatalog,a=g.universe.address,
-      star=Array.from(c.sectors.values()).flat().find(s=>s.id!==a.systemId);
+      prefix=`${a.galaxyId}/${a.sector.x},${a.sector.y},${a.sector.z}/`,
+      star=Array.from(c.sectors.values()).flat().find(s=>s.id.startsWith(prefix)&&s.id!==a.systemId);
     const t=c.proceduralTarget(a.galaxyId,a.sector,star.id,'star');g.selectNavigationTarget(t,'map');
   });
   await page.keyboard.press('m');await page.keyboard.press('p');await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.universalTravel.state?.phase),'spool');
+  await page.keyboard.press('x');
+  await page.waitForFunction(()=>!window.__DR_MANAUS__.universalTravel.active,null,{timeout:3000});
   const rejected=await snapshot();assert.equal(rejected.address.systemId,results.active.address.systemId);
-  assert.equal(rejected.frame,results.active.frame);assert.equal(rejected.capability,'interstellar-future');
+  assert.equal(rejected.frame,results.active.frame);assert.equal(rejected.capability,'interstellar');
   assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.interplanetary.autopilot.active),false);
   await page.keyboard.press('m');
   await page.locator(`[data-body-target="${rocky.id}"]`).evaluate(b=>b.click());

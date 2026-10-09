@@ -173,8 +173,8 @@ export class Game {
           const direction=this.universe.frames.convertDirection(this.universe.activeSystem.systemFrameId,this.universe.renderSpace.currentOrigin.frame,local);
           this.hyperPresentation.setDirection(direction);this.camera.setLocalView(direction);}
       }
-      this.hud.notify('Hypercruise · '+result);return true;
-    }catch(e){this.hud.notify(String(e));return false;}
+      this.hud.notify(result==='started'?'Hypercruise · iniciando viagem':result==='resumed'?'Hypercruise · retomando viagem':'Hypercruise · viagem em andamento');return true;
+    }catch(e){this.hud.notify(e instanceof Error?e.message:String(e));return false;}
   }
 
   private impactService?: CelestialImpactService;
