@@ -96,13 +96,14 @@ spool/final synchronization. Peak c is the analytical main-leg speed, not physic
 |---|---:|---:|---:|
 | Sol → sector-zero nearby system | 64.845 | 9.943 / 11.443 | 2.534e8 |
 | Sol → MW 17,-2,4/0 | 1,848.131 | 15.662 / 17.162 | 4.585e9 |
-| MW 17,-2,4/0 → MW 18,-2,4/0 | 109.189 | 10.807 / 12.307 | 3.986e8 |
+| MW 17,-2,4/0 → MW 18,-2,4/0 | 109.189 | 10.807 / 12.307 | 3.926e8 |
 | Sol → MW 500,0,0/0 | 50,056.777 | 21.390 / 22.890 | 9.093e10 |
 | Sol → Andromeda production entry | 2,507,324.917 | 19.725 / 21.225 | 4.939e12 |
 | Andromeda → MW / Sol | 2,507,324.917 | 19.725 / 21.225 | 4.939e12 |
 
 Galaxy-centre selection distance and production-entry travel distance are intentionally distinct:
 Andromeda entry is about 20 kly from M31's centre. Neither distance comes from a render proxy.
+Main-leg peaks include the 98.5% progress extent: `0.985 × distance / (0.8 × duration)`.
 
 ## Validation and limits
 
@@ -188,7 +189,8 @@ The permanent gate was committed before any U3 feature changes:
 5. `b3156a2` — cancellation and destination selection hardening.
 6. `ebb2ce2` — production browser route validation and regression integration.
 7. `6cb37fb` — arrival activation hardening preserves transit progress during resource rollback.
-8. Final documentation commit follows all local gates; its pushed SHA is checked in Actions.
+8. `5b03971` — checkpoint documentation after all local gates; its Actions run passed.
+9. Final benchmark documentation includes the main leg's 98.5% extent; its pushed SHA is the final CI gate.
 
 Manual acceptance remains the user's gameplay and visual check: actual Manaus takeoff, remote
 P travel, Andromeda X cancellation/resume, rocky landing/takeoff, return to Sol and Earth/Manaus
