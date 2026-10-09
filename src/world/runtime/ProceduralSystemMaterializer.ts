@@ -139,6 +139,10 @@ export class ProceduralSystemMaterializer {
       const session=this.prepare(target);
       return {get ready(){return session.ready;},commit:()=>this.install(session,false),dispose:()=>session.dispose()};
     }
+    const address=target.address;
+    if(!this.catalog.resolve(target)||!address||!isUniverseAddress(address)||address.galaxyId!=='milky_way'
+      || address.sector.x!==0n||address.sector.y!==0n||address.sector.z!==0n)
+      throw Error('Canonical Solar destination required');
     const u=this.universe,galaxy=this.galaxies?.prepareSolarReturn();let disposed=false,complete=false;
     return {get ready(){return !disposed;},dispose:()=>{if(!complete&&!disposed){disposed=true;galaxy?.dispose();}},commit:()=>{
       if(disposed||complete)throw Error('Solar destination unavailable');

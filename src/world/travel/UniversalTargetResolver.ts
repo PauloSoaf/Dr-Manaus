@@ -76,7 +76,8 @@ export class UniversalTargetResolver {
       domain=intergalactic?'intergalactic':'interstellar';
       const sameSystem=a.galaxyId===current.galaxyId && a.systemId===current.systemId && sectorsEqual(a.sector,current.sector);
       if(a.systemId==='sol'){
-        positionM=this.context.solarSystem?.positionOf(t.bodyId!);
+        positionM=t.kind==='system'?[0,0,0]:this.context.solarSystem?.positionOf(t.bodyId!);
+        materialized=sameSystem;
       }else {
         const p=this.catalog.proceduralDescriptor(a.galaxyId,a.sector,a.systemId!);
         if(p){
@@ -89,7 +90,7 @@ export class UniversalTargetResolver {
       }
       if(materialized && sameSystem){
         domain='system';
-        if(activeSystemTargetBodyId(t,this.context))capability='intra-system';
+        if(t.kind==='system'||activeSystemTargetBodyId(t,this.context))capability='intra-system';
         const live=t.kind==='system'?[0,0,0] as Vec3:this.context.activeSystem.positionOf(t.bodyId!);
         if(live)distanceM=Math.hypot(...live.map((v,i)=>v-observer[i]));
       }else if(positionM)distanceM=addressSeparationM(current,this.context.location?.sectorOffsetM??observer,a,positionM);

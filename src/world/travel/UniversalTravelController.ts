@@ -52,7 +52,8 @@ export class UniversalTravelController {
         logicalDistanceM:p.logicalDistanceM,durationS:p.durationS});
       this.releasePrepared();this.begin(reversed,1-progress);return 'started';
     }
-    if(safety.grounded||safety.localPhysics||safety.landing||safety.collision||safety.materializing)
+    if(this.universe.player.frame!==this.universe.activeSystem.systemFrameId
+      || safety.grounded||safety.localPhysics||safety.landing||safety.collision||safety.materializing)
       throw Error('Hypercruise requires safe free flight in SYSTEM space');
     const plan=createTravelPlan(this.universe,this.catalog,target,`travel-${++this.serial}`);
     if(sameSystem(plan.origin.address,plan.destination.address))return 'same-system';
@@ -78,7 +79,7 @@ export class UniversalTravelController {
     this.elapsed=0;this.segmentStart=this.state.progress;
     this.segmentDuration=Math.max(2,this.state.plan.durationS*(1-this.segmentStart));
     this.holdElapsed=0;this.braking=undefined;this.state.phase='spool';this.state.preparationError=undefined;
-    if(!this.prepared)this.preparing=false;
+    // A pending preparation belongs to the same immutable plan and remains reusable on resume.
   }
   update(dtS:number):void {
     const s=this.state;if(!s)return;
@@ -104,11 +105,12 @@ export class UniversalTravelController {
       if(s.prepared){
         this.holdElapsed+=dt;const t=Math.min(1,this.holdElapsed/.5),smooth=t*t*t*(10+t*(-15+6*t));
         const arrivalStart=Math.max(.985,this.segmentStart),remaining=1-arrivalStart;
+        const previous=s.progress;
         s.progress=arrivalStart+remaining*smooth;s.phase='arrival';
         s.effectiveSpeedMps=remaining*30*t*t*(1-t)**2/.5*s.plan.logicalDistanceM;
         if(t===1){
           try{this.prepared!.commit();}
-          catch(e){s.preparationError=String(e);s.phase='arrival-hold';s.progress=.985;this.releasePrepared();this.measure(s);return;}
+          catch(e){s.preparationError=String(e);s.phase='arrival-hold';s.progress=previous;this.segmentStart=previous;this.releasePrepared();this.measure(s);return;}
           s.phase='complete';s.effectiveSpeedMps=0;s.progress=1;this.measure(s);
           this.lastCompleted={...s};this.prepared=undefined;this.state=undefined;this.universe.transit=undefined;
           this.hooks.arrived?.(s.plan);return;

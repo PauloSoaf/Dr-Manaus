@@ -348,7 +348,7 @@ export class HUD {
    */
   private renderCruiseBlock(state:HUDState){
     const block=$('#cruise-block');
-    if(state.location.transit){block.hidden=false;block.innerHTML=hypercruiseTelemetry(state.location.transit);return;}
+    if(state.location.transit){block.hidden=false;block.innerHTML=hypercruiseTelemetry(state.location.transit,state.flight?.universalTarget?.target.displayName);return;}
     const flight=state.flight;
     // Shown for a target *or* an engaged warp: the gear matters even with nowhere chosen.
     if(!flight||(!flight.universalTarget&&!flight.targetBodyId&&!flight.warpStep)){block.hidden=true;return;}
@@ -439,6 +439,7 @@ export class HUD {
     const alt=typeof state.altitudeM==='number'?state.altitudeM:state.position.y;
     $('#altitude').textContent=alt>999999?(alt/1000).toFixed(0)+' km':alt>9999?(alt/1000).toFixed(1)+' km':Math.round(alt)+' m';
     $('#flight-state').textContent=speed>343?'SUPERSÔNICO':state.state==='Grounded'?'EM SOLO':state.state==='Falling'?'EM QUEDA':state.state==='Hover'?'LEVITANDO':'EM VOO';
+    if(state.location.transit){$('#altitude').textContent='EM TRÂNSITO';$('#flight-state').textContent='HYPERCRUISE';}
     $('#world-time').textContent=state.time;$('#world-weather').textContent=({clear:'CÉU LIMPO',cloudy:'NUBLADO',rain:'CHUVA',storm:'TEMPORAL'} as Record<string,string>)[state.weather]??state.weather;
     const directions=['N','NE','L','SE','S','SO','O','NO'];const heading=((state.yaw*180/Math.PI)%360+360)%360;$('#heading').textContent=directions[Math.round(heading/45)%8];
     document.querySelectorAll<HTMLButtonElement>('[data-power]').forEach(button=>button.classList.toggle('active',button.dataset.power===state.selected));

@@ -160,7 +160,7 @@ export class Game {
     try {
       const result=this.universalTravel.start(target,{grounded:this.player.state==='Grounded',
         localPhysics:this.travelDomain.localPhysicsActive,landing:this.landingIntent.active,
-        collision:!!this.interplanetary.lastCelestialContact||this.universe.telemetry.altitudeM<=0});
+        collision:!!this.interplanetary.lastCelestialContact||this.clearanceOrSphereM(this.universe.telemetry.dominantBody)<=0});
       if(result==='same-system')return false;
       if(result==='started'){
         this.interplanetary.autopilot.cancel();this.landingIntent.cancel();this.warpStep=0;this.player.velocity.set(0,0,0);
@@ -499,6 +499,8 @@ export class Game {
     this.rendering.setShadows(settings.shadows);this.camera.baseFov=settings.fov;this.camera.sensitivity=settings.sensitivity;this.camera.invertY=settings.invertY;
     this.audio.setVolumes(settings.masterVolume,settings.ambienceVolume,settings.effectsVolume);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.destruction.setQuality(QUALITY[settings.quality].particles);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');this.realCity.setNight(settings.time==='Night');this.realCity.setDetail(settings.quality!=='Low');}
   async travel(id:string,debug=false){
+    if(this.universalTravelController?.active){this.hud.notify('Em trânsito · X desacelera / P retoma');return;}
+
     if(id==='u2-test-arrival'){this.debugEnterAndromeda();return;}
     if(id==='u2-test-solar'){this.debugReturnFromAndromeda();return;}
     if(id==='u1-test-select'){this.selectU1TestSystem();return;}
@@ -732,7 +734,7 @@ export class Game {
       this.rendering.renderer.domElement.clientHeight,
       bodySolarDirection(this.universe.activeSystem,this.universe.frames,'earth',this.universe.renderSpace.currentOrigin.frame));
     this.space.setSolarPresentation(this.universalTravelController?.active?undefined:this.celestialController.renderSamples.find(sample=>sample.profile?.bodyClass==='star'));
-    this.celestialLabels.update(this.celestialController.renderSamples, this.rendering.camera, {
+    this.celestialLabels.update(this.universalTravelController?.active?[]:this.celestialController.renderSamples, this.rendering.camera, {
       selectedBodyId: this.navigationLock?.bodyId,
       inTravel: this.travelDomain.kind === 'interplanetary',
       referenceBodyId: this.universe.resolveBodyContext().dominantBody,
@@ -1618,6 +1620,10 @@ export class Game {
       'HYPERCRUISE · Plan / Domain':this.universalTravelController?.state?this.universalTravelController.state.plan.id+' / '+this.universalTravelController.state.plan.domain:'—',
       'HYPERCRUISE · Phase / Progress':this.universalTravelController?.state?this.universalTravelController.state.phase+' / '+(this.universalTravelController.state.progress*100).toFixed(2)+'%':'—',
       'HYPERCRUISE · Prepared / Effective c':this.universalTravelController?.state?this.universalTravelController.state.prepared+' / '+this.universalTravelController.state.effectiveSpeedMps/299792458:'—',
+      'HYPERCRUISE · Source / Destination':this.universalTravelController?.state?this.universalTravelController.state.plan.origin.address.systemId+' / '+this.universalTravelController.state.plan.destination.address.systemId:'—',
+      'HYPERCRUISE · Source galaxy / Destination galaxy':this.universalTravelController?.state?this.universalTravelController.state.plan.origin.address.galaxyId+' / '+this.universalTravelController.state.plan.destination.address.galaxyId:'—',
+      'HYPERCRUISE · Distance / Remaining':this.universalTravelController?.state?this.universalTravelController.state.plan.logicalDistanceM+' / '+this.universalTravelController.state.distanceRemainingM:'—',
+      'HYPERCRUISE · ETA / Cancelled coasting':this.universalTravelController?.state?this.universalTravelController.state.etaS+' / '+(this.universalTravelController.state.phase==='coasting'):'—',
       'ACTIVE GALAXY · QA transition mode':this.materializer?.qaArrivalMode?(this.universe.activeGalaxy.id==='andromeda'?'U2 TEST':'U1 TEST'):'off',
       'ACTIVE SYSTEM · Galaxy':this.universe.address.galaxyId,
       'ACTIVE SYSTEM · Sector':Object.values(this.universe.address.sector).join(','),

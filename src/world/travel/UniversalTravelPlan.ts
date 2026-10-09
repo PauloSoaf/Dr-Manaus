@@ -36,8 +36,9 @@ export function hypercruiseDuration(distanceM:number,domain:UniversalTravelDomai
 }
 export function travelAnchor(address:UniverseAddress,offsetM:Vec3):TravelAnchor {
   const a=Object.freeze({...address,sector:Object.freeze({...address.sector})});
+  const global=observerGlobalPositionM(a,offsetM);
   return Object.freeze({address:a,offsetM:Object.freeze([...offsetM]) as unknown as Vec3,
-    globalPositionM:observerGlobalPositionM(a,offsetM)});
+    globalPositionM:global?Object.freeze(global) as Vec3:undefined});
 }
 export function createTravelPlan(u:UniverseRuntime,catalog:UniversalTargetCatalog,
   requested:UniversalNavigationTarget,id:string,origin=travelAnchor(u.address,u.location.sectorOffsetM??u.playerSystemPositionM())):UniversalTravelPlan {
@@ -49,10 +50,10 @@ export function createTravelPlan(u:UniverseRuntime,catalog:UniversalTargetCatalo
   const destination=travelAnchor(a,offset),domain=origin.address.galaxyId===a.galaxyId?'interstellar':'intergalactic';
   const distance=addressSeparationM(origin.address,origin.offsetM,a,offset);
   if(!Number.isFinite(distance)||distance===undefined||distance<=0) throw Error('Destination distance unavailable');
-  return Object.freeze({id,origin,destination,requestedTarget:createUniversalTarget(requested),
-    resolvedDestination:createUniversalTarget(resolved),domain,logicalDistanceM:distance,
+  return Object.freeze({id,origin,destination,requestedTarget:createUniversalTarget(requested,requested.source,requested.selectedAtS,requested.mode),
+    resolvedDestination:createUniversalTarget(resolved,resolved.source,resolved.selectedAtS,resolved.mode),domain,logicalDistanceM:distance,
     durationS:hypercruiseDuration(distance,domain),departureEpochS:u.time,arrivalPolicy:'safe-system-corridor',
-    finalBodyTarget:requested.kind==='body'?createUniversalTarget(requested):undefined});
+    finalBodyTarget:requested.kind==='body'?createUniversalTarget(requested,requested.source,requested.selectedAtS,requested.mode):undefined});
 }
 
 /** C2 velocity ramps: integral of smoothstep over 20% acceleration/deceleration. */

@@ -14,6 +14,7 @@ export class HypercruisePresentation {
   private readonly galaxies=new Map<string,Points>();
   private readonly material=new LineBasicMaterial({color:0xaedaff,transparent:true,opacity:0,depthWrite:false,fog:false,blending:AdditiveBlending});
   private fade=0;
+  private clock=0;
   constructor(parent:Group) {
     this.root.name='Universal hypercruise presentation';parent.add(this.root);this.root.visible=false;
     let seed=0x183ec4;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
@@ -36,16 +37,20 @@ export class HypercruisePresentation {
   update(state:UniversalTransitState|undefined,camera:PerspectiveCamera,dt:number):void {
     const moving=state&&!['coasting','arrival-hold'].includes(state.phase);
     const intensity=state?Math.min(1,state.effectiveSpeedMps/(state.plan.logicalDistanceM/state.plan.durationS)):0;
+    this.clock+=Math.max(0,dt)*intensity;
     this.fade+=(Number(!!moving)-this.fade)*Math.min(1,dt*6);
     this.root.visible=!!state||this.fade>.005;this.root.position.copy(camera.position);
     this.material.opacity=.02*this.fade+.22*intensity;
     const attribute=this.lines.geometry.getAttribute('position');
     for(let i=0;i<384;i++){
-      const x=this.seeds[i*3],y=this.seeds[i*3+1],z=-4000-this.seeds[i*3+2]*14000;
+      const x=this.seeds[i*3],y=this.seeds[i*3+1],z=-18000+((this.seeds[i*3+2]+this.clock*.4)%1)*14000;
       attribute.setXYZ(i*2,x,y,z);attribute.setXYZ(i*2+1,x*.99,y*.99,z-30-intensity*1600);
     }attribute.needsUpdate=true;
     for(const [id,points] of this.galaxies){
+      if(!state){points.visible=this.fade>.005&&!!points.userData.transitVisible;
+        (points.material as PointsMaterial).opacity=(points.userData.baseOpacity??0)*this.fade;continue;}
       const intergalactic=state?.plan.domain==='intergalactic';points.visible=!!intergalactic;
+      points.userData.transitVisible=points.visible;
       if(!state||!intergalactic)continue;
       const destination=id===state.plan.destination.address.galaxyId;
       const d=destination?state.distanceRemainingM:state.distanceTravelledM;
@@ -53,6 +58,7 @@ export class HypercruisePresentation {
       const angular=radius/Math.max(radius,d);
       points.position.set(0,0,destination?-20000:20000);points.scale.setScalar(Math.min(12000,20000*angular));
       (points.material as PointsMaterial).opacity=destination?.3+.7*state.progress:1-.7*state.progress;
+      points.userData.baseOpacity=(points.material as PointsMaterial).opacity;
     }
   }
   dispose():void {this.lines.geometry.dispose();this.material.dispose();for(const p of this.galaxies.values()){p.geometry.dispose();(p.material as PointsMaterial).dispose();}this.root.removeFromParent();}

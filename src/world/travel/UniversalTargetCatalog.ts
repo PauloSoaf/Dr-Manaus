@@ -29,9 +29,13 @@ export class UniversalTargetCatalog {
         address:{galaxyId:galaxy.id,sector:sectorIndex(0n,0n,0n)} },bh.positionM);
     }
     // Small production catalogue until U5 star picking/search. Canonical identities, shared HUD/map authority.
-    for(const sector of [sectorIndex(0n,0n,0n),sectorIndex(17n,-2n,4n),sectorIndex(18n,-2n,4n)]) {
+    for(const sector of [sectorIndex(0n,0n,0n),sectorIndex(17n,-2n,4n),sectorIndex(18n,-2n,4n),sectorIndex(500n,0n,0n)]) {
       const star=generateStarSector('milky_way',sector).stars.find(s=>s.planetCount>0);
       if(star){const t=this.proceduralTarget('milky_way',sector,star.id,'system');if(t)this.add(t);}
+    }
+    for(const star of generateStarSector('andromeda',sectorIndex(200n,0n,0n)).stars.slice(0,2)){
+      const target=this.proceduralTarget('andromeda',sectorIndex(200n,0n,0n),star.id,'system');
+      if(target)this.add(target);
     }
     for (const anchor of KNOWN_COSMIC_ANCHORS) this.add({ kind:anchor.id==='norma_cluster'?'cosmic-anchor':'cluster',
       displayName:anchor.name, objectId:anchor.id, address:{cell:sectorIndex(0n,0n,0n),localMpc:anchor.positionMpc} });

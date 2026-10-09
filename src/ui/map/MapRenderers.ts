@@ -335,22 +335,23 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
 
     const px = cx + (normX * (w * 0.4));
     const py = cy + (normY * (h * 0.4) * 0.6);
-    
-    this.ctx.beginPath();
-    this.ctx.arc(px, py, 3, 0, Math.PI * 2);
-    this.ctx.fillStyle = '#ef4444';
-    this.ctx.fill();
+    if(!location.transit){
+      this.ctx.beginPath();
+      this.ctx.arc(px, py, 3, 0, Math.PI * 2);
+      this.ctx.fillStyle = '#ef4444';
+      this.ctx.fill();
 
-    this.ctx.beginPath();
-    this.ctx.arc(px, py, 12 + Math.sin(this.offset * -20) * 4, 0, Math.PI * 2);
-    this.ctx.strokeStyle = '#ef4444';
-    this.ctx.stroke();
+      this.ctx.beginPath();
+      this.ctx.arc(px, py, 12 + Math.sin(this.offset * -20) * 4, 0, Math.PI * 2);
+      this.ctx.strokeStyle = '#ef4444';
+      this.ctx.stroke();
+    }
 
     this.ctx.fillStyle = '#94a3b8';
     this.ctx.font = '16px "Inter", sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.fillText(`GALAXY: ${location.address.galaxyId ? location.address.galaxyId.toUpperCase() : 'MILKY WAY'}`, cx, h - 40);
-    this.markers.draw(this.ctx,w,h,false,location.address.galaxyId);
+    this.markers.draw(this.ctx,w,h,false,location.transit?undefined:location.address.galaxyId);
   }
 }
 
@@ -402,6 +403,6 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     this.ctx.font = '16px "Inter", sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.fillText('COSMOLOGY: LOCAL GROUP', cx, h - 40);
-    this.markers.draw(this.ctx,w,h,true,location.address.galaxyId);
+    this.markers.draw(this.ctx,w,h,true,location.transit?undefined:location.address.galaxyId);
   }
 }
