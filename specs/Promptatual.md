@@ -8,6 +8,8 @@ Camada aérea curva Earth-fixed, apresentação apenas, pronta antes da retirada
 água real ampliada, skyline/ruas agregados e máscara conservadora de copas. Handoff
 8/15/13/60 km e ground único preservados. Fonte/cache/licença, custos e evidências:
 [25-status-MANAUS-AERIAL-PRESENTATION-P0.md](../docs/world/25-status-MANAUS-AERIAL-PRESENTATION-P0.md).
+Validação: 1.108/1.108 unit, 109/109 focados, typecheck/build/diff PASS; browsers Manaus
+(dez capturas até 200 km), espacial completo e local PASS em GPU Intel Arc/D3D11, zero erros.
 Documentar, commit e push autorizados. **PARAR para validação manual do hotfix; U0 recebido
 é a próxima tarefa, depois da aceitação. D1 congelado e ordem do epic preservada.**
 

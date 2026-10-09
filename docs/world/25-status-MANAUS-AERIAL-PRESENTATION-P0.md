@@ -142,6 +142,15 @@ mode replaces this full regression. The earlier software timeout was at 7,085 m 
 96 m/s relative speed and a ready patch, just above the unchanged 7,000 m handoff gate;
 native execution completes it without modifying navigation or physics.
 
+Native local browser: **PASS, zero browser errors**, spawn/ground→hover, local city and
+colliders, map/menus/settings, road traffic, actual local building demolition, cosmic
+departure and physical Earth reentry. All three final native browsers run serially.
+Final code checks: **1,108/1,108 unit**, focused **109/109**, aerial **28/28**, typecheck,
+production build and `git diff --check` **PASS**. Implementation commit: `1b2bda5`;
+browser coverage/documentation: `ea1ec2e`. The delivery response records the final SHA
+and exact-SHA GitHub Validation result, avoiding a self-referential SHA in this document.
+No U0/provider/address/destruction feature expansion is included.
+
 ## Manual gate and next work
 
 Native GPU acceptance remains manual: inspect local trees on both shores/islands/Ponta
