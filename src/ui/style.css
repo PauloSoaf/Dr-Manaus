@@ -37,3 +37,7 @@
 .map-body-target[data-universal-target]{display:block;width:100%;margin:6px 0}
 #universal-target-card{margin:16px 0;padding:10px;border:1px solid #334155;border-radius:5px;overflow-wrap:anywhere}
 .cruise-block i{max-width:180px;text-align:right;overflow-wrap:anywhere}
+
+.u1-test-controls,.u2-test-controls{margin-top:14px;padding:10px;border:1px solid #334155;border-radius:5px}
+.u1-test-controls p,.u2-test-controls p{font-size:11px;color:#94a3b8}
+.u1-test-controls button,.u2-test-controls button{display:block;width:100%;margin:6px 0;padding:8px;background:#162c36;border:1px solid #486879;border-radius:4px;color:#a7e4f5;font-size:11px;cursor:pointer}

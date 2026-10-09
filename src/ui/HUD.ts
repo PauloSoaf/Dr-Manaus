@@ -325,7 +325,7 @@ export class HUD {
   }
   toggleDebug(){this.debugOpen=!this.debugOpen;$('#debug-panel').hidden=!this.debugOpen;if(this.debugOpen&&document.pointerLockElement)void document.exitPointerLock();}
   notify(message:string){$('#toast').textContent=message;$('#toast').classList.add('visible');this.toastTimer=4;}
-  private travel(id:string){if(id.startsWith('u1-test-')){this.hooks.travel(id,true);return;}if(!this.save.data.discovered.includes(id)){this.notify('Voe até este lugar para descobrir sua assinatura.');return;}this.togglePanel('');this.hooks.travel(id);}
+  private travel(id:string){if(id.startsWith('u1-test-')||id.startsWith('u2-test-')){this.hooks.travel(id,true);return;}if(!this.save.data.discovered.includes(id)){this.notify('Voe até este lugar para descobrir sua assinatura.');return;}this.togglePanel('');this.hooks.travel(id);}
   /** Phase names the player can act on, rather than the controller's internal vocabulary. */
   private static readonly CRUISE_PHASES: Record<string,string> = {
     capture:'CAPTURA', arrived:'CHEGADA', idle: 'PRONTO PARA CRUISE',
@@ -356,10 +356,10 @@ export class HUD {
       ? `${Math.round(flight.accelerationMps2/1000).toLocaleString('pt-BR')} km/s²`
       : `${Math.round(flight.accelerationMps2)} m/s²`;
     block.innerHTML=`<b>${HUD.CRUISE_PHASES[flight.phase]??flight.phase}</b>`
-      +`<span>LOCK<i>${flight.lockActive?'ATIVO':'—'}</i></span><span>PILOTO<i>${flight.autopilotActive?'ATIVO':'MANUAL'}</i></span>`
+      +`<span>GALÁXIA ATUAL<i>${formatGalaxyName(state.location?.address.galaxyId)}</i></span><span>SISTEMA ATUAL<i>${this.lastSystemBodies.find(b=>!b.parentId)?.name??state.location?.address.systemId??'—'}</i></span><span>SETOR<i>${state.location?Object.values(state.location.address.sector).join(','):'—'}</i></span><span>LOCK<i>${flight.lockActive?'ATIVO':'—'}</i></span><span>PILOTO<i>${flight.autopilotActive?'ATIVO':'MANUAL'}</i></span>`
       +(flight.warpLabel?`<span>WARP<i class="warp">${flight.warpLabel}</i></span>`:'')
       +`<span>DESTINO<i>${flight.targetName??flight.targetBodyId??'—'}</i></span>`
-      +(flight.universalTarget?`<span>TIPO<i>${flight.universalTarget.target.kind.replaceAll('-',' ').toUpperCase()}</i></span><span>GALÁXIA<i>${formatGalaxyName(flight.universalTarget.target.galaxyId)}</i></span><span>VIAGEM<i>${travelCapabilityLabel(flight.universalTarget.travelCapability)}</i></span>`:'')
+      +(flight.universalTarget?`<span>TIPO<i>${flight.universalTarget.target.kind.replaceAll('-',' ').toUpperCase()}</i></span><span>GALÁXIA DO ALVO<i>${formatGalaxyName(flight.universalTarget.target.galaxyId)}</i></span><span>VIAGEM<i>${travelCapabilityLabel(flight.universalTarget.travelCapability)}</i></span>`:'')
       +`<span>${flight.photosphereClearanceM===undefined?'DISTÂNCIA':'FOTOSFERA'}<i>${flight.distanceToTargetM===undefined?'—':formatDistance(flight.photosphereClearanceM??flight.distanceToTargetM)}</i></span>`
       +(flight.photosphereClearanceM===undefined?'':`<span>CENTRO<i>${formatDistance(flight.distanceToTargetM!)}</i></span><span>DIÂMETRO ANGULAR<i>${flight.angularDiameterDeg?.toFixed(2)}°</i></span>`)
       +`<span>VELOCIDADE<i>${speed.value} ${speed.unit}</i></span>`

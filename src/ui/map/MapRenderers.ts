@@ -1,3 +1,5 @@
+import { galaxyDefinition, galaxyLocalPositionM, boundedGalaxySector } from '../../world/galaxy/GalaxyCoordinates';
+import { LIGHT_YEAR_M } from '../../world/spatial/units';
 import type { UniverseLocation } from '../../world/spatial/UniverseLocation';
 import type { Vector3 } from 'three/webgpu';
 import type { HUDBody } from '../HUD';
@@ -11,10 +13,10 @@ export class CatalogMapMarkers {
   hitTest(x:number,y:number):string|undefined {
     return this.hits.find(h=>Math.hypot(x-h.x,y-h.y)<=22)?.key;
   }
-  draw(ctx:CanvasRenderingContext2D,w:number,h:number,cosmology=false):void {
+  draw(ctx:CanvasRenderingContext2D,w:number,h:number,cosmology=false,currentGalaxy?:string):void {
     this.hits=[];
     const descriptors=this.descriptors.filter(d=>cosmology
-      ? ['cluster','cosmic-anchor','observable-horizon'].includes(d.kind) : ['galaxy','black-hole'].includes(d.kind));
+      ? ['galaxy','cluster','cosmic-anchor','observable-horizon'].includes(d.kind) : ['galaxy','black-hole'].includes(d.kind));
     ctx.font='12px sans-serif';ctx.textAlign='left';
     // Catalogue inset avoids attributing invented astrophysical coordinates to the schematic spiral.
     for(let i=0;i<descriptors.length;i++){
@@ -23,7 +25,7 @@ export class CatalogMapMarkers {
       this.hits.push({key:universalTargetKey(d),x,y});
       ctx.fillStyle=d.kind==='black-hole'?'#fbbf24':'#67e8f9';
       ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#e2e8f0';ctx.fillText(d.displayName,x+14,y+4,Math.max(20,w-x-20));
+      ctx.fillStyle='#e2e8f0';ctx.fillText(d.displayName+(currentGalaxy&&d.galaxyId?(d.galaxyId===currentGalaxy?' · CURRENT':' · EXTERNAL'):''),x+14,y+4,Math.max(20,w-x-20));
     }
   }
 }
@@ -326,12 +328,10 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
     this.ctx.ellipse(cx, cy, 60, 35, 0, 0, Math.PI * 2);
     this.ctx.fill();
 
-    // Player Sector: preserve BigInt precision by scaling via BigInt arithmetic
-    // 5000 sectors radius covers ~500,000 ly
-    const GALAXY_SECTOR_RADIUS = 5000n;
-    const scaleFactor = 10000n;
-    const normX = Number((location.address.sector.x * scaleFactor) / GALAXY_SECTOR_RADIUS) / Number(scaleFactor);
-    const normY = Number((location.address.sector.y * scaleFactor) / GALAXY_SECTOR_RADIUS) / Number(scaleFactor);
+    const galaxy=galaxyDefinition(location.address.galaxyId);
+    const local=galaxy&&boundedGalaxySector(location.address.sector)?galaxyLocalPositionM(galaxy,location.address.sector,location.sectorOffsetM):[0,0,0];
+    const radius=(galaxy?.diameterLy??100_000)*.5*LIGHT_YEAR_M;
+    const normX=Math.max(-1,Math.min(1,local[0]/radius)),normY=Math.max(-1,Math.min(1,local[1]/radius));
 
     const px = cx + (normX * (w * 0.4));
     const py = cy + (normY * (h * 0.4) * 0.6);
@@ -350,7 +350,7 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
     this.ctx.font = '16px "Inter", sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.fillText(`GALAXY: ${location.address.galaxyId ? location.address.galaxyId.toUpperCase() : 'MILKY WAY'}`, cx, h - 40);
-    this.markers.draw(this.ctx,w,h);
+    this.markers.draw(this.ctx,w,h,false,location.address.galaxyId);
   }
 }
 
@@ -402,6 +402,6 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     this.ctx.font = '16px "Inter", sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.fillText('COSMOLOGY: LOCAL GROUP', cx, h - 40);
-    this.markers.draw(this.ctx,w,h,true);
+    this.markers.draw(this.ctx,w,h,true,location.address.galaxyId);
   }
 }
