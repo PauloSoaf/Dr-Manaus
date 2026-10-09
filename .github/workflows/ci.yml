@@ -24,9 +24,11 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Unit tests
-        run: npm test
       - name: Typecheck
         run: npm run typecheck
+      - name: Permanent regression gate
+        run: npm run test:regression
+      - name: Unit tests
+        run: npm test
       - name: Production build
         run: npm run build

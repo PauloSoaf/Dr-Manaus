@@ -20,7 +20,9 @@
     "profile": "node scripts/profile-flight.mjs",
     "assets:player": "node scripts/build-player-character.mjs",
     "validate:player": "node scripts/validate-player-glb.mjs",
-    "test:browser:galaxy": "node scripts/galaxy-runtime-browser.mjs"
+    "test:browser:galaxy": "node scripts/galaxy-runtime-browser.mjs",
+    "test:regression": "node --import tsx --test tests/regression/*.test.ts",
+    "test:browser:regression": "node scripts/regression-browser.mjs"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.5.0",
