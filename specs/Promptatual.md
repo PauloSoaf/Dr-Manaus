@@ -1,793 +1,2815 @@
-# Patch v2 - indice e ordem obrigatoria
+# Checkpoint atual — U2 Galaxy Runtime / Andromeda — 2026-10-09
 
-## Checkpoint atual — U1 PLAYABLE PROCEDURAL SYSTEMS (2026-10-09)
+Baseline confirmado: `9909091f7bfb14b40c031752df29550deddd1651`, branch `feat/universe-map`.
+Os anexos mais recentes aceitam U1 e autorizam exclusivamente U2, documentação, commits e push.
+A especificação ativa é [U2-GALAXY-RUNTIME-ANDROMEDA.md](U2-GALAXY-RUNTIME-ANDROMEDA.md).
+O relatório de implementação, testes e aceite manual é
+[28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md](../docs/world/28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md).
 
-Baseline `c651abb77c8142244064a1aa4d50504bdfdb9f63`, branch `feat/universe-map`.
-Pedido completo arquivado em [U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
-Implementado: geração consistente com GeneratedStar; perfis explícitos; frames móveis;
-materialização preparada e atômica; visuais/providers do sistema ativo; Tab/P/Warp intra-sistema;
-pouso/caminhada em rochoso e lua sintéticos; gigante sem piso; retorno Solar e revisita determinística.
-Fixture real Via Láctea `17,-2,4`, estrela `milky_way/17,-2,4/0`: 9 planetas, 24 luas, 34 corpos.
-P remoto permanece indisponível. Entrada/retorno só por controles U1 TEST explícitos, em dev
-ou preview com `?u1test=1`; não é hypercruise. D1 preservado, volume gerado desativado.
-1.211/1.211 unit, 237/237 focados, 48/48 IDs obrigatórios cobertos; types/build/diff e browsers
-espacial/local/Manaus PASS, zero erros. Custos, cenários, fixture de descida e limites:
-[27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](../docs/world/27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
-Documentação, commits e push autorizados. **PARAR após U1 para validação manual. Não iniciar
-U2/U3/U4/BH0 automaticamente. Destruição permanece congelada em D1.**
+Implementado: galáxia ativa coerente com UniverseAddress, origem local de setores, sessões preparadas
+com rollback, backdrop local, galáxia externa e buraco negro central corretos, mapa/HUD/F3 e chegada
+explicitamente U2 TEST em Andrômeda. P continua sem viagem intergaláctica; D1 permanece congelado.
+**STOP após U2 para aceite manual. U3/U4/BH0 continuam fora deste checkpoint.**
 
-## Checkpoint anterior — U0 UNIVERSAL NAVIGATION TARGET (2026-10-09)
+O prompt Solar editado pelo usuário foi preservado integralmente abaixo. Ele descreve um baseline
+anterior; suas prioridades antigas e a restrição de Playwright foram substituídas pelo pedido U2
+mais recente, que exige o checkpoint de navegador já existente. Não reaplicar patches Solar entregues.
 
-Novo pedido U0 após revisão do hotfix Manaus; baseline real
-`9f7ac3e7a6a78d2944f32438ccdec9c1ebff8fef`, branch `feat/universe-map`.
-Implementado: autoridade universal única em NavigationTargetState, catálogo/resolver lógico,
-chaves/serialização BigInt, adapter Solar preservado, seleção de Via Láctea/Andromeda/Sgr A*/M31,
-identidade procedural e âncoras cosmológicas. Mapa/HUD/F3 compartilham alvo; seleção não move
-jogador nem altera UniverseRuntime.address/sistema. P bloqueia destinos de viagem futura.
-1.163/1.163 unit, 137/137 focados, typecheck/build/diff PASS; browser espacial completo
-(incluindo F3 e mapa desktop/mobile) e local Manaus PASS, zero erros.
-Contrato, resultados e limites:
-[26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](../docs/world/26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
-U0 aceito pelo novo anexo U1; o gate histórico foi superado pelo checkpoint atual acima.
+---
 
-## Checkpoint anterior — MANAUS-AERIAL-PRESENTATION-P0 (2026-10-08)
+# DR MANAUS — SISTEMA SOLAR COMPLETO E VIAGEM PLANETÁRIA EM ESCALA REAL
 
-Novo anexo sobre `5b176f42fd6bf442a8cff130f077c2c6f79ee5cf`: hotfix Manaus/rio/árvores
-antes de U0. Contrato: [MANAUS-AERIAL-PRESENTATION-P0.md](MANAUS-AERIAL-PRESENTATION-P0.md).
-Camada aérea curva Earth-fixed, apresentação apenas, pronta antes da retirada do root local;
-água real ampliada, skyline/ruas agregados e máscara conservadora de copas. Handoff
-8/15/13/60 km e ground único preservados. Fonte/cache/licença, custos e evidências:
-[25-status-MANAUS-AERIAL-PRESENTATION-P0.md](../docs/world/25-status-MANAUS-AERIAL-PRESENTATION-P0.md).
-Validação: 1.108/1.108 unit, 109/109 focados, typecheck/build/diff PASS; browsers Manaus
-(dez capturas até 200 km), espacial completo e local PASS em GPU Intel Arc/D3D11, zero erros.
-Documentar, commit e push autorizados. Gate histórico do hotfix preservado; o novo pedido U0
-é o checkpoint atual acima. D1 congelado e ordem do epic preservada.
-
-## Checkpoint anterior — D1.1-FINAL-HARDENING (2026-10-08)
-
-O último anexo aceita D1.2 no HEAD `c92249bc221c9f4ec16c6840f0823d77ffb9454f` e muda a prioridade:
-fechar D1.1, congelar destruição em D1 e avançar depois para o Universe Map.
-Contrato: [D1.1-FINAL-HARDENING.md](D1.1-FINAL-HARDENING.md).
-Implementado: regiões completas múltiplas com histerese, direção solar real/modelo intacto/albedo
-compartilhados, frustum culling, máscaras filtradas por tile, preparo de índices/cobertura/máscaras
-antes do commit atômico; saves preservam metadados opcionais de impacto. Sem mudança em MC,
-D0, C4, Sol ou destruição local de Manaus. HIGH 33³/8 m e STANDARD 17³/16 m preservados.
-Evicção por bytes permite retorno após mudança de prioridade/janela, sem repetir trabalho estável.
-Typecheck/build/diff PASS; novos 28, focados 373, completos 1.080; fidelidade 24/24 PASS sem mudar
-tolerâncias; browsers volume/espacial completo e curto Game/local PASS; benchmark antes/depois 12/12 PASS.
-Resultados, custos, limites e validação manual:
-[24-status-D1.1-FINAL-HARDENING.md](../docs/world/24-status-D1.1-FINAL-HARDENING.md).
-Roadmap novo: [UNIVERSE-MAP-COMPLETION-EPIC.md](UNIVERSE-MAP-COMPLETION-EPIC.md),
-U0→U1→U2→U3→U4→BH0→BH1→BH2→U5→U6. D2–D5 preservados e adiados.
-Documentação/commit/push autorizados. **PARAR para aceitação manual depois de D1.1-FINAL;
-U0 é o próximo checkpoint, não uma implementação automática nesta entrega.**
-
-## Checkpoint anterior — D1.2 HIGH-RES IMPACT CORE (2026-10-08)
-
-Novo anexo autoriza exclusivamente D1.2 sobre `9e02dbed21a91cdea5db7c50c12c89a8673af7a6`.
-Perfil padrão preservado 256 m / 17³ / 16 m; impactos pequenos/médios usam perfil explícito
-`impact-high` 256 m / 33³ / 8 m, identidade diferente, assinaturas de geração e faces externas
-para normais contínuas. Região HIGH inteira sem redução de raio; limites por bytes/count,
-preparo incremental no scheduler e troca conjunta mesh/collider/máscara. Budget insuficiente
-mantém autoridade antiga com `high-res-budget`. Sem Transvoxel/LOD misto; sem perfil 4 m.
-**`npm run check:impact-fidelity` PASS: 24/24 Lua/Marte/Terra × 260/800 × fases 0/2/4/6 m**,
-sem mudar tolerâncias; erro máximo de raio 7,248 m e profundidade 0,2134 m.
-Typecheck/build/diff PASS; focados 410/410, completos 1.052/1.052, browsers volume/espacial
-curto com Game real PASS, zero erros; benchmarks padrão/alta resolução e 12 impactos PASS.
-Arquitetura, custos, testes e aceitação: [23-status-D1.2-HIGH-RES-IMPACT-CORE.md](../docs/world/23-status-D1.2-HIGH-RES-IMPACT-CORE.md).
-Sol/Manaus/C4 preservados. Documentar, commit e push autorizados.
-**PARAR depois de D1.2 para validação manual; não retomar D1.1 automaticamente nem iniciar D2.**
-
-## Checkpoint anterior — D1.1: parada no gate de fidelidade (2026-10-07)
-
-Novo anexo autoriza o hardening D1.1 sobre o Sol entregue em `644e2def54fe39213f1be6b4053749b8ecc305c0`.
-O gate foi medido antes das mudanças funcionais: limite de 8 m no raio e min(4 m, 15%) na
-profundidade, sem relaxamento posterior. O erro de raio chegou a 13,075 m; cinco de seis
-fixtures Lua/Marte/Terra excedem o limite. **`npm run check:impact-fidelity` retorna 1**.
-Medição cruza collider/mesh publicados e contorno analítico da CSG/relevo; inclui footprint
-de substituição e diagnóstico JSON. Testes de medição passando não significam aceitação.
-O anexo exige STOP quando a tolerância é excedida: **D1.1 NÃO concluído; D1.2 HIGH-RES IMPACT
-CORE necessário antes de D2**. Residência múltipla, iluminação solar dos volumes, frustum,
-máscaras por tile e otimização de publicação continuam pendentes. Sol/D1/P0 preservados.
-Resultados, baseline e pendências: [22-status-D1.1-FIDELITY-GATE.md](../docs/world/22-status-D1.1-FIDELITY-GATE.md).
-Typecheck/build/diff PASS; focados 361/361; completos 1.003/1.003; browsers volume/espacial/local
-PASS, zero erros; benchmark baseline 12/12 PASS. Gate de fidelidade FAIL continua separado.
-Documentação, commit e push continuam autorizados. Não alterar a tolerância para esconder o erro.
-
-## Checkpoint anterior — SUN-APPROACH-P0 (2026-10-07)
-
-O novo anexo autoriza corrigir o Sol sobre o D1 já entregue em `b1ab6a8`.
-O limite manual deixa de ser 2R: fotosfera + 100 km de margem CCD. Autopiloto separado para
-0,03R = 20.871 km acima da fotosfera. Raios físicos e distâncias preservados. Fotosfera procedural,
-corona óptica, LOD angular, detalhe ligado à orientação/rotação solar, glare direcional, HUD/F3.
-Sol continua sem pouso, terreno, volume rochoso ou destruição. D1 existente preservado.
-Contrato e aceitação: [21-status-SUN-APPROACH-P0.md](../docs/world/21-status-SUN-APPROACH-P0.md).
-Typecheck/build/diff PASS; focados 189/189; completos 1.000/1.000; browser espacial/local e
-sessão solar nova PASS, zero erros. CI de implementação `95de682` PASS; SHA final conferido após push.
-**PARAR para aceitação manual solar; não expandir D1 nem iniciar D2/D5.**
-
-## Checkpoint anterior — LOCAL-IMPACT-DESTRUCTION-D1 (2026-10-07)
-
-O anexo atual aceita `02df01c542c7e9917f01534c1fbf78244381ce49` e autoriza exclusivamente D1,
-com documentação, commit e push. MINOR/MAJOR em superfícies rochosas capazes geram um único
-subtract-sphere; demanda de produção, MC, collider D0 e supressão do intacto publicam juntos.
-Lua/Marte devem ter crateras físicas caminháveis; Terra controlada fora de Manaus. SAFE/GRAZE/
-CATASTROPHIC, gigantes e Sol permanecem sem edits. P0 local e CCD/pouso preservados.
-Contrato, correção do sinal da calota, budgets e aceitação:
-[20-status-LOCAL-IMPACT-DESTRUCTION-D1.md](../docs/world/20-status-LOCAL-IMPACT-DESTRUCTION-D1.md).
-Typecheck/build/diff PASS; focados 407/407; completos 964/964. Browsers volume/espacial/local/
-Manaus PASS, zero erros; aceitação com Game novo e três benchmarks PASS. CI do código/testes
-`61f8094` PASS; SHA/CI da entrega final são conferidos depois do push e informados na resposta.
-**Parar para aceitação manual depois de D1; não iniciar D2, integridade ou fragmentação.**
-As paradas históricas anteriores a D1 abaixo foram substituídas por esta autorização.
-
-## Checkpoint anterior — IMPACT-DESTRUCTION-P0 / Manaus local (2026-10-06)
-
-O último anexo aceita o HEAD `267caf5d0a8c6ce435e16270c165965bec7c2445` e autoriza
-o impacto/destruição local antes do D1. Um ImpactFootprint derivado do contato real controla
-cratera, core, blast, impulso, reação, entidades e efeitos. Limites locais: raio 1.200 m,
-profundidade 600 m; consulta apenas inventário residente; filas sem perda, 16 colapsos pesados/frame
-e caminho barato separado de até 1.024 remoções/frame, com prioridade para o núcleo.
-Props, NPCs, carros, árvores e todas as partes do mobiliário participam; reconstrução coerente.
-Contrato, curvas, testes, limites e evidência: [19-status-IMPACT-DESTRUCTION-P0.md](../docs/world/19-status-IMPACT-DESTRUCTION-P0.md).
-Typecheck/build PASS; focados 145/145; completos 886/886. Browsers local/Manaus/espacial PASS,
-zero erros; CI do código e da correção da fixture PASS. O SHA documental final é conferido
-no CI depois do push e informado na entrega.
-Documentar, commit e push seguem autorizados. **PARAR depois deste checkpoint para teste manual.**
-D1, CelestialImpactEvent criando PlanetVolumeEdit, fragmentação e novas features universais
-continuam fora do escopo. C4 e D0 preservados.
-
-## Checkpoint anterior — D0 / PLANET VOLUME COLLISION (2026-10-06)
-
-O anexo mais recente autoriza exclusivamente D0 a partir de
-`4db33426104c9e93d27cbe53a3a3349311e011a8`, após C4. Colisão derivada dos arrays
-Phase 3, BVH determinístico incremental no scheduler existente, cache limitado,
-sweep contínuo cápsula/triângulo, piso/parede/teto e troca atômica de revisão.
-Ativação explícita somente no laboratório; terreno normal e eventos C4 preservados.
-Contrato, testes, limites e roteiro: [18-status-VOLUME-COLLISION-D0.md](../docs/world/18-status-VOLUME-COLLISION-D0.md).
-Typecheck/build/diff PASS; focados 321/321; completos 831/831; browsers volume, espacial
-e local PASS, zero erros; benchmark com nove casos de colisão PASS. CI do código `424c54c`
-PASS; o SHA final de validação/documentação é conferido depois do push e informado na resposta.
-A parada histórica D0 foi substituída pela autorização local IMPACT-DESTRUCTION-P0 acima.
-Não iniciar D1 ou impactos celestes criando edits/destruição planetária.
-
-## Checkpoint anterior — C4 / CELESTIAL IMPACT POLICY (2026-10-05)
-
-O último anexo aceita PLANET-FLIGHT-LANDING-1.1 no HEAD
-`9083c8e53936ed71a45b7a6da75acc3d2965ff2d` para progressão e autoriza **somente C4**.
-Contrato: CCD → contato com fatos anteriores à resposta → política pura → evento transitório
-→ consumidor. Classificar com velocidade relativa ao corpo atingido, separar direto/raspão,
-proteger o mesmo alvo com piloto ativo ou intenção F e emitir uma vez por episódio físico.
-Lock manual não impede impacto catastrófico direto ≥1c. Preservar CCD, pouso e streaming.
-Documentação, commit e push continuam autorizados.
-
-Contrato implementado, matriz dos 19 corpos, limiares, schema, testes e resultados individuais:
-[`17-status-CELESTIAL-IMPACT-POLICY.md`](../docs/world/17-status-CELESTIAL-IMPACT-POLICY.md).
-Typecheck/build/diff PASS; focados 286/286; completos 777/777; browser espacial e local PASS,
-zero erros. O browser preserva Lua/Marte F e verifica os cinco casos C4 com eventos reais.
-GitHub Actions PASS no SHA exato `29220e2`; evidência no relatório canônico.
-A parada histórica C4 foi substituída pela autorização explícita D0 acima. C4 permanece
-sem destruição, VFX, edição de volume, fragmentação ou nova biblioteca física.
-
-## Checkpoint anterior — PLANET-FLIGHT-LANDING-1.1 (2026-10-04, aceito para progressão)
-
-O anexo mais recente congela `42a930a8fb5eaa9d4c0f00b3ef198046a495e7bc` e autoriza
-somente estabilização: restaurar Shift cósmico e Shift+Tab, manter B local/B Warp,
-validar captura inelástica e prefetch, testar o fluxo F no browser e remover scratch.
-Preservar PlanetaryLandingIntent, capture/hold, CCD e tiers locais explícitos.
-Documentar, commit e push continuam autorizados por checkpoint.
-
-Implementado e validado: Shift espacial e ciclo reverso restaurados, ETA crítico atualizado,
-hold concluído dentro de 5 cm, HUD encerrando captura após handoff e scratch removido.
-Typecheck/build/diff PASS; focados 248/248; completos 740/740; browser espacial e local PASS
-com zero erros. Os smokes percorrem controles reais e pouso F na Lua/Marte; validação humana
-ainda é necessária antes de qualquer avanço.
-
-Contrato e resultados finais individuais:
-[`16-status-PLANET-FLIGHT-LANDING-1.md`](../docs/world/16-status-PLANET-FLIGHT-LANDING-1.md).
-A parada histórica de 1.1 foi substituída pela autorização C4 acima.
-
-## Checkpoint anterior — NAV-LOCK-1 (2026-10-03)
-
-O usuário aceitou manualmente C0 no HEAD **`386c531a450ab6770b9da454267081f0501989b9`**:
-pouso lento na Lua, colisão de alta velocidade sem atravessar e interceptação celestial.
-O último anexo autoriza **TARGET LOCK + AUTOPILOT CAPTURE + MAP LOCK** juntos e somente eles.
-Essa autorização substitui a parada anterior em C0.
-
-Contrato implementado: [`03-TARGET-LOCK-AUTOPILOT-AND-MAP.md`](dr-manaus-universe-roadmap/03-TARGET-LOCK-AUTOPILOT-AND-MAP.md).
-Uma identidade em `Game.navigation`, consumida por mapa, HUD e voo; efeméride ao vivo;
-Tab/Shift+Tab selecionam/ciclam no cone de 15°, **P** liga/desliga piloto, Backspace libera.
-R mantém reconstrução de matéria; câmera permanece manual. Seleção não liga piloto nem teleporta.
-O controlador existente calcula frenagem `v²/(2a)`, limita o comando pela distância/warp,
-captura na margem de `bodyArrivalPolicy` e aproxima corpos pousáveis com cobertura e velocidades
-seguras. Corpos sem pouso autorizado fazem standoff e acompanham a velocidade orbital.
-O CCD de todos os 19 corpos e os gates de handoff C0 continuam como autoridades finais.
-
-Resultados e roteiro manual: [`15-status.md`](../docs/world/15-status.md).
-Documentar, commit e push por checkpoint, conforme autorização persistente.
-**PARAR em NAV-LOCK-1.** A validação manual deste checkpoint é necessária antes de qualquer
-impacto catastrófico, energia de impacto, edição de volume, fragmentação ou destruição planetária.
-
-## Checkpoint anterior — CELESTIAL-CCD-P0 / C0 (aceito manualmente em 2026-10-03)
-
-O ZIP `dr-manaus-universe-roadmap.zip` foi extraído em
-[`dr-manaus-universe-roadmap/`](dr-manaus-universe-roadmap/README.md): **20 Markdown, 4.497 linhas**,
-lidos integralmente. Baseline real: `9c6d5b24b8b55e7fe836899d034057747872436e`,
-branch `feat/universe-map`. Executar somente o primeiro checkpoint, conforme
-[`02-PATCH-CELESTIAL-CCD-P0.md`](dr-manaus-universe-roadmap/02-PATCH-CELESTIAL-CCD-P0.md).
-
-Implementado: sweep genérico de terreno com motion clamping, separação de velocidades de
-aproximação/handoff/solver, gate por velocidade radial real e cobertura, envelopes para os
-19 corpos, resposta relativa ao corpo atingido, contrato CelestialContact e telemetria F3/trace
-do primeiro passo local. Lua e Marte compartilham TerrainProvider; gigantes/estrelas não recebem
-piso. O sweep cósmico existente continua ativo até o retorno seguro. Marching Cubes, mapa,
-efemérides, poderes e volume Phase 3 não fazem parte desta alteração.
-
-Contrato: [planetary-handoff-and-volume-phase1.md](../docs/world/planetary-handoff-and-volume-phase1.md).
-Resultados medidos: [15-status.md](../docs/world/15-status.md). C0 agora está aceito manualmente.
-Documentar, commit e push por checkpoint, conforme autorização persistente.
-O gate de C0 foi satisfeito e substituído pelo checkpoint NAV-LOCK-1 acima.
-O restante do pacote organiza checkpoints futuros independentes.
-
-## Checkpoint anterior — PLANET-VOLUME-3 / Phase 3 (2026-10-02)
-
-O anexo mais recente aprova Phase 2 por inspeção estática no HEAD
-`a752f7ceb24811ece5c0ceafdc275fd217d7b272` e pede o próximo patch: Marching Cubes.
-Implementado: mesher puro/resumível para chunks MIXED, posições locais/normais/índices,
-cache de malhas limitado, jobs/batches adaptativos no scheduler existente e laboratório visual
-isolado em `/?volumeLab=1`, com Terra/Lua/Marte intactos ou com corte sphere/capsule.
-O jogo padrão continua sem demanda/malhas volumétricas, com terreno e colisão existentes.
-
-Contrato e medidas: [planetary-handoff-and-volume-phase1.md](../docs/world/planetary-handoff-and-volume-phase1.md).
-Validações: [15-status.md](../docs/world/15-status.md).
-Manter documentação, commit e push em cada checkpoint conforme autorização persistente.
-Encerrar na Phase 3. Não iniciar Transvoxel, cobertura do PlanetGlobe, colisão volumétrica,
-poderes planetários, travessia jogável ou Task 013. Aprovação estática não substitui teste manual.
-
-## Checkpoint anterior — PLANET-VOLUME-2 / Phase 2 (aceito por inspeção estática)
-
-Pedido mais recente aceita SOLAR-12 e autoriza chunks volumétricos residentes esparsos a partir
-de `2f5d8200f6003e8d9a1fb205d154192792c6b00e`, branch `feat/universe-map`.
-Implementado: chaves body-fixed, grade diádica 17³, amostragem pura retomável, cache LRU limitado
-por chunks/bytes, invalidação add/remove por região conservadora, demanda local por distância/LOD
-e integração ao `GlobalStreamingScheduler` existente. Demanda é debug explícito, desligado por
-padrão; edits lógicos sozinhos alocam zero chunks. Terra/Lua/Marte usam o mesmo pipeline.
-
-Contrato, medidas e roadmap: [planetary-handoff-and-volume-phase1.md](../docs/world/planetary-handoff-and-volume-phase1.md).
-Resultados e validação manual: [15-status.md](../docs/world/15-status.md).
-Documentar, commit e push em cada checkpoint, conforme autorização persistente do usuário.
-O bloqueio histórico de Marching Cubes foi superado pelo pedido Phase 3 acima.
-Transvoxel, integração ao terreno, colisores, poderes e Task 013 continuam fora do escopo atual.
-
-## Checkpoint anterior — SOLAR-12 / Task 012 (aceito no pedido PLANET-VOLUME-2)
-
-O usuário confirmou os testes manuais de SPACE-HARDENING-1 no HEAD
-`e0d4e8a460981232678eb067718fddb47fa2b522` e autorizou avançar à Task 012.
-SOLAR-12 adiciona nove luas por dados no catálogo existente (19 corpos), órbitas hierárquicas,
-orientação síncrona, fases solares, perfis visuais leves, labels com prioridade e foco de luas no
-mapa. O mapa consome posições vivas do jogo; seleção e navegação não teleportam.
-As novas luas são sólidas e não pousáveis, sem novos providers de terreno. A Lua da Terra
-preserva dados NASA, pouso, caminhada/salto/decolagem e seu pipeline existente.
-
-Contrato e fontes: [docs/world/10-solar-system.md](../docs/world/10-solar-system.md).
-Validações automáticas e matriz manual pendente: [docs/world/15-status.md](../docs/world/15-status.md).
-O bloqueio histórico de Phase 2 foi superado pelo pedido PLANET-VOLUME-2 acima.
-Task 013, planetas anões e superfícies novas continuam fora do escopo.
-
-## Checkpoint anterior — SPACE-HARDENING-1 (aceito manualmente pelo usuário)
-
-Os pedidos mais recentes do usuário delimitam este checkpoint de estabilização, incluindo Lua
-pisável como P0 e mapa universal como P1. Baseline real: `f8f451250e564958ffad20d26b72df3fe4c9e6de`,
-branch `feat/universe-map`. A baseline congelada do pacote abaixo é histórica.
-
-Implementado e verificado: câmera espacial sem clamp local, áudio por meio/densidade, Terra
-geográfica, cobertura lunar completa e exclusiva, dados NASA offline, retorno real ao terreno
-lunar com caminhada/salto/decolagem e mapa ampliado com canvas responsivo/zoom/labels.
-Resultado histórico: 491 testes unitários e 110 focados passando; typecheck/build/diff check e smoke
-`npm run test:browser:space` passando. O usuário posteriormente confirmou os testes manuais.
-
-Estado e limitações: [docs/world/15-status.md](../docs/world/15-status.md).
-Contrato/causas/arquivos: [docs/world/10-solar-system.md](../docs/world/10-solar-system.md).
-Dados e licença: [docs/world/06-geodata-pipeline.md](../docs/world/06-geodata-pipeline.md).
-
-O bloqueio anterior da Task 012 foi superado pela validação manual e pelo pedido SOLAR-12 acima.
-
-Baseline congelada deste pacote:
+Você está trabalhando no repositório **Dr-Manaus**, branch:
 
 ```text
-branch: feat/universe-map
-HEAD: 2609e4d30901720f9b18e05939f717e590dc7140
+feat/universe-map
 ```
 
-Este documento descreve o proximo patch da arquitetura planetaria/celeste do DR Manaus.
-A ordem e deliberada. Primeiro estabilizar coordenadas, render e testes de transicao.
-Depois transformar Lua, Sol e planetas em destinos reais do jogo.
-
-A regra central do patch e:
+Último HEAD auditado externamente antes desta execução:
 
 ```text
-coordenadas logicas podem ser enormes
-coordenadas entregues ao renderer devem permanecer pequenas
+29c3c57b90e514b6dfc3718a00a29d3a010a82b5
 ```
 
-O estado logico continua em metros reais e em frames hierarquicos.
-O renderer recebe apenas posicoes relativas ao observador ou ao render origin.
-
-
-Este pacote substitui o hotfix v1 como guia de implementacao do proximo ciclo.
-O hotfix v1 corrigiu o ping-pong de dominio e o ghost ground, mas a auditoria do HEAD atual
-encontrou um risco P0 restante: providers planetarios ainda podem transformar um centro de tile
-para `solar-system/barycentric` e entregar numeros na ordem de 1 AU ao `Mesh.position`.
-
-Isso precisa ser corrigido antes de ampliar o Sistema Solar.
-
-## Ordem de leitura
-
-1. `01-CURRENT-HEAD-RISK-AUDIT.md`
-2. `02-P0-CAMERA-RELATIVE-RENDERING.md`
-3. `03-P0-RENDER-DOMAIN-AUTHORITY.md`
-4. `04-P0-REAL-BROWSER-E2E.md`
-5. `05-P0-EARTH-MOON-PROVIDER-HARDENING.md`
-6. `06-REFERENCE-FRAMES-AND-HANDOFFS.md`
-7. `07-SOLAR-SYSTEM-LOGICAL-MODEL.md`
-8. `08-SUN-RENDERING-AND-LIGHTING.md`
-9. `09-MOON-LANDING-AND-SURFACE.md`
-10. `10-PLANETS-AND-MOONS-ROADMAP.md`
-11. `11-CELESTIAL-LOD-AND-ANGULAR-RENDERING.md`
-12. `12-STREAMING-PERFORMANCE-CACHE.md`
-13. `13-TEST-MATRIX-AND-ACCEPTANCE.md`
-14. `14-FILE-BY-FILE-IMPLEMENTATION.md`
-15. `15-COMMIT-PR-PLAN.md`
-16. `16-MASTER-AGENT-PROMPT.md`
-17. `17-SOURCES-AND-DATA-PROVENANCE.md`
-
-## Definition of done global
-
-O patch so pode ser chamado de estavel quando:
+Commit:
 
 ```text
-Manaus continua jogavel
-crateras continuam corretas
-saida da Terra acontece sem teleport visual
-Earth permanece visivel e estavel em frame barycentric
-Moon permanece visivel e estavel em frame barycentric
-coasting funciona
-reentrada acontece uma vez
-nenhum provider envia 1 AU para Float32 render transform
-browser test percorre o fluxo real
+docs(world): record celestial visual pipeline hardening and test verification
 ```
 
-## Task 001 - Congelar baseline e invariantes
+---
 
-Objetivo: registrar o estado exato antes do patch
+# REGRA Nº 1 — NÃO CONFIE NESTE HEAD SEM VERIFICAR
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+Antes de QUALQUER alteração:
 
-Alteracao exigida:
+```bash
+git status
+git branch --show-current
+git rev-parse HEAD
+git log -10 --oneline
+```
 
-- Executar a fase `Congelar baseline e invariantes` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+Se o HEAD atual não for:
 
-Validacao:
+```text
+29c3c57b90e514b6dfc3718a00a29d3a010a82b5
+```
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+NÃO aplique cegamente esta especificação.
 
-Nao aceitar:
+Primeiro:
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+```text
+1. leia o diff dos commits novos;
+2. reavalie cada problema mencionado aqui;
+3. veja se algum deles já foi resolvido;
+4. adapte a implementação ao código real;
+5. não duplique classes/sistemas existentes;
+6. não reverta melhorias recentes.
+```
+
+Esta task deve ser executada **sobre o código atual**, não sobre uma imagem mental antiga do projeto.
+
+---
+
+# REGRA Nº 2 — PRIMEIRO AUDITAR, DEPOIS PROGRAMAR
+
+Não comece criando:
 
-Gate de conclusao:
+```text
+MarsProvider
+JupiterProvider
+PlanetVisual
+```
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+antes de entender o que já existe.
 
-## Task 002 - Criar RenderSpace
+Primeiro faça uma auditoria completa.
 
-Objetivo: separar explicitamente logical space de render-local
+Leia integralmente:
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+```text
+src/game/Game.ts
+
+src/core/config.ts
+
+src/world/runtime/UniverseRuntime.ts
+src/world/runtime/ProviderRegistry.ts
+src/world/runtime/GlobalStreamingScheduler.ts
 
-Alteracao exigida:
+src/world/celestial/CelestialBody.ts
+src/world/celestial/CelestialSystemRuntime.ts
+src/world/celestial/SolarSystem.ts
+src/world/celestial/OfflineEphemeris.ts
+src/world/celestial/EphemerisProvider.ts
+
+src/world/planet/PlanetBody.ts
+src/world/planet/PlanetQuadtree.ts
+src/world/planet/EarthGlobe.ts
+src/world/planet/MoonGlobe.ts
+src/world/planet/MoonSurface.ts
 
-- Executar a fase `Criar RenderSpace` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+src/world/providers/WorldProvider.ts
+src/world/providers/EarthProvider.ts
+src/world/providers/MoonProvider.ts
+src/world/providers/EarthTransitionController.ts
 
-Validacao:
+src/world/spatial/ReferenceFrame.ts
+src/world/spatial/ReferenceFrameGraph.ts
+src/world/spatial/RenderSpaceService.ts
+src/world/spatial/FloatingOrigin3D.ts
+src/world/spatial/ManausFrameAdapter.ts
+
+src/world/travel/TravelDomain.ts
+src/world/travel/InterplanetaryController.ts
+
+src/rendering/celestial/CelestialPresentationController.ts
+src/rendering/celestial/CelestialBodyVisualLayer.ts
+src/rendering/celestial/EarthVisual.ts
+src/rendering/celestial/MoonVisual.ts
+src/rendering/celestial/SunVisual.ts
+src/rendering/celestial/math.ts
+src/rendering/celestial/types.ts
+
+src/rendering/domains/RenderDomains.ts
+src/rendering/SpaceLayer.ts
+src/rendering/SpeedVFX.ts
+```
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+Também leia:
+
+```text
+docs/world/10-solar-system.md
+docs/world/15-status.md
+
+specs/dr-manaus-universe-patch-v2/10-PLANETS-AND-MOONS-ROADMAP.md
+specs/dr-manaus-cosmic-night-specs/07-SOLAR-SYSTEM-COMPLETE.md
+```
+
+Faça busca global por:
+
+```text
+handoffTo(
+handoff(
+dominantBody(
+setStreamingMode(
+updateStreaming(
+CelestialRenderSample
+PlanetBody
+PlanetQuadtree
+moon/fixed
+mars
+jupiter
+saturn
+mercury
+venus
+uranus
+neptune
+CELESTIAL_PROXY
+```
+
+Antes de editar, escreva uma síntese técnica curta do estado real encontrado.
+
+---
+
+# 1. ESTADO ATUAL QUE DEVE SER CONFIRMADO
+
+Na última auditoria, o código estava assim.
+
+## Modelo lógico do Sistema Solar: já existe
+
+`src/world/celestial/CelestialBody.ts` já contém:
 
-Nao aceitar:
+```text
+Sol
+Mercúrio
+Vênus
+Terra
+Lua
+Marte
+Júpiter
+Saturno
+Urano
+Netuno
+```
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+com:
 
-Gate de conclusao:
+```text
+raio equatorial
+raio polar
+massa
+rotação
+inclinação axial
+reference frame
+```
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+NÃO recriar esses dados em outro arquivo.
 
-## Task 003 - Camera-relative Earth
+---
 
-Objetivo: fazer a Terra ficar proxima da origem visual durante travel
+## Efemérides: já existem
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+`src/world/celestial/OfflineEphemeris.ts` já possui elementos orbitais para:
 
-Alteracao exigida:
+```text
+Mercúrio
+Vênus
+Terra
+Lua
+Marte
+Júpiter
+Saturno
+Urano
+Netuno
+```
 
-- Executar a fase `Camera-relative Earth` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+As posições lógicas já estão em escala física.
 
-Validacao:
+NÃO inventar:
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+```ts
+mars.position.set(...)
+```
 
-Nao aceitar:
+Não criar posições artísticas.
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+A fonte lógica deve continuar sendo:
 
-Gate de conclusao:
+```text
+OfflineEphemeris
+→ SolarSystem
+→ BodyState
+```
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+---
 
-## Task 004 - Camera-relative Moon
+## SolarSystem já é genérico
 
-Objetivo: fazer a Lua obedecer a mesma regra
+`SolarSystem.ts` já possui:
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+```ts
+stateOf(bodyId)
+positionOf(bodyId)
+distanceBetween(a, b)
+dominantBody(position)
+handoff(bodyId, observer)
+registerFrames(...)
+```
 
-Alteracao exigida:
+Preservar essa arquitetura.
 
-- Executar a fase `Camera-relative Moon` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+O problema atual NÃO é falta de modelo orbital.
 
-Validacao:
+O problema é transformar esse modelo em:
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+```text
+visual
+travel
+handoff
+provider
+surface/atmosphere
+gameplay
+```
 
-Nao aceitar:
+para todos os corpos.
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+---
 
-Gate de conclusao:
+# 2. O QUE AINDA ESTÁ HARDCODED
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+Na última auditoria:
 
-## Task 005 - Remover autoridade duplicada
+`CelestialPresentationController.ts` tratava explicitamente apenas:
 
-Objetivo: evitar Game.origin e FloatingOrigin3D competindo
+```text
+SUN
+MOON
+EARTH
+```
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+`CelestialBodyVisualLayer.ts` possuía explicitamente:
 
-Alteracao exigida:
+```ts
+SunVisual
+MoonVisual
+EarthVisual
+```
 
-- Executar a fase `Remover autoridade duplicada` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+`Game.ts` registrava apenas:
 
-Validacao:
+```ts
+EarthProvider
+MoonProvider
+```
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+`UniverseRuntime.handoffTo()` possuía tratamento especial apenas para:
 
-Nao aceitar:
+```text
+earth
+moon
+```
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+E `UniverseRuntime.location` tinha inclusive lógica parcial/hardcoded para:
 
-Gate de conclusao:
+```text
+moon
+mars
+```
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+incluindo raios escritos diretamente.
 
-## Task 006 - Ocultar/suspender Manaus fora do dominio local
+Isso precisa ser auditado e generalizado.
 
-Objetivo: evitar cidade fantasma no espaco
+---
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+# 3. OBJETIVO FINAL
 
-Alteracao exigida:
+Quero que DR Manaus evolua para uma experiência no espírito de jogos de voo superpoderoso planetário como **Megaton Rainfall**, sem copiar assets, código, conteúdo ou identidade visual do jogo.
 
-- Executar a fase `Ocultar/suspender Manaus fora do dominio local` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+A referência é apenas a experiência de escala:
 
-Validacao:
+```text
+Manaus
+↓
+voo
+↓
+atmosfera
+↓
+órbita
+↓
+espaço interplanetário
+↓
+planetas reais
+↓
+aproximação contínua
+↓
+órbita / atmosfera / superfície quando aplicável
+```
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+Sem telas de loading artificiais entre essas escalas.
 
-Nao aceitar:
+O jogador deve poder sair do Teatro Amazonas/Manaus e seguir fisicamente pelo Sistema Solar.
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+---
 
-Gate de conclusao:
+# 4. EXPERIÊNCIA DESEJADA
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+O jogador deve conseguir:
 
-## Task 007 - Browser E2E real
+```text
+Manaus
+→ Terra
+→ Lua
+→ Mercúrio
+→ Vênus
+→ Marte
+→ Júpiter
+→ Saturno
+→ Urano
+→ Netuno
+```
 
-Objetivo: testar decolagem sem teleport artificial
+em posições e distâncias lógicas coerentes com o modelo orbital.
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+Não precisa seguir essa ordem.
 
-Alteracao exigida:
+Ele deve poder apontar para Marte e simplesmente voar para Marte.
 
-- Executar a fase `Browser E2E real` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+---
 
-Validacao:
+# 5. DIFERENCIAR ESCALA LÓGICA E ESCALA DE RENDERIZAÇÃO
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+Regra fundamental:
 
-Nao aceitar:
+```text
+WORLD LOGIC
+=
+metros reais
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+RENDER
+=
+camera-relative / render-relative
+```
 
-Gate de conclusao:
+Nunca:
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+```text
+Mars.position = 225e9
+```
 
-## Task 008 - Reentrada unica
+em um `Object3D`.
 
-Objetivo: provar handoff sem ping-pong
+Posições astronômicas permanecem em:
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+```text
+Float64
+reference frames
+SolarSystem
+UniverseRuntime
+```
 
-Alteracao exigida:
+O Three.js recebe apenas:
 
-- Executar a fase `Reentrada unica` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+```text
+direção
+tamanho angular
+posição proxy limitada
+ou body-relative position quando perto
+```
 
-Validacao:
+---
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+# 6. CORRIGIR PRIMEIRO O BUG DO ANALYTIC PROXY
 
-Nao aceitar:
+Antes de adicionar planetas, corrigir o problema matemático atual.
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+Existe:
 
-Gate de conclusao:
+```ts
+CELESTIAL_PROXY_DISTANCE_M = 5_000_000
+```
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+e:
 
-## Task 009 - Lua pousavel
+```ts
+proxyRadiusM =
+  Math.tan(angularRadiusRad) *
+  CELESTIAL_PROXY_DISTANCE_M
+```
 
-Objetivo: dar ao MoonProvider um dominio de superficie completo
+Quando:
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+```text
+angularRadius → π / 2
+```
 
-Alteracao exigida:
+temos:
 
-- Executar a fase `Lua pousavel` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+```text
+tan(π/2) → infinito
+```
 
-Validacao:
+Isso pode gerar um mesh astronomicamente grande.
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+`angularRadiusRad()` corretamente retorna:
 
-Nao aceitar:
+```ts
+Math.PI / 2
+```
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+quando o observador está dentro ou sobre o raio do corpo.
 
-Gate de conclusao:
+Portanto um analytic billboard NÃO pode continuar sendo usado nesse regime.
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+---
 
-## Task 010 - Sol visual
+# 7. TRANSFORMAR CELESTIAL_RENDER_SAFE_RADIUS EM CONTRATO REAL
 
-Objetivo: renderizar o Sol por angular size e distancia relativa
+Hoje existe:
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+```ts
+CELESTIAL_RENDER_SAFE_RADIUS_M
+```
 
-Alteracao exigida:
+mas confirme se ele realmente governa alguma decisão.
 
-- Executar a fase `Sol visual` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+Implementar helper central, por exemplo:
 
-Validacao:
+```ts
+export interface CelestialProxyGeometry {
+  safe: boolean;
+  distanceM: number;
+  radiusM: number;
+}
+```
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+E:
 
-Nao aceitar:
+```ts
+export function celestialProxyGeometry(
+  angularRadiusRad: number
+): CelestialProxyGeometry
+```
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+Deve:
 
-Gate de conclusao:
+```text
+calcular radius
+verificar finite
+verificar render budget
+recusar analytic representation
+se radius ultrapassar safe radius
+```
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+Nunca simplesmente fazer:
 
-## Task 011 - Planetas
+```ts
+Math.min(radius, MAX)
+```
 
-Objetivo: generalizar provider e corpo visual
+porque isso falsificaria o tamanho angular.
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+A resposta correta é:
 
-Alteracao exigida:
+```text
+proxy não serve mais
+→ mudar representação
+```
 
-- Executar a fase `Planetas` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+---
 
-Validacao:
+# 8. SEPARAR CLASSIFICAÇÃO FÍSICA DE ESTRATÉGIA GRÁFICA
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+Hoje:
 
-Nao aceitar:
+```ts
+SolarSystem.handoff()
+```
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+retorna:
 
-Gate de conclusao:
+```text
+celestial
+planet
+surface
+```
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+Isso é útil fisicamente.
 
-## Task 012 - Luas
+Mas não deve significar automaticamente:
 
-Objetivo: adicionar satelites por dados e fases
+```text
+planet
+=
+ligar quadtree
+```
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+A representação gráfica também deve considerar:
 
-Alteracao exigida:
+```text
+angular size
+projected size in pixels
+viewport
+FOV
+coverage readiness
+render budget
+```
 
-- Executar a fase `Luas` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+Criar conceito como:
 
-Validacao:
+```ts
+type BodyRenderMode =
+  | 'analytic'
+  | 'coarse-globe'
+  | 'streamed-globe'
+  | 'surface';
+```
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+Separado de:
 
-Nao aceitar:
+```ts
+BodyHandoffState.mode
+```
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+---
 
-Gate de conclusao:
+# 9. PROJECTED PIXEL SIZE
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+Criar helper puro e testável:
 
-## Task 013 - Streaming
+```ts
+projectedDiameterPx(
+  angularRadiusRad,
+  verticalFovRad,
+  viewportHeightPx
+)
+```
 
-Objetivo: controlar budgets por dominio
+Usar essa grandeza para decidir representação.
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+Por exemplo:
 
-Alteracao exigida:
+```text
+poucos pixels
+→ analytic
 
-- Executar a fase `Streaming` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+dezenas/centenas de pixels
+→ coarse globe
 
-Validacao:
+grande na tela
+→ streamed globe
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+horizonte/superfície
+→ surface
+```
 
-Nao aceitar:
+NÃO hardcode estes thresholds sem teste.
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+Calibre-os a partir do custo real.
 
-Gate de conclusao:
+---
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+# 10. CORRIGIR CACHE DOS PROVIDERS AO TROCAR MODO
 
-## Task 014 - Persistencia
+Auditar:
 
-Objetivo: preservar estado por bodyId
+```ts
+EarthProvider.setStreamingMode()
+MoonProvider.setStreamingMode()
+```
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+Se:
 
-Alteracao exigida:
+```text
+coarse → surface
+```
 
-- Executar a fase `Persistencia` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+e o cached plan continuar válido durante `replanIntervalS`, ele pode reutilizar seleção de LOD incorreta.
 
-Validacao:
+Ao mudar de modo:
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+```ts
+if (this.streamingMode !== mode) {
+  this.streamingMode = mode;
+  this.cachedPlan = undefined;
+}
+```
 
-Nao aceitar:
+ou arquitetura equivalente.
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+Adicionar teste.
 
-Gate de conclusao:
+---
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+# 11. NÃO STREAMAR A LUA A 384.000 KM SEM NECESSIDADE
 
-## Task 015 - CI
+Verifique o comportamento atual.
 
-Objetivo: publicar test/build/browser checks
+A Lua vista da Terra possui cerca de meio grau de diâmetro angular.
 
-Arquivos principais:
-- `docs/world/15-status.md`
-- `src/world/runtime/UniverseRuntime.ts`
-- `tests/`
+Se isso resultar em algo da ordem de poucos/dezenas de pixels:
 
-Alteracao exigida:
+```text
+MoonVisual
+```
 
-- Executar a fase `CI` somente depois dos gates anteriores.
-- Manter compatibilidade com Manaus e com os testes existentes.
-- Registrar a decisao de arquitetura no status do projeto.
+já é suficiente.
 
-Validacao:
+Não ligue `MoonProvider` só porque:
 
-- Adicionar ou atualizar teste que falha antes da mudanca e passa depois.
-- Rodar unit, build e browser quando a fase tocar renderer ou input.
+```text
+handoff.mode === planet
+```
 
-Nao aceitar:
+Streaming deve entrar quando o renderer realmente precisa de geometria física.
 
-- Marcar fase como concluida apenas por existir codigo sem smoke real.
+---
 
-Gate de conclusao:
+# 12. GENERALIZAR VISUAL DOS PLANETAS
 
-- O comportamento deve estar coberto por teste automatizado e por telemetria suficiente para diagnosticar regressao.
-- Nenhuma coordenada astronomica absoluta pode chegar a um `Mesh.position` quando o mesmo resultado pode ser expresso camera-relative.
+Hoje:
+
+```text
+EarthVisual
+MoonVisual
+SunVisual
+```
+
+são classes específicas.
+
+Não criar agora:
+
+```text
+MercuryVisual
+VenusVisual
+MarsVisual
+JupiterVisual
+SaturnVisual
+UranusVisual
+NeptuneVisual
+```
+
+com centenas de linhas duplicadas.
+
+Criar uma arquitetura genérica.
+
+Sugestão:
+
+```text
+src/rendering/celestial/
+
+CelestialBodyVisualLayer.ts
+CelestialPresentationController.ts
+
+CelestialVisual.ts
+PlanetVisual.ts
+RockyPlanetVisual.ts
+GasGiantVisual.ts
+SunVisual.ts
+
+RingVisual.ts
+
+math.ts
+types.ts
+```
+
+Earth/Moon podem continuar especializados onde necessário.
+
+---
+
+# 13. MANIFEST DE APRESENTAÇÃO
+
+Não contaminar `CelestialBody` físico com detalhes de shader se isso puder ser evitado.
+
+Criar algo como:
+
+```ts
+interface CelestialPresentationProfile {
+  bodyId: string;
+
+  visualType:
+    | 'star'
+    | 'rocky'
+    | 'terrestrial'
+    | 'gas-giant'
+    | 'ice-giant'
+    | 'moon';
+
+  landable: boolean;
+
+  atmosphere?: {
+    enabled: boolean;
+    densityClass: ...
+    visualThickness: ...
+  };
+
+  rings?: {
+    enabled: boolean;
+    innerRadiusM: number;
+    outerRadiusM: number;
+  };
+
+  surface?: {
+    enabled: boolean;
+    generator: ...
+  };
+}
+```
+
+Não inventar valores físicos importantes se já houver fonte no projeto.
+
+---
+
+# 14. PLANETVISUAL GENÉRICO
+
+`PlanetVisual` deve receber:
+
+```ts
+CelestialRenderSample
++
+CelestialPresentationProfile
+```
+
+E desenhar:
+
+```text
+esfera/disco analítico
+phase lighting
+oblateness quando relevante
+axial orientation quando visível
+atmospheric rim
+```
+
+Sempre mantendo:
+
+```text
+angular size físico
+```
+
+---
+
+# 15. MERCÚRIO
+
+Implementar:
+
+```text
+tipo: rocky
+atmosfera visual: praticamente nenhuma
+superfície: pousável
+visual: cinza/craterado
+```
+
+Inicialmente pode usar geração procedural determinística.
+
+Não precisa fingir que é topografia real.
+
+Documentar claramente:
+
+```text
+procedural approximation
+```
+
+---
+
+# 16. VÊNUS
+
+Implementar:
+
+```text
+tipo: terrestrial
+atmosfera: extremamente densa
+cloud layer: obrigatória visualmente
+surface: pousável logicamente
+```
+
+De longe, Vênus não deve parecer um planeta rochoso limpo.
+
+A representação distante deve ser dominada pela atmosfera/nuvens.
+
+Na aproximação:
+
+```text
+space
+→ bright cloud globe
+→ dense atmosphere
+→ surface
+```
+
+---
+
+# 17. MARTE — PRIMEIRO NOVO PLANETA COMPLETO
+
+Marte deve ser a vertical slice que prova a generalização.
+
+IMPORTANTE:
+
+`UniverseRuntime.ts` já contém lógica parcial para strings:
+
+```text
+mars
+solar-system/mars-fixed
+```
+
+e cálculo hardcoded de superfície marciana.
+
+AUDITE isso.
+
+Não crie uma segunda implementação de Marte.
+
+Remover hardcodes como:
+
+```ts
+3389500
+```
+
+quando o raio pode vir de:
+
+```ts
+CelestialBody
+```
+
+Implementar Marte como primeiro planeta realmente visitável depois da Lua.
+
+Fluxo:
+
+```text
+Terra
+→ interplanetary
+→ Mars distant visual
+→ Mars coarse globe
+→ Mars streamed globe
+→ Mars body-local
+→ surface
+```
+
+---
+
+# 18. SUPERFÍCIE GENÉRICA DE PLANETA ROCHOSO
+
+`PlanetBody.ts` atualmente possui essencialmente:
+
+```text
+EARTH
+MOON
+```
+
+Não copie manualmente seis estruturas quase iguais.
+
+Criar helper:
+
+```ts
+planetBodyFromCelestialBody(...)
+```
+
+ou contrato equivalente para corpos sólidos.
+
+Deve usar:
+
+```text
+equatorialRadiusM
+polarRadiusM
+body id
+frame
+```
+
+Não duplicar raios.
+
+---
+
+# 19. PLANETSURFACEPROVIDER
+
+Depois de Marte funcionar usando Earth/Moon architecture, extrair uma base genérica.
+
+Possível:
+
+```text
+PlanetSurfaceProvider
+```
+
+Responsabilidades:
+
+```text
+PlanetQuadtree
+SSE selection
+streaming mode
+readiness
+active tile coverage
+body-local placement
+render-space placement
+surface mesh generation
+```
+
+Permitir especializações.
+
+Não sacrificar:
+
+```text
+EarthProvider
+```
+
+porque Terra tem:
+
+```text
+Manaus ownership
+WGS84
+city coverage
+Natural Earth
+manausSurfaceAnchor
+```
+
+EarthProvider continua especial.
+
+MoonProvider pode migrar gradualmente se realmente simplificar.
+
+---
+
+# 20. PROCEDURAL SURFACE STRATEGIES
+
+Criar estratégias, não providers duplicados.
+
+Exemplo:
+
+```ts
+interface PlanetSurfaceGenerator {
+  buildTile(
+    body,
+    address
+  ): PlanetTileMesh;
+}
+```
+
+Implementações:
+
+```text
+MoonSurfaceGenerator
+MercurySurfaceGenerator
+MarsSurfaceGenerator
+VenusSurfaceGenerator
+```
+
+Tudo determinístico.
+
+---
+
+# 21. GAS GIANTS NÃO TÊM CHÃO FALSO
+
+Para:
+
+```text
+Júpiter
+Saturno
+Urano
+Netuno
+```
+
+NÃO criar terreno rochoso simplesmente para permitir "pouso".
+
+Isso seria arquiteturalmente errado.
+
+Criar:
+
+```text
+GasGiantProvider
+```
+
+ou representação equivalente.
+
+Com:
+
+```text
+cloud-top envelope
+atmospheric layers
+visual globe
+collision/envelope
+```
+
+O jogador pode:
+
+```text
+aproximar
+orbitar
+entrar nas camadas superiores se desejado
+```
+
+mas não "pousar numa rua de Júpiter".
+
+---
+
+# 22. JÚPITER
+
+Visual obrigatório:
+
+```text
+oblateness
+bandas atmosféricas
+Great Red Spot estilizado/procedural se possível
+rapid rotation
+```
+
+Não precisa textura externa.
+
+Pode ser shader procedural.
+
+O importante é ser imediatamente reconhecível.
+
+---
+
+# 23. SATURNO
+
+Anéis são obrigatórios.
+
+Criar arquitetura:
+
+```text
+RingVisual
+```
+
+e não embedar lógica específica de anéis dentro do shader genérico do planeta.
+
+Ring system deve possuir:
+
+```text
+inner radius
+outer radius
+orientation
+opacity profile
+```
+
+Os anéis precisam:
+
+```text
+inclinar junto com o eixo de Saturno
+ocultar/ser ocultados corretamente pelo planeta
+```
+
+---
+
+# 24. URANO
+
+Preservar seu tilt extremo.
+
+Não corrigir como se fosse bug.
+
+O `CelestialBody` atual já possui aproximadamente:
+
+```text
+97.77°
+```
+
+A visualização precisa refletir isso.
+
+---
+
+# 25. NETUNO
+
+Visual:
+
+```text
+ice giant
+azul profundo
+banding atmosférico sutil
+```
+
+Sem chão sólido falso.
+
+---
+
+# 26. SOL
+
+Sol continua diferente de planeta.
+
+Não criar:
+
+```text
+SunSurfaceProvider
+```
+
+nesta etapa.
+
+O jogador pode voar até perto dele, mas:
+
+```text
+stellar envelope
+```
+
+precisa impedir um handoff absurdo para "solo do Sol".
+
+Se o corpo dominante virar Sol e o jogador se aproximar:
+
+```text
+continuar domínio interplanetário/stellar
+```
+
+ou criar posteriormente:
+
+```text
+stellar domain
+```
+
+Nunca fazer:
+
+```text
+handoffTo('sun') → local ground
+```
+
+---
+
+# 27. GENERALIZAR HANDOFFTO
+
+Hoje auditar:
+
+```ts
+UniverseRuntime.handoffTo(bodyId)
+```
+
+Ele não pode continuar:
+
+```text
+if moon
+else if earth
+```
+
+para o Sistema Solar completo.
+
+Criar resolução genérica.
+
+Exemplo conceitual:
+
+```ts
+handoffTo(bodyId) {
+  const body = activeSystem.bodies.find(...);
+
+  if (!body)
+    ...
+
+  if (body.id === 'earth')
+    targetFrame = MANAUS_FRAME_ID;
+
+  else if (bodyIsLandable(body))
+    targetFrame = surfaceFrameFor(body);
+
+  else
+    reject local-surface handoff;
+}
+```
+
+Não hardcode todos os planetas em `if/else`.
+
+---
+
+# 28. BODY SURFACE FRAME
+
+Padronizar frame de superfície.
+
+Hoje há:
+
+```text
+solar-system/moon-fixed
+moon/fixed
+```
+
+e Terra possui:
+
+```text
+solar-system/earth-fixed
+earth/fixed
+earth/manaus/legacy-enu
+```
+
+Não começar a criar:
+
+```text
+mars/fixed
+venus/fixed
+mercury/fixed
+...
+```
+
+sem um contrato.
+
+Decida e documente.
+
+Preferência:
+
+```text
+body.frameId
+```
+
+continua frame físico principal.
+
+Aliases locais só existem quando necessários por compatibilidade.
+
+---
+
+# 29. GENERALIZAR UNIVERSE LOCATION
+
+Auditar:
+
+```ts
+UniverseRuntime.navigationState
+UniverseRuntime.location
+```
+
+Remover lógica:
+
+```text
+if moon
+else if mars
+else earth
+```
+
+Criar:
+
+```ts
+bodySurfaceLocation(bodyId, position)
+```
+
+que obtém o raio a partir do corpo real.
+
+Idealmente suportar elipsoide.
+
+Nenhum:
+
+```ts
+1737400
+3389500
+```
+
+hardcoded nessa camada.
+
+---
+
+# 30. DOMINANT BODY
+
+`SolarSystem.dominantBody()` já é genérico e baseado em:
+
+```text
+μ / r²
+```
+
+Preservar.
+
+Isso permite naturalmente:
+
+```text
+Earth
+→ Sun influence
+→ Mars influence
+```
+
+Não substituir por:
+
+```text
+nearest planet
+```
+
+sem justificativa física.
+
+---
+
+# 31. VIAGEM EM ESTILO MEGATON RAINFALL
+
+Existe outro problema importante.
+
+Hoje `InterplanetaryController` tem aproximadamente:
+
+```text
+maxRelativeSpeed ≈ 222.222 m/s
+```
+
+Isso é cerca de:
+
+```text
+222 km/s
+```
+
+É enorme para uma nave convencional.
+
+Mas para gameplay de um personagem com poderes cósmicos e um Sistema Solar real, ainda é muito lento para chegar aos planetas externos.
+
+Não resolva reduzindo distâncias.
+
+As distâncias permanecem reais.
+
+---
+
+# 32. CRIAR TRAVEL SPEED DOMAINS
+
+Separar velocidade segura próxima a planetas da velocidade de cruise em espaço profundo.
+
+Por exemplo:
+
+```ts
+type CosmicTravelTier =
+  | 'orbital'
+  | 'interplanetary'
+  | 'deep-space';
+```
+
+ou aproveitar as abstrações existentes.
+
+A semântica deve ser:
+
+```text
+perto de um corpo
+→ velocidade limitada para evitar atravessar planeta
+
+espaço profundo
+→ velocidade colossal
+
+aproximando corpo destino
+→ desaceleração automática de teto
+```
+
+---
+
+# 33. NÃO USAR VELOCIDADE ALTA CEGA
+
+Se permitir algo como:
+
+```text
+0.01c
+0.1c
+```
+
+não basta:
+
+```ts
+position += velocity * dt
+```
+
+e torcer para não atravessar Júpiter em um frame.
+
+Implementar:
+
+```text
+continuous body envelope checking
+segment/sphere intersection
+predictive braking
+time-to-contact
+```
+
+---
+
+# 34. DISTÂNCIA DE PARADA
+
+Calcular:
+
+```text
+stoppingDistance =
+v² / (2a)
+```
+
+Antes de permitir determinada velocidade.
+
+Se:
+
+```text
+distanceToBody
+<
+stoppingDistance + safetyMargin
+```
+
+reduzir teto de velocidade.
+
+Assim:
+
+```text
+longe
+→ absurdamente rápido
+
+aproximando
+→ desacelera progressivamente
+
+perto
+→ orbital/local speed
+```
+
+Essa é a sensação desejada.
+
+---
+
+# 35. NÃO TELEPORTAR ENTRE PLANETAS
+
+O modo principal precisa ser voo contínuo.
+
+Teleport pode continuar existindo como debug/map feature.
+
+Mas não usar:
+
+```text
+loading screen
+teleport
+position snap
+```
+
+como solução para viagem normal.
+
+---
+
+# 36. TARGETING PLANETÁRIO
+
+Voar até Netuno sem HUD seria inviável.
+
+Adicionar targeting leve.
+
+Exemplo:
+
+```text
+body target
+distance
+relative speed
+ETA
+direction
+```
+
+Não criar interface gigante.
+
+Pode integrar ao HUD/F3 inicialmente.
+
+Exemplo:
+
+```text
+Target: Mars
+Distance: 82.4 million km
+Relative speed: 24,000 km/s
+ETA: 57 min
+```
+
+---
+
+# 37. TARGET LOCK
+
+Permitir escolher:
+
+```text
+Mercury
+Venus
+Earth
+Moon
+Mars
+Jupiter
+Saturn
+Uranus
+Neptune
+Sun
+```
+
+O targeting NÃO teleporta.
+
+Ele apenas fornece:
+
+```text
+direction
+distance
+relative velocity
+stopping-distance warning
+```
+
+Opcionalmente pode existir uma assistência de direção.
+
+Não transformar o jogo em autopilot obrigatório.
+
+---
+
+# 38. CELESTIALBODYVISUALLAYER GENÉRICO
+
+Hoje há:
+
+```ts
+if sun
+else if moon
+else if earth
+```
+
+Isso não escala.
+
+Refatorar para algo parecido com:
+
+```ts
+Map<bodyId, CelestialVisual>
+```
+
+Exemplo:
+
+```ts
+visuals.set('sun', new SunVisual(...));
+
+for (const body of planets)
+  visuals.set(
+    body.id,
+    visualFactory.create(body)
+  );
+```
+
+Depois:
+
+```ts
+for (const sample of samples) {
+  visuals.get(sample.bodyId)?.update(...);
+}
+```
+
+---
+
+# 39. CELESTIALPRESENTATIONCONTROLLER GENÉRICO
+
+Hoje ele repete:
+
+```text
+Earth calculations
+Moon calculations
+Sun calculations
+```
+
+Transformar o fluxo dos planetas em loop:
+
+```ts
+for (const body of system.bodies) {
+  const state = system.stateOf(body.id);
+
+  compute relative vector;
+  compute logical distance;
+  compute angular radius;
+  compute projected pixel diameter;
+  choose render strategy;
+  compute phase direction;
+  push sample;
+}
+```
+
+Especial cases apenas quando realmente necessário:
+
+```text
+Sun
+Earth/Manaus
+rings
+```
+
+Não fazer um `if` com oito planetas.
+
+---
+
+# 40. ILUMINAÇÃO
+
+Todos os corpos devem usar a mesma fonte:
+
+```text
+SolarSystem Sun
+```
+
+Para cada planeta:
+
+```text
+planetToSun =
+sunPosition - planetPosition
+```
+
+Não inventar luz individual.
+
+Isso automaticamente produz:
+
+```text
+fases
+terminator
+lado noturno
+```
+
+corretamente.
+
+---
+
+# 41. ATMOSPHERE PROFILE
+
+Criar perfil genérico de atmosfera.
+
+Não reutilizar a atmosfera local de Manaus como shader de todos os planetas.
+
+Exemplo:
+
+```ts
+AtmosphereProfile
+```
+
+com:
+
+```text
+none
+thin
+earth-like
+dense
+gas-giant
+ice-giant
+```
+
+Earth continua especializada.
+
+---
+
+# 42. ORDEM DE IMPLEMENTAÇÃO
+
+Não tente fazer tudo num mega commit.
+
+Mas continue a task até estabelecer o Sistema Solar completo visualmente.
+
+Fases:
+
+```text
+PHASE 0
+corrigir proxy math/cache/current celestial architecture
+
+PHASE 1
+PlanetVisual genérico
+todos os oito planetas visíveis no céu/espaço
+
+PHASE 2
+targeting + distances + generic presentation
+
+PHASE 3
+Mars complete vertical slice
+
+PHASE 4
+Mercury + Venus surfaces
+
+PHASE 5
+Jupiter generic gas giant
+
+PHASE 6
+Saturn + ring system
+
+PHASE 7
+Uranus + Neptune
+
+PHASE 8
+generic handoff/navigation/travel hardening
+
+PHASE 9
+performance + tests + cleanup
+```
+
+Faça commits temáticos.
+
+---
+
+# 43. NÃO DEIXAR OS PLANETAS COMO BOLINHAS COLORIDAS
+
+Uma primeira representação analítica pode ser simples.
+
+Mas o resultado final desta fase precisa distinguir claramente:
+
+```text
+Mercury
+Venus
+Earth
+Mars
+Jupiter
+Saturn
+Uranus
+Neptune
+```
+
+visualmente.
+
+Não aceitar:
+
+```text
+SphereGeometry + cor aleatória
+```
+
+como "Sistema Solar completo".
+
+---
+
+# 44. NÃO PRECISA TEXTURA 8K PARA TUDO
+
+Preferir:
+
+```text
+procedural shader
+banding
+noise
+phase shading
+atmosphere
+rings
+```
+
+para manter performance.
+
+Se assets externos forem usados:
+
+```text
+somente gratuitos/legalmente utilizáveis
+```
+
+mas esta task não deve depender da internet para funcionar.
+
+---
+
+# 45. LUA E TERRA NÃO PODEM REGREDIR
+
+Preservar:
+
+```text
+Manaus ↔ Earth geometric anchor
+EarthVisual
+MoonVisual
+MoonProvider
+EarthProvider
+Moon phase
+Earth from Moon
+celestial crossfade
+```
+
+Antes e depois de cada fase rodar regressões.
+
+---
+
+# 46. MANUAS NÃO PODE REGREDIR
+
+Preservar:
+
+```text
+FEATURES.curvedManaus === false
+```
+
+Não ligar essa flag nesta task.
+
+Não mexer desnecessariamente em:
+
+```text
+RealCity
+roads
+terrain
+destruction
+NPC
+traffic
+Largo
+```
+
+Sistema Solar não pode quebrar Manaus.
+
+---
+
+# 47. GAS GIANT ENVELOPE
+
+Generalizar colisão interplanetária.
+
+Hoje:
+
+```text
+bodyRadius + margin
+```
+
+é útil para corpos sólidos.
+
+Para gas giants usar:
+
+```text
+referenceAtmosphericRadius
+```
+
+ou envelope equivalente.
+
+Não deixar o jogador atravessar até o centro porque não existe surface provider.
+
+---
+
+# 48. PLANET ROTATION
+
+O catálogo já possui:
+
+```text
+rotationPeriodS
+axialTiltRad
+```
+
+Começar a usar isso visualmente.
+
+Não deixar todos os planetas com eixo Y vertical.
+
+Especialmente:
+
+```text
+Venus retrograde
+Uranus ~98°
+```
+
+precisam aparecer corretamente.
+
+---
+
+# 49. ANÉIS E EIXO
+
+Saturn rings:
+
+```text
+ring normal
+=
+planet rotation axis
+```
+
+Não alinhar com world XZ.
+
+Mesma arquitetura deve permitir futuramente:
+
+```text
+Uranus rings
+```
+
+---
+
+# 50. PERFORMANCE
+
+Metas:
+
+Corpos distantes:
+
+```text
+1 draw call por corpo quando possível
+```
+
+Nenhum quadtree para corpo de:
+
+```text
+2 px
+10 px
+20 px
+```
+
+Streaming apenas quando necessário.
+
+Quando em Marte:
+
+```text
+Manaus city simulation pausada
+Moon surface streaming desligado
+Earth full globe streaming desligado
+```
+
+Só representações necessárias permanecem.
+
+---
+
+# 51. PROVIDER ACTIVATION
+
+`ProviderRegistry` já existe.
+
+Use.
+
+Não atualizar todos os planetas pesadamente todo frame.
+
+Ideal:
+
+```text
+distant bodies
+→ celestial visual only
+
+target/nearby planet
+→ coarse provider
+
+active planet
+→ detailed provider
+```
+
+---
+
+# 52. STREAMING BUDGET
+
+Não permitir:
+
+```text
+Earth tiles
+Moon tiles
+Mars tiles
+Mercury tiles
+Venus tiles
+```
+
+todos ativos simultaneamente.
+
+O scheduler deve priorizar:
+
+```text
+active/dominant body
+target body
+time-to-contact
+screen-space error
+```
+
+---
+
+# 53. PLANET TILE KEYS
+
+Já existe:
+
+```text
+kind: planet
+bodyId
+face
+level
+x
+y
+```
+
+Aproveitar.
+
+Isso já é naturalmente multi-planeta.
+
+Não criar:
+
+```text
+MarsTileKey
+MercuryTileKey
+```
+
+---
+
+# 54. TESTE — TODOS OS PLANETAS EXISTEM
+
+Verificar:
+
+```text
+SOLAR_SYSTEM_BODIES
+```
+
+contém exatamente:
+
+```text
+sun
+mercury
+venus
+earth
+moon
+mars
+jupiter
+saturn
+uranus
+neptune
+```
+
+e dados físicos finitos.
+
+---
+
+# 55. TESTE — EFEMÉRIDES
+
+Para todos os planetas:
+
+```text
+position finite
+velocity finite
+distance to Sun realista para modelo existente
+```
+
+Não duplicar testes que já existem.
+
+Expandir onde necessário.
+
+---
+
+# 56. TESTE — CELESTIAL SAMPLES
+
+Com observador próximo da Terra:
+
+o controller deve produzir samples para:
+
+```text
+Sun
+Mercury
+Venus
+Earth quando aplicável
+Moon
+Mars
+Jupiter
+Saturn
+Uranus
+Neptune
+```
+
+Cada sample:
+
+```text
+finite
+bounded
+angular radius > 0
+```
+
+---
+
+# 57. TESTE — PROXY BUDGET
+
+Para cada planeta em várias distâncias:
+
+```text
+proxyDistance <= budget
+proxyRadius finite
+```
+
+Quando analytic representation seria insegura:
+
+```text
+safe === false
+```
+
+e o sistema troca representação.
+
+Nunca:
+
+```text
+Infinity
+NaN
+1e22 scale
+```
+
+---
+
+# 58. TESTE — PROJECTED ANGULAR SIZE
+
+Para todos os corpos:
+
+```text
+logical radius + logical distance
+↓
+angular radius
+↓
+projected pixels
+```
+
+deve ser consistente.
+
+---
+
+# 59. TESTE — MARS ROUNDTRIP
+
+Simular:
+
+```text
+Earth barycentric
+→ leave Earth influence
+→ approach Mars
+→ Mars dominant
+→ handoff Mars
+→ surface/local body frame
+→ depart
+→ Earth
+```
+
+Sem usar browser.
+
+---
+
+# 60. TESTE — GAS GIANT
+
+Aproximar Júpiter.
+
+Esperado:
+
+```text
+dominantBody = jupiter
+planet visual cresce
+gas giant representation ativa
+NÃO cria terrain surface local
+NÃO chama rocky surface handoff
+```
+
+---
+
+# 61. TESTE — SATURN RINGS
+
+Testar matematicamente:
+
+```text
+ring orientation
+planet axial tilt
+inner/outer radius
+```
+
+---
+
+# 62. TESTE — URANUS TILT
+
+Verificar que:
+
+```text
+~97.77°
+```
+
+não é normalizado acidentalmente para algo próximo de zero.
+
+---
+
+# 63. TESTE — SPEED / STOPPING DISTANCE
+
+Criar cenários:
+
+```text
+deep space
+high speed
+target planet ahead
+```
+
+e verificar que:
+
+```text
+speed ceiling decreases
+before collision envelope
+```
+
+Não atravessar planeta entre frames.
+
+---
+
+# 64. TESTE — CONTINUOUS COLLISION
+
+Mover de:
+
+```text
+outside planet
+```
+
+para uma posição que matematicamente passaria para dentro do planeta em um frame.
+
+O sweep deve detectar interceptação.
+
+Não testar apenas posição final.
+
+---
+
+# 65. TESTE — STREAMING OWNERSHIP
+
+Quando próximo de Marte:
+
+```text
+Mars provider active
+Earth detailed provider inactive
+Moon detailed provider inactive
+```
+
+Quando próximo da Terra:
+
+```text
+Earth provider active
+Mars detailed provider inactive
+```
+
+---
+
+# 66. TESTE — GAME ORIGIN
+
+Preservar:
+
+```text
+Game.origin
+==
+UniverseRuntime.floatingOrigin
+```
+
+no domínio local terrestre.
+
+Não introduzir outra origem para planetas.
+
+---
+
+# 67. TESTE — REENTRY EARTH
+
+Preservar integralmente testes atuais de:
+
+```text
+Manaus anchor
+Earth surface
+reentry
+floating origin
+```
+
+---
+
+# 68. NÃO USAR PLAYWRIGHT
+
+Para esta implementação:
+
+```text
+NÃO usar Playwright
+NÃO pilotar personagem automaticamente
+NÃO ficar fazendo screenshots
+NÃO tentar validar visual por browser automation
+```
+
+Usuário fará smoke visual manual.
+
+Use:
+
+```text
+unit tests
+integration tests
+math tests
+scene graph tests
+build
+typecheck
+```
+
+---
+
+# 69. VALIDAÇÃO INCREMENTAL
+
+Depois de cada fase:
+
+```bash
+npm run typecheck
+```
+
+e testes diretamente relacionados.
+
+No final:
+
+```bash
+npm run typecheck
+npm test
+npm run build
+```
+
+Não afirmar que passou se não executou.
+
+---
+
+# 70. MANUAL SMOKE QUE O USUÁRIO FARÁ
+
+O resultado final deve permitir testar manualmente:
+
+```text
+1. Spawn em Manaus.
+
+2. Subir até sair da atmosfera.
+
+3. Ver Sol e Lua corretamente.
+
+4. Selecionar Marte como target.
+
+5. Acelerar em deep-space travel.
+
+6. Ver Marte crescer continuamente.
+
+7. Desacelerar automaticamente conforme stopping distance.
+
+8. Entrar no domínio de Marte.
+
+9. Aproximar da superfície.
+
+10. Sair de Marte.
+
+11. Visitar Júpiter.
+
+12. Ver Júpiter como gas giant sem chão falso.
+
+13. Visitar Saturno.
+
+14. Ver anéis corretamente inclinados.
+
+15. Ir até Urano/Netuno.
+
+16. Olhar para trás e ainda ver o restante do Sistema Solar coerentemente.
+```
+
+---
+
+# 71. SENSAÇÃO VISUAL DE ESCALA
+
+Queremos sensação de:
+
+```text
+"isso é realmente um planeta"
+```
+
+e não:
+
+```text
+"troquei uma esfera por outra"
+```
+
+Ao aproximar:
+
+```text
+ponto/disco
+↓
+planeta visível
+↓
+curvatura enorme
+↓
+planeta ocupa a tela
+↓
+horizonte
+↓
+atmosfera/superfície
+```
+
+Tudo contínuo.
+
+---
+
+# 72. O MAPA NÃO PODE SER UMA ILUSÃO
+
+Não usar:
+
+```text
+fake solar system miniature
+planetas colocados próximos
+distâncias comprimidas
+```
+
+A posição lógica continua real.
+
+Somente a representação distante é angular/camera-relative.
+
+---
+
+# 73. GRANDE VELOCIDADE NÃO MUDA A ESCALA DO UNIVERSO
+
+Se Netuno está bilhões de quilômetros distante:
+
+```text
+Netuno continua bilhões de km distante
+```
+
+É o Dr Manaus que passa a poder viajar muito rápido.
+
+Não o universo que encolhe.
+
+---
+
+# 74. NÃO CRIAR `if body === ...` EM TODA PARTE
+
+Corpos devem ser data-driven sempre que possível.
+
+Aceitável:
+
+```text
+Sun special renderer
+Earth special provider
+Saturn rings
+```
+
+Não aceitável:
+
+```ts
+if mercury ...
+else if venus ...
+else if mars ...
+else if jupiter ...
+```
+
+repetido em:
+
+```text
+Game
+UniverseRuntime
+Renderer
+Provider
+HUD
+```
+
+---
+
+# 75. GAME.TS DEVE FICAR MAIS SIMPLES, NÃO MAIS COMPLEXO
+
+Hoje `Game.ts` já conhece:
+
+```text
+EarthProvider
+MoonProvider
+CelestialController
+TravelDomain
+```
+
+Não adicione:
+
+```ts
+readonly mars
+readonly mercury
+readonly venus
+readonly jupiter
+...
+```
+
+se uma registry/manager genérica pode possuir os providers.
+
+Objetivo:
+
+```text
+Game
+→ SolarSystemRuntime/PlanetManager
+```
+
+e não:
+
+```text
+Game
+→ oito planetas manualmente
+```
+
+---
+
+# 76. POSSÍVEL NOVA CAMADA
+
+Considere criar:
+
+```text
+PlanetarySystemController
+```
+
+ou:
+
+```text
+SolarSystemPresentationRuntime
+```
+
+com responsabilidade por:
+
+```text
+planet provider lifecycle
+visual profile registry
+target body
+presentation strategy
+near-body provider activation
+```
+
+Mas só crie depois da auditoria.
+
+Não criar abstração vazia.
+
+---
+
+# 77. TELEMETRIA F3
+
+Adicionar informação útil:
+
+```text
+Dominant body
+Target body
+Target distance
+Relative speed
+Stopping distance
+Travel tier
+Active body provider
+Render mode
+Projected diameter px
+Celestial proxy safe?
+Streaming tiles
+```
+
+Sem poluir HUD normal.
+
+---
+
+# 78. MAJOR MOONS — DEPOIS DOS 8 PLANETAS
+
+O roadmap existente já menciona:
+
+```text
+Phobos
+Deimos
+Io
+Europa
+Ganymede
+Callisto
+Titan
+Enceladus
+Triton
+```
+
+NÃO é necessário bloquear a conclusão dos oito planetas por causa delas.
+
+Mas a arquitetura criada agora deve suportá-las sem reescrita.
+
+Após os oito planetas estarem estáveis, continuar por:
+
+```text
+Mars:
+Phobos
+Deimos
+
+Jupiter:
+Io
+Europa
+Ganymede
+Callisto
+
+Saturn:
+Titan
+Enceladus
+
+Neptune:
+Triton
+```
+
+---
+
+# 79. NÃO TENTAR IMPLEMENTAR 20 SUPERFÍCIES DE UMA VEZ
+
+Para esta etapa:
+
+```text
+todos os planetas
+→ modelo visual e viagem
+
+rocky planets principais
+→ superfície
+
+gas/ice giants
+→ atmosphere/globe/envelope
+```
+
+Depois luas podem aprofundar o conteúdo.
+
+---
+
+# 80. CRITÉRIO DE CONCLUSÃO DO SISTEMA SOLAR
+
+Não declarar:
+
+```text
+"Sistema Solar implementado"
+```
+
+só porque `SOLAR_SYSTEM_BODIES` possui os nomes.
+
+Para considerar esta fase concluída:
+
+```text
+Mercury visual ✅
+Venus visual ✅
+Earth visual ✅
+Moon visual ✅
+Mars visual ✅
+Jupiter visual ✅
+Saturn visual + rings ✅
+Uranus visual ✅
+Neptune visual ✅
+Sun visual ✅
+
+travel targeting ✅
+deep-space speed scaling ✅
+predictive braking ✅
+generic body presentation ✅
+generic handoff architecture ✅
+render-safe coordinates ✅
+Earth/Moon regressions green ✅
+Manaus regressions green ✅
+```
+
+E pelo menos:
+
+```text
+Mars surface visitable
+```
+
+deve provar a arquitetura multi-planeta.
+
+Idealmente também:
+
+```text
+Mercury/Venus rocky landing
+```
+
+se a abstração estiver estável.
+
+---
+
+# 81. NÃO SACRIFICAR CORREÇÃO POR VELOCIDADE
+
+Esta task é grande.
+
+Não quero:
+
+```text
+20 arquivos novos em 5 minutos
+tests antigos verdes
+"finished"
+```
+
+Antes de cada fase:
+
+```text
+audit
+design
+implementation
+targeted tests
+diff review
+```
+
+Se descobrir que uma abstração existente já resolve o problema:
+
+```text
+reutilize
+```
+
+Se uma recomendação deste prompt conflitar com o código atual melhorado:
+
+```text
+preserve o código melhor
+e explique
+```
+
+---
+
+# 82. RELATÓRIO FINAL OBRIGATÓRIO
+
+Entregar:
+
+```text
+HEAD inicial
+HEAD final
+```
+
+Depois explicar:
+
+```text
+1. O que já existia antes da task.
+
+2. O que foi reutilizado.
+
+3. Quais hardcodes foram removidos.
+
+4. Arquitetura final de CelestialPresentationController.
+
+5. Arquitetura final de CelestialBodyVisualLayer.
+
+6. Como todos os planetas são registrados.
+
+7. Como funciona PlanetVisual.
+
+8. Como rocky planets funcionam.
+
+9. Como gas giants funcionam.
+
+10. Como Saturn rings funcionam.
+
+11. Como funciona generic handoff.
+
+12. Como funciona target selection.
+
+13. Como funciona deep-space speed.
+
+14. Como funciona predictive braking.
+
+15. Maior coordenada enviada a Object3D.position.
+
+16. Como foi corrigido o problema tan(π/2).
+
+17. Como caches são invalidados ao trocar streaming mode.
+
+18. Quais providers ficam ativos perto de cada planeta.
+
+19. Novos testes.
+
+20. Resultado real de:
+    npm run typecheck
+    npm test
+    npm run build
+
+21. Riscos restantes.
+
+22. Próxima etapa recomendada para major moons.
+```
+
+---
+
+# 83. INVARIANTE FINAL
+
+A arquitetura final deve obedecer:
+
+```text
+REAL SOLAR SYSTEM MODEL
+        ↓
+Float64 / reference frames
+        ↓
+SolarSystem
+        ↓
+body relationship / angular size
+        ↓
+presentation strategy
+        ↓
+┌──────────────────────────────┐
+│ analytic celestial visual    │
+│ coarse planetary visual      │
+│ streamed body representation │
+│ local surface domain         │
+└──────────────────────────────┘
+        ↓
+camera-relative render
+```
+
+Nunca:
+
+```text
+astronomical Float32 coordinates
+fake planet distances
+planet scale hacks
+duplicated physics values
+```
+
+---
+
+# 84. RESULTADO DE GAMEPLAY QUE QUERO
+
+No final, DR Manaus deve caminhar claramente para isto:
+
+```text
+estou no Teatro Amazonas
+
+→ voo para cima
+
+→ Manaus vira cidade
+
+→ cidade vira ponto
+
+→ Terra vira planeta
+
+→ escolho Marte
+
+→ acelero absurdamente
+
+→ Terra fica para trás
+
+→ Sol e planetas mantêm posições coerentes
+
+→ Marte começa como ponto
+
+→ vira disco
+
+→ vira planeta gigantesco
+
+→ desacelero
+
+→ atravesso atmosfera
+
+→ chego à superfície
+
+→ volto ao espaço
+
+→ vou para Júpiter
+
+→ vejo bandas e escala colossal
+
+→ vou para Saturno
+
+→ atravesso visualmente o sistema de anéis
+
+→ sigo para Urano e Netuno
+```
+
+Tudo isso sem o universo ser uma maquete comprimida.
+
+A escala lógica deve continuar real.
+
+A performance vem de:
+
+```text
+LOD
+angular representation
+streaming
+camera-relative rendering
+domain handoff
+```
+
+e não de diminuir o universo.

@@ -1,12 +1,29 @@
 # The galaxy and the observable universe
 
+## U2 — Active galaxy runtime and Andromeda (2026-10-09)
+
+`UniverseRuntime.activeGalaxy` corresponds to `address.galaxyId`; the address remains location
+authority. MW sector zero stays Solar-relative (−26,000 ly from the MW centre); Andromeda sector
+zero is its own centre. `GalaxyCoordinates` composes origins/sectors/offsets and descriptor
+orientation for global distances. Density never subtracts the 2.5 Mly galaxy displacement.
+`GalaxyMaterializer` prepares one StarSectorProvider, one external galaxy proxy and the owned
+central BH, then coordinates activation/rollback with the existing system materializer.
+
+Explicit U2 TEST visits `andromeda/200,0,0/1`: 7 planets, 12 moons, 16 landable bodies. System
+physics stays local; its star, orbits and profiles use the U1 generator and global epoch.
+M31 is ~20.03 kly from this fixture; Sgr A*/MW are ~2.51 Mly. Sol restoration returns Sgr A* to
+26 kly. Intergalactic P remains gated. Only catalogue MW/Andromeda runtimes exist; U3/U4/BH0 next.
+[Full evidence and limitations](28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md).
+
+
+
 Implements the addressing and generation parts of `11-GALAXY-AND-OBSERVABLE-UNIVERSE.md`. Code:
 `src/world/celestial/StarSector.ts`, `src/world/spatial/UniverseAddress.ts`.
 
 **Status updated 2026-10-09:** U0 target authority and U1 playable procedural systems are implemented. Addressing,
 deterministic generators and a procedural system runtime
 exist. Galaxy/star-sector/cosmic-structure presentation foundations are wired with
-`FEATURES.galaxyTravel = true`. Playable galaxy arrival, hypercruise and black-hole
+`FEATURES.galaxyTravel = true`. U2 QA galaxy arrival is implemented. Production hypercruise and black-hole
 transit remain pending. The previous “nothing rendered / flag off” description was stale.
 After final D1.1 hardening, the branch prioritizes the
 [Universe Map completion epic](../../specs/UNIVERSE-MAP-COMPLETION-EPIC.md); D2–D5 are deferred.
@@ -42,7 +59,7 @@ Normal P cannot cross systems and Andromeda materialization is rejected in U1. B
 never converts to unsafe absolute Number coordinates; extreme density sampling uses a bounded
 fallback. Budgets, tests, lifecycle limits and manual instructions:
 [27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
-**STOP after U1 manual validation. U2 galaxy arrival and U3 hypercruise remain future checkpoints.**
+Historical U1 gate accepted; U2 QA galaxy arrival is implemented. Production hypercruise remains U3.
 
 ## Addressing — `UniverseAddress.ts`
 

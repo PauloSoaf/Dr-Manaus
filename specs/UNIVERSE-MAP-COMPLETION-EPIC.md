@@ -1,5 +1,14 @@
 # Universe Map completion epic — 2026-10-08
 
+## U2 delivered — 2026-10-09
+
+U1 accepted at `9909091`. Catalogue MW/Andromeda runtimes, local origins, atomic galaxy/system
+sessions, active-sector/external/BH presentation, correct cross-galaxy distances and QA roundtrip
+are implemented. [U2 evidence](../docs/world/28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md).
+**STOP for U2 manual acceptance; production hypercruise remains U3, generated galaxies U4, BH physics BH0+.**
+
+
+
 User decision after D1.2 (`c92249bc221c9f4ec16c6840f0823d77ffb9454f`): finish D1.1 hardening,
 then freeze destruction at functional D1 and prioritize the playable universe. This order supersedes
 the old automatic D2→D5 progression. Each checkpoint still requires its own implementation,
@@ -21,8 +30,7 @@ target, BigInt-safe canonical keys/serialization, catalog/resolver and a strict 
 Galaxies/BHs/cosmic anchors and deterministic procedural identities survive unloaded runtimes;
 selection never changes player location. The existing Solar flight tiers remain Solar/interplanetary
 travel. `BlackHoleProvider` computes a visual
-Schwarzschild radius and draws a black sphere/orange torus; its update currently assumes
-Milky Way. It does not implement gravity, capture, lensing, traversals or destination preparation.
+Schwarzschild radius and draws a black sphere/orange torus; its update now follows the owned active galaxy through U2. It does not implement gravity, capture, lensing, traversals or destination preparation.
 
 ## Checkpoint order and acceptance
 
@@ -30,8 +38,8 @@ Milky Way. It does not implement gravity, capture, lensing, traversals or destin
 | --- | --- | --- |
 | D1.1-FINAL | Multiple coherent crater regions, retention, real solar lighting, volume culling, per-tile masks, prepared publication | Craters A/B about 500 m apart remain physical and masked; constrained three-region eviction is whole and deterministic; D1.2 fidelity stays green |
 | U0 | Implemented: universal target/catalog/resolver shared by HUD, map and Solar travel adapter, including non-body targets | Accepted by the latest U1 request; historical gate superseded |
-| U1 | Implemented: deterministic GeneratedStar-consistent systems, profiles, dynamic visuals/providers and intra-system flight/landing | Explicit TEST arrival/return, 34-body MW fixture, coherent frames, unload/revisit; 48 mandatory IDs covered. STOP for U1 manual validation; normal cross-system P remains unavailable |
-| U2 | `GalaxyDescriptor`/`GalaxyRuntime`; Milky Way and Andromeda use one architecture; curated Local Group overrides | Real arrival in Andromeda changes galaxy/runtime/address together; Triangulum/other overrides use the same descriptor contract |
+| U1 | Implemented: deterministic GeneratedStar-consistent systems, profiles, dynamic visuals/providers and intra-system flight/landing | Explicit TEST arrival/return, 34-body MW fixture, coherent frames, unload/revisit; 48 mandatory IDs covered. U1 accepted by the U2 request; normal cross-system P remains unavailable |
+| U2 | Implemented: GalaxyRuntime, local origins and prepared GalaxySession for catalogue MW/Andromeda, map/HUD/F3 and owned BH/external presentation | Explicit U2 TEST arrival, rocky/moon landing and Solar return; 59 mandatory IDs covered. STOP for manual U2 validation; no production transport |
 | U3 | Separate interstellar/intergalactic hypercruise domain | Spool, acceleration, continuous progress, cruise, braking, prepared destination and safe handoff; no instantaneous teleport |
 | U4 | Seeded galaxies from `universeSeed + cosmic cell` | Query spiral/barred/elliptical/irregular descriptors on demand, unload/regenerate; no repository growth proportional to galaxy count |
 | BH0 | `BlackHoleDescriptor`/runtime with mass, spin, horizon scale, accretion disk, photon ring and lensing presentation | Sgr A* first, M31 next, procedural descriptors afterward; no ordinary rocky sphere/bounce authority |
@@ -66,4 +74,4 @@ and the historical [sprint plan](dr-manaus-universe-roadmap/11-SPRINT-AND-COMMIT
 They are deferred features, not part of the Universe completion gate. Preserve D0/D1/D1.2,
 Sun approach, C4, Manaus, navigation and landing throughout U0–U6/BH0–BH2.
 
-**After U0 delivery, STOP for manual acceptance. U1 is next; do not start U1/U2/U3/BH0 automatically.**
+Historical U0/U1 gates accepted by subsequent requests. The current stop is manual U2 acceptance.

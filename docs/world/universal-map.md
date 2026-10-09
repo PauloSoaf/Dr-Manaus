@@ -1,4 +1,15 @@
-# Universal Map & Coordinate Model (U1 playable systems, 2026-10-09)
+# Universal Map & Coordinate Model (U2 active galaxy, 2026-10-09)
+
+## U2 — Current galaxy hierarchy (2026-10-09)
+
+The Galaxy view, breadcrumb, scale, catalogue markers and current-location HUD follow the active
+address. From Andromeda, the system map shows only the generated system, M31 is current and MW /
+Sgr A* are external. Selecting them changes the shared target only. Distances use logical galaxy
+origins, sector offsets and catalogue separation; marker placement remains schematic.
+Explicit DEV or `?u2test=1` reveals `ENTER ANDROMEDA · U2 TEST` and the return control.
+Normal P refuses intergalactic travel. [U2 report/manual gate](28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md).
+
+
 
 O Universal Map provê uma navegação unificada do macro para o micro. 
 Os usuários nunca devem visualizar elementos fora da hierarquia lógica real em que se encontram (e.g. tentar visualizar Manaus enquanto estiverem no Sistema Solar, sem estarem sob a influência direta do campo planetário).

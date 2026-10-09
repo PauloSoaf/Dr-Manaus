@@ -1,6 +1,17 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U1 playable procedural systems (2026-10-09)
+## Current checkpoint — U2 Galaxy Runtime / Andromeda (2026-10-09)
+
+U1 accepted at `9909091f7bfb14b40c031752df29550deddd1651`. U2 now supplies one galaxy-local
+coordinate authority, active GalaxyRuntime, prepared galaxy/system installation with rollback,
+Andromeda disc fixture, context-correct star sectors, external MW/M31 presentation, distances,
+map/HUD/F3 and explicit QA arrival/return. Normal P cannot travel between galaxies. D1 frozen.
+Evidence and manual gate: [28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md](28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md).
+**STOP for U2 manual validation. U3/U4/BH0 remain future work.**
+
+
+
+## Previous checkpoint — U1 playable procedural systems (2026-10-09)
 
 The latest request accepts U0 at `c651abb77c8142244064a1aa4d50504bdfdb9f63` and authorizes U1.
 Implemented: canonical GeneratedStar-consistent systems, explicit profiles, moving body frames,
@@ -10,7 +21,7 @@ Explicit U1 TEST arrival/return only; normal P cannot cross systems. Generated D
 Full 1,211/1,211, focused 237/237, typecheck/build/diff and space/local/Manaus browsers PASS,
 zero browser errors. Detailed evidence, budgets and limits:
 [27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
-**STOP after U1 manual acceptance. U2/U3/U4/BH0 remain deferred; D1 frozen.**
+Historical U1 gate accepted by the latest U2 request.
 
 ## Previous checkpoint — U0 universal navigation target (2026-10-09)
 
