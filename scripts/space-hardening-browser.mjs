@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { preview } from 'vite';
 import { chromium } from '@playwright/test';
 import { solarApproachChecks } from './solar-approach-browser.mjs';
+import { universalTargetCheckpoint } from './universal-target-browser-checkpoint.mjs';
 
 // Uses the repository's existing Playwright/Chromium. Near-arrival fixtures are explicit;
 // this is automated coverage of the gameplay handoff, not a claimed manual Earth–Moon journey.
@@ -213,9 +214,12 @@ try {
   await page.keyboard.press('Tab');
   await page.waitForFunction(()=>!!window.__DR_MANAUS__.navigationLock,null,{timeout:15000});
   const firstTarget=await page.evaluate(()=>window.__DR_MANAUS__.navigationLock.bodyId);
+  const firstUniversal=await page.evaluate(()=>{const t=window.__DR_MANAUS__.universalNavigationTarget;return {key:t.key,kind:t.kind,bodyId:t.bodyId};});
+  assert.equal(firstUniversal.kind,'body');assert.equal(firstUniversal.bodyId,firstTarget);
   await page.keyboard.press('Tab');
   await page.waitForFunction(first=>window.__DR_MANAUS__.navigationLock?.bodyId!==first,firstTarget,{timeout:15000});
   const secondTarget=await page.evaluate(()=>window.__DR_MANAUS__.navigationLock.bodyId);
+  assert.equal(await page.evaluate(()=>window.__DR_MANAUS__.universalNavigationTarget.kind),'body');
   // Keep the modifier held until Game consumes Tab. A combined press/release can finish
   // between two software-rendered frames, leaving a Tab edge with Shift already released.
   await page.keyboard.down('ShiftLeft');
@@ -231,7 +235,7 @@ try {
   await page.waitForFunction(second=>window.__DR_MANAUS__.navigationLock?.bodyId!==second,secondTarget,{timeout:15000});
   const thirdTarget=await page.evaluate(()=>window.__DR_MANAUS__.navigationLock.bodyId);
   assert.notEqual(thirdTarget,firstTarget,'at least three real candidates make reverse cycling distinguishable');
-  results.spaceTargetCycle={firstTarget,secondTarget,thirdTarget,shiftTab:firstTarget,bTab:secondTarget};
+  results.spaceTargetCycle={firstTarget,secondTarget,thirdTarget,firstUniversal,shiftTab:firstTarget,bTab:secondTarget};
   const bOnly=await page.evaluate(()=>window.__DR_COSMIC_INPUTS__.filter(t=>t.b&&!t.w&&!t.shift));
   assert.ok(bOnly.length>0&&bOnly.every(t=>!t.boost&&t.thrust===0),'B is only Warp without movement');
   assert.ok(bOnly.every(t=>Math.hypot(...t.velocity)<1e-8),'holding B cannot synthesize thrust');
@@ -253,6 +257,7 @@ try {
   await page.keyboard.press('Backspace');
   await page.waitForFunction(()=>!window.__DR_MANAUS__.navigationLock,null,{timeout:15000});
   console.log('SPACE Shift boost/W intent, B Warp only, X, Tab, Shift+Tab and B+Tab passed.');
+  results.universalTarget=await universalTargetCheckpoint(page);
 
   results.majorMoonApproaches={};
   for(const id of ['europa','titan','triton']) {

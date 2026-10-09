@@ -155,3 +155,16 @@ for(const [name,taps,tier] of [
     assert.equal(player.speedMode,tier);assert.ok(player.velocity.length()>0);
   } finally {player.character.dispose();}
 });
+
+for(const id of ['sgra','m31_smbh','andromeda','virgo_cluster','observable-horizon']) {
+  test('U0 production P gate rejects future target: '+id,()=>{
+    const f=fixture();try {
+      f.g.selectNavigationTarget(id,'map');const key=f.g.universalNavigationTarget.key;
+      f.edges.add('KeyP');f.step();
+      assert.equal(f.controller.autopilot.active,false);
+      assert.equal(f.contexts.at(-1).target,undefined);
+      assert.equal(f.g.navigationTarget,undefined);assert.equal(f.g.navigationLock,undefined);
+      assert.equal(f.g.universalNavigationTarget.key,key);
+    }finally { f.dispose(); }
+  });
+}
