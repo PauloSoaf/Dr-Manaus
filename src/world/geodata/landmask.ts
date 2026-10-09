@@ -7,6 +7,8 @@ export interface LandMaskPayload {
   height: number;
   /** Base64 bitmask, row-major in z, bit set means water. */
   bits: string;
+  /** Conservative any-water cell coverage for crown/footprint rejection. */
+  footprintBits?:string;
 }
 
 function decodeBase64(text: string): Uint8Array<ArrayBuffer> {
@@ -27,11 +29,12 @@ function decodeBase64(text: string): Uint8Array<ArrayBuffer> {
  *
  * `isLand` gates where procedural buildings and vegetation may be generated, and it is called
  * from inside the chunk worker, so it has to be synchronous and allocation-free. A bitmask is
- * a few tens of kilobytes and answers in constant time, where the hand-drawn shoreline polyline
- * it replaces was both a scan and wrong.
+ * compact bitsets and answers in constant time, where the hand-drawn shoreline polyline
+ * it replaces was both a scan and wrong. Crown queries use a second conservative bitset.
  */
 export class LandMask {
   private bytes: Uint8Array<ArrayBuffer> = new Uint8Array(0);
+  private footprintBytes:Uint8Array<ArrayBuffer>=new Uint8Array(0);
   private originX = 0;
   private originZ = 0;
   private cell = 128;
@@ -49,12 +52,15 @@ export class LandMask {
   }
 
   load(payload: LandMaskPayload | null | undefined): boolean {
-    this.bytes = new Uint8Array(0); this.width = this.height = 0;
+    this.bytes = new Uint8Array(0);this.footprintBytes=new Uint8Array(0); this.width = this.height = 0;
     if (!payload?.bits || !payload.width || !payload.height || !payload.cell) return false;
     const bytes = decodeBase64(payload.bits);
     const rowBytes = Math.ceil(payload.width / 8);
     if (bytes.length < rowBytes * payload.height) return false;
+    const footprintBytes=payload.footprintBits?decodeBase64(payload.footprintBits):bytes;
+    if(footprintBytes.length<rowBytes*payload.height)return false;
     this.bytes = bytes;
+    this.footprintBytes=footprintBytes;
     this.originX = payload.originX; this.originZ = payload.originZ;
     this.cell = payload.cell; this.width = payload.width; this.height = payload.height;
     return true;
@@ -76,6 +82,22 @@ export class LandMask {
     const cx = Math.floor((x - this.originX) / this.cell);
     const cz = Math.floor((z - this.originZ) / this.cell);
     return cx >= 0 && cz >= 0 && cx < this.width && cz < this.height;
+  }
+
+  /** Any authoritative water cell intersecting the object's horizontal disk. */
+  hasWaterWithin(x:number,z:number,radiusM:number):boolean {
+    if(!Number.isFinite(x)||!Number.isFinite(z)||!Number.isFinite(radiusM)||radiusM<0)return true;
+    if(!this.ready)return false;
+    const x0=Math.max(0,Math.floor((x-radiusM-this.originX)/this.cell)),x1=Math.min(this.width-1,Math.floor((x+radiusM-this.originX)/this.cell));
+    const z0=Math.max(0,Math.floor((z-radiusM-this.originZ)/this.cell)),z1=Math.min(this.height-1,Math.floor((z+radiusM-this.originZ)/this.cell));
+    const stride=Math.ceil(this.width/8);
+    for(let row=z0;row<=z1;row++)for(let col=x0;col<=x1;col++) {
+      if(!(this.footprintBytes[row*stride+(col>>3)]&(1<<(col&7))))continue;
+      const minX=this.originX+col*this.cell,minZ=this.originZ+row*this.cell;
+      const dx=Math.max(minX-x,0,x-minX-this.cell),dz=Math.max(minZ-z,0,z-minZ-this.cell);
+      if(dx*dx+dz*dz<=radiusM*radiusM)return true;
+    }
+    return false;
   }
 }
 

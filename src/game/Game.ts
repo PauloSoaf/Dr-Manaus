@@ -10,6 +10,7 @@ import { SpaceLayer } from '../rendering/SpaceLayer';
 import { SpeedVFX, type SpeedState } from '../rendering/SpeedVFX';
 import { WeatherSystem } from '../rendering/WeatherSystem';
 import { WaterSystem } from '../rendering/WaterSystem';
+import { ManausAerialPresentation } from '../rendering/ManausAerialPresentation';
 import { QualityManager } from '../rendering/QualityManager';
 import { WorldStreamer } from '../world/streaming/WorldStreamer';
 import { HLODManager } from '../world/lod/HLODManager';
@@ -171,6 +172,7 @@ export class Game {
   get moon():RockyPlanetProvider|undefined { return this.planetProviders.get('moon'); }
   get mars():RockyPlanetProvider|undefined { return this.planetProviders.get('mars'); }
   readonly earthTransition = new EarthTransitionController();
+  readonly manausAerial?:ManausAerialPresentation;
   private presentationDomain:HUDPresentationDomain='local';
   readonly celestialVisuals = new CelestialBodyVisualLayer();
   readonly celestialController = new CelestialPresentationController(this.celestialVisuals);
@@ -209,6 +211,7 @@ export class Game {
       this.earth.manausSurfaceAnchor.add(this.localWorldRoot);
       this.localWorldRoot.position.set(0, 0, 0);
       this.localWorldRoot.quaternion.identity();
+      this.manausAerial=new ManausAerialPresentation(this.planetRoot,this.universe.frames,this.universe.renderSpace);
     } else {
       this.rendering.scene.add(this.localWorldRoot);
     }
@@ -336,6 +339,7 @@ export class Game {
     // Awaited during the loading screen: triangulating the real river costs about a second, and
     // that hitch belongs before the first frame rather than in the middle of play.
     await this.water.initialize();
+    await this.manausAerial?.initialize(this.water.source);
     // Traffic only exists where the compiled network does, so it is built after the city loads.
     if(this.realCity.roads_graph.size>0){
       this.traffic=new TrafficSystem(this.worldRoot,this.realCity.roads_graph);
@@ -531,7 +535,7 @@ export class Game {
       // flat ground it belongs to.
       const isEarth = this.universe.telemetry.dominantBody === 'earth';
       const altitudeM = isEarth ? this.universe.telemetry.altitudeM : Number.POSITIVE_INFINITY;
-      const state = this.earthTransition.update(altitudeM, this.earth);
+      const state = this.earthTransition.update(altitudeM, this.earth,!manaus||!!this.manausAerial?.ready);
       if(isEarth)this.presentationDomain=state.presentationDomain;
       // The flat backdrop handles its own crossfade based on localWeight, while the rest of
       // the local root (city, trees) remains visible as long as the ground is not fully overridden.
@@ -588,6 +592,10 @@ export class Game {
     this.celestialController.render({
       camera: this.rendering.camera
     });
+    this.manausAerial?.update(this.universe.telemetry.altitudeM,this.universe.telemetry.dominantBody==='earth',
+      this.rendering.camera.position.toArray() as [number,number,number],this.rendering.camera.fov*Math.PI/180,
+      this.rendering.renderer.domElement.clientHeight,
+      bodySolarDirection(this.universe.activeSystem,this.universe.frames,'earth',this.universe.renderSpace.currentOrigin.frame));
     this.space.setSolarPresentation(this.celestialController.renderSamples.find(sample=>sample.profile?.bodyClass==='star'));
     this.celestialLabels.update(this.celestialController.renderSamples, this.rendering.camera, {
       selectedBodyId: this.navigationLock?.bodyId,
@@ -1444,6 +1452,10 @@ export class Game {
     const localImpact=this.destruction.lastImpact, footprint=localImpact?.footprint;
     return{
       ...this.solarDebug(),
+      'Manaus aerial · Ready / visible / opacity':`${this.manausAerial?.ready??false} / ${this.manausAerial?.stats.visible??false} / ${this.manausAerial?.stats.opacity.toFixed(3)??'0'}`,
+      'Manaus aerial · River urban mass roads triangles':Object.values(this.manausAerial?.stats.triangles??{}).join(' / '),
+      'Manaus aerial · Eligible meshes / bytes / projected px':`${this.manausAerial?.stats.drawCalls??0} / ${this.manausAerial?.stats.cpuGeometryBytes??0} / ${this.manausAerial?.stats.projectedPx.toFixed(1)??'0'}`,
+      'Manaus aerial · Failure':this.manausAerial?.failure||'—',
       ...this.universe.volume?.debugMetrics(),
       'Planet Destruction · Tile masks avg max / zero masked':`${this.volumeRenderer.stats.masks?.averageBounds.toFixed(2)??'0'} ${this.volumeRenderer.stats.masks?.maxBounds??0} / ${this.volumeRenderer.stats.masks?.zeroTiles??0} ${this.volumeRenderer.stats.masks?.maskedTiles??0}`,
       ...this.rockyImpactDestruction.debugMetrics(),

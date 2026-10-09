@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { createHash } from 'node:crypto';
+import { bakeRegionalWaterMask } from './regional-water-mask.mjs';
 
 const projectRoot = process.cwd();
 const raw = path.join(projectRoot, 'data', 'raw-geodata');
@@ -681,8 +683,8 @@ fs.writeFileSync(path.join(out, 'pois.json'), JSON.stringify(pois));
 const WATER_FILE = path.join(raw, 'manaus-water.geojson');
 const DIVISIONS_FILE = path.join(raw, 'manaus-divisions.geojson');
 
-/** Past this box we would be shipping the whole Amazon basin; the player never reaches its edge. */
-const WATER_CLIP_X = 38000, WATER_CLIP_Z = 34000;
+/** Regional aerial coverage. Only existing source rings are clipped; no river is synthesized. */
+const WATER_CLIP_X = 80000, WATER_CLIP_Z = 80000;
 /** Pools, sewage and springs are not navigable water and would only speckle the city with blue. */
 const WATER_CLASSES = new Set([
   'river', 'water', 'stream', 'lake', 'lagoon', 'oxbow', 'pond', 'fishpond',
@@ -853,65 +855,31 @@ if (fs.existsSync(WATER_FILE)) {
   }
 }
 if (!waterPolygons.length) Object.assign(waterBounds, { minX: 0, maxX: 0, minZ: 0, maxZ: 0 });
+const waterStatePath = `${WATER_FILE}.state`;
+const waterState = fs.existsSync(waterStatePath) ? JSON.parse(fs.readFileSync(waterStatePath, 'utf8')) : {};
+const waterProvenance = {
+  source: 'Overture Maps base/water, OpenStreetMap contributors', licence: 'ODbL-1.0',
+  url: 'https://docs.overturemaps.org/schema/reference/base/water/', origin: ORIGIN,
+  release: waterState.last_release ?? null, retrievedAt: waterState.last_run ?? null,
+  queryBbox: waterState.bbox ?? null,
+  sourceSha256: fs.existsSync(WATER_FILE) ? createHash('sha256').update(fs.readFileSync(WATER_FILE)).digest('hex') : null,
+  build: { clipX: WATER_CLIP_X, clipZ: WATER_CLIP_Z, maskCellM: 128, maskMarginM: 256 },
+  coverage: 'Available whole source polygons clipped to the regional window; not a complete survey outside the original query bbox.',
+};
 fs.writeFileSync(path.join(out, 'water.json'), JSON.stringify({
-  bounds: waterBounds, solimoes: muddyIndices, polygons: waterPolygons,
+  provenance: waterProvenance, bounds: waterBounds, solimoes: muddyIndices, polygons: waterPolygons,
 }));
 
-/**
- * The chunk worker decides land from water synchronously and cannot fetch water.json, so the same
- * polygons are frozen into a 512x512 bitmask at 128 m. A cell is water when its centre is inside a
- * polygon, resolved by scanline: every ring of a polygon feeds one crossing list and the even-odd
- * rule subtracts the islands for free.
- */
-const MASK_HALF = 32768, MASK_CELL = 128;
-const MASK_SIZE = (MASK_HALF * 2) / MASK_CELL;
-const MASK_STRIDE = MASK_SIZE / 8;
-const maskBits = new Uint8Array(MASK_STRIDE * MASK_SIZE);
-
-/** Index of the first cell whose centre is at or past `value`, on either axis. */
-function cellAtOrAfter(value) { return Math.ceil((value + MASK_HALF) / MASK_CELL - .5); }
-
-function rasterizeWater(polygons) {
-  const rows = new Map();
-  for (const polygon of polygons) {
-    rows.clear();
-    for (const ring of polygon.rings) {
-      const count = ring.length / 2;
-      for (let i = 0; i < count; i++) {
-        const j = (i + 1) % count;
-        const az = ring[i * 2 + 1], bz = ring[j * 2 + 1];
-        if (az === bz) continue;
-        const ax = ring[i * 2], bx = ring[j * 2];
-        // Half-open in z so a vertex shared by two edges is counted once and spans stay paired.
-        const from = Math.max(0, cellAtOrAfter(Math.min(az, bz)));
-        const to = Math.min(MASK_SIZE - 1, cellAtOrAfter(Math.max(az, bz)) - 1);
-        for (let row = from; row <= to; row++) {
-          const z = row * MASK_CELL + MASK_CELL / 2 - MASK_HALF;
-          let list = rows.get(row);
-          if (!list) { list = []; rows.set(row, list); }
-          list.push(ax + (bx - ax) * (z - az) / (bz - az));
-        }
-      }
-    }
-    for (const [row, list] of rows) {
-      list.sort((a, b) => a - b);
-      const base = row * MASK_STRIDE;
-      for (let i = 0; i + 1 < list.length; i += 2) {
-        const from = Math.max(0, cellAtOrAfter(list[i]));
-        const to = Math.min(MASK_SIZE - 1, cellAtOrAfter(list[i + 1]) - 1);
-        for (let col = from; col <= to; col++) maskBits[base + (col >> 3)] |= 1 << (col & 7);
-      }
-    }
-  }
-}
-rasterizeWater(waterPolygons);
-
-let landmaskWaterCells = 0;
-for (const byte of maskBits) for (let bit = 0; bit < 8; bit++) if (byte & (1 << bit)) landmaskWaterCells++;
-fs.writeFileSync(path.join(out, 'landmask.json'), JSON.stringify({
-  originX: -MASK_HALF, originZ: -MASK_HALF, cell: MASK_CELL,
-  width: MASK_SIZE, height: MASK_SIZE, bits: Buffer.from(maskBits).toString('base64'),
-}));
+// The mask covers all compiled real water, with a 256 m safety margin. Bank cells
+// are conservative, so thin channels and crowns at a shoreline cannot be missed.
+const maskPayload=bakeRegionalWaterMask(waterPolygons,waterBounds);
+let landmaskWaterCells=0;
+for(const byte of Buffer.from(maskPayload.bits,'base64'))for(let bit=0;bit<8;bit++)if(byte&(1<<bit))landmaskWaterCells++;
+fs.writeFileSync(path.join(out,'landmask.json'),JSON.stringify(maskPayload));
+// Presentation aggregates, never another geographical/physics authority.
+fs.writeFileSync(path.join(out,'aerial.json'),JSON.stringify({version:1,origin:ORIGIN,tileSize:TILE_SIZE,
+  source:'Derived from the same compiled Overture skyline and transportation records',
+  skyline:skylineTiles,roads:roads.filter(r=>['trunk','primary','secondary'].includes(r.class))}));
 
 /** Overture calls a Manaus bairro a macrohood; the other three appear a handful of times each. */
 const DISTRICT_SUBTYPES = new Set(['macrohood', 'microhood', 'neighborhood', 'locality']);
@@ -956,6 +924,7 @@ const manifest = {
   skyline: 'skyline.json',
   landmarks: 'landmarks.json',
   water: 'water.json',
+  aerial: 'aerial.json',
   landmask: 'landmask.json',
   districts: 'districts.json',
   stats: {

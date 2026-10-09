@@ -47,7 +47,7 @@ export class EarthTransitionController {
   private lastAltitudeM = 0;
   private groundOwner: EarthGroundOwner = 'local';
 
-  update(altitudeM: number, earth?: EarthProvider): EarthTransitionState {
+  update(altitudeM: number, earth?: EarthProvider, regionalPresentationReady=true): EarthTransitionState {
     // Positive infinity is used while another body is dominant. Preserve it so the presentation
     // cannot accidentally fall back to "local Manaus" merely because Earth is out of scope.
     const alt = Number.isNaN(altitudeM) ? 0 : Math.max(0, altitudeM);
@@ -83,7 +83,7 @@ export class EarthTransitionController {
     if (alt < 20_000) requiredLod = 6;
 
     const readiness = earth ? earth.readiness(requiredLod) : createDefaultReadiness(requiredLod);
-    const targetCoverageReady = readiness.viewCoverageReady;
+    const targetCoverageReady = readiness.viewCoverageReady && regionalPresentationReady;
 
     // Readiness gates the one-way ascent handoff. Once planetary ground owns the view, transient
     // detailed-tile churn must not resurrect the 240 km flat sheet; the inset coarse fallback is

@@ -10,7 +10,7 @@ import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import { localManausPresentationMode } from '../world/spatial/ManausSurfacePresentation';
 
 /** The compiled river polygons, as `scripts/geodata/compile-real-city.mjs` writes them. */
-interface WaterPolygon {
+export interface WaterPolygon {
   class: string;
   name: string | null;
   /** Overture names only the waterway centrelines, so the compiler derives the Solimões flag. */
@@ -18,7 +18,7 @@ interface WaterPolygon {
   /** Flat `x,z` pairs in world metres; ring 0 is the bank and the rest are islands. */
   rings: number[][];
 }
-interface WaterFile {
+export interface WaterFile {
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   solimoes: number[];
   polygons: WaterPolygon[];
@@ -234,6 +234,8 @@ function createMaterial(): MeshStandardNodeMaterial {
 }
 
 export class WaterSystem {
+  /** The same immutable compiled polygons feed the curved aerial LOD. */
+  source?:WaterFile;
   readonly material = createMaterial();
   /** World height of the live surface: the fallback depth until the real river replaces it. */
   surfaceY = FALLBACK_Y;
@@ -265,6 +267,7 @@ export class WaterSystem {
       this.triangles = triangleCount(geometry);
       this.surfaceY = RIVER_Y;
       this.real = true;
+      this.source=file;
     } catch { this.real = false; }
   }
   setNight(night: boolean) { this.material.emissive = new Color(night ? '#071417' : '#000000'); }

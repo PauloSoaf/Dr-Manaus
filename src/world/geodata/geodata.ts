@@ -90,6 +90,18 @@ export function isLand(x: number, z: number): boolean {
   const shore = shoreZ(x);
   return z <= shore || z >= shore + riverWidth(x);
 }
+/** The baked mask has precedence throughout the footprint, including coverage edges. */
+export function isLandFootprint(x:number,z:number,radiusM:number):boolean {
+  if(!Number.isFinite(radiusM)||radiusM<0||!isLand(x,z)||LAND_MASK.hasWaterWithin(x,z,radiusM))return false;
+  // The expanded real mask covers local gameplay. Unknown areas keep the legacy fallback,
+  // conservatively sampled over the whole disk instead of just its centre.
+  if(LAND_MASK.covers(x-radiusM,z-radiusM)&&LAND_MASK.covers(x+radiusM,z+radiusM))return true;
+  const step=Math.max(1,Math.min(32,radiusM/4||1));
+  for(let dz=-radiusM;dz<=radiusM;dz+=step)for(let dx=-radiusM;dx<=radiusM;dx+=step)
+    if(dx*dx+dz*dz<=radiusM*radiusM&&!isLand(x+dx,z+dz))return false;
+  for(let i=0;i<32;i++)if(!isLand(x+Math.cos(i*Math.PI/16)*radiusM,z+Math.sin(i*Math.PI/16)*radiusM))return false;
+  return true;
+}
 export function isUrban(x: number, z: number): boolean {
   const manaus = z < shoreZ(x) - 25 && x > -12800 && x < 19500 && z > -17100;
   const oppositeShore = shoreZ(x) + riverWidth(x);
@@ -142,7 +154,7 @@ export function buildingAllowed(x: number, z: number, padding = 0): boolean {
 
 /** Reservations also apply to wilderness trees, independently of the urban boundary. */
 export function vegetationAllowed(x: number, z: number, padding = 0): boolean {
-  if ( !isLand(x - padding, z + padding) || !isLand(x + padding, z + padding)) return false;
+  if (!isLandFootprint(x,z,padding)) return false;
   if (onAirfield(x, z, padding)) return false;
   for (const landmark of LANDMARKS) if ((x - landmark.x) ** 2 + (z - landmark.z) ** 2 < (landmark.radius + padding) ** 2) return false;
   for (const segment of roadIndex.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`) ?? []) {

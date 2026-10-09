@@ -1,5 +1,20 @@
 # Geographic data and art boundaries
 
+Current regional water (2026-10-08) is compiled from the cached Overture/OSM base polygons,
+not the historical generalized river described below. The same authority feeds local and
+curved aerial water. The compiler clips to ±80 km, bakes centre/footprint masks over actual
+bounds with a 256 m margin, and creates `aerial.json` from existing skyline/major-road data.
+Water provenance carries the original acquisition bbox/release/retrieval/hash/ODbL license;
+no new download was needed for the available whole river polygons. Coverage limits,
+reproduction, dimensions, crown queries and costs are in
+[Manaus aerial P0](world/25-status-MANAUS-AERIAL-PRESENTATION-P0.md).
+Run `node scripts/geodata/compile-real-city.mjs` against the existing ignored raw cache;
+`scripts/geodata/prepare-real-city.ps1` uses the free official Overture client for fresh data.
+Its new water query covers the regional window while respecting an existing cache.
+
+The following small-extract foundation and generalized fallbacks are historical/contextual;
+inside the real regional mask, real water always takes precedence.
+
 The checked-in `public/geodata/manaus.json` is a compact OpenStreetMap extract, downloaded during implementation on 2026-09-18. Its metadata records the precise Overpass query, source timestamp, attribution, projection origin and retrieval timestamp. It contains **264 road ways / 2,150 projected vertices** from selected arterial corridors and **12 named OSM features**. The smaller `src/world/geodata/osm-roads.json` is the build-time road dataset used by terrain rendering and the worker's building exclusion index. Gameplay performs no requests to OSM/Overpass.
 
 Data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/). The bundled extracted database retains this license. Architectural models, generated city buildings and the manually generalized shoreline are original game assets, not OSM building geometry.

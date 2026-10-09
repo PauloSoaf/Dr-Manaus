@@ -29,6 +29,10 @@ const PALETTE = [
   [0.67, 0.77, 0.70], [0.91, 0.65, 0.54], [0.85, 0.84, 0.74],
   [0.55, 0.69, 0.72], [0.84, 0.75, 0.60],
 ];
+/** Palm leaves are offset and wider than the packed nominal radius (ChunkMeshes). */
+export function treeFootprintRadius(crown:number,kind:number):number {
+  return kind>.5?1.6+Math.hypot(crown*1.15,.85):crown;
+}
 
 /** Pure deterministic generation; used in workers and for the medium-distance proxy. */
 export function generateChunk(cx: number, cz: number): ChunkPayload {
@@ -43,8 +47,9 @@ export function generateChunk(cx: number, cz: number): ChunkPayload {
     const spacing=16;
     for(let z=8;z<WORLD.chunkSize;z+=spacing)for(let x=8;x<WORLD.chunkSize;x+=spacing){
       const px=originX+x+(random()-.5)*8,pz=originZ+z+(random()-.5)*8;
-      if(!isLand(px,pz)||isUrban(px,pz)||!vegetationAllowed(px,pz,4))continue;
-      land=true;trees.push(px,pz,16+random()*12,8+random()*4,0);
+      const height=16+random()*12,crown=8+random()*4;
+      if(isUrban(px,pz)||!vegetationAllowed(px,pz,crown))continue;
+      land=true;trees.push(px,pz,height,crown,0);
     }
     return {key:chunkKey(cx,cz),cx,cz,land,buildings:new Float32Array(),trees:new Float32Array(trees)};
   }
@@ -61,7 +66,8 @@ export function generateChunk(cx: number, cz: number): ChunkPayload {
     land = true;
     if (!buildingAllowed(x, z, Math.max(width, depth) * .5 + 3)) continue;
     if (chance > density * .9) {
-      trees.push(x, z, 7 + random() * 8, 4 + random() * 3, random() > .6 ? 1 : 0);
+      const height=7+random()*8,crown=4+random()*3,kind=random()>.6?1:0;
+      if(vegetationAllowed(x,z,treeFootprintRadius(crown,kind)))trees.push(x,z,height,crown,kind);
       continue;
     }
     buildings.push(x, z, width, height, depth, ...color, roofHeight);
@@ -69,8 +75,9 @@ export function generateChunk(cx: number, cz: number): ChunkPayload {
   for (let n = 0; n < 6; n++) {
     const x = originX + (10 + random() * 108) * unit;
     const z = originZ + (n % 2 ? 10 : 118) * unit;
-    if (isLand(x, z) && buildingAllowed(x, z, 3)) {
-      trees.push(x, z, 8 + random() * 5, 3 + random() * 2, n % 3 === 0 ? 1 : 0);
+    const height=8+random()*5,crown=3+random()*2;
+    if (vegetationAllowed(x,z,treeFootprintRadius(crown,n%3===0?1:0))) {
+      trees.push(x,z,height,crown,n%3===0?1:0);
     }
   }
   return { key: chunkKey(cx, cz), cx, cz, land, buildings: new Float32Array(buildings), trees: new Float32Array(trees) };

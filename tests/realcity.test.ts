@@ -461,10 +461,11 @@ test('the compiled land mask agrees with the river where the pipeline has produc
   const file = path.join(DATA, 'landmask.json');
   if (!existsSync(file)) return; // Emitted by the geodata pipeline; absent until it has run.
   const mask = new LandMask();
-  assert.equal(mask.load(JSON.parse(readFileSync(file, 'utf8'))), true);
+  const payload=JSON.parse(readFileSync(file,'utf8'));
+  assert.equal(mask.load(payload), true);
   assert.ok(mask.covers(0, 0), 'the mask must reach the projection origin');
   assert.equal(mask.isWater(0, 0), false, 'the Teatro Amazonas does not stand in the river');
-  const fraction = mask.waterCells / (512 * 512);
+  const fraction = mask.waterCells / (payload.width * payload.height);
   assert.ok(fraction > 0.02 && fraction < 0.75, `implausible water fraction ${(fraction * 100).toFixed(1)}%`);
 });
 
