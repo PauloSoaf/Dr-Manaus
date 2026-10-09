@@ -1,3 +1,4 @@
+import { hypercruiseTelemetry } from '../HypercruiseTelemetry';
 import { u1TestControlsEnabled, u2TestControlsEnabled } from '../../world/runtime/U1TestControls';
 import { MapNavigationModel } from './MapNavigationModel';
 import { formatDistance, formatDuration, formatSpeed, formatGalaxyName } from '../format';
@@ -112,7 +113,7 @@ export class UniversalMapPanel {
     this.targetCatalog=targetCatalog;
     this.renderers.galaxy.markers.setTargets(targetCatalog);
     this.renderers.cosmology.markers.setTargets(targetCatalog);
-    const inTravel = !!location.systemPositionM;
+    const inTravel = !!location.systemPositionM||!!location.transit;
     if (inTravel && !this.inTravel) this.selectedLevel = undefined;
     this.inTravel = inTravel;
     this.renderers.system.setBodies(bodies);
@@ -120,7 +121,8 @@ export class UniversalMapPanel {
     this.model.destination = destination;
     
     const loc = this.model.location;
-    if (this.selectedLevel) {
+    if(loc.transit){this.currentLevel=loc.transit.plan.domain==='intergalactic'?'cosmology':'galaxy';}
+    else if (this.selectedLevel) {
       this.currentLevel = this.selectedLevel;
     } else if (loc.cosmological || loc.address.galaxyId === 'cosmology' || loc.frameId.includes('cosmo')) {
       this.currentLevel = 'cosmology';
@@ -147,6 +149,15 @@ export class UniversalMapPanel {
 
   private drawMap(): void {
     this.renderers[this.currentLevel].draw(this.model.location, this.model.destination);
+    const transit=this.model.location.transit;
+    if(transit){
+      const canvas=this.root.querySelector<HTMLCanvasElement>('#universal-canvas')!,ctx=canvas.getContext('2d')!;
+      const x=canvas.width*.2,y=canvas.height*.75,w=canvas.width*.6;
+      ctx.strokeStyle='#38bdf8';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+w,y);ctx.stroke();
+      ctx.fillStyle='#e2f5ff';for(const px of [x,x+w]){ctx.beginPath();ctx.arc(px,y,5,0,Math.PI*2);ctx.fill();}
+      ctx.fillStyle='#ffd166';ctx.beginPath();ctx.arc(x+w*transit.progress,y,7,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#e2f5ff';ctx.font='13px sans-serif';ctx.fillText('SOURCE',x,y+22);ctx.fillText('DESTINATION',x+w-90,y+22);
+    }
     this.updateScale();
   }
 
@@ -320,6 +331,7 @@ export class UniversalMapPanel {
     }
 
     html += `</table>`;
+    if(loc.transit)html=`<h3>LOCALIZAÇÃO · EM TRÂNSITO</h3>${hypercruiseTelemetry(loc.transit)}<small>Runtime de origem preservado até a chegada atômica.</small>`;
 
     const resolved=this.flight?.universalTarget;
     html+=`<section id="universal-target-card"><h3>ALVO DE NAVEGAÇÃO</h3>`;
@@ -337,7 +349,7 @@ export class UniversalMapPanel {
       html+=`<h3>GALÁXIA ATUAL · ${escapeHtml(formatGalaxyName(this.model.location.address.galaxyId))}</h3>`;
       html+='<h3>CATÁLOGO DE DESTINOS</h3><small>Marcadores esquemáticos · selecionar não inicia viagem</small>';
       for(const d of this.targetCatalog.filter(d=>this.currentLevel==='galaxy'
-        ? ['galaxy','black-hole'].includes(d.kind) : ['galaxy','cluster','cosmic-anchor','observable-horizon'].includes(d.kind))){
+        ? ['galaxy','black-hole','system'].includes(d.kind) : ['galaxy','cluster','cosmic-anchor','observable-horizon','system'].includes(d.kind))){
         const key=universalTargetKey(d);
         html+=`<button class="map-body-target" data-universal-target="${escapeHtml(key)}" aria-pressed="${resolved?.target.key===key}">${escapeHtml(d.displayName)} · ${d.kind}${d.galaxyId===this.model.location.address.galaxyId?' · ATUAL':' · REMOTO'}</button>`;
       }

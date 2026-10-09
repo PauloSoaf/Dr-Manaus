@@ -1,3 +1,6 @@
+import { UniversalTravelController } from '../world/travel/UniversalTravelController';
+import { HypercruisePresentation } from '../rendering/HypercruisePresentation';
+import { orientGalaxyVector } from '../world/galaxy/GalaxyCoordinates';
 import { GalaxyMaterializer } from '../world/galaxy/GalaxyMaterializer';
 import { findAndromedaU2Fixture } from '../world/galaxy/AndromedaU2Fixture';
 import { u2TestControlsEnabled } from '../world/runtime/U1TestControls';
@@ -138,6 +141,42 @@ export class Game {
   /** Which simulation the player is in. Urban physics runs in one of them and not the other. */
   readonly travelDomain=new TravelDomain();
   readonly interplanetary=new CosmicCruiseController();
+  private universalTravelController?:UniversalTravelController;
+  private hyperPresentation?:HypercruisePresentation;
+  get universalTravel():UniversalTravelController {
+    return this.universalTravelController??=new UniversalTravelController(this.universe,this.universalTargetCatalog,{
+      prepare:plan=>this.systemMaterializer.prepareTravel(plan.resolvedDestination),
+      arrived:plan=>{
+        if(plan.finalBodyTarget){this.selectNavigationTarget(plan.finalBodyTarget);this.interplanetary.autopilot.engage();}
+        this.hud.notify('Hypercruise concluído · chegada segura ao sistema');
+      },
+    });
+  }
+  startUniversalTravel():boolean {
+    const target=this.universalNavigationTarget;if(!target)return false;
+    if(!['star','system','body','galaxy'].includes(target.kind)){
+      this.hud.notify(travelCapabilityLabel(this.universalTargetResolver.resolve(target).travelCapability));return false;
+    }
+    try {
+      const result=this.universalTravel.start(target,{grounded:this.player.state==='Grounded',
+        localPhysics:this.travelDomain.localPhysicsActive,landing:this.landingIntent.active,
+        collision:!!this.interplanetary.lastCelestialContact||this.universe.telemetry.altitudeM<=0});
+      if(result==='same-system')return false;
+      if(result==='started'){
+        this.interplanetary.autopilot.cancel();this.landingIntent.cancel();this.warpStep=0;this.player.velocity.set(0,0,0);
+        const position=this.universe.playerSystemPositionM();
+        this.travelDomain.enterSystem({systemId:this.universe.address.systemId!,positionM:position,velocityMps:[0,0,0]});
+        this.universe.updateSystemPose(position,[0,0,0],0);
+        this.hyperPresentation??=new HypercruisePresentation(this.celestialRoot);
+        const plan=this.universalTravel.state!.plan,a=plan.origin.globalPositionM,b=plan.destination.globalPositionM;
+        if(a&&b){const local=orientGalaxyVector(this.universe.activeGalaxy.definition,b.map((v,i)=>v-a[i]) as [number,number,number],true);
+          const direction=this.universe.frames.convertDirection(this.universe.activeSystem.systemFrameId,this.universe.renderSpace.currentOrigin.frame,local);
+          this.hyperPresentation.setDirection(direction);this.camera.setLocalView(direction);}
+      }
+      this.hud.notify('Hypercruise · '+result);return true;
+    }catch(e){this.hud.notify(String(e));return false;}
+  }
+
   private impactService?: CelestialImpactService;
   get celestialImpacts(): CelestialImpactService { return this.impactService ??= new CelestialImpactService(); }
   lastCelestialImpact?: CelestialImpactEvent;
@@ -194,7 +233,7 @@ export class Game {
       this.renderOriginVec.set(0,0,0);this.actorRoot.position.set(0,0,0);this.player.velocity.set(0,0,0);
       const position=this.universe.player.position;
       if(this.universe.player.frame===this.universe.activeSystem.systemFrameId){
-        this.travelDomain.testArrival({systemId:this.universe.address.systemId!,positionM:[...position],velocityMps:[0,0,0]});
+        this.travelDomain.enterSystem({systemId:this.universe.address.systemId!,positionM:[...position],velocityMps:[0,0,0]});
         this.player.position.set(0,0,0);this.camera.inSpace=true;
       }else {this.travelDomain.reset();this.player.teleport(new Vector3(...position));this.camera.inSpace=false;}
       this.camera.skipIntro();this.bindSurfacePhysics();
@@ -510,8 +549,8 @@ export class Game {
     this.mark=performance.now();
     this.navigation.validate(this.universalTargetResolver);
     if (!this.navigationLock && this.interplanetary.autopilot.active) this.interplanetary.autopilot.cancel();
-    if(this.travelDomain.localPhysicsActive && this.universalNavigationTarget && !this.navigationTarget && this.input.consume('KeyP'))
-      this.hud.notify(travelCapabilityLabel(this.universalTargetResolver.resolve(this.universalNavigationTarget).travelCapability));
+    if((this.universalTravelController?.active||this.universalNavigationTarget&&!this.navigationTarget)&&this.input.consume('KeyP'))this.startUniversalTravel();
+    if(this.universalTravelController?.active&&this.input.consume('KeyX'))this.universalTravelController.cancel();
     this.updateTravelDomain(dt);
     const transition = this.travelDomain.transition;
     if (transition.kind === 'departed') {
@@ -541,7 +580,7 @@ export class Game {
       this.finishSurfaceReturn(this.universe.telemetry.dominantBody);
     }
     this.bindSurfacePhysics();
-    const local = this.travelDomain.localPhysicsActive;
+    const local = !this.universalTravelController?.active&&this.travelDomain.localPhysicsActive;
     this.camera.inSpace = !local;
     this.camera.prepareLook();
     const manaus = this.manausSimulationActive;
@@ -591,7 +630,8 @@ export class Game {
 
     if(FEATURES.spatialCore){
       this.rendering.camera.getWorldDirection(this.viewForward);
-      if (local) {
+      if(this.universalTravelController?.active){this.universalTravelController.update(rawDt);}
+      else if (local) {
         this.universe.update([this.player.position.x,this.player.position.y,this.player.position.z],[this.player.velocity.x,this.player.velocity.y,this.player.velocity.z],dt,[this.viewForward.x,this.viewForward.y,this.viewForward.z]);
       } else if (this.travelDomain.state) {
         this.updateInterplanetaryFlight(dt);
@@ -607,9 +647,9 @@ export class Game {
     }this.lap('universe');
 
     // Landing prefetch is gameplay-driven and separate from the angular presentation rule.
-    this.updateLandingPrefetch();
+    if(!this.universalTravelController?.active)this.updateLandingPrefetch();
     // Prepare celestial presentation state before streaming
-    this.celestialController.prepare({
+    if(!this.universalTravelController?.active)this.celestialController.prepare({
       universe: this.universe,
       earth: this.earth,
       planetProviders: this.planetProviders,
@@ -684,14 +724,14 @@ export class Game {
     this.camera.update(this.player,this.renderOriginVec,dt,local ? (FEATURES.curvedManaus?this.curvedColliders:this.colliders) : []);this.rendering.camera.updateMatrixWorld();
 
     // Render celestial presentation
-    this.celestialController.render({
+    if(!this.universalTravelController?.active)this.celestialController.render({
       camera: this.rendering.camera
     });
-    this.manausAerial?.update(this.universe.telemetry.altitudeM,this.universe.telemetry.dominantBody==='earth',
+    this.manausAerial?.update(this.universe.telemetry.altitudeM,!this.universalTravelController?.active&&this.universe.telemetry.dominantBody==='earth',
       this.rendering.camera.position.toArray() as [number,number,number],this.rendering.camera.fov*Math.PI/180,
       this.rendering.renderer.domElement.clientHeight,
       bodySolarDirection(this.universe.activeSystem,this.universe.frames,'earth',this.universe.renderSpace.currentOrigin.frame));
-    this.space.setSolarPresentation(this.celestialController.renderSamples.find(sample=>sample.profile?.bodyClass==='star'));
+    this.space.setSolarPresentation(this.universalTravelController?.active?undefined:this.celestialController.renderSamples.find(sample=>sample.profile?.bodyClass==='star'));
     this.celestialLabels.update(this.celestialController.renderSamples, this.rendering.camera, {
       selectedBodyId: this.navigationLock?.bodyId,
       inTravel: this.travelDomain.kind === 'interplanetary',
@@ -703,13 +743,13 @@ export class Game {
     this.player.character.setCosmicLevel(this.cosmicLevel(),speedNow,this.direction);if(local)this.powers.update(dt,worldDt);
     this.playerLocal.copy(this.player.position).sub(this.renderOriginVec);
     const altitudeNow = manaus ? this.player.position.y : this.universe.telemetry.altitudeM;
-    const skyAltitude=this.universe.telemetry.dominantBody==='earth'?altitudeNow:1_000_000;
+    const skyAltitude=!this.universalTravelController?.active&&this.universe.telemetry.dominantBody==='earth'?altitudeNow:1_000_000;
     this.atmosphere.setAltitude(skyAltitude);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(skyAltitude,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=manaus?this.weather.update(worldDt,this.player.position,this.atmosphere.weather):0;if(flash)this.atmosphere.sun.intensity+=flash;
     this.galaxyMaterializer?.update([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z],altitudeNow);
     const audioBody=this.universe.telemetry.dominantBody;
     this.audio.update({
-      medium:audioBody==='earth'?'earth-atmosphere':local?'airless-surface':'vacuum',
-      atmosphericDensity01:audioBody==='earth'?earthAtmosphericDensity01(altitudeNow):0,
+      medium:this.universalTravelController?.active?'vacuum':audioBody==='earth'?'earth-atmosphere':local?'airless-surface':'vacuum',
+      atmosphericDensity01:!this.universalTravelController?.active&&audioBody==='earth'?earthAtmosphericDensity01(altitudeNow):0,
       speedMps:speedNow,altitudeM:altitudeNow,
       rain:manaus&&['rain','storm'].includes(this.atmosphere.weather),
       river:manaus&&!isLand(this.player.position.x,this.player.position.z),
@@ -718,7 +758,13 @@ export class Game {
       this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     }
     if(manaus){this.terrain.update(this.player.position,this.renderOriginVec);this.forest.update(this.player.position);}
-    this.bindSurfacePhysics();this.volumeRenderer.update();
+    if(!this.universalTravelController?.active){this.bindSurfacePhysics();this.volumeRenderer.update();}
+    const transit=this.universalTravelController?.state;
+    this.planetRoot.visible=!transit;this.celestialVisuals.root.visible=!transit;
+    if(this.galaxyMaterializer?.current)this.galaxyMaterializer.current.root.visible=!transit;
+    this.actorRoot.visible=!transit;
+    if(transit)this.localRoot.visible=false;
+    this.hyperPresentation?.update(transit,this.rendering.camera,rawDt);
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
@@ -1031,6 +1077,8 @@ export class Game {
   }
 
   private updateTravelDomain(dt:number){
+    if(this.universalTravelController?.active){this.input.consume('KeyB');this.input.consume('KeyF');return;}
+
     let nearest=Number.POSITIVE_INFINITY;
     for(const collider of (FEATURES.curvedManaus ? this.curvedColliders : this.colliders)){
       const dx=collider.x-this.player.position.x,dy=(collider.y??0)-this.player.position.y,dz=collider.z-this.player.position.z;
@@ -1083,7 +1131,7 @@ export class Game {
 
   /** A local ENU belongs to its body; only Manaus coordinates may drive the city. */
   get manausSimulationActive():boolean {
-    return this.travelDomain.localPhysicsActive&&this.universe.player.frame===MANAUS_FRAME_ID;
+    return !this.universalTravelController?.active&&this.travelDomain.localPhysicsActive&&this.universe.player.frame===MANAUS_FRAME_ID;
   }
 
   private surfaceProvider(bodyId:string):RockyPlanetProvider|undefined {
@@ -1565,6 +1613,11 @@ export class Game {
       'ACTIVE GALAXY · External galaxies':this.localGroup.map(g=>g.id).join(',')||'off',
       'ACTIVE GALAXY · Central black hole':this.universe.activeGalaxy.centralBlackHole?.id??'—',
       'ACTIVE GALAXY · Session generation':this.galaxyMaterializer?.generation??0,
+      'HYPERCRUISE · Active':this.universalTravelController?.active?'yes':'no',
+      'HYPERCRUISE · Location mode':this.universe.locationMode,
+      'HYPERCRUISE · Plan / Domain':this.universalTravelController?.state?this.universalTravelController.state.plan.id+' / '+this.universalTravelController.state.plan.domain:'—',
+      'HYPERCRUISE · Phase / Progress':this.universalTravelController?.state?this.universalTravelController.state.phase+' / '+(this.universalTravelController.state.progress*100).toFixed(2)+'%':'—',
+      'HYPERCRUISE · Prepared / Effective c':this.universalTravelController?.state?this.universalTravelController.state.prepared+' / '+this.universalTravelController.state.effectiveSpeedMps/299792458:'—',
       'ACTIVE GALAXY · QA transition mode':this.materializer?.qaArrivalMode?(this.universe.activeGalaxy.id==='andromeda'?'U2 TEST':'U1 TEST'):'off',
       'ACTIVE SYSTEM · Galaxy':this.universe.address.galaxyId,
       'ACTIVE SYSTEM · Sector':Object.values(this.universe.address.sector).join(','),

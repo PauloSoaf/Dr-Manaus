@@ -1,3 +1,4 @@
+import { hypercruiseTelemetry } from './HypercruiseTelemetry';
 import type { FlightTelemetry } from '../world/travel/CosmicFlight';
 import type { NavigationLock } from '../world/travel/NavigationLock';
 import { Vector3, type PerspectiveCamera } from 'three/webgpu';
@@ -347,6 +348,7 @@ export class HUD {
    */
   private renderCruiseBlock(state:HUDState){
     const block=$('#cruise-block');
+    if(state.location.transit){block.hidden=false;block.innerHTML=hypercruiseTelemetry(state.location.transit);return;}
     const flight=state.flight;
     // Shown for a target *or* an engaged warp: the gear matters even with nowhere chosen.
     if(!flight||(!flight.universalTarget&&!flight.targetBodyId&&!flight.warpStep)){block.hidden=true;return;}
