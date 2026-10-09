@@ -8,6 +8,9 @@ export type GalaxyDensityProfile = 'milky-way' | 'andromeda' | 'elliptical' | 'i
 
 export interface GalaxyDefinition {
   id: string;
+  name: string;
+  /** Sector zero relative to this galaxy's centre, in galaxy-local axes. */
+  addressOriginM: Vec3;
   type: 'barred-spiral' | 'spiral' | 'elliptical' | 'irregular';
   diameterLy: number;
   thicknessLy: number;
@@ -23,6 +26,8 @@ export interface GalaxyDefinition {
 export const LOCAL_GROUP_CATALOG: GalaxyDefinition[] = [
   {
     id: 'milky_way',
+    name: 'Milky Way',
+    addressOriginM: [-GALACTIC_CENTRE_FROM_SOL_M[0],0,0],
     type: 'barred-spiral',
     diameterLy: 100_000,
     thicknessLy: 1_000,
@@ -43,6 +48,8 @@ export const LOCAL_GROUP_CATALOG: GalaxyDefinition[] = [
   },
   {
     id: 'andromeda',
+    name: 'Andromeda',
+    addressOriginM: [0,0,0],
     type: 'spiral',
     diameterLy: 220_000,
     thicknessLy: 2_000,

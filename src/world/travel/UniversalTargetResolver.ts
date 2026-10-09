@@ -1,7 +1,8 @@
+import { addressSeparationM, globalTargetDeltaM, galaxyDefinition, galaxyLocalPositionM, orientGalaxyVector } from '../galaxy/GalaxyCoordinates';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
-import { LOCAL_GROUP_CATALOG, GALACTIC_CENTRE_FROM_SOL_M } from '../celestial/GalaxyDefinition';
-import { separationM, sectorsEqual, sectorIndex, type UniverseAddress } from '../spatial/UniverseAddress';
+import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
+import { sectorsEqual, sectorIndex, type UniverseAddress } from '../spatial/UniverseAddress';
 import { PARSEC_M, type Vec3 } from '../spatial/units';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from './UniversalTargetCatalog';
 import { isUniverseAddress, type UniversalNavigationTarget } from './UniversalNavigationTarget';
@@ -84,11 +85,19 @@ export class UniversalTargetResolver {
         if(activeSystemTargetBodyId(t,this.context))capability='intra-system';
         const live=t.kind==='system'?[0,0,0] as Vec3:this.context.activeSystem.positionOf(t.bodyId!);
         if(live)distanceM=Math.hypot(...live.map((v,i)=>v-observer[i]));
-      }else if(positionM)distanceM=separationM({sector:current.sector,offsetM:this.context.location?.sectorOffsetM??observer},{sector:a.sector,offsetM:positionM});
+      }else if(positionM)distanceM=addressSeparationM(current,this.context.location?.sectorOffsetM??observer,a,positionM);
     } else if(entry.globalPositionM){
       frame='milky-way-centred';positionM=entry.globalPositionM;
-      if(LOCAL_GROUP_CATALOG.some(g=>g.id===current.galaxyId))distanceM=separationM({sector:current.sector,offsetM:this.context.location?.sectorOffsetM??observer},
-        {sector:SOLAR_TARGET_ADDRESS.sector,offsetM:positionM.map((v,i)=>v+GALACTIC_CENTRE_FROM_SOL_M[i]) as Vec3});
+      const delta=globalTargetDeltaM(current,this.context.location?.sectorOffsetM??observer,positionM);
+      if(delta)distanceM=Math.hypot(...delta);
+      const localGalaxy=galaxyDefinition(current.galaxyId);
+      if(localGalaxy && t.galaxyId===current.galaxyId){
+        const localTarget=orientGalaxyVector(localGalaxy,positionM.map((v,i)=>v-localGalaxy.positionM[i]) as Vec3,true);
+        const localObserver=galaxyLocalPositionM(localGalaxy,current.sector,this.context.location?.sectorOffsetM??observer);
+        distanceM=Math.hypot(...localTarget.map((v,i)=>v-localObserver[i]));
+      }
+      materialized=t.kind==='black-hole' && t.galaxyId===current.galaxyId;
+
     } else if(a && !isUniverseAddress(a)){
       frame='cosmological-relative';
       const player=this.context.location?.cosmological;
@@ -103,8 +112,8 @@ export class UniversalTargetResolver {
         positionM=a.localMpc.map((v,i)=>(v-(player?.localMpc[i]??0))*1e6*PARSEC_M) as Vec3;
         if(!player){
           frame='local-group';
-          distanceM=separationM({sector:current.sector,offsetM:observerOffset},{sector:SOLAR_TARGET_ADDRESS.sector,
-            offsetM:positionM.map((v,i)=>v+GALACTIC_CENTRE_FROM_SOL_M[i]) as Vec3});
+          const delta=globalTargetDeltaM(current,observerOffset,positionM);
+          if(delta)distanceM=Math.hypot(...delta);
         }else distanceM=Math.hypot(...positionM);
       }
     }

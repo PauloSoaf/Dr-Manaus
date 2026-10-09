@@ -1,3 +1,4 @@
+import { galaxyLocalPositionM } from '../galaxy/GalaxyCoordinates';
 import {
   type SectorIndex, SECTOR_SIZE_M, sectorKey, sectorSeed,
 } from '../spatial/UniverseAddress';
@@ -195,50 +196,10 @@ export function generateStarSector(
   const random = new SeededRandom(seed);
 
   // Find the galaxy definition
-  const galDef = LOCAL_GROUP_CATALOG.find(g => g.id === galaxyId);
+  const galDef = LOCAL_GROUP_CATALOG.find(g => g.id === (galaxyId==='milky-way'?'milky_way':galaxyId));
   const densityScale = (galDef?.densityScale ?? 1) * (options.densityScale ?? 1);
 
-  // Where this sector sits in the galaxy, relative to the Solar System (Sector 0, 0, 0)
-  const bounded = [sector.x,sector.y,sector.z].every(v=>v>=-1_000_000n && v<=1_000_000n);
-  const localCentre: Vec3 = bounded ? [
-    Number(sector.x) * SECTOR_SIZE_M,
-    Number(sector.y) * SECTOR_SIZE_M,
-    Number(sector.z) * SECTOR_SIZE_M,
-  ] : [0,0,0];
-  
-  // The galactic center position relative to the local centre
-  const LY_TO_M = 9.4607304725808e15;
-  let galacticCentrePosM: Vec3 = [0, 0, 0];
-  
-  if (galaxyId === 'milky_way' || galaxyId === 'milky-way') {
-    // The galactic center is ~26,000 ly away from the Solar System. We place it at +X for now.
-    galacticCentrePosM = [
-      localCentre[0] - GALACTIC_CENTRE_FROM_SOL_M[0],
-      localCentre[1],
-      localCentre[2],
-    ];
-  } else if (galDef) {
-    // Other galaxies are relative to the Milky Way (0,0,0) in our global intergalactic coordinates
-    // localCentre is relative to Solar System. Solar System is at [-26000ly, 0, 0] relative to MW.
-    // MW Center is at [+26000ly, 0, 0] relative to Solar System.
-    // If galDef.positionM is relative to MW Center, then:
-    // Pos relative to SS = MW_center_relative_to_SS + galDef.positionM
-    const mwCenterRelToSS = GALACTIC_CENTRE_FROM_SOL_M;
-    const galCenterRelToSS = [
-      mwCenterRelToSS[0] + galDef.positionM[0],
-      mwCenterRelToSS[1] + galDef.positionM[1],
-      mwCenterRelToSS[2] + galDef.positionM[2],
-    ];
-    // Position of this sector relative to the galaxy center
-    galacticCentrePosM = [
-      localCentre[0] - galCenterRelToSS[0],
-      localCentre[1] - galCenterRelToSS[1],
-      localCentre[2] - galCenterRelToSS[2],
-    ];
-  } else {
-    // Fallback for tests or unknown galaxies: center is at 0,0,0 in local space
-    galacticCentrePosM = localCentre;
-  }
+  const galacticCentrePosM = galDef ? galaxyLocalPositionM(galDef,sector) : [0,0,0] as Vec3;
 
   let density = 0;
   if (galDef?.densityProfile === 'andromeda') {
@@ -246,7 +207,8 @@ export function generateStarSector(
   } else {
     density = milkyWayDensity(galacticCentrePosM) * densityScale;
   }
-  const target = Math.min(options.maxStars ?? 2000, Math.round(STARS_PER_SECTOR_BASE * density));
+  const cap=Number.isFinite(options.maxStars)?Math.max(0,Math.min(2000,Math.floor(options.maxStars!))):2000;
+  const target = Math.min(cap, Math.round(STARS_PER_SECTOR_BASE * density));
   const count = Math.max(0, target);
 
   const stars: GeneratedStar[] = [];

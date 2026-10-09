@@ -1,3 +1,4 @@
+import { knownGalaxyRuntime, type GalaxyRuntime } from '../galaxy/GalaxyRuntime';
 import { SolarSystem, SOLAR_SYSTEM_FRAME } from '../celestial/SolarSystem';
 import { bodyFixedToGeodetic, bodyGeodeticToFixed, EARTH } from '../planet/PlanetBody';
 import { bodyProfile } from '../celestial/CelestialBodyProfile';
@@ -73,6 +74,7 @@ export class UniverseRuntime {
   readonly volume: PlanetVolumeRuntime;
   readonly solarSystem: SolarSystem;
   public activeSystem: CelestialSystemRuntime;
+  activeGalaxy:GalaxyRuntime=knownGalaxyRuntime('milky_way')!;
   readonly earthQuadtree: PlanetQuadtree;
   readonly floatingOrigin: FloatingOrigin3D;
   readonly renderSpace: RenderSpaceService;
@@ -130,7 +132,8 @@ export class UniverseRuntime {
 
   /** Synchronous commit only after a materializer has prepared and installed resources/frames. */
   installSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, position: Vec3): void {
-    this.activeSystem=runtime;this.address=address;
+    const galaxy=knownGalaxyRuntime(address.galaxyId);if(!galaxy)throw Error('Galáxia desconhecida');
+    this.activeGalaxy=galaxy;this.activeSystem=runtime;this.address=address;
     this.setPlayerPose(runtime.systemFrameId,position);
     this.playerPose.orientation=[0,0,0,1];
     this.floatingOrigin.reset(this.playerPose);
@@ -139,7 +142,8 @@ export class UniverseRuntime {
     this.scheduler.invalidate();
   }
   restoreSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, saved: SpatialPose, velocity: Vec3): void {
-    this.activeSystem=runtime;this.address=address;
+    const galaxy=knownGalaxyRuntime(address.galaxyId);if(!galaxy)throw Error('Galáxia desconhecida');
+    this.activeGalaxy=galaxy;this.activeSystem=runtime;this.address=address;
     copyPose(this.playerPose,saved);
     for(let i=0;i<3;i++)this.velocity[i]=velocity[i];
     this.floatingOrigin.reset(this.playerPose);
