@@ -19,6 +19,7 @@ import { CosmicCruiseController } from '../src/world/travel/CosmicFlight.ts';
 import { formatDistance } from '../src/ui/format.ts';
 import { CatalogMapMarkers } from '../src/ui/map/MapRenderers.ts';
 import { OBSERVABLE_HORIZON_MPC } from '../src/world/celestial/CosmicAnchorCatalog.ts';
+import { universalTargetDiagnostics } from '../src/ui/UniversalTargetDiagnostics.ts';
 
 const catalog=new UniversalTargetCatalog();
 const target=(id:string)=>catalog.target(id,'map',42)!;
@@ -220,4 +221,13 @@ test('Curated descriptor validation ignores wire object property order',()=>{
   const t=target('virgo_cluster'),a=t.address as any;
   const reordered=createUniversalTarget({...t,address:{localMpc:a.localMpc,cell:{z:a.cell.z,y:a.cell.y,x:a.cell.x}}});
   assert.equal(fixture().resolver.resolve(reordered).valid,true);
+});
+test('F3 diagnostics project universal identity, exact integer sector and truthful capability',()=>{
+  const f=fixture(),d=universalTargetDiagnostics(f.resolver.resolve(target('andromeda')));
+  assert.equal(d['Universal Target · Key'],'galaxy/andromeda');assert.equal(d['Universal Target · Distance'],'2.50 Mly');
+  assert.equal(d['Universal Target · Kind'],'galaxy');assert.equal(d['Universal Target · Galaxy'],'andromeda');
+  assert.equal(d['Universal Target · Capability'],'intergalactic-future');assert.equal(d['Universal Target · Materialized'],'não');
+  const enormous=universalTargetDiagnostics({...f.resolver.resolve(target('mars')),target:huge(9007199254740993n)});
+  assert.equal(enormous['Universal Target · Sector'],'9007199254740993,-2,4');
+  assert.equal(universalTargetDiagnostics()['Universal Target · Name'],'—');
 });

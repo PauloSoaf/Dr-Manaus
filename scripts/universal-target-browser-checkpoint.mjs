@@ -57,6 +57,13 @@ export async function universalTargetCheckpoint(page) {
     assert.equal((await identity()).autopilot,false);await open();
     await page.waitForFunction(()=>document.querySelector('[data-universal-target="galaxy/andromeda"]').getAttribute('aria-pressed')==='true',null,{timeout:15000});
     const persisted=await identity();assert.equal(persisted.key,andromeda.key);
+    await close();await page.keyboard.press('F3');
+    await page.waitForFunction(()=>document.querySelector('#debug-metrics').textContent.includes('Universal Target · Keygalaxy/andromeda'),null,{timeout:15000});
+    const diagnostics=await page.evaluate(()=>{const g=window.__DR_MANAUS__;return g.universeDebug(g.hudFlight());});
+    assert.equal(diagnostics['Universal Target · Name'],'Andromeda');assert.equal(diagnostics['Universal Target · Kind'],'galaxy');
+    assert.equal(diagnostics['Universal Target · Galaxy'],'andromeda');assert.equal(diagnostics['Universal Target · Distance'],'2.50 Mly');
+    assert.equal(diagnostics['Universal Target · Materialized'],'não');assert.equal(diagnostics['Universal Target · Capability'],'intergalactic-future');
+    await page.keyboard.press('F3');await open();
     const rebase=await page.evaluate(()=>{
       const g=window.__DR_MANAUS__,t=g.universalNavigationTarget,r=g.universalTargetResolver.resolve(t),u=g.universe,
         origin=u.renderSpace.currentOrigin,frame=origin.frame,before=t.key;
@@ -82,7 +89,7 @@ export async function universalTargetCheckpoint(page) {
     await page.screenshot({path:`artifacts/u0-map-${label}.png`,timeout:90000});
     await close();await page.keyboard.press('Backspace');
     await page.waitForFunction(()=>!window.__DR_MANAUS__.universalNavigationTarget,null,{timeout:15000});
-    results[label]={mars,sgra,andromeda,m31,virgo,persisted,rebase,layout};
+    results[label]={mars,sgra,andromeda,m31,virgo,persisted,rebase,layout,diagnostics};
     console.log(`U0 ${label}: Solar P/cancel, galaxy/BH/cosmos selection, one target, no teleport, persistence and rebase passed.`);
   }
   await page.setViewportSize({width:1440,height:900});

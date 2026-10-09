@@ -1,4 +1,4 @@
-import { formatDistance } from '../ui/format';
+import { universalTargetDiagnostics } from '../ui/UniversalTargetDiagnostics';
 import { ForestBackdrop } from '../world/ForestBackdrop';
 import { CameraHelper, Group, Mesh, Vector3 } from 'three/webgpu';
 import { WORLD, QUALITY, FEATURES } from '../core/config';
@@ -1494,7 +1494,8 @@ export class Game {
       'Corpos · Provider físico':this.celestialController.physicalBodyId??'—',
       'Corpos · Apresentação':this.celestialController.physicalMode,
       'Corpos · Tiles residentes':Array.from(this.planetProviders,([id,provider])=>`${id}: ${provider.stats.tiles}`).join(' · '),
-      'Destino':this.navigationLock?.bodyId??'—',
+      ...universalTargetDiagnostics(nav.universalTarget),
+      'Destino':this.universalNavigationTarget?.displayName??'—',
       'Alvo · Origem':this.universalNavigationTarget?.source??'—',
       'Alvo · Distância / Relativa / Fechamento':`${nav.distanceToTargetM??0} / ${nav.relativeSpeedMps} / ${nav.closingSpeedMps}`,
       'Alvo · Alinhamento':this.flightTelemetry?.alignment??0,
