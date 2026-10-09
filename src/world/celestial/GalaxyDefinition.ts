@@ -1,4 +1,8 @@
 import type { BlackHoleDefinition } from '../providers/BlackHoleProvider';
+import { LIGHT_YEAR_M, type Vec3 } from '../spatial/units';
+
+/** Existing StarSector convention: the Solar-relative sector grid puts the MW centre on +X. */
+export const GALACTIC_CENTRE_FROM_SOL_M:Vec3 = [26_000 * LIGHT_YEAR_M,0,0];
 
 export type GalaxyDensityProfile = 'milky-way' | 'andromeda' | 'elliptical' | 'irregular';
 

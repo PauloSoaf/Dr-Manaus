@@ -5,19 +5,8 @@ import {
 import type { CoverageClaim, SpatialContext, StreamingContext, WorldProvider } from './WorldProvider';
 import { finite } from '../spatial/units';
 
-export interface CosmicAnchor {
-  id: string;
-  name: string;
-  positionMpc: [number, number, number];
-  massSolar: number;
-}
-
-export const KNOWN_COSMIC_ANCHORS: CosmicAnchor[] = [
-  { id: 'local_group', name: 'Local Group', positionMpc: [0, 0, 0], massSolar: 2e12 },
-  { id: 'virgo_cluster', name: 'Virgo Cluster', positionMpc: [16.5, 0, 0], massSolar: 1.2e15 },
-  { id: 'norma_cluster', name: 'Norma Cluster / Great Attractor', positionMpc: [68, -10, 20], massSolar: 1e16 },
-  { id: 'shapley_supercluster', name: 'Shapley Supercluster', positionMpc: [200, -30, 60], massSolar: 1e17 }
-];
+import { KNOWN_COSMIC_ANCHORS, OBSERVABLE_HORIZON_MPC } from '../celestial/CosmicAnchorCatalog';
+export { KNOWN_COSMIC_ANCHORS, type CosmicAnchor } from '../celestial/CosmicAnchorCatalog';
 
 export interface LargeScaleStructureProviderOptions {
   /** Draw the Cosmic Microwave Background (Observable Universe Horizon). */
@@ -52,7 +41,7 @@ export class LargeScaleStructureProvider {
     if (this.options.drawCMB) {
       // The observable universe is ~93 billion light years in diameter.
       // Radius ~ 46.5 billion ly = 14200 Mpc.
-      const radiusMpc = 14200;
+      const radiusMpc = OBSERVABLE_HORIZON_MPC;
       const radiusU = (radiusMpc * MPC_TO_M) / COSMIC_METRES_PER_UNIT;
       const cmbGeom = new SphereGeometry(radiusU, 64, 64);
       // CMB is a faint microwave background, representing the last scattering surface.

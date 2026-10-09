@@ -9,14 +9,21 @@
  * high enough that the smaller unit is still legible when it hands over.
  */
 
-const AU_M = 149_597_870_700;
+import { AU_M, LIGHT_YEAR_M, PARSEC_M } from '../world/spatial/units';
 const LIGHT_SPEED_MPS = 299_792_458;
+
+export const formatGalaxyName=(id:string|undefined):string=>id==='milky_way'?'Milky Way':id==='andromeda'?'Andromeda':id??'Cosmos';
 
 /** A distance in metres, in whichever unit keeps it readable without losing the scale. */
 export function formatDistance(metres: number): string {
   if (!Number.isFinite(metres)) return '—';
   const sign = metres < 0 ? '-' : '';
   const value = Math.abs(metres);
+  if (value >= 1e9 * PARSEC_M) return `${sign}${(value / (1e9 * PARSEC_M)).toFixed(2)} Gpc`;
+  if (value >= 10e6 * PARSEC_M) return `${sign}${(value / (1e6 * PARSEC_M)).toFixed(2)} Mpc`;
+  if (value >= 1e6 * LIGHT_YEAR_M) return `${sign}${(value / (1e6 * LIGHT_YEAR_M)).toFixed(2)} Mly`;
+  if (value >= 1e3 * LIGHT_YEAR_M) return `${sign}${(value / (1e3 * LIGHT_YEAR_M)).toFixed(2)} kly`;
+  if (value >= .1 * LIGHT_YEAR_M) return `${sign}${(value / LIGHT_YEAR_M).toFixed(2)} ly`;
   if (value < 1_000) return `${sign}${Math.round(value)} m`;
   if (value < 1_000_000) return `${sign}${(value / 1_000).toFixed(1)} km`;
   if (value < 1_000_000_000) return `${sign}${Math.round(value / 1_000).toLocaleString('pt-BR')} km`;

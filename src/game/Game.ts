@@ -1,3 +1,4 @@
+import { formatDistance } from '../ui/format';
 import { ForestBackdrop } from '../world/ForestBackdrop';
 import { CameraHelper, Group, Mesh, Vector3 } from 'three/webgpu';
 import { WORLD, QUALITY, FEATURES } from '../core/config';
@@ -65,6 +66,9 @@ import { RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
 import { createPlanetProviders } from '../world/providers/PlanetProviderRegistry';
 import { bodyProfile, bodyArrivalPolicy } from '../world/celestial/CelestialBodyProfile';
 import { NavigationTargetState, celestialLockCandidates, cycleNavigationTarget, type NavigationLock } from '../world/travel/NavigationLock';
+import { UniversalTargetCatalog } from '../world/travel/UniversalTargetCatalog';
+import { UniversalTargetResolver, solarTargetBodyId, solarNavigationTarget, travelCapabilityLabel } from '../world/travel/UniversalTargetResolver';
+import { createUniversalTarget, type UniversalNavigationTarget, type TargetSource } from '../world/travel/UniversalNavigationTarget';
 import { CELESTIAL_LABEL_NAMES } from '../rendering/celestial/CelestialLabelLayer';
 import { bodyExclusionEnvelopes, selectBodyDestination, resolveBodyDestination } from '../world/travel/BodyNavigation';
 import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
@@ -129,22 +133,36 @@ export class Game {
   get celestialImpacts(): CelestialImpactService { return this.impactService ??= new CelestialImpactService(); }
   lastCelestialImpact?: CelestialImpactEvent;
   navigation = new NavigationTargetState();
-  get navigationLock(): NavigationLock | undefined { return this.navigation?.lock; }
+  private targetCatalog?:UniversalTargetCatalog;
+  get universalTargetCatalog():UniversalTargetCatalog { return this.targetCatalog??=new UniversalTargetCatalog(this.universe.solarSystem); }
+  get universalTargetResolver():UniversalTargetResolver { return new UniversalTargetResolver(this.universalTargetCatalog,this.universe); }
+  get universalNavigationTarget():UniversalNavigationTarget|undefined { return this.navigation?.current; }
+  /** Read-only Solar compatibility projection. It is never a second target store. */
+  get navigationLock(): NavigationLock | undefined {
+    const target=this.universalNavigationTarget,bodyId=solarTargetBodyId(target,this.universe);
+    return target && bodyId ? {bodyId,source:target.source,lockedAtS:target.selectedAtS,mode:target.mode}:undefined;
+  }
   get navigationTarget(): NavigationTarget | undefined {
-    return this.navigationLock ? selectBodyDestination(this.universe.activeSystem,this.navigationLock.bodyId) : undefined;
+    return solarNavigationTarget(this.universalNavigationTarget,this.universe);
   }
   set navigationTarget(target: NavigationTarget | undefined) {
     this.navigation ??= new NavigationTargetState();
-    if (target) this.navigation.select(target.bodyId,'hud',this.universe.activeSystem.time);
+    if (target) {
+      const universal=this.universalTargetCatalog.target(target.bodyId,'hud',this.universe.activeSystem.time);
+      if(universal && solarNavigationTarget(universal,this.universe))this.navigation.select(universal);
+      else this.navigation.clear();
+    }
     else this.navigation.clear();
     this.interplanetary?.autopilot.cancel();
   }
-  selectNavigationTarget(id: string, source: NavigationLock['source'] = 'hud'): string | undefined {
-    if (!selectBodyDestination(this.universe.activeSystem,id)) return;
-    this.navigation.select(id,source,this.universe.activeSystem.time);
+  selectNavigationTarget(id: string|UniversalNavigationTarget, source: TargetSource = 'hud'): string | undefined {
+    const target=typeof id==='string'?this.universalTargetCatalog.target(id,source,this.universe.activeSystem.time):id;
+    if(!target || !this.universalTargetResolver.resolve(target).valid)return;
+    const descriptor=this.universalTargetCatalog.resolve(target)!.descriptor;
+    this.navigation.select(createUniversalTarget(descriptor,target.source,target.selectedAtS,target.mode));
     this.interplanetary.autopilot.cancel();
-    this.hud.notify('Alvo travado: ' + (CELESTIAL_LABEL_NAMES[id] ?? this.universe.activeSystem.bodies.find(b=>b.id===id)?.name));
-    return this.navigationLock?.bodyId;
+    this.hud.notify('Alvo travado: ' + descriptor.displayName);
+    return this.navigationLock?.bodyId??target.key;
   }
   clearNavigationTarget(): void {
     this.navigation.clear(); this.interplanetary.autopilot.cancel();
@@ -413,7 +431,7 @@ export class Game {
     const start=performance.now(),rawDt=Math.max(.001,(time-this.lastTime)/1000);this.lastTime=time;
     const dt=Math.min(.06,rawDt),worldDt=dt*(this.powers.temporal?.14:1);
     this.mark=performance.now();
-    this.navigation.validate(this.universe.activeSystem);
+    this.navigation.validate(this.universalTargetResolver);
     if (!this.navigationLock && this.interplanetary.autopilot.active) this.interplanetary.autopilot.cancel();
     this.updateTravelDomain(dt);
     const transition = this.travelDomain.transition;
@@ -632,7 +650,7 @@ export class Game {
     const softTarget = this.powers.softTargetInfo;
     const hitStopMs = this.powers.hitStop.remainingMs;
     const navFlight=this.hudFlight();
-    this.hud.update(dt,{position:this.player.position,origin:this.renderOriginVec,velocity:this.player.velocity,speedMps:speedNow,altitudeM:altitudeNow,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,speedMode:this.player.speedMode,megaMode:this.player.megaMode,interplanetaryMode:this.travelDomain.localPhysicsActive?this.player.interplanetaryMode:this.travelDomain.isTravelling,flightLabel:this.flightLabel(),spaceFactor:this.spaceFactor,district:this.district,location:this.universe.location,missionMarkerActive:this.manausSimulationActive,presentationDomain:this.presentationDomain,systemBodies:this.hudBodies(),flight:navFlight,nearbyBody:this.nearestNamedBody(),debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'Cidade real · tiles':`${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`,'Cidade real · triângulos':`${Math.round(this.realCity.stats.detailTriangles/1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles/1000)}k casca`,'Cidade real · skyline':this.realCity.stats.skyline,'Cidade real · colisores':this.realCity.stats.colliders,'Destruição':`${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`,'Perfil (ms)':Object.entries(this.profile).filter(([,v])=>v>.05).map(([k,v])=>`${k} ${v.toFixed(1)}`).join(' · ')||'—','Animação · Base / Voo':`${animDebug.baseLayer} / ${animDebug.flightLayer}`,'Animação · Combate':`${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`,'Animação · Pulo / Flip':`jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress*100).toFixed(0)}%`,'Voo · Alinhamento / Vel':`${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`,'Voo · Pitch / Bank':`${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`,'Voo · Modo / Vertical':`${animDebug.flightMode} · ${(animDebug.upright*100).toFixed(0)}% em pé`,'Movimento · Esquiva / Mortal':`${animDebug.dodge??'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming?' · SLAM':''}`,'Combate · Soft Target':`${softTarget.id??'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`,'Combate · Hit Stop':`${hitStopMs} ms`,'Largo':`${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`,'Skin cósmica':Object.entries(this.player.character.cosmicDiagnostics).filter(([,v])=>v!==undefined&&v!==null).slice(0,5).map(([k,v])=>`${k} ${v}`).join(' · '),'Trânsito':this.traffic?`${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos`:'sem malha viária','Ruas reais (tri)':this.realCity.stats.roadTriangles,'Voo':this.player.speedMode+(this.player.armed==='none'?'':` · ${this.player.armed.toUpperCase()} armado`),'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`,...this.universeDebug(navFlight)}},this.rendering.camera);
+    this.hud.update(dt,{position:this.player.position,origin:this.renderOriginVec,velocity:this.player.velocity,speedMps:speedNow,altitudeM:altitudeNow,yaw:this.camera.yaw,state:this.player.state,size:this.player.size,selected:this.powers.selected,temporal:this.powers.temporal,title:this.missions.title,objective:this.missions.objective,hint:this.missions.hint,destination:this.missions.destination,remaining:this.missions.remaining,stage:this.missions.stage,time:this.atmosphere.clock,weather:this.atmosphere.weather,fps:frame.fps,backend:this.rendering.backend,speedMode:this.player.speedMode,megaMode:this.player.megaMode,interplanetaryMode:this.travelDomain.localPhysicsActive?this.player.interplanetaryMode:this.travelDomain.isTravelling,flightLabel:this.flightLabel(),spaceFactor:this.spaceFactor,district:this.district,location:this.universe.location,missionMarkerActive:this.manausSimulationActive,presentationDomain:this.presentationDomain,targetCatalog:this.universalTargetCatalog.descriptors,systemBodies:this.hudBodies(),flight:navFlight,nearbyBody:this.nearestNamedBody(),debug:{'Renderer':this.rendering.backend,'FPS':frame.fps,'Frame (ms)':this.quality.averageMs.toFixed(1),'CPU (ms)':this.cpu.toFixed(1),'GPU (ms)':'indisponível','Draw calls':frame.drawCalls,'Triângulos':frame.triangles.toLocaleString(),'Geometrias / texturas':`${frame.geometries} / ${frame.textures}`,'Chunks ativos / cache':`${frame.active} / ${frame.cached}`,'Fila de streaming':frame.queued,'Streaming (ms)':frame.streamMs.toFixed(2),'Memória estimada (MB)':frame.loadedMB.toFixed(1),'HLOD instâncias':this.hlod.nodeCount,'Cidade real · tiles':`${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`,'Cidade real · triângulos':`${Math.round(this.realCity.stats.detailTriangles/1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles/1000)}k casca`,'Cidade real · skyline':this.realCity.stats.skyline,'Cidade real · colisores':this.realCity.stats.colliders,'Destruição':`${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`,'Perfil (ms)':Object.entries(this.profile).filter(([,v])=>v>.05).map(([k,v])=>`${k} ${v.toFixed(1)}`).join(' · ')||'—','Animação · Base / Voo':`${animDebug.baseLayer} / ${animDebug.flightLayer}`,'Animação · Combate':`${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`,'Animação · Pulo / Flip':`jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress*100).toFixed(0)}%`,'Voo · Alinhamento / Vel':`${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`,'Voo · Pitch / Bank':`${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`,'Voo · Modo / Vertical':`${animDebug.flightMode} · ${(animDebug.upright*100).toFixed(0)}% em pé`,'Movimento · Esquiva / Mortal':`${animDebug.dodge??'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming?' · SLAM':''}`,'Combate · Soft Target':`${softTarget.id??'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`,'Combate · Hit Stop':`${hitStopMs} ms`,'Largo':`${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`,'Skin cósmica':Object.entries(this.player.character.cosmicDiagnostics).filter(([,v])=>v!==undefined&&v!==null).slice(0,5).map(([k,v])=>`${k} ${v}`).join(' · '),'Trânsito':this.traffic?`${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos`:'sem malha viária','Ruas reais (tri)':this.realCity.stats.roadTriangles,'Voo':this.player.speedMode+(this.player.armed==='none'?'':` · ${this.player.armed.toUpperCase()} armado`),'NPCs / veículos':`${this.population.npcCount} / ${this.population.vehicleCount}`,'Global XYZ':`${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`,'Local XYZ':`${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`,'Qualidade / resolução':`${this.rendering.preset} / ${Math.round(this.rendering.renderScale*100)}%`,...this.universeDebug(navFlight)}},this.rendering.camera);
     this.input.endFrame();
   };
   /** Rebuilt in place every frame: spreads and filters would allocate three arrays per tick. */
@@ -865,8 +883,11 @@ export class Game {
     }
     if (this.input.consume('KeyP')) {
       if (this.interplanetary.autopilot.active) this.interplanetary.autopilot.cancel();
-      else if (this.navigationLock) this.interplanetary.autopilot.engage();
-      this.hud.notify(this.interplanetary.autopilot.active ? 'Piloto automático ativo' : 'Piloto automático desligado');
+      else if (this.navigationTarget) this.interplanetary.autopilot.engage();
+      const universal=this.universalNavigationTarget;
+      this.hud.notify(universal && !this.navigationTarget
+        ? travelCapabilityLabel(this.universalTargetResolver.resolve(universal).travelCapability)
+        : this.interplanetary.autopilot.active ? 'Piloto automático ativo' : 'Piloto automático desligado');
     }
     const target = this.resolveNavigationTarget();
     const targetBody = target && this.universe.activeSystem.bodies.find(b=>b.id===target.bodyId);
@@ -1298,21 +1319,24 @@ export class Game {
     const name=target?.bodyId
       ? CELESTIAL_LABEL_NAMES[target.bodyId] ?? this.universe.activeSystem.bodies.find(b=>b.id===target.bodyId)?.name
       : undefined;
+    const universal=this.universalNavigationTarget;
+    const resolved=universal?this.universalTargetResolver.resolve(universal):undefined;
     return {
+      universalTarget:resolved,
       phase:local ? target?.bodyId===this.universe.telemetry.dominantBody ? 'arrived' : 'idle'
         :this.interplanetary.autopilot.phase==='arrived' ? 'arrived' : telemetry.targetBodyId===target?.bodyId ? telemetry.phase : 'idle',
       speedMps:telemetry.speedMps,
       accelerationMps2:telemetry.accelerationMps2,
       targetBodyId:target?.bodyId,
-      lockSource:this.navigationLock?.source,
-      lockActive:!!this.navigationLock,
+      lockSource:universal?.source,
+      lockActive:!!universal,
       autopilotActive:this.interplanetary.autopilot.active,
       closingSpeedMps:closing,
       relativeSpeedMps:Math.hypot(...relative),
-      targetName:name,
+      targetName:name??resolved?.target.displayName,
       warpStep:telemetry.warpStep,
       warpLabel:warpLabel(telemetry.warpStep),
-      distanceToTargetM:target ? distance : undefined,
+      distanceToTargetM:target ? distance : resolved?.distanceM,
       photosphereClearanceM:target?.bodyId==='sun' ? distance-target.radiusM : undefined,
       angularDiameterDeg:target?.bodyId==='sun' ? solarDiagnostics(target.radiusM,distance,
         this.rendering.camera.fov*Math.PI/180,innerHeight).angularDiameterDeg : undefined,
@@ -1327,7 +1351,7 @@ export class Game {
    * "where is Mars" has to ask the system rather than remember.
    */
   private resolveNavigationTarget(){
-    return resolveBodyDestination(this.universe.activeSystem,this.navigationLock);
+    return resolveBodyDestination(this.universe.activeSystem,this.navigationTarget);
   }
 
   /** The player's speed along the camera's forward axis, relative to the reference body. */
@@ -1471,7 +1495,7 @@ export class Game {
       'Corpos · Apresentação':this.celestialController.physicalMode,
       'Corpos · Tiles residentes':Array.from(this.planetProviders,([id,provider])=>`${id}: ${provider.stats.tiles}`).join(' · '),
       'Destino':this.navigationLock?.bodyId??'—',
-      'Alvo · Origem':this.navigationLock?.source??'—',
+      'Alvo · Origem':this.universalNavigationTarget?.source??'—',
       'Alvo · Distância / Relativa / Fechamento':`${nav.distanceToTargetM??0} / ${nav.relativeSpeedMps} / ${nav.closingSpeedMps}`,
       'Alvo · Alinhamento':this.flightTelemetry?.alignment??0,
       'Piloto · Ativo / Fase':`${this.interplanetary.autopilot.active} / ${this.interplanetary.autopilot.phase}`,

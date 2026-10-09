@@ -32,3 +32,8 @@
 .map-body-target[aria-pressed="true"]{color:#facc15;border-color:#facc15}
 .map-body-target[data-system-focus]{display:block;background:transparent;color:#72c9ed;font-size:10px;margin:3px 0 7px}
 .map-body-target[data-system-overview]{margin:10px 0}
+
+/* Universal target presentation is fed by Game's descriptor authority. */
+.map-body-target[data-universal-target]{display:block;width:100%;margin:6px 0}
+#universal-target-card{margin:16px 0;padding:10px;border:1px solid #334155;border-radius:5px;overflow-wrap:anywhere}
+.cruise-block i{max-width:180px;text-align:right;overflow-wrap:anywhere}

@@ -10,10 +10,12 @@ import { UniversalMapPanel } from './map/UniversalMapPanel';
 import type { UniverseLocation } from '../world/spatial/UniverseLocation';
 import { sectorIndex } from '../world/spatial/UniverseAddress';
 import { icon, POWERS } from './icons';
-import { formatDistance, formatDuration, formatSpeed } from './format';
+import { formatDistance, formatDuration, formatSpeed, formatGalaxyName } from './format';
+import type { UniversalTargetDescriptor } from '../world/travel/UniversalNavigationTarget';
+import { travelCapabilityLabel, type ResolvedUniversalTarget } from '../world/travel/UniversalTargetResolver';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string,source?:NavigationLock['source'])=>string|undefined|void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
 export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; }
 
 /** The body close enough to be a place rather than a point of light. */
 export interface HUDNearbyBody {
@@ -43,6 +45,7 @@ export interface HUDBody {
 
 /** What the cruise controller knows, as the HUD needs to show it. */
 export interface HUDFlightTelemetry {
+  readonly universalTarget?:ResolvedUniversalTarget;
   readonly photosphereClearanceM?: number;
   readonly angularDiameterDeg?: number;
   readonly phase: FlightTelemetry['phase'];
@@ -344,7 +347,7 @@ export class HUD {
     const block=$('#cruise-block');
     const flight=state.flight;
     // Shown for a target *or* an engaged warp: the gear matters even with nowhere chosen.
-    if(!flight||(!flight.targetBodyId&&!flight.warpStep)){block.hidden=true;return;}
+    if(!flight||(!flight.universalTarget&&!flight.targetBodyId&&!flight.warpStep)){block.hidden=true;return;}
     block.hidden=false;
     const speed=formatSpeed(flight.speedMps);
     const accel=Math.abs(flight.accelerationMps2)>=1000
@@ -354,6 +357,7 @@ export class HUD {
       +`<span>LOCK<i>${flight.lockActive?'ATIVO':'—'}</i></span><span>PILOTO<i>${flight.autopilotActive?'ATIVO':'MANUAL'}</i></span>`
       +(flight.warpLabel?`<span>WARP<i class="warp">${flight.warpLabel}</i></span>`:'')
       +`<span>DESTINO<i>${flight.targetName??flight.targetBodyId??'—'}</i></span>`
+      +(flight.universalTarget?`<span>TIPO<i>${flight.universalTarget.target.kind.replaceAll('-',' ').toUpperCase()}</i></span><span>GALÁXIA<i>${formatGalaxyName(flight.universalTarget.target.galaxyId)}</i></span><span>VIAGEM<i>${travelCapabilityLabel(flight.universalTarget.travelCapability)}</i></span>`:'')
       +`<span>${flight.photosphereClearanceM===undefined?'DISTÂNCIA':'FOTOSFERA'}<i>${flight.distanceToTargetM===undefined?'—':formatDistance(flight.photosphereClearanceM??flight.distanceToTargetM)}</i></span>`
       +(flight.photosphereClearanceM===undefined?'':`<span>CENTRO<i>${formatDistance(flight.distanceToTargetM!)}</i></span><span>DIÂMETRO ANGULAR<i>${flight.angularDiameterDeg?.toFixed(2)}°</i></span>`)
       +`<span>VELOCIDADE<i>${speed.value} ${speed.unit}</i></span>`
@@ -448,7 +452,7 @@ export class HUD {
       }
       if(this.openPanel==='map'){
         if(presentation.localUiVisible)this.map.draw(state.position,state.yaw,this.save.data.discovered,state.destination);
-        this.universalMap.update(state.location, state.position, state.destination, this.lastSystemBodies, this.lastFlight);
+        this.universalMap.update(state.location, state.position, state.destination, this.lastSystemBodies, this.lastFlight, state.targetCatalog);
       }
     }
   }

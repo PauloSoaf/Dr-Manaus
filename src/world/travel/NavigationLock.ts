@@ -1,22 +1,36 @@
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import type { Vec3 } from '../spatial/units';
+import { createUniversalTarget, universalTargetKey, type UniversalNavigationTarget, type TargetSource } from './UniversalNavigationTarget';
+import { SOLAR_TARGET_ADDRESS } from './UniversalTargetCatalog';
+import type { ResolvedUniversalTarget } from './UniversalTargetResolver';
 
 export interface NavigationLock {
   readonly bodyId: string;
-  readonly source: 'reticle' | 'map' | 'hud';
+  readonly source: TargetSource;
   readonly lockedAtS: number;
   readonly mode: 'selected' | 'locked';
 }
 
-/** Sole target identity. Presentation changes never invalidate a logical lock. */
+/** Sole target authority. Unloaded descriptors remain valid; render/provider lifecycles are irrelevant. */
 export class NavigationTargetState {
-  lock?: NavigationLock;
-  select(bodyId: string, source: NavigationLock['source'], timeS: number): void {
-    this.lock = { bodyId, source, lockedAtS: timeS, mode: 'locked' };
+  private target?: UniversalNavigationTarget;
+  get current(): UniversalNavigationTarget | undefined { return this.target; }
+  select(target: UniversalNavigationTarget): void;
+  /** Historical Solar-only caller adapter. The stored authority is always universal. */
+  select(bodyId: string, source: TargetSource, timeS: number): void;
+  select(target: UniversalNavigationTarget|string, source:TargetSource='hud',timeS=0): void {
+    if(typeof target!=='string' && universalTargetKey(target)!==target.key)throw new Error('Target key mismatch');
+    this.target = typeof target==='string'
+      ? createUniversalTarget({kind:'body',displayName:target,objectId:target,galaxyId:'milky_way',systemId:'sol',bodyId:target,
+        address:{...SOLAR_TARGET_ADDRESS,bodyId:target}},source,timeS)
+      : createUniversalTarget(target,target.source,target.selectedAtS,target.mode);
   }
-  clear(): void { this.lock = undefined; }
-  validate(system: CelestialSystemRuntime): void {
-    if (this.lock && !system.positionOf(this.lock.bodyId)?.every(Number.isFinite)) this.clear();
+  lock(target:UniversalNavigationTarget):void {
+    this.select(createUniversalTarget(target,target.source,target.selectedAtS,'locked'));
+  }
+  clear(): void { this.target = undefined; }
+  validate(resolver:{resolve(target:UniversalNavigationTarget):Pick<ResolvedUniversalTarget,'valid'>}): void {
+    if (this.target && !resolver.resolve(this.target).valid) this.clear();
   }
 }
 

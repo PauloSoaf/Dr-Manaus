@@ -2,7 +2,7 @@ import {
   type SectorIndex, SECTOR_SIZE_M, sectorKey, sectorSeed,
 } from '../spatial/UniverseAddress';
 import { LIGHT_YEAR_M, type Vec3 } from '../spatial/units';
-import { LOCAL_GROUP_CATALOG, type GalaxyDefinition } from './GalaxyDefinition';
+import { LOCAL_GROUP_CATALOG, GALACTIC_CENTRE_FROM_SOL_M, type GalaxyDefinition } from './GalaxyDefinition';
 
 /**
  * Stars, generated rather than stored.
@@ -212,7 +212,7 @@ export function generateStarSector(
   if (galaxyId === 'milky_way' || galaxyId === 'milky-way') {
     // The galactic center is ~26,000 ly away from the Solar System. We place it at +X for now.
     galacticCentrePosM = [
-      localCentre[0] - 26000 * LY_TO_M,
+      localCentre[0] - GALACTIC_CENTRE_FROM_SOL_M[0],
       localCentre[1],
       localCentre[2],
     ];
@@ -222,7 +222,7 @@ export function generateStarSector(
     // MW Center is at [+26000ly, 0, 0] relative to Solar System.
     // If galDef.positionM is relative to MW Center, then:
     // Pos relative to SS = MW_center_relative_to_SS + galDef.positionM
-    const mwCenterRelToSS = [26000 * LY_TO_M, 0, 0];
+    const mwCenterRelToSS = GALACTIC_CENTRE_FROM_SOL_M;
     const galCenterRelToSS = [
       mwCenterRelToSS[0] + galDef.positionM[0],
       mwCenterRelToSS[1] + galDef.positionM[1],

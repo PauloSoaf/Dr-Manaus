@@ -1,6 +1,32 @@
 import type { UniverseLocation } from '../../world/spatial/UniverseLocation';
 import type { Vector3 } from 'three/webgpu';
 import type { HUDBody } from '../HUD';
+import { universalTargetKey, type UniversalTargetDescriptor } from '../../world/travel/UniversalNavigationTarget';
+
+/** Hit areas are disposable presentation. Their only output is a canonical descriptor key. */
+export class CatalogMapMarkers {
+  private descriptors:readonly UniversalTargetDescriptor[]=[];
+  private hits:{key:string;x:number;y:number}[]=[];
+  setTargets(descriptors:readonly UniversalTargetDescriptor[]):void { this.descriptors=descriptors; }
+  hitTest(x:number,y:number):string|undefined {
+    return this.hits.find(h=>Math.hypot(x-h.x,y-h.y)<=22)?.key;
+  }
+  draw(ctx:CanvasRenderingContext2D,w:number,h:number,cosmology=false):void {
+    this.hits=[];
+    const descriptors=this.descriptors.filter(d=>cosmology
+      ? ['cluster','cosmic-anchor','observable-horizon'].includes(d.kind) : ['galaxy','black-hole'].includes(d.kind));
+    ctx.font='12px sans-serif';ctx.textAlign='left';
+    // Catalogue inset avoids attributing invented astrophysical coordinates to the schematic spiral.
+    for(let i=0;i<descriptors.length;i++){
+      const d=descriptors[i],x=Math.min(28,w/4),y=35+i*42;
+      if(y>h-45)break;
+      this.hits.push({key:universalTargetKey(d),x,y});
+      ctx.fillStyle=d.kind==='black-hole'?'#fbbf24':'#67e8f9';
+      ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);ctx.fill();
+      ctx.fillStyle='#e2e8f0';ctx.fillText(d.displayName,x+14,y+4,Math.max(20,w-x-20));
+    }
+  }
+}
 
 export interface MapRenderer {
   canvas: HTMLCanvasElement;
@@ -251,6 +277,7 @@ export class SystemMapRenderer extends BaseMapRenderer {
 }
 
 export class GalaxyMapRenderer extends BaseMapRenderer {
+  readonly markers=new CatalogMapMarkers();
   private offset = 0;
   
   draw(location: UniverseLocation, destination?: Vector3): void {
@@ -315,10 +342,12 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
     this.ctx.font = '16px "Inter", sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.fillText(`GALAXY: ${location.address.galaxyId ? location.address.galaxyId.toUpperCase() : 'MILKY WAY'}`, cx, h - 40);
+    this.markers.draw(this.ctx,w,h);
   }
 }
 
 export class CosmologyMapRenderer extends BaseMapRenderer {
+  readonly markers=new CatalogMapMarkers();
   private points: {x: number; y: number; z: number}[] = [];
   
   constructor(canvas: HTMLCanvasElement) {
@@ -365,5 +394,6 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     this.ctx.font = '16px "Inter", sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.fillText('COSMOLOGY: LOCAL GROUP', cx, h - 40);
+    this.markers.draw(this.ctx,w,h,true);
   }
 }

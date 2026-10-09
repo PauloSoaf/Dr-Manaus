@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { PerspectiveCamera, Vector3 } from 'three/webgpu';
 import { SolarSystem } from '../src/world/celestial/SolarSystem.ts';
 import { celestialLockCandidates, cycleNavigationTarget, NavigationTargetState } from '../src/world/travel/NavigationLock.ts';
+import { UniversalTargetCatalog } from '../src/world/travel/UniversalTargetCatalog.ts';
+import { UniversalTargetResolver } from '../src/world/travel/UniversalTargetResolver.ts';
 import { resolveBodyDestination, selectBodyDestination } from '../src/world/travel/BodyNavigation.ts';
 import { Game } from '../src/game/Game.ts';
 import { UniversalMapPanel } from '../src/ui/map/UniversalMapPanel.ts';
@@ -55,11 +57,11 @@ test('T_TARGET_LOCK_SURVIVES_LOD_CHANGE', () => {
   // Proxy visibility goes away after its physical globe takes over; bounded metadata remains.
   const samples=f.samples.map(s=>({...s,visible:false,opacity:0}));
   assert.deepEqual(celestialLockCandidates(f.system,[0,0,0],[0,0,-1],samples),['moon']);
-  authority.validate(f.system);assert.equal(authority.lock?.bodyId,'moon');
+  authority.validate(new UniversalTargetResolver(new UniversalTargetCatalog(),{activeSystem:f.system,playerSystemPositionM:()=>[0,0,0]}));assert.equal(authority.current?.bodyId,'moon');
 });
 test('T_TARGET_LOCK_CLEAR', () => {
   const authority=new NavigationTargetState();authority.select('moon','reticle',42);authority.clear();
-  assert.equal(authority.lock,undefined);
+  assert.equal(authority.current,undefined);
   assert.equal(cycleNavigationTarget([], 'moon'),undefined);
 });
 test('Tab cycles deterministically and Shift+Tab reverses; invalid coordinates cannot lock', () => {
@@ -96,8 +98,9 @@ test('T_MAP_SELECT_DOES_NOT_TELEPORT', () => {
 });
 test('Target removal clears lock; closing or focusing a map has no authority over it', () => {
   const authority=new NavigationTargetState(), system=new SolarSystem();authority.select('moon','map',0);
-  authority.validate(system);assert.equal(authority.lock?.bodyId,'moon');
-  system.positionOf=()=>undefined;authority.validate(system);assert.equal(authority.lock,undefined);
+  authority.validate(new UniversalTargetResolver(new UniversalTargetCatalog(system),{activeSystem:system,playerSystemPositionM:()=>[0,0,0]}));assert.equal(authority.current?.bodyId,'moon');
+  system.positionOf=()=>undefined;authority.validate(new UniversalTargetResolver(new UniversalTargetCatalog(),{activeSystem:system,playerSystemPositionM:()=>[0,0,0]}));assert.equal(authority.current?.bodyId,'moon','unloaded positions are not descriptor invalidation');
+  authority.validate({resolve:()=>({valid:false})});assert.equal(authority.current,undefined);
 });
 test('Lock marker projects bounded render direction and shows a finite edge arrow behind camera', () => {
   const camera=new PerspectiveCamera(60,2,.1,100000);camera.updateMatrixWorld();

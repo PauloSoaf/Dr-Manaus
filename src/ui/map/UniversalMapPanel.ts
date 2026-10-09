@@ -1,10 +1,14 @@
 import { MapNavigationModel } from './MapNavigationModel';
-import { formatDistance, formatDuration, formatSpeed } from '../format';
+import { formatDistance, formatDuration, formatSpeed, formatGalaxyName } from '../format';
 import type { HUDBody, HUDFlightTelemetry } from '../HUD';
 import type { UniverseLocation } from '../../world/spatial/UniverseLocation';
 import type { Vector3 } from 'three/webgpu';
 import { SurfaceMapRenderer, PlanetMapRenderer, SystemMapRenderer, GalaxyMapRenderer, CosmologyMapRenderer } from './MapRenderers';
 import { UniverseCoordinates } from '../../world/spatial/UniverseCoordinates';
+import { universalTargetKey, type UniversalTargetDescriptor } from '../../world/travel/UniversalNavigationTarget';
+import { travelCapabilityLabel } from '../../world/travel/UniversalTargetResolver';
+
+const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 
 export class UniversalMapPanel {
   private readonly root: HTMLElement;
@@ -22,6 +26,7 @@ export class UniversalMapPanel {
   /** Live bodies and cruise telemetry, fed by the HUD each refresh. */
   private bodies: readonly HUDBody[] = [];
   private flight?: HUDFlightTelemetry;
+  private targetCatalog:readonly UniversalTargetDescriptor[]=[];
   private inTravel = false;
 
   constructor(
@@ -53,9 +58,11 @@ export class UniversalMapPanel {
       this.drawMap();
     }, { passive: false });
     canvas.addEventListener('click', event => {
-      if (this.currentLevel !== 'system') return;
       const rect = canvas.getBoundingClientRect();
-      const id = this.renderers.system.hitTest(event.clientX - rect.left, event.clientY - rect.top);
+      const x=event.clientX-rect.left,y=event.clientY-rect.top;
+      const id = this.currentLevel==='system'?this.renderers.system.hitTest(x,y)
+        : this.currentLevel==='galaxy'?this.renderers.galaxy.markers.hitTest(x,y)
+        : this.currentLevel==='cosmology'?this.renderers.cosmology.markers.hitTest(x,y):undefined;
       if (id) this.selectTarget(id);
     });
   }
@@ -97,9 +104,13 @@ export class UniversalMapPanel {
     destination?: Vector3,
     bodies: readonly HUDBody[] = [],
     flight?: HUDFlightTelemetry,
+    targetCatalog:readonly UniversalTargetDescriptor[]=[],
   ) {
     this.bodies = bodies;
     this.flight = flight;
+    this.targetCatalog=targetCatalog;
+    this.renderers.galaxy.markers.setTargets(targetCatalog);
+    this.renderers.cosmology.markers.setTargets(targetCatalog);
     const inTravel = location.frameId === 'solar-system/barycentric';
     if (inTravel && !this.inTravel) this.selectedLevel = undefined;
     this.inTravel = inTravel;
@@ -303,6 +314,27 @@ export class UniversalMapPanel {
 
     html += `</table>`;
 
+    const resolved=this.flight?.universalTarget;
+    html+=`<section id="universal-target-card"><h3>ALVO DE NAVEGAÇÃO</h3>`;
+    if(resolved){
+      const t=resolved.target;
+      html+=`<strong>${escapeHtml(t.displayName)}</strong><table class="card-table"><tr><td>Tipo</td><td>${t.kind}</td></tr>`
+        +`<tr><td>Galáxia</td><td>${escapeHtml(formatGalaxyName(t.galaxyId))}</td></tr>`
+        +`<tr><td>Distância</td><td>${resolved.distanceM===undefined?'—':formatDistance(resolved.distanceM)}</td></tr>`
+        +`<tr><td>Materializado</td><td>${resolved.materialized?'sim':'não'}</td></tr>`
+        +`<tr><td>Viagem</td><td>${travelCapabilityLabel(resolved.travelCapability)}</td></tr></table>`
+        +`<small style="overflow-wrap:anywhere">${escapeHtml(t.key)}</small>`;
+    }else html+='Nenhum alvo';
+    html+='</section>';
+    if(this.currentLevel==='galaxy'||this.currentLevel==='cosmology'){
+      html+='<h3>CATÁLOGO DE DESTINOS</h3><small>Marcadores esquemáticos · selecionar não inicia viagem</small>';
+      for(const d of this.targetCatalog.filter(d=>this.currentLevel==='galaxy'
+        ? ['galaxy','black-hole'].includes(d.kind) : ['galaxy','cluster','cosmic-anchor','observable-horizon'].includes(d.kind))){
+        const key=universalTargetKey(d);
+        html+=`<button class="map-body-target" data-universal-target="${escapeHtml(key)}" aria-pressed="${resolved?.target.key===key}">${escapeHtml(d.displayName)} · ${d.kind}</button>`;
+      }
+    }
+
     // Every body the system knows about, with the coordinates that make the list navigable.
     // Dynamic from `activeSystem.bodies`: nothing here is a hard-coded planet.
     if (this.bodies.length) {
@@ -321,6 +353,9 @@ export class UniversalMapPanel {
     }
 
     c.innerHTML = html;
+    c.querySelectorAll<HTMLButtonElement>('[data-universal-target]').forEach(button=>{
+      button.onclick=()=>this.selectTarget(button.dataset.universalTarget!);
+    });
     c.querySelectorAll<HTMLButtonElement>('[data-body-target]').forEach(button => {
       button.onclick = () => this.selectTarget(button.dataset.bodyTarget!);
     });
