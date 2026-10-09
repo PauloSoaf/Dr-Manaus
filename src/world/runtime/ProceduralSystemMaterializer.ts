@@ -1,3 +1,5 @@
+import { SOLAR_TARGET_ADDRESS } from '../travel/UniversalTargetCatalog';
+import type { PreparedTravelDestination } from '../travel/UniversalTravelController';
 import { knownGalaxyRuntime } from '../galaxy/GalaxyRuntime';
 import type { GalaxyMaterializer } from '../galaxy/GalaxyMaterializer';
 import type { UniverseRuntime } from './UniverseRuntime';
@@ -83,8 +85,7 @@ export class ProceduralSystemMaterializer {
       complete:()=>{galaxyResources.complete?.();systemResources.complete?.();},
     }:systemResources;
     this.timings.resources=performance.now()-resourceStart;
-    const extent=systemDomainLimitM(runtime)/4;
-    const arrivalM:Vec3=[0,extent*.3,extent];
+    const arrivalM=safeSystemArrivalM(runtime);
     this.timings.systemPrepare=performance.now()-systemStart;
     this.timings.prepare=performance.now()-start;
     let disposed=false;
@@ -94,7 +95,7 @@ export class ProceduralSystemMaterializer {
     }catch(error){galaxyResources?.dispose();throw error;}
   }
 
-  install(session: PreparedSystemSession): void {
+  install(session: PreparedSystemSession,qa=true): void {
     if(!session.ready || this.installed.has(session))throw new Error('Sistema não preparado ou já instalado');
     const start=performance.now(),u=this.universe,old=this.current;
     const snapshot={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps};
@@ -123,8 +124,8 @@ export class ProceduralSystemMaterializer {
       throw error;
     }
     session.resources.complete?.();
-    if(!this.solarSnapshot && snapshot.runtime===u.solarSystem)this.solarSnapshot=snapshot;
-    this.current=session;this.generation++;this.qaArrivalMode=true;
+    if(qa && !this.solarSnapshot && snapshot.runtime===u.solarSystem)this.solarSnapshot=snapshot;
+    this.current=session;this.generation++;this.qaArrivalMode=qa;
     this.installed.add(session);
     const unload=performance.now();
     if(old){ old.dispose();this.removeFrames(old,session); }
@@ -132,6 +133,28 @@ export class ProceduralSystemMaterializer {
     this.timings.install=performance.now()-start;
   }
 
+  /** Detached resources with a production SYSTEM-space commit, independent of QA snapshots. */
+  prepareTravel(target:UniversalNavigationTarget):PreparedTravelDestination {
+    if(target.systemId!=='sol') {
+      const session=this.prepare(target);
+      return {get ready(){return session.ready;},commit:()=>this.install(session,false),dispose:()=>session.dispose()};
+    }
+    const u=this.universe,galaxy=this.galaxies?.prepareSolarReturn();let disposed=false,complete=false;
+    return {get ready(){return !disposed;},dispose:()=>{if(!complete&&!disposed){disposed=true;galaxy?.dispose();}},commit:()=>{
+      if(disposed||complete)throw Error('Solar destination unavailable');
+      const old=this.current,snapshot={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps};
+      const origin=u.renderSpace.currentOrigin,view=u.frames.has(TRAVEL_VIEW_FRAME)?u.frames.get(TRAVEL_VIEW_FRAME):undefined;
+      try {
+        galaxy?.install();u.solarSystem.update(u.time);u.solarSystem.registerFrames(u.frames);
+        u.installSystem(u.solarSystem,SOLAR_TARGET_ADDRESS,safeSystemArrivalM(u.solarSystem));
+        galaxy?.activate();this.solarResources.activate();
+      }catch(e){galaxy?.dispose();u.restoreSystem(snapshot.runtime,snapshot.address,snapshot.pose,snapshot.velocity);
+        if(view)u.frames.register(view);u.renderSpace.setOrigin(origin);old?.resources.activate();throw e;}
+      galaxy?.complete?.();complete=true;
+      if(old){old.dispose();this.removeFrames(old);}
+      this.current=undefined;this.qaArrivalMode=false;this.solarSnapshot=undefined;this.generation++;
+    }};
+  }
   testArrival(target: UniversalNavigationTarget): PreparedSystemSession {
     const a=target.address;
     if(this.current && a && isUniverseAddress(a) && this.catalog.resolve(target)
@@ -172,6 +195,11 @@ export class ProceduralSystemMaterializer {
 }
 /** U1 remains bounded to its system; crossing this extent requires future U3 hypercruise. */
 export function systemDomainLimitM(runtime:CelestialSystemRuntime):number {
-  const extent=Math.max(1.496e11,...runtime.bodies.map(b=>(b.orbit?.semiMajorAxisM??b.equatorialRadiusM)*2));
+  const extent=Math.max(1.496e11,...runtime.bodies.map(b=>Math.max(b.orbit?.semiMajorAxisM??0,Math.hypot(...(runtime.positionOf(b.id)??[0,0,0]))+b.equatorialRadiusM)*2));
   return extent*4;
+}
+
+/** Shared U1/U3 corridor outside orbital extents, with zero arrival velocity. */
+export function safeSystemArrivalM(runtime:CelestialSystemRuntime):Vec3 {
+  const extent=systemDomainLimitM(runtime)/4;return [0,extent*.3,extent];
 }

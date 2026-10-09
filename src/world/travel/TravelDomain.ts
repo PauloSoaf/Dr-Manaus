@@ -237,12 +237,14 @@ export class TravelDomain {
   }
 
   /** Forces the local domain, for a teleport or a load. */
-  testArrival(state: InterplanetaryState): void {
+  enterSystem(state: InterplanetaryState): void {
     this.current = 'interplanetary';
     this.lastTransition = {kind:'none'};
     this.setState(state);
   }
 
+  /** Explicit QA compatibility alias; production uses enterSystem. */
+  testArrival(state:InterplanetaryState):void {this.enterSystem(state);}
   reset(): void {
     this.toLocal();
     this.lastTransition = { kind: 'none' };
