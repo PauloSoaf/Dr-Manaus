@@ -5,6 +5,8 @@ export interface CelestialRenderSample {
   /** Simulation clock for deterministic stellar evolution; catalog frames own rotation. */
   solarTimeS?: number;
   bodyId: string;
+  displayName?: string;
+  stellar?: import('../../world/celestial/CelestialBody').CelestialBody['stellar'];
   parentId?: string;
   profile?: CelestialBodyProfile;
 

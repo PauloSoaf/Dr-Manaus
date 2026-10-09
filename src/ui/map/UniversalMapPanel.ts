@@ -1,3 +1,4 @@
+import { u1TestControlsEnabled } from '../../world/runtime/U1TestControls';
 import { MapNavigationModel } from './MapNavigationModel';
 import { formatDistance, formatDuration, formatSpeed, formatGalaxyName } from '../format';
 import type { HUDBody, HUDFlightTelemetry } from '../HUD';
@@ -111,7 +112,7 @@ export class UniversalMapPanel {
     this.targetCatalog=targetCatalog;
     this.renderers.galaxy.markers.setTargets(targetCatalog);
     this.renderers.cosmology.markers.setTargets(targetCatalog);
-    const inTravel = location.frameId === 'solar-system/barycentric';
+    const inTravel = !!location.systemPositionM;
     if (inTravel && !this.inTravel) this.selectedLevel = undefined;
     this.inTravel = inTravel;
     this.renderers.system.setBodies(bodies);
@@ -125,7 +126,7 @@ export class UniversalMapPanel {
       this.currentLevel = 'cosmology';
     } else if (loc.frameId.includes('galactic') || (!loc.address.systemId && !loc.systemPositionM)) {
       this.currentLevel = 'galaxy';
-    } else if (loc.frameId === 'solar-system/barycentric') {
+    } else if (!!loc.systemPositionM) {
       this.currentLevel = 'system';
     } else if (loc.surface && (loc.surface.altitudeM > 200000 || loc.address.bodyId !== 'earth')) {
       this.currentLevel = 'planet';
@@ -170,6 +171,7 @@ export class UniversalMapPanel {
       <div class="map-levels"><div id="map-breadcrumb"></div><div class="map-level-buttons">${(['surface','planet','system','galaxy','cosmology'] as const).map((level,i) => `<button data-map-level="${level}">${['Superfície','Planeta','Sistema','Galáxia','Cosmos'][i]}</button>`).join('')}</div></div>
       <div class="map-sidebar" style="width: 320px; border-right: 1px solid #333; padding: 1rem; overflow-y: auto;">
         <div class="where-am-i-card" id="where-am-i-card"></div>
+        ${u1TestControlsEnabled()?'<section class="u1-test-controls"><b>U1 TEST · ARRIVAL / RETURN</b><p>Chegada de desenvolvimento, sem viagem interestelar.</p><button data-u1-test="select">SELECIONAR SISTEMA · 17,-2,4</button><button data-u1-test="arrival">MATERIALIZAR SISTEMA (U1 TEST)</button><button data-u1-test="solar">VOLTAR AO SOLAR (U1 TEST)</button></section>':''}
         <div class="map-coordinates-form" style="margin-top: 1.5rem; background: #0f172a; padding: 0.75rem; border-radius: 6px; border: 1px solid #1e293b;">
           <span class="eyebrow" style="color: #94a3b8; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;">COORDENADAS UNIVERSAIS</span>
           <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
@@ -195,6 +197,9 @@ export class UniversalMapPanel {
     });
 
     const btnTranslocate = this.root.querySelector('#btn-translocate') as HTMLButtonElement;
+    this.root.querySelectorAll<HTMLElement>('[data-u1-test]').forEach(button=>{
+      button.onclick=()=>this.onTravel('u1-test-'+button.dataset.u1Test);
+    });
     const coordInput = this.root.querySelector('#coord-input') as HTMLInputElement;
     const coordStatus = this.root.querySelector('#coord-status') as HTMLElement;
     if (btnTranslocate && coordInput) {
@@ -276,7 +281,7 @@ export class UniversalMapPanel {
     if (!c) return;
     const loc = this.model.location;
     const a = loc.address;
-    const interplanetary = loc.frameId === 'solar-system/barycentric';
+    const interplanetary = !!loc.systemPositionM;
 
     let html = `<h3>LOCALIZAÇÃO ATUAL</h3><table class="card-table">`;
     html += `<tr><td>Galaxy</td><td>${a.galaxyId}</td></tr>`;
@@ -338,7 +343,7 @@ export class UniversalMapPanel {
     // Every body the system knows about, with the coordinates that make the list navigable.
     // Dynamic from `activeSystem.bodies`: nothing here is a hard-coded planet.
     if (this.bodies.length) {
-      if (this.model.systemFocusBodyId) html += `<button class="map-body-target" data-system-overview>← Sistema Solar</button>`;
+      if (this.model.systemFocusBodyId) html += `<button class="map-body-target" data-system-overview>← Sistema ativo</button>`;
       html += `<h3>CORPOS DO SISTEMA</h3><table class="card-table body-table">`;
       html += `<tr><th>Corpo</th><th>Distância</th></tr>`;
       for (const body of this.bodies) {

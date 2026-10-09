@@ -63,7 +63,7 @@ export function celestialLabelOpacity(sample: CelestialRenderSample, context: Ce
       || context.selectedBodyId === 'earth' || context.selectedBodyId === 'moon');
     return earthMoonContext ? 0.65 * (1 - smoothRange(diameter, 30, 80)) : 0;
   }
-  if (sample.parentId && sample.parentId !== 'sun') {
+  if (sample.parentId && ['rocky-moon','icy-moon','volcanic-moon','atmospheric-moon'].includes(sample.profile?.bodyClass??'')) {
     const nearby = context.inTravel && (context.referenceBodyId === sample.parentId
       || context.referenceBodyId === sample.bodyId || context.selectedBodyId === sample.parentId
       || context.parentSystemId === sample.parentId);
@@ -142,7 +142,7 @@ export class CelestialLabelLayer {
       const opacity = celestialLabelOpacity(sample, effectiveContext, screen);
       if (opacity <= 0) continue;
       const el = this.getLabel(sample.bodyId);
-      const name = CELESTIAL_LABEL_NAMES[sample.bodyId] ?? sample.bodyId.toUpperCase();
+      const name = CELESTIAL_LABEL_NAMES[sample.bodyId] ?? sample.displayName ?? sample.bodyId.toUpperCase();
       el.textContent = (sample.physicalProjectedDiameterPx ?? Infinity) < 6 ? `• ${name}` : name;
       const halfLabel = (el.offsetWidth || el.textContent.length * 8) / 2;
       if (width < halfLabel * 2 + 16 || height < 40) continue;
@@ -157,7 +157,9 @@ export class CelestialLabelLayer {
       el.style.visibility = 'visible';
       seen.add(sample.bodyId);
     }
+    const activeIds=new Set(samples.map(s=>s.bodyId));
     for (const [id, el] of this.labels) {
+      if(!activeIds.has(id)){el.remove?.();this.labels.delete(id);continue;}
       if (!seen.has(id)) {
         el.style.opacity = '0';
         el.style.visibility = 'hidden';

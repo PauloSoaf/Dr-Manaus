@@ -129,6 +129,7 @@ export class ManausAerialPresentation {
     }catch(error){this.failure=String(error);this.root.visible=false;}
   }
   update(altitudeM:number,isEarth:boolean,cameraPosition:Vec3,fovRad:number,viewportHeightPx:number,solarDirection?:Vec3):void {
+    if(!isEarth){this.root.visible=false;this.opacity.value=0;this.massOpacity.value=0;this.pixels=0;return;}
     const anchor=this.renderSpace.logicalToRender(EARTH_FIXED_FRAME_ID,[MANAUS_ANCHOR_ECEF.xM,MANAUS_ANCHOR_ECEF.yM,MANAUS_ANCHOR_ECEF.zM]);
     const distance=Math.hypot(...anchor.map((v,i)=>v-cameraPosition[i]));
     const weights=manausAerialWeights(altitudeM,distance,fovRad,viewportHeightPx,this.ready&&isEarth&&distance<MANAUS_AERIAL.renderLimitM);

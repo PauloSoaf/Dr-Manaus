@@ -18,6 +18,9 @@ export class SunMaterial {
   readonly micro = uniform(0);
   readonly prominence = uniform(0);
   readonly opacity = uniform(1);
+  readonly stellarTint = uniform(new Vector3(1,1,1));
+  readonly stellarMix = uniform(0);
+  readonly stellarIntensity = uniform(1);
 
   constructor(readonly quality: QualityPreset) {
     // Sky depth keeps opaque foreground bodies/city in front despite the bounded quad.
@@ -80,7 +83,8 @@ export class SunMaterial {
         const loops = float(1).sub(smoothstep(.006, .018, edgeDistance.sub(arcHeight).abs()))
           .mul(smoothstep(.02, .04, edgeDistance)).mul(loopAngle.max(0).pow(3)).mul(this.prominence);
         const halo = inner.add(outer).add(glare).add(loops.mul(.8)).mul(float(1).sub(disc)).mul(front);
-        const colour = mix(vec3(2.1, .8, .18), photosphere, disc);
+        const solarColour = mix(vec3(2.1, .8, .18), photosphere, disc);
+        const colour = mix(solarColour, this.stellarTint.mul(brightness).mul(1.6).mul(this.stellarIntensity), this.stellarMix);
         output.assign(vec4(colour, disc.add(halo).saturate().mul(this.opacity)));
       });
       return output;

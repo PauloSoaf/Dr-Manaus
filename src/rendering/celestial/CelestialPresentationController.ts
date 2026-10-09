@@ -71,9 +71,9 @@ export class CelestialPresentationController {
     this.samples = candidates.map(candidate => {
       const { body, position, delta, distance, handoff, angle, provider, profile } = candidate;
       const direction = normalizeVec3(universe.frames.convertDirection(
-        'solar-system/barycentric', renderFrame, delta));
+        system.systemFrameId, renderFrame, delta));
       const phaseLightDirection = sunPosition ? normalizeVec3(universe.frames.convertDirection(
-        'solar-system/barycentric', renderFrame,
+        system.systemFrameId, renderFrame,
         [sunPosition[0] - position[0], sunPosition[1] - position[1], sunPosition[2] - position[2]])) : undefined;
       // Fixed frames currently omit axial obliquity. Apply the catalog tilt to the visual pole
       // only, preserving the existing Earth/Manaus frame contract.
@@ -95,7 +95,7 @@ export class CelestialPresentationController {
           const ready = earth.readiness();
           if (ready.coarseFallbackReady || ready.viewCoverageReady) { visible = false; opacity = 0; }
         } else if (provider) {
-          provider.setCentre(position, 'solar-system/barycentric', renderFrame, observer);
+          provider.setCentre(position, system.systemFrameId, renderFrame, observer);
           if (phaseLightDirection) provider.setSunDirection(phaseLightDirection, renderFrame, renderFrame);
           const ready = provider.readiness();
           const readyToDraw = ready.coarseCoverageReady || ready.surfaceCoverageReady;
@@ -107,7 +107,7 @@ export class CelestialPresentationController {
       if (profile.surfaceKind === 'earth' && earth && phaseLightDirection) {
         earth.setSunDirection(phaseLightDirection, renderFrame, renderFrame);
       }
-      return { solarTimeS: system.time, bodyId: body.id, parentId: body.parentId, profile, logicalDistanceM: distance, physicalRadiusM: body.equatorialRadiusM,
+      return { solarTimeS: system.time, bodyId: body.id, displayName: body.name, stellar: body.stellar, parentId: body.parentId, profile, logicalDistanceM: distance, physicalRadiusM: body.equatorialRadiusM,
         angularRadiusRad: angle, directionRender: direction, proxyDistanceM: proxy.distanceM,
         proxyRadiusM: physicalProxyRadiusM, presentationProxyRadiusM, glowProxyRadiusM,
         physicalProjectedDiameterPx: presentation.physicalProjectedDiameterPx,

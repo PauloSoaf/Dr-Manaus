@@ -166,6 +166,8 @@ export class StarSectorProvider implements WorldProvider {
       Number(content.sector.z - centre.z) * SECTOR_SIZE_M / METRES_PER_UNIT,
     );
     mesh.frustumCulled = false;
+    // Backdrop points precede active-system discs; they must not shine through a planet.
+    mesh.renderOrder = -8;
     this.group.add(mesh);
     this.sectors.set(key, { mesh, sector: content.sector });
     return {

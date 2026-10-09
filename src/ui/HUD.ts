@@ -37,6 +37,8 @@ export interface HUDBody {
   readonly id: string;
   readonly name: string;
   readonly parentId?: string;
+  readonly profile?: import('../world/celestial/CelestialBodyProfile').CelestialBodyProfile;
+  readonly orbit?: import('../world/celestial/CelestialBody').OrbitElements;
   /** Live barycentric metres. */
   readonly systemPositionM: readonly [number, number, number];
   readonly distanceFromPlayerM: number;
@@ -93,7 +95,7 @@ const signedCoordinate = (value: number, positive: string, negative: string): st
  * controller directly into HUDState.
  */
 export function resolveHUDPresentation(state: Pick<HUDState,
-  'position' | 'location' | 'missionMarkerActive' | 'presentationDomain' | 'district' | 'nearbyBody'
+  'position' | 'location' | 'missionMarkerActive' | 'presentationDomain' | 'district' | 'nearbyBody' | 'systemBodies'
 >): HUDPresentation {
   const domain = state.presentationDomain
     ?? (state.missionMarkerActive ? 'local' : state.location.surface ? 'planetary' : 'orbital');
@@ -118,7 +120,7 @@ export function resolveHUDPresentation(state: Pick<HUDState,
   }
 
   const id = state.location.address.bodyId;
-  const name = bodyName(id);
+  const name = state.systemBodies?.find(b=>b.id===id)?.name ?? (state.nearbyBody && state.nearbyBody.id===id ? state.nearbyBody.name : bodyName(id));
   const surface = state.location.surface;
   const coordinates = surface
     ? `${signedCoordinate(surface.latDeg, 'N', 'S')}   ${signedCoordinate(surface.lonDeg, 'L', 'O')}`
@@ -323,7 +325,7 @@ export class HUD {
   }
   toggleDebug(){this.debugOpen=!this.debugOpen;$('#debug-panel').hidden=!this.debugOpen;if(this.debugOpen&&document.pointerLockElement)void document.exitPointerLock();}
   notify(message:string){$('#toast').textContent=message;$('#toast').classList.add('visible');this.toastTimer=4;}
-  private travel(id:string){if(!this.save.data.discovered.includes(id)){this.notify('Voe até este lugar para descobrir sua assinatura.');return;}this.togglePanel('');this.hooks.travel(id);}
+  private travel(id:string){if(id.startsWith('u1-test-')){this.hooks.travel(id,true);return;}if(!this.save.data.discovered.includes(id)){this.notify('Voe até este lugar para descobrir sua assinatura.');return;}this.togglePanel('');this.hooks.travel(id);}
   /** Phase names the player can act on, rather than the controller's internal vocabulary. */
   private static readonly CRUISE_PHASES: Record<string,string> = {
     capture:'CAPTURA', arrived:'CHEGADA', idle: 'PRONTO PARA CRUISE',

@@ -28,6 +28,10 @@ export class SunVisual {
   update(sample: CelestialRenderSample, camera: PerspectiveCamera): void {
     this.group.visible = sample.visible;
     if (!sample.visible) return;
+    this.shader.stellarMix.value = sample.stellar ? 1 : 0;
+    this.shader.stellarIntensity.value = sample.stellar
+      ? Math.max(.8,Math.min(2.5,1+Math.log10(Math.max(1e-6,sample.stellar.luminositySolar))*.08)) : 1;
+    this.shader.stellarTint.value.set(...(sample.profile?.visual.albedo ?? [1,1,1]));
     const presentation = solarPresentation(sample.angularRadiusRad, this.quality);
     this.mode = presentation.mode;
     const tangent = Math.tan(camera.fov * Math.PI / 360);

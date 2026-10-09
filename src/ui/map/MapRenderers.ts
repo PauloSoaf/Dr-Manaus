@@ -207,7 +207,7 @@ export class SystemMapRenderer extends BaseMapRenderer {
     const focus = this.bodies.find(body => body.id === this.focusBodyId);
     const children = focus ? this.bodies.filter(body => this.parentOf(body) === focus.id) : [];
     const bodies = focus ? [focus, ...children] : this.bodies.filter(body =>
-      !this.parentOf(body) || this.parentOf(body) === 'sun' || body.selected);
+      !this.parentOf(body) || this.parentOf(body) === this.bodies.find(b=>!this.parentOf(b))?.id || body.selected);
     const origin = focus?.systemPositionM ?? this.bodies.find(body => !this.parentOf(body))?.systemPositionM ?? [0, 0, 0];
     const plane: Quat = (children.length && bodyById(children[0].id)?.satelliteOrbit?.referenceToEcliptic) || [0, 0, 0, 1];
     this.focusExtentM = Math.max(1, ...children.map(body => {
@@ -218,7 +218,8 @@ export class SystemMapRenderer extends BaseMapRenderer {
     })) * 1.15;
     const project = (p: readonly number[]) => {
       const relative: Vec3 = [p[0]-origin[0], p[1]-origin[1], p[2]-origin[2]];
-      const [x, y] = focus ? rotateVec3Inverse(plane, relative) : relative;
+      const generatedPlane=this.bodies.some(b=>!!b.orbit);
+      const [x,y]=generatedPlane?[relative[0],relative[2]]:focus?rotateVec3Inverse(plane,relative):relative;
       if (focus) return { x: cx+x/this.focusExtentM*maxR*this.zoom,
         y: cy-y/this.focusExtentM*maxR*this.zoom, radius: Math.hypot(x,y)/this.focusExtentM*maxR*this.zoom };
       const radius = Math.sqrt(Math.hypot(x,y)/AU_METRES/32)*maxR*this.zoom;
@@ -232,6 +233,13 @@ export class SystemMapRenderer extends BaseMapRenderer {
     for (const body of [...bodies].sort((a,b) => Number(b.selected)-Number(a.selected))) {
       const p = project(body.systemPositionM);
       const orbit = focus && body.id !== focus.id ? bodyById(body.id)?.satelliteOrbit : undefined;
+      if(focus && body.orbit && body.id!==focus.id){
+        this.ctx.beginPath();
+        for(let i=0;i<=96;i++){const angle=i/96*Math.PI*2,r=body.orbit.semiMajorAxisM,tilt=body.orbit.inclinationRad??0,
+          s=project([origin[0]+Math.cos(angle)*r,origin[1]+Math.sin(angle)*r*Math.sin(tilt),origin[2]+Math.sin(angle)*r*Math.cos(tilt)]);
+          if(i===0)this.ctx.moveTo(s.x,s.y);else this.ctx.lineTo(s.x,s.y);}
+        this.ctx.strokeStyle='rgba(148,163,184,.3)';this.ctx.stroke();
+      }
       if (orbit) {
         let outline = this.outlines.get(body.id);
         if (!outline) {
@@ -251,10 +259,10 @@ export class SystemMapRenderer extends BaseMapRenderer {
       }
       const selected = body.selected;
       this.markers.push({ id: body.id, name: body.name, x: p.x, y: p.y, selected });
-      this.ctx.beginPath(); this.ctx.arc(p.x,p.y,body.id === 'sun' ? 8 : 4,0,Math.PI*2);
+      this.ctx.beginPath(); this.ctx.arc(p.x,p.y,!this.parentOf(body) ? 8 : 4,0,Math.PI*2);
       const catalogBody = bodyById(body.id);
       this.ctx.fillStyle=BODY_COLORS[body.id] ?? (catalogBody
-        ? `rgb(${bodyProfile(catalogBody).visual.albedo.map(v=>Math.round(v*255)).join(',')})` : '#fff'); this.ctx.fill();
+        ? `rgb(${bodyProfile(catalogBody).visual.albedo.map(v=>Math.round(v*255)).join(',')})` : body.profile?`rgb(${body.profile.visual.albedo.map(v=>Math.round(v*255)).join(',')})`:'#fff'); this.ctx.fill();
       if (selected) {
         this.ctx.beginPath(); this.ctx.arc(p.x,p.y,12,0,Math.PI*2);
         this.ctx.strokeStyle='#facc15'; this.ctx.lineWidth=2; this.ctx.stroke();

@@ -92,6 +92,9 @@ export class PlanetVolumeSurfaceRenderer implements PlanetVolumePublication {
   isPrepared(entries:readonly PlanetVolumeReplacement[]):boolean {return this.prepared?.entries===entries;}
   private place(source:PlanetVolumeMesh,mesh:Mesh):void {const alias=`${source.key.bodyId}/fixed`,
       fixed=this.frames.has(alias)?alias:`solar-system/${source.key.bodyId}-fixed`;
+      if(!this.frames.has(fixed) || !this.frames.lowestCommonAncestor(fixed,this.renderSpace.currentOrigin.frame)){
+        mesh.visible=false;return;
+      }
       const position=this.renderSpace.logicalToRender(fixed,[...source.originBodyFixedM] as Vec3);
       mesh.visible=this.renderSpace.isRenderSafe(position);
       if(mesh.visible){mesh.position.set(...position);mesh.quaternion.set(...this.frames.convertOrientation(fixed,this.renderSpace.currentOrigin.frame,IDENTITY_QUAT));}}

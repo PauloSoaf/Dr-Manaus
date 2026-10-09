@@ -11,6 +11,6 @@ export const earthDirectLightNode=(dot:Node<'float'>)=>smoothstep(-.10,.25,dot).
 export const earthNightAmbientNode=()=>vec3(.004,.008,.018);
 export function bodySolarDirection(system:CelestialSystemRuntime,frames:ReferenceFrameGraph,bodyId:string,renderFrame:string):Vec3|undefined {
   const star=system.bodies.find(b=>bodyProfile(b).bodyClass==='star'),sun=star&&system.positionOf(star.id),body=system.positionOf(bodyId);
-  return sun&&body?normalizeVec3(frames.convertDirection('solar-system/barycentric',renderFrame,
+  return sun&&body?normalizeVec3(frames.convertDirection(system.systemFrameId,renderFrame,
     [sun[0]-body[0],sun[1]-body[1],sun[2]-body[2]])):undefined;
 }
