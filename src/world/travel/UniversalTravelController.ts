@@ -91,6 +91,7 @@ export class UniversalTravelController {
       s.effectiveSpeedMps=b.rate*(1-q)**2*s.plan.logicalDistanceM;
       if(q===1){s.phase='coasting';s.effectiveSpeedMps=0;}this.measure(s);return;
     }
+    const previousProgress=s.progress;
     this.elapsed+=dt;
     const q=Math.min(1,Math.max(0,(this.elapsed-1)/this.segmentDuration)),profile=travelProfile(q);
     const extent=Math.max(0,.985-this.segmentStart);
@@ -105,7 +106,7 @@ export class UniversalTravelController {
       if(s.prepared){
         this.holdElapsed+=dt;const t=Math.min(1,this.holdElapsed/.5),smooth=t*t*t*(10+t*(-15+6*t));
         const arrivalStart=Math.max(.985,this.segmentStart),remaining=1-arrivalStart;
-        const previous=s.progress;
+        const previous=Math.max(previousProgress,s.progress);
         s.progress=arrivalStart+remaining*smooth;s.phase='arrival';
         s.effectiveSpeedMps=remaining*30*t*t*(1-t)**2/.5*s.plan.logicalDistanceM;
         if(t===1){

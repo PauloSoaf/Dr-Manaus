@@ -120,7 +120,10 @@ test('U3 rejects a local ENU pose even if a caller supplies permissive departure
 test('U3 commit activation failure rolls back resources and allows a production retry',()=>{
   const f=fixture(),u=f.u,original=u.installSystem.bind(u),frames=u.frames.ids,source=u.activeSystem;
   let armed=true;u.installSystem=(...args)=>{original(...args);if(armed)throw Error('post-commit failure');};
-  start(f);until(f,()=>!!f.c.state!.preparationError);
+  start(f);until(f,()=>f.c.state!.phase==='arrival');f.c.update(.25);
+  const progressBeforeFailure=f.c.state!.progress;
+  until(f,()=>!!f.c.state!.preparationError);
+  assert.ok(f.c.state!.progress>=progressBeforeFailure,'Failed activation must preserve the transit position');
   assert.equal(u.activeSystem,source);assert.equal(u.activeGalaxy.id,'milky_way');assert.deepEqual(u.frames.ids,frames);
   assert.equal(f.g.current!.galaxy.id,'milky_way');assert.equal(f.root.children.length,1);
   armed=false;start(f);finish(f);assert.equal(u.activeGalaxy.id,'andromeda');
