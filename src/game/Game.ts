@@ -1,3 +1,6 @@
+import { GalaxyMaterializer } from '../world/galaxy/GalaxyMaterializer';
+import { findAndromedaU2Fixture } from '../world/galaxy/AndromedaU2Fixture';
+import { u2TestControlsEnabled } from '../world/runtime/U1TestControls';
 import { ProceduralSystemMaterializer, systemDomainLimitM, type SystemResources } from '../world/runtime/ProceduralSystemMaterializer';
 import { u1TestControlsEnabled } from '../world/runtime/U1TestControls';
 import { generateStarSector } from '../world/celestial/StarSector';
@@ -127,9 +130,10 @@ export class Game {
   readonly universe:UniverseRuntime;
   readonly rockyImpactDestruction:RockyImpactDestructionService;
   readonly volumeRenderer:PlanetVolumeSurfaceRenderer;
-  readonly galaxy?:StarSectorProvider;
-  readonly sgra?:BlackHoleProvider;
-  readonly localGroup:GalaxyProvider[] = [];
+  galaxyMaterializer?:GalaxyMaterializer;
+  get galaxy():StarSectorProvider|undefined{return this.galaxyMaterializer?.current?.starSectorProvider;}
+  get sgra():BlackHoleProvider|undefined{return this.galaxyMaterializer?.current?.centralBlackHole;}
+  get localGroup():readonly GalaxyProvider[]{return this.galaxyMaterializer?.current?.externalGalaxies??[];}
   readonly cosmicWeb?:LargeScaleStructureProvider;
   /** Which simulation the player is in. Urban physics runs in one of them and not the other. */
   readonly travelDomain=new TravelDomain();
@@ -217,7 +221,7 @@ export class Game {
         }
         v.dispose();root.removeFromParent();
       }};
-    });return this.materializer;
+    },undefined,this.galaxyMaterializer);return this.materializer;
   }
   /** QA only: selecting a canonical fixture does not move the observer. */
   selectU1TestSystem():UniversalNavigationTarget|undefined {
@@ -229,12 +233,29 @@ export class Game {
   }
   debugMaterializeSystem(target=this.universalNavigationTarget):boolean {
     if(!u1TestControlsEnabled() || !target)return false;
+    if(target.galaxyId!==this.universe.address.galaxyId){this.hud.notify('Use U2 TEST para mudar de galáxia');return false;}
     try {this.systemMaterializer.testArrival(target);this.hud.notify('U1 TEST ARRIVAL · sistema materializado');return true;}
     catch(error){this.hud.notify('U1 TEST · '+String(error));return false;}
   }
   debugReturnToSolar():void {
     if(!u1TestControlsEnabled())return;
     this.systemMaterializer.returnToSolar();this.hud.notify('U1 TEST RETURN · Solar restaurado');
+  }
+
+  debugEnterAndromeda():boolean {
+    if(!u2TestControlsEnabled())return false;
+    try {
+      const d=findAndromedaU2Fixture(this.universalTargetCatalog);
+      const selected=this.universalNavigationTarget;
+      const target=selected?.galaxyId===d.address.galaxyId && selected.systemId===d.star.id && this.universalTargetCatalog.resolve(selected)
+        ? selected:this.universalTargetCatalog.proceduralTarget(d.address.galaxyId,d.address.sector,d.star.id,'star',undefined,'map',this.universe.time)!;
+      this.systemMaterializer.testArrival(target);this.selectNavigationTarget(target);
+      this.hud.notify('U2 TEST ARRIVAL · Andromeda');return true;
+    }catch(error){this.hud.notify('U2 TEST · '+String(error));return false;}
+  }
+  debugReturnFromAndromeda():void {
+    if(!u2TestControlsEnabled())return;
+    this.systemMaterializer.returnToSolar();this.hud.notify('U2 TEST RETURN · Milky Way / Sol');
   }
 
   clearNavigationTarget(): void {
@@ -344,32 +365,9 @@ export class Game {
     // Behind its flag, and a provider rather than a renderer: the scheduler decides when a
     // sector loads, the budget applies, and a sector nobody wants is disposed.
     if(FEATURES.galaxyTravel){
-      this.galaxy=new StarSectorProvider(this.celestialRoot);
-      this.universe.providers.register(this.galaxy);
-
-      const LY_TO_M = 9.4607304725808e15;
-
-      // Instantiate Local Group galaxies (except Milky Way which is local)
-      for (const galDef of LOCAL_GROUP_CATALOG) {
-        if (galDef.id === 'milky_way') continue;
-        const galProv = new GalaxyProvider(this.celestialRoot, { galaxy: galDef });
-        this.localGroup.push(galProv);
-      }
-
-      this.sgra = new BlackHoleProvider(this.celestialRoot, {
-        blackHole: {
-          id: 'sgra',
-          massKg: 8.26e36,
-          spin01: 0.9,
-          positionM: [26000 * LY_TO_M, 0, 0],
-          accretion: {
-            innerRadiusRs: 3,
-            outerRadiusRs: 20,
-            temperatureK: 1e6,
-            luminosity: 1e36
-          }
-        }
-      });
+      this.galaxyMaterializer=new GalaxyMaterializer(this.universe,this.celestialRoot);
+      const session=this.galaxyMaterializer.prepare(this.universe.activeGalaxy.id);
+      session.install();session.activate();session.complete?.();
 
       this.cosmicWeb = new LargeScaleStructureProvider(this.celestialRoot);
     }
@@ -462,6 +460,8 @@ export class Game {
     this.rendering.setShadows(settings.shadows);this.camera.baseFov=settings.fov;this.camera.sensitivity=settings.sensitivity;this.camera.invertY=settings.invertY;
     this.audio.setVolumes(settings.masterVolume,settings.ambienceVolume,settings.effectsVolume);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.destruction.setQuality(QUALITY[settings.quality].particles);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');this.realCity.setNight(settings.time==='Night');this.realCity.setDetail(settings.quality!=='Low');}
   async travel(id:string,debug=false){
+    if(id==='u2-test-arrival'){this.debugEnterAndromeda();return;}
+    if(id==='u2-test-solar'){this.debugReturnFromAndromeda();return;}
     if(id==='u1-test-select'){this.selectU1TestSystem();return;}
     if(id==='u1-test-arrival'){this.debugMaterializeSystem();return;}
     if(id==='u1-test-solar'){this.debugReturnToSolar();return;}
@@ -601,8 +601,6 @@ export class Game {
         const address = this.universe.navigationState;
         const altitude = this.universe.telemetry.altitudeM;
         const cpos: [number, number, number] = [this.rendering.camera.position.x, this.rendering.camera.position.y, this.rendering.camera.position.z];
-        for (const gal of this.localGroup) gal.update(address, cpos, altitude);
-        this.sgra?.update(address, cpos, altitude);
         this.cosmicWeb?.update(address, cpos, altitude);
       }
 
@@ -707,7 +705,7 @@ export class Game {
     const altitudeNow = manaus ? this.player.position.y : this.universe.telemetry.altitudeM;
     const skyAltitude=this.universe.telemetry.dominantBody==='earth'?altitudeNow:1_000_000;
     this.atmosphere.setAltitude(skyAltitude);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(skyAltitude,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=manaus?this.weather.update(worldDt,this.player.position,this.atmosphere.weather):0;if(flash)this.atmosphere.sun.intensity+=flash;
-    if(this.galaxy)this.galaxy.recentre([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z]);
+    this.galaxyMaterializer?.update([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z],altitudeNow);
     const audioBody=this.universe.telemetry.dominantBody;
     this.audio.update({
       medium:audioBody==='earth'?'earth-atmosphere':local?'airless-surface':'vacuum',
@@ -1556,6 +1554,18 @@ export class Game {
     const impact=this.lastCelestialImpact;
     const localImpact=this.destruction.lastImpact, footprint=localImpact?.footprint;
     return{
+      'ACTIVE GALAXY · ID':this.universe.activeGalaxy.id,
+      'ACTIVE GALAXY · Name':this.universe.activeGalaxy.definition.name,
+      'ACTIVE GALAXY · Address origin':this.universe.activeGalaxy.addressOrigin.originFromGalacticCentreM.map(v=>(v/9.4607304725808e15).toFixed(1)).join(',')+' ly',
+      'ACTIVE GALAXY · Density profile':this.universe.activeGalaxy.definition.densityProfile,
+      'ACTIVE GALAXY · Current sector':Object.values(this.universe.address.sector).join(','),
+      'ACTIVE GALAXY · Galactocentric XYZ':this.universe.activeGalaxy.galaxyLocalPosition(this.universe.address.sector,this.universe.location.sectorOffsetM).map(v=>(v/9.4607304725808e15).toFixed(1)).join(',')+' ly',
+      'ACTIVE GALAXY · Star sector provider':this.galaxy?.galaxyId??'off',
+      'ACTIVE GALAXY · Resident sectors':this.galaxy?.stats.sectors??0,
+      'ACTIVE GALAXY · External galaxies':this.localGroup.map(g=>g.id).join(',')||'off',
+      'ACTIVE GALAXY · Central black hole':this.universe.activeGalaxy.centralBlackHole?.id??'—',
+      'ACTIVE GALAXY · Session generation':this.galaxyMaterializer?.generation??0,
+      'ACTIVE GALAXY · QA transition mode':this.materializer?.qaArrivalMode?(this.universe.activeGalaxy.id==='andromeda'?'U2 TEST':'U1 TEST'):'off',
       'ACTIVE SYSTEM · Galaxy':this.universe.address.galaxyId,
       'ACTIVE SYSTEM · Sector':Object.values(this.universe.address.sector).join(','),
       'ACTIVE SYSTEM · ID':this.universe.address.systemId??'—',
