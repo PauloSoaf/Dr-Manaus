@@ -1,6 +1,18 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U0 universal navigation target (2026-10-09)
+## Current checkpoint — U1 playable procedural systems (2026-10-09)
+
+The latest request accepts U0 at `c651abb77c8142244064a1aa4d50504bdfdb9f63` and authorizes U1.
+Implemented: canonical GeneratedStar-consistent systems, explicit profiles, moving body frames,
+prepared atomic materialization, active-system visuals/providers/map/HUD/F3 and intra-system
+Tab/P/Warp/CCD/rocky and moon landing. The Milky Way fixture has 34 bodies: 9 planets and 24 moons.
+Explicit U1 TEST arrival/return only; normal P cannot cross systems. Generated D1 stays disabled.
+Full 1,211/1,211, focused 237/237, typecheck/build/diff and space/local/Manaus browsers PASS,
+zero browser errors. Detailed evidence, budgets and limits:
+[27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
+**STOP after U1 manual acceptance. U2/U3/U4/BH0 remain deferred; D1 frozen.**
+
+## Previous checkpoint — U0 universal navigation target (2026-10-09)
 
 Implemented on `9f7ac3e7a6a78d2944f32438ccdec9c1ebff8fef`: one immutable target state,
 logical catalog/resolver, exact BigInt keys/wire format, strict Solar travel/label adapter and
@@ -10,7 +22,7 @@ player/change address or system; future travel stays gated. **1,163/1,163 unit, 
 typecheck/build/diff PASS; full-space and local browsers PASS, zero errors**. Actual F3 and
 desktop/mobile viewport map flows validated. Evidence and limitations:
 [26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
-**STOP after U0 manual gate. U1 next; D1 frozen, U1/U2/U3/BH0 deferred.**
+U0 accepted by the latest U1 request; its historical stop is superseded by the current checkpoint above.
 
 ## Previous checkpoint — Manaus aerial presentation P0 (2026-10-08)
 

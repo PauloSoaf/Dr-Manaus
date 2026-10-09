@@ -1,6 +1,22 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — U0 UNIVERSAL NAVIGATION TARGET (2026-10-09)
+## Checkpoint atual — U1 PLAYABLE PROCEDURAL SYSTEMS (2026-10-09)
+
+Baseline `c651abb77c8142244064a1aa4d50504bdfdb9f63`, branch `feat/universe-map`.
+Pedido completo arquivado em [U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
+Implementado: geração consistente com GeneratedStar; perfis explícitos; frames móveis;
+materialização preparada e atômica; visuais/providers do sistema ativo; Tab/P/Warp intra-sistema;
+pouso/caminhada em rochoso e lua sintéticos; gigante sem piso; retorno Solar e revisita determinística.
+Fixture real Via Láctea `17,-2,4`, estrela `milky_way/17,-2,4/0`: 9 planetas, 24 luas, 34 corpos.
+P remoto permanece indisponível. Entrada/retorno só por controles U1 TEST explícitos, em dev
+ou preview com `?u1test=1`; não é hypercruise. D1 preservado, volume gerado desativado.
+1.211/1.211 unit, 237/237 focados, 48/48 IDs obrigatórios cobertos; types/build/diff e browsers
+espacial/local/Manaus PASS, zero erros. Custos, cenários, fixture de descida e limites:
+[27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](../docs/world/27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
+Documentação, commits e push autorizados. **PARAR após U1 para validação manual. Não iniciar
+U2/U3/U4/BH0 automaticamente. Destruição permanece congelada em D1.**
+
+## Checkpoint anterior — U0 UNIVERSAL NAVIGATION TARGET (2026-10-09)
 
 Novo pedido U0 após revisão do hotfix Manaus; baseline real
 `9f7ac3e7a6a78d2944f32438ccdec9c1ebff8fef`, branch `feat/universe-map`.
@@ -12,8 +28,7 @@ jogador nem altera UniverseRuntime.address/sistema. P bloqueia destinos de viage
 (incluindo F3 e mapa desktop/mobile) e local Manaus PASS, zero erros.
 Contrato, resultados e limites:
 [26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](../docs/world/26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
-Documentar, commit e push autorizados. **PARAR após U0 para gate manual; U1 é o próximo
-checkpoint. D1 continua congelado; U1/U2/U3/BH0 não entram nesta entrega.**
+U0 aceito pelo novo anexo U1; o gate histórico foi superado pelo checkpoint atual acima.
 
 ## Checkpoint anterior — MANAUS-AERIAL-PRESENTATION-P0 (2026-10-08)
 

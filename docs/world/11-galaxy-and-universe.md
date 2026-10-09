@@ -3,7 +3,7 @@
 Implements the addressing and generation parts of `11-GALAXY-AND-OBSERVABLE-UNIVERSE.md`. Code:
 `src/world/celestial/StarSector.ts`, `src/world/spatial/UniverseAddress.ts`.
 
-**Status updated 2026-10-09:** U0 universal target/address authority is implemented. Addressing,
+**Status updated 2026-10-09:** U0 target authority and U1 playable procedural systems are implemented. Addressing,
 deterministic generators and a procedural system runtime
 exist. Galaxy/star-sector/cosmic-structure presentation foundations are wired with
 `FEATURES.galaxyTravel = true`. Playable galaxy arrival, hypercruise and black-hole
@@ -17,17 +17,32 @@ After final D1.1 hardening, the branch prioritizes the
 `UniversalTargetResolver` against logical descriptors, independently of the active system and
 render/provider lifecycles. `UniverseRuntime.address` remains player location; selecting a galaxy
 never changes it. Keys reuse BigInt sectors directly and versioned serialization writes decimal
-integer wrappers. Solar `navigationLock` / `navigationTarget` are read-only adapter projections.
+integer wrappers. `navigationLock` / `navigationTarget` are read-only active-system adapter projections; strict Solar adapters remain available.
 
 The catalog supports all 19 Solar bodies, deterministic generated stars/systems/planets, Milky
 Way, Andromeda (approximately 2.50 Mly), Sgr A*, M31 SMBH under Andromeda, existing cosmic anchors
 and the observer-relative horizon. The existing 26,000 ly Solar→MW-centre relationship is shared
 with `StarSector`; galaxy descriptor distances never use a render proxy or camera. Map, HUD and
-P gating use this authority; only current Solar body destinations can execute autopilot.
+P gating use this authority; only body/root-star destinations inside the current active system can execute autopilot.
 
 Implementation, key examples, exact BigInt wire format, seed convention, tests and manual gate:
 [26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
-**Stop after U0 manual validation; U1 is the next checkpoint.**
+## Playable procedural systems — U1
+
+Canonical catalog descriptors now materialize GeneratedStar-consistent systems with explicit
+solid/giant/stellar profiles. The MW fixture `milky_way/17,-2,4/0` has 9 planets and 24 moons.
+Prepared session installation switches runtime/address/frame/resources together; moving frame
+origins mirror orbital positions. Generated rocky bodies/moons have synthetic physical surfaces;
+only the nearest solid streams detail. Current-system Tab/P/Warp/landing uses one target/runtime.
+Unload disposes procedural providers/visuals/frames/jobs; revisit uses the same seed/descriptors
+and current global epoch. U0 descriptor caches remain bounded, with no per-visited-system dumps.
+
+Controlled U1 TEST arrival/return is development transport, explicitly opted into for previews.
+Normal P cannot cross systems and Andromeda materialization is rejected in U1. BigInt identity
+never converts to unsafe absolute Number coordinates; extreme density sampling uses a bounded
+fallback. Budgets, tests, lifecycle limits and manual instructions:
+[27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
+**STOP after U1 manual validation. U2 galaxy arrival and U3 hypercruise remain future checkpoints.**
 
 ## Addressing — `UniverseAddress.ts`
 

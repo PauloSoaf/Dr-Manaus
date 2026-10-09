@@ -3,9 +3,10 @@
 User decision after D1.2 (`c92249bc221c9f4ec16c6840f0823d77ffb9454f`): finish D1.1 hardening,
 then freeze destruction at functional D1 and prioritize the playable universe. This order supersedes
 the old automatic D2→D5 progression. Each checkpoint still requires its own implementation,
-validation, documentation, commit/push and manual gate. U0 is now implemented on the audited
-`9f7ac3e` baseline (2026-10-09); remaining rows are the future plan. Delivery/evidence:
-[26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](../docs/world/26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
+validation, documentation, commit/push and manual gate. U0 and U1 are now implemented; U0 used the audited
+`9f7ac3e` baseline (2026-10-09), U1 uses delivered `c651abb`. Later rows remain the future plan. Delivery/evidence:
+[26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](../docs/world/26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md),
+[27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](../docs/world/27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
 
 ## Starting point, audited locally
 
@@ -28,8 +29,8 @@ Milky Way. It does not implement gravity, capture, lensing, traversals or destin
 | Checkpoint | Deliverable | Gate |
 | --- | --- | --- |
 | D1.1-FINAL | Multiple coherent crater regions, retention, real solar lighting, volume culling, per-tile masks, prepared publication | Craters A/B about 500 m apart remain physical and masked; constrained three-region eviction is whole and deterministic; D1.2 fidelity stays green |
-| U0 | Implemented: universal target/catalog/resolver shared by HUD, map and Solar travel adapter, including non-body targets | Automated coverage delivered; STOP for manual Solar/SGRA/Andromeda/M31 acceptance before U1 |
-| U1 | Deterministic procedural sectors and materialized playable star systems | Approach/select a star, install its real bodies/orbits; leave/unload, return/regenerate identically; no duplicate providers |
+| U0 | Implemented: universal target/catalog/resolver shared by HUD, map and Solar travel adapter, including non-body targets | Accepted by the latest U1 request; historical gate superseded |
+| U1 | Implemented: deterministic GeneratedStar-consistent systems, profiles, dynamic visuals/providers and intra-system flight/landing | Explicit TEST arrival/return, 34-body MW fixture, coherent frames, unload/revisit; 48 mandatory IDs covered. STOP for U1 manual validation; normal cross-system P remains unavailable |
 | U2 | `GalaxyDescriptor`/`GalaxyRuntime`; Milky Way and Andromeda use one architecture; curated Local Group overrides | Real arrival in Andromeda changes galaxy/runtime/address together; Triangulum/other overrides use the same descriptor contract |
 | U3 | Separate interstellar/intergalactic hypercruise domain | Spool, acceleration, continuous progress, cruise, braking, prepared destination and safe handoff; no instantaneous teleport |
 | U4 | Seeded galaxies from `universeSeed + cosmic cell` | Query spiral/barred/elliptical/irregular descriptors on demand, unload/regenerate; no repository growth proportional to galaxy count |

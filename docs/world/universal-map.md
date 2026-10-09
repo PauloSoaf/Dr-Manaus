@@ -1,9 +1,9 @@
-# Universal Map & Coordinate Model (U0 target authority, 2026-10-09)
+# Universal Map & Coordinate Model (U1 playable systems, 2026-10-09)
 
 O Universal Map provê uma navegação unificada do macro para o micro. 
 Os usuários nunca devem visualizar elementos fora da hierarquia lógica real em que se encontram (e.g. tentar visualizar Manaus enquanto estiverem no Sistema Solar, sem estarem sob a influência direta do campo planetário).
 
-## Autoridade única do alvo — U0
+## Autoridade única do alvo — U0/U1
 
 O mapa seleciona descritores por chave canônica através de `Game.selectNavigationTarget`, que
 armazena `NavigationTargetState.current`. O cartão recebe a resolução usada pelo HUD; o mapa
@@ -16,8 +16,7 @@ Galáxia: Via Láctea, Sgr A*, Andromeda e M31 SMBH são selecionáveis por bot�
 galáxias, Local Group, Virgo, Norma/Great Attractor, Shapley e Observable Horizon usam os
 descritores existentes. As áreas clicáveis são esquemáticas; as distâncias vêm do catálogo,
 das efemérides e da matemática de setores, nunca do canvas. O HUD mostra 2.50 Mly para Andromeda,
-26.00 kly para o centro galáctico/Sgr A* e informa viagem futura indisponível. P só executa
-destinos Solar implementados; selecionar buraco negro ou galáxia não simula viagem.
+26.00 kly para o centro galáctico/Sgr A* e informa viagem futura indisponível. P executa apenas destinos do sistema ativo; selecionar buraco negro ou galáxia não simula viagem.
 
 O cartão/F3 expõem tipo, chave, endereço, materialização e capacidade. Os eixos BigInt mantêm
 identidades distintas acima de 2⁵³; a serialização versionada usa inteiros em strings decimais.
@@ -26,7 +25,14 @@ Em telas pequenas, a barra lateral rola e o canvas/seletores permanecem dentro d
 
 Contrato completo, provas automatizadas e gate manual:
 [26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
-U1/U2/U3/BH0 e busca UX/U5 permanecem futuros.
+U1 acrescenta o sistema procedural ativo à mesma autoridade: os botões e canvas do nível
+Sistema mostram a estrela, planetas e luas reais, com nomes/albedo/órbitas gerados. Tab/P/Warp
+funcionam intra-sistema; alvos remotos continuam válidos e com viagem indisponível. Controles
+U1 TEST explícitos permitem preparar/materializar a fixture e retornar ao Solar; só aparecem em
+dev ou com opt-in de preview `?u1test=1`. Não existe transporte interestelar por P.
+Pouso rochoso/lunar usa ENU e terreno sintético; gigantes não têm piso. F3 mostra o sistema ativo.
+[27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
+**STOP no gate manual U1. U2/U3/BH0 e busca UX/U5 continuam futuros.**
 
 ## Mapeamento por Níveis
 
