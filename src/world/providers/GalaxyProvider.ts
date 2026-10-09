@@ -1,5 +1,6 @@
-import { BufferGeometry, Float32BufferAttribute, Group, Object3D, Points, PointsMaterial, AdditiveBlending } from 'three/webgpu';
-import type { CoverageClaim, SpatialContext, StreamingContext, WorldProvider } from './WorldProvider';
+import { globalTargetDeltaM, galaxyDefinition, orientGalaxyVector } from '../galaxy/GalaxyCoordinates';
+import { LIGHT_YEAR_M, type Vec3 } from '../spatial/units';
+import { BufferGeometry, Float32BufferAttribute, Group, Object3D, Points, PointsMaterial, AdditiveBlending, Matrix4, Vector3 } from 'three/webgpu';
 import type { GalaxyDefinition } from '../celestial/GalaxyDefinition';
 import { finite } from '../spatial/units';
 
@@ -9,7 +10,6 @@ export interface GalaxyProviderOptions {
   minAltitudeM?: number;
 }
 
-const GALAXY_METRES_PER_UNIT = 4e15; // Same as StarSectorProvider to avoid precision issues
 
 export class GalaxyProvider {
   readonly id: string;
@@ -19,8 +19,9 @@ export class GalaxyProvider {
   private readonly options: Required<GalaxyProviderOptions>;
   private readonly mesh: Points;
   private readonly material: PointsMaterial;
+  private readonly orientationMatrix=new Matrix4();
+  private readonly axes=[new Vector3(),new Vector3(),new Vector3()];
 
-  private altitudeM = 0;
 
   constructor(parent: Object3D, options: GalaxyProviderOptions) {
     this.id = `galaxy-macro/${options.galaxy.id}`;
@@ -38,10 +39,9 @@ export class GalaxyProvider {
     const positions = new Float32Array(starCount * 3);
     const colors = new Float32Array(starCount * 3);
     
-    // Ly to local units
-    const LY_TO_U = 9.4607304725808e15 / GALAXY_METRES_PER_UNIT;
-    const radiusU = (this.options.galaxy.diameterLy / 2) * LY_TO_U;
-    const thicknessU = this.options.galaxy.thicknessLy * LY_TO_U;
+    // Unit disc; angular extent is applied to its bounded camera-relative proxy.
+    const radiusU = 1;
+    const thicknessU = this.options.galaxy.thicknessLy / (this.options.galaxy.diameterLy/2);
     
     // Deterministic seed derived from galaxy.id
     let seed = 2166136261;
@@ -65,8 +65,8 @@ export class GalaxyProvider {
       const z = r * Math.sin(theta);
       
       positions[i * 3] = x;
-      positions[i * 3 + 1] = y;
-      positions[i * 3 + 2] = z;
+      positions[i * 3 + 1] = z;
+      positions[i * 3 + 2] = y;
       
       // Color based on radius (blueish rim, yellowish core)
       const t = Math.min(1, r / radiusU);
@@ -90,6 +90,7 @@ export class GalaxyProvider {
     });
     
     this.mesh = new Points(geometry, this.material);
+    this.mesh.renderOrder=-10;this.mesh.frustumCulled=false;
     this.group.add(this.mesh);
     
     if (this.options.galaxy.orientationEuler) {
@@ -103,29 +104,21 @@ export class GalaxyProvider {
     return { visible: this.group.visible };
   }
 
-  update(address: import('../spatial/UniverseAddress').UniverseAddress, cameraPosM: import('../spatial/units').Vec3, altitudeM: number): void {
-    if (address.galaxyId === this.options.galaxy.id) {
-      this.group.visible = false; // We are inside it! StarSectorProvider handles inside.
-      return;
+  update(address: import('../spatial/UniverseAddress').UniverseAddress, cameraPosM: Vec3, altitudeM: number, sectorOffsetM:Vec3=[0,0,0],toRenderDirection:(v:Vec3)=>Vec3=v=>v): void {
+    const delta=globalTargetDeltaM(address,sectorOffsetM,this.options.galaxy.positionM);
+    this.group.visible=address.galaxyId!==this.options.galaxy.id && altitudeM>=this.options.minAltitudeM && !!delta;
+    if(!this.group.visible||!delta)return;
+    const distance=Math.hypot(...delta),proxyDistance=20_000;
+    if(distance<=0){this.group.visible=false;return;}
+    const active=galaxyDefinition(address.galaxyId)!;
+    const direction=toRenderDirection(orientGalaxyVector(active,delta.map(v=>v/distance) as Vec3,true));
+    this.group.position.set(...direction.map((v,i)=>cameraPosM[i]+v*proxyDistance) as Vec3);
+    for(let i=0;i<3;i++){
+      const basis:Vec3=[0,0,0];basis[i]=1;
+      this.axes[i].set(...toRenderDirection(orientGalaxyVector(active,orientGalaxyVector(this.options.galaxy,basis),true)));
     }
-    this.group.visible = altitudeM >= this.options.minAltitudeM;
-    if (!this.group.visible) return;
-
-    // We are observing this galaxy from another galaxy or the cosmic web.
-    // Calculate relative distance carefully. For now, since we lack a full galactic coordinate system in `address`,
-    // we'll just position it relative to the Milky Way (sector 0) as an approximation.
-    const pos = this.options.galaxy.positionM;
-    
-    const SECTOR_SIZE_M = 100 * 9.4607304725808e15;
-    const cx = Number(address.sector.x) * SECTOR_SIZE_M + cameraPosM[0];
-    const cy = Number(address.sector.y) * SECTOR_SIZE_M + cameraPosM[1];
-    const cz = Number(address.sector.z) * SECTOR_SIZE_M + cameraPosM[2];
-
-    this.group.position.set(
-      (pos[0] - cx) / GALAXY_METRES_PER_UNIT, 
-      (pos[1] - cy) / GALAXY_METRES_PER_UNIT, 
-      (pos[2] - cz) / GALAXY_METRES_PER_UNIT
-    );
+    this.group.quaternion.setFromRotationMatrix(this.orientationMatrix.makeBasis(this.axes[0],this.axes[1],this.axes[2]));
+    this.group.scale.setScalar(Math.min(4000,proxyDistance*this.options.galaxy.diameterLy*.5*LIGHT_YEAR_M/distance));
   }
 
   dispose(): void {

@@ -1,5 +1,6 @@
-import { Color, Group, Mesh, Object3D, SphereGeometry, TorusGeometry, MeshBasicMaterial, MeshStandardMaterial, DoubleSide } from 'three/webgpu';
-import type { CoverageClaim, SpatialContext, StreamingContext, WorldProvider } from './WorldProvider';
+import { galaxyDefinition, galaxyLocalPositionM, orientGalaxyVector } from '../galaxy/GalaxyCoordinates';
+import type { Vec3 } from '../spatial/units';
+import { Group, Mesh, Object3D, SphereGeometry, TorusGeometry, MeshBasicMaterial, MeshStandardMaterial, DoubleSide } from 'three/webgpu';
 import { finite } from '../spatial/units';
 
 export interface BlackHoleDefinition {
@@ -17,6 +18,7 @@ export interface BlackHoleDefinition {
 
 export interface BlackHoleProviderOptions {
   blackHole: BlackHoleDefinition;
+  galaxyId?:string;
   /** Below this altitude from the body, the black hole is drawn. */
   minAltitudeM?: number;
 }
@@ -34,12 +36,12 @@ export class BlackHoleProvider {
   private readonly eventHorizon: Mesh;
   private accretionDisk?: Mesh;
 
-  private altitudeM = 0;
 
   constructor(parent: Object3D, options: BlackHoleProviderOptions) {
     this.id = `blackhole/${options.blackHole.id}`;
     this.options = {
       blackHole: options.blackHole,
+      galaxyId:options.galaxyId??'milky_way',
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 0)),
     };
     
@@ -84,29 +86,19 @@ export class BlackHoleProvider {
     return { visible: this.group.visible };
   }
 
-  update(address: import('../spatial/UniverseAddress').UniverseAddress, cameraPosM: import('../spatial/units').Vec3, altitudeM: number): void {
-    // TODO: Do not call black holes functional until GravitySource/event horizon/lensing exist.
-    this.group.visible = altitudeM >= this.options.minAltitudeM;
-    if (!this.group.visible) return;
-
-    // We assume the black hole is in the Milky Way for now (Sgr A*).
-    if (address.galaxyId !== 'milky_way' && address.galaxyId !== 'milky-way') {
-      this.group.visible = false;
-      return;
-    }
-
-    const SECTOR_SIZE_M = 100 * 9.4607304725808e15;
-    const cx = Number(address.sector.x) * SECTOR_SIZE_M + cameraPosM[0];
-    const cy = Number(address.sector.y) * SECTOR_SIZE_M + cameraPosM[1];
-    const cz = Number(address.sector.z) * SECTOR_SIZE_M + cameraPosM[2];
-
-    const pos = this.options.blackHole.positionM;
-    // Render locally relative to camera in galactic units
-    this.group.position.set(
-      (pos[0] - cx) / GALAXY_METRES_PER_UNIT,
-      (pos[1] - cy) / GALAXY_METRES_PER_UNIT,
-      (pos[2] - cz) / GALAXY_METRES_PER_UNIT
-    );
+  update(address: import('../spatial/UniverseAddress').UniverseAddress,cameraPosM:Vec3,altitudeM:number,sectorOffsetM:Vec3=[0,0,0],toRenderDirection:(v:Vec3)=>Vec3=v=>v):void {
+    const galaxy=galaxyDefinition(this.options.galaxyId);
+    this.group.visible=address.galaxyId===this.options.galaxyId && altitudeM>=this.options.minAltitudeM && !!galaxy;
+    if(!this.group.visible||!galaxy)return;
+    const local=galaxyLocalPositionM(galaxy,address.sector,sectorOffsetM);
+    const bh=this.options.blackHole.positionM.map((v,i)=>v-galaxy.positionM[i]) as Vec3;
+    const localBH=orientGalaxyVector(galaxy,bh,true);
+    const delta=localBH.map((v,i)=>v-local[i]) as Vec3,distance=Math.hypot(...delta);
+    if(distance<=0){this.group.visible=false;return;}
+    const direction=toRenderDirection(delta.map(v=>v/distance) as Vec3);
+    this.group.position.set(...direction.map((v,i)=>cameraPosM[i]+v*18_000) as Vec3);
+    // Presentation floor, not a physical horizon/capture boundary.
+    this.group.scale.setScalar(100);
   }
   dispose(): void {
     this.group.removeFromParent();

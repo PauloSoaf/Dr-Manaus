@@ -1,3 +1,5 @@
+import { knownGalaxyRuntime } from '../galaxy/GalaxyRuntime';
+import type { GalaxyMaterializer } from '../galaxy/GalaxyMaterializer';
 import type { UniverseRuntime } from './UniverseRuntime';
 import { TRAVEL_VIEW_FRAME } from './UniverseRuntime';
 import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
@@ -17,6 +19,7 @@ export interface SystemResources {
   install(): void;
   activate(): void;
   dispose(): void;
+  complete?():void;
 }
 export interface PreparedSystemSession {
   readonly descriptor: ProceduralTargetDescriptor;
@@ -39,16 +42,20 @@ export class ProceduralSystemMaterializer {
   constructor(readonly universe: UniverseRuntime, readonly catalog: UniversalTargetCatalog,
     private readonly solarResources: SystemResources,
     private readonly prepareResources: (runtime: CelestialSystemRuntime) => SystemResources,
-    private readonly checkpoint: (stage:'profiles'|'frames'|'providers')=>void = ()=>{}) {}
+    private readonly checkpoint: (stage:'profiles'|'frames'|'providers')=>void = ()=>{},
+    private readonly galaxies?:GalaxyMaterializer) {}
 
   prepare(target: UniversalNavigationTarget): PreparedSystemSession {
     const start=performance.now(),a=target.address;
-    if(!a || !isUniverseAddress(a) || a.galaxyId!=='milky_way' || !a.systemId
+    if(!a || !isUniverseAddress(a) || !knownGalaxyRuntime(a.galaxyId) || !a.systemId
       || !['star','system','body'].includes(target.kind) || !this.catalog.resolve(target))
-      throw new Error('U1 TEST: endereço procedural da Via Láctea requerido');
+      throw new Error('TEST: endereço procedural de galáxia conhecida requerido');
+    const galaxyResources=this.galaxies?.prepare(a.galaxyId);
+    try {
+    const systemStart=performance.now();
     const descriptor=this.catalog.proceduralDescriptor(a.galaxyId,a.sector,a.systemId);
     if(!descriptor)throw new Error('Sistema procedural desconhecido');
-    this.timings.descriptor=performance.now()-start;
+    this.timings.descriptor=performance.now()-systemStart;
     const t=performance.now(),runtime=new ProceduralSystemRuntime(descriptor.system,this.universe.time);
     this.timings.runtime=performance.now()-t;
     const profileStart=performance.now();
@@ -68,15 +75,23 @@ export class ProceduralSystemMaterializer {
     }
     this.timings.frames=performance.now()-frameStart;
     const resourceStart=performance.now();this.checkpoint('providers');
-    const resources=this.prepareResources(runtime);
+    const systemResources=this.prepareResources(runtime);
+    const resources:SystemResources=galaxyResources?{
+      install:()=>{galaxyResources.install();systemResources.install();},
+      activate:()=>{galaxyResources.activate();systemResources.activate();},
+      dispose:()=>{systemResources.dispose();galaxyResources.dispose();},
+      complete:()=>{galaxyResources.complete?.();systemResources.complete?.();},
+    }:systemResources;
     this.timings.resources=performance.now()-resourceStart;
     const extent=systemDomainLimitM(runtime)/4;
     const arrivalM:Vec3=[0,extent*.3,extent];
+    this.timings.systemPrepare=performance.now()-systemStart;
     this.timings.prepare=performance.now()-start;
     let disposed=false;
     return {descriptor,runtime,frames,resources,arrivalM,get ready(){return !disposed;},dispose:()=>{
       if(!disposed){disposed=true;resources.dispose();}
     }};
+    }catch(error){galaxyResources?.dispose();throw error;}
   }
 
   install(session: PreparedSystemSession): void {
@@ -107,6 +122,7 @@ export class ProceduralSystemMaterializer {
       }
       throw error;
     }
+    session.resources.complete?.();
     if(!this.solarSnapshot && snapshot.runtime===u.solarSystem)this.solarSnapshot=snapshot;
     this.current=session;this.generation++;this.qaArrivalMode=true;
     this.installed.add(session);
@@ -128,9 +144,19 @@ export class ProceduralSystemMaterializer {
     const saved=this.solarSnapshot;
     if(!saved)return;
     const start=performance.now(),old=this.current;
-    this.universe.solarSystem.update(this.universe.time);
-    this.universe.restoreSystem(this.universe.solarSystem,saved.address,saved.pose,saved.velocity);
-    this.solarResources.activate();
+    const u=this.universe,previous={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps};
+    const renderOrigin=u.renderSpace.currentOrigin,view=u.frames.has(TRAVEL_VIEW_FRAME)?u.frames.get(TRAVEL_VIEW_FRAME):undefined;
+    const galaxyResources=this.galaxies?.prepareSolarReturn();
+    try {
+      galaxyResources?.install();u.solarSystem.update(u.time);
+      u.restoreSystem(u.solarSystem,saved.address,saved.pose,saved.velocity);
+      galaxyResources?.activate();this.solarResources.activate();
+    }catch(error){
+      galaxyResources?.dispose();u.restoreSystem(previous.runtime,previous.address,previous.pose,previous.velocity);
+      if(view)u.frames.register(view);u.renderSpace.setOrigin(renderOrigin);
+      old?.resources.activate();throw error;
+    }
+    galaxyResources?.complete?.();
     if(old){old.dispose();this.removeFrames(old);}
     this.current=undefined;this.solarSnapshot=undefined;this.qaArrivalMode=false;this.generation++;
     this.timings.unload=performance.now()-start;

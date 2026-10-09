@@ -86,6 +86,8 @@ export interface WorldProvider {
 
   /** Take it back out and release everything it held. */
   deactivate(tile: ActiveTile): void;
+  /** Release decoded presentation allocations when a preparation becomes obsolete. */
+  discard?(payload:TilePayload):void;
 }
 
 /** Thrown by a provider that was asked for something outside what it claims to cover. */

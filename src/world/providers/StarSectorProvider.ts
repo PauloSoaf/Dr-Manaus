@@ -54,7 +54,7 @@ interface SectorPayload {
 }
 
 export class StarSectorProvider implements WorldProvider {
-  readonly id = 'galaxy/star-sectors';
+  readonly id:string;
   /** Below everything. A star is the last thing that should win an argument about the ground. */
   readonly priority = 1;
 
@@ -68,6 +68,7 @@ export class StarSectorProvider implements WorldProvider {
   private centreSector: SectorIndex = sectorIndex(0, 0, 0);
 
   constructor(parent: Object3D, options: StarSectorProviderOptions = {}) {
+    this.id=options.galaxyId && options.galaxyId!=='milky_way' ? 'galaxy/star-sectors/'+options.galaxyId : 'galaxy/star-sectors';
     this.group.name = 'galaxy';
     this.group.visible = false;
     parent.add(this.group);
@@ -83,6 +84,7 @@ export class StarSectorProvider implements WorldProvider {
     });
   }
 
+  get galaxyId():string{return this.options.galaxyId;}
   get stats(): { sectors: number; stars: number; visible: boolean } {
     let stars = 0;
     for (const { mesh } of this.sectors.values()) stars += mesh.geometry.getAttribute('position')?.count ?? 0;
@@ -95,7 +97,7 @@ export class StarSectorProvider implements WorldProvider {
   covers(context: SpatialContext): boolean {
     this.altitudeM = finite(context.altitudeM);
     const insideSolarSystem = context.address.systemId === 'sol';
-    this.group.visible = !insideSolarSystem && this.altitudeM >= this.options.minAltitudeM;
+    this.group.visible = context.address.galaxyId===this.galaxyId && !insideSolarSystem && this.altitudeM >= this.options.minAltitudeM;
     return this.group.visible;
   }
 
@@ -178,6 +180,8 @@ export class StarSectorProvider implements WorldProvider {
 
   deactivate(tile: ActiveTile): void { this.remove(tileKeyToString(tile.key)); }
 
+  discard(payload:TilePayload):void {(payload.geometry as SectorPayload).geometry.dispose();}
+
   /**
    * Keeps the backdrop centred on the camera and the sectors placed relative to the player's own.
    *
@@ -219,7 +223,7 @@ export class StarSectorProvider implements WorldProvider {
   }
 
   private sectorFromKey(key: WorldTileKey): SectorIndex | undefined {
-    return key.kind === 'star-sector' ? key.sector : undefined;
+    return key.kind === 'star-sector' && key.galaxyId===this.galaxyId ? key.sector : undefined;
   }
 
 }

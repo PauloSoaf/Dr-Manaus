@@ -121,7 +121,8 @@ export class GlobalStreamingScheduler {
     this.predictor.reset();
   }
   /** Retire an unloaded body's jobs, active GPU meshes and dormant decoded payloads. */
-  retireProvider(providerId:string,bodyId:string):void {
+  retireProvider(providerId:string,bodyId?:string,galaxyId?:string):void {
+    const provider=this.registry.get(providerId),released=new Set<TilePayload>();
     for(const [id,tile] of this.tiles) {
       if(tile.providerId!==providerId)continue;
       tile.controller?.abort();
@@ -129,9 +130,13 @@ export class GlobalStreamingScheduler {
         this.registry.get(providerId)?.deactivate(tile.active);
         this.ledger.deactivated(tile.payload?.cpuBytes??0,tile.payload?.estimatedGpuBytes??0);
       }
+      if(tile.payload){if(!tile.active)provider?.discard?.(tile.payload);released.add(tile.payload);}
       this.tiles.delete(id);
     }
-    this.cache.deleteWhere(p=>p.key.kind==='planet' && p.key.bodyId===bodyId);
+    this.cache.deleteWhere(p=>{
+      const retire=(p.key.kind==='planet' && p.key.bodyId===bodyId) || (p.key.kind==='star-sector' && p.key.galaxyId===galaxyId);
+      if(retire&&!released.has(p))provider?.discard?.(p);return retire;
+    });
     this.invalidate();
   }
 
@@ -350,6 +355,7 @@ export class GlobalStreamingScheduler {
       this.ledger.fetchFinished();
       // Dropped rather than applied: the world moved on while this was in flight.
       if (generation !== this.generation || controller.signal.aborted) {
+        provider.discard?.(payload);
         tile.state = 'unloaded';
         tile.controller = undefined;
         return;
