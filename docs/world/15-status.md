@@ -1,13 +1,24 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U2 Galaxy Runtime / Andromeda (2026-10-09)
+## Current checkpoint — U3 Universal Hypercruise (2026-10-09)
+
+U2 accepted at `64eb0210fda8a111af6cd1cf3d8743f59c362ba8`. Implemented: permanent regression
+gate, immutable travel plans, anchored/transit authority, interstellar/intergalactic production P,
+X braking/coast/resume/source return, one destination prefetch, arrival hold and atomic handoff,
+safe Solar space return, remote body multi-leg approach, bounded presentation/map/HUD/F3.
+D1 remains frozen. [U3 evidence/manual gate](29-status-U3-UNIVERSAL-HYPERCRUISE.md).
+[Mandatory future regression gate](REGRESSION-GATE.md). STOP after U3 manual validation;
+U4/BH0/U5/U6 remain separate work.
+
+
+## Previous checkpoint — U2 Galaxy Runtime / Andromeda (2026-10-09)
 
 U1 accepted at `9909091f7bfb14b40c031752df29550deddd1651`. U2 now supplies one galaxy-local
 coordinate authority, active GalaxyRuntime, prepared galaxy/system installation with rollback,
 Andromeda disc fixture, context-correct star sectors, external MW/M31 presentation, distances,
 map/HUD/F3 and explicit QA arrival/return. Normal P cannot travel between galaxies. D1 frozen.
 Evidence and manual gate: [28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md](28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md).
-**STOP for U2 manual validation. U3/U4/BH0 remain future work.**
+Historical U2 gate accepted by the U3 request. Current stop is U3; U4/BH0 remain future work.
 
 
 

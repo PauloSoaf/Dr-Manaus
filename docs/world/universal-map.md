@@ -1,4 +1,19 @@
-# Universal Map & Coordinate Model (U2 active galaxy, 2026-10-09)
+# Universal Map & Coordinate Model (U3 transit route, 2026-10-09)
+
+## U3 — Shared target and transit route (2026-10-09)
+
+The production Galaxy/Cosmos catalogue exposes Sol, nearby/MW systems, a 50 kly MW route,
+and two Andromeda systems without QA arrival. Select a target, close M and press P from safe
+SYSTEM space. Same-system body targets retain CosmicFlight; remote bodies use hypercruise,
+atomic system handoff and the existing final approach. Landing remains an explicit F action.
+
+During transit the location card says EM TRÂNSITO, the map shows a schematic source–destination
+route with an interpolated progress marker, and HUD distinguishes the immutable trip destination
+from the current selected target. The source address is retained metadata, not the player marker.
+X brakes into stopped transit; P resumes, or select the original source system to return.
+Galaxy/cluster/BH catalogue selection still never moves the player by itself. BH and cosmological
+travel remain unavailable. [U3 report](29-status-U3-UNIVERSAL-HYPERCRUISE.md).
+
 
 ## U2 — Current galaxy hierarchy (2026-10-09)
 
@@ -7,7 +22,7 @@ address. From Andromeda, the system map shows only the generated system, M31 is 
 Sgr A* are external. Selecting them changes the shared target only. Distances use logical galaxy
 origins, sector offsets and catalogue separation; marker placement remains schematic.
 Explicit DEV or `?u2test=1` reveals `ENTER ANDROMEDA · U2 TEST` and the return control.
-Normal P refuses intergalactic travel. [U2 report/manual gate](28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md).
+Historical U2: normal P refused intergalactic travel. [U2 report/manual gate](28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md).
 
 
 
@@ -27,7 +42,7 @@ Galáxia: Via Láctea, Sgr A*, Andromeda e M31 SMBH são selecionáveis por bot�
 galáxias, Local Group, Virgo, Norma/Great Attractor, Shapley e Observable Horizon usam os
 descritores existentes. As áreas clicáveis são esquemáticas; as distâncias vêm do catálogo,
 das efemérides e da matemática de setores, nunca do canvas. O HUD mostra 2.50 Mly para Andromeda,
-26.00 kly para o centro galáctico/Sgr A* e informa viagem futura indisponível. P executa apenas destinos do sistema ativo; selecionar buraco negro ou galáxia não simula viagem.
+26.00 kly para o centro galáctico/Sgr A*. U3 habilita P para destinos de sistemas/galáxias conhecidos em espaço seguro; buracos negros permanecem indisponíveis. Selecionar um alvo nunca inicia a viagem sozinho.
 
 O cartão/F3 expõem tipo, chave, endereço, materialização e capacidade. Os eixos BigInt mantêm
 identidades distintas acima de 2⁵³; a serialização versionada usa inteiros em strings decimais.
@@ -38,12 +53,12 @@ Contrato completo, provas automatizadas e gate manual:
 [26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
 U1 acrescenta o sistema procedural ativo à mesma autoridade: os botões e canvas do nível
 Sistema mostram a estrela, planetas e luas reais, com nomes/albedo/órbitas gerados. Tab/P/Warp
-funcionam intra-sistema; alvos remotos continuam válidos e com viagem indisponível. Controles
+funcionam intra-sistema; U3 acrescenta Hypercruise para alvos remotos suportados. Controles
 U1 TEST explícitos permitem preparar/materializar a fixture e retornar ao Solar; só aparecem em
-dev ou com opt-in de preview `?u1test=1`. Não existe transporte interestelar por P.
+dev ou com opt-in de preview `?u1test=1`. No checkpoint histórico U1 não existia transporte interestelar por P; U3 fornece esse caminho em produção.
 Pouso rochoso/lunar usa ENU e terreno sintético; gigantes não têm piso. F3 mostra o sistema ativo.
 [27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md](27-status-U1-PLAYABLE-PROCEDURAL-SYSTEMS.md).
-**STOP no gate manual U1. U2/U3/BH0 e busca UX/U5 continuam futuros.**
+Gate histórico U1 aceito. U2/U3 implementados; BH0 e busca UX/U5 permanecem futuros. STOP no gate manual U3.
 
 ## Mapeamento por Níveis
 

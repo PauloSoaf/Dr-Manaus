@@ -1,11 +1,20 @@
 # Universe Map completion epic — 2026-10-08
 
+## U3 — Production travel and permanent regression (2026-10-09)
+
+U2 accepted at `64eb021`. U3 replaces QA-only ordinary travel with logical hypercruise,
+continuous progress, cancel/coast/resume, prepared atomic arrival and body multi-leg approach.
+[U3 report](../docs/world/29-status-U3-UNIVERSAL-HYPERCRUISE.md).
+[Permanent regression gate](../docs/world/REGRESSION-GATE.md) is mandatory for every later sprint.
+STOP for U3 gameplay/visual acceptance. U4, BH0–BH2, U5 and U6 are not authorized here.
+
+
 ## U2 delivered — 2026-10-09
 
 U1 accepted at `9909091`. Catalogue MW/Andromeda runtimes, local origins, atomic galaxy/system
 sessions, active-sector/external/BH presentation, correct cross-galaxy distances and QA roundtrip
 are implemented. [U2 evidence](../docs/world/28-status-U2-GALAXY-RUNTIME-ANDROMEDA.md).
-**STOP for U2 manual acceptance; production hypercruise remains U3, generated galaxies U4, BH physics BH0+.**
+Historical U2 manual gate accepted. Production hypercruise is now U3; generated galaxies U4 and BH physics BH0+ remain deferred.
 
 
 
@@ -48,7 +57,7 @@ Schwarzschild radius and draws a black sphere/orange torus; its update now follo
 | U5 | Runtime-backed searchable/clickable Universal Map | System → stellar sector → galaxy → Local Group → cluster → cosmic web → observable universe; every actionable marker resolves to the same target/address authority |
 | U6 | Cosmological travel and exploration | Hierarchical addresses remain precise at distant structures; observer-relative observable horizon, never a physical wall or universal centre |
 
-The requested U3 pacing is a **gameplay design target**, not an implemented feature: another star
+U3 implements the requested **fictional gameplay pacing**: another star
 in seconds, a Milky Way crossing in roughly 10–25 s, Milky Way→Andromeda in roughly 15–30 s.
 Physical target distances remain authoritative. Do not simulate this by multiplying the existing
 256c Solar control indefinitely or converting cosmological absolute metres into a `Vector3`.
