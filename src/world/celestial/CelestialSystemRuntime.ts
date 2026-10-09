@@ -17,6 +17,7 @@ export interface BodyHandoffState {
 }
 
 export interface CelestialSystemRuntime {
+  readonly systemFrameId: string;
   readonly time: number;
   readonly bodies: readonly CelestialBody[];
   

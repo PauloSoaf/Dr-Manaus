@@ -18,6 +18,8 @@ function directionalRadiusM(body: CelestialBody, sinLat: number): number {
 }
 
 export class ProceduralSystemRuntime implements CelestialSystemRuntime {
+  get systemFrameId(): string { return `system/${this.system.starId}`; }
+  private frameGraph?: ReferenceFrameGraph;
   private readonly states = new Map<string, { positionM: Vec3, velocityMps: Vec3 }>();
   private epochS = 0;
   public readonly bodies: readonly CelestialBody[];
@@ -44,6 +46,11 @@ export class ProceduralSystemRuntime implements CelestialSystemRuntime {
     this.epochS = finite(epochS);
     this.states.clear();
     for (const body of this.bodies) this.resolve(body);
+    for (const body of this.bodies) {
+      if (!this.frameGraph?.has(body.frameId)) continue;
+      const frame = this.frameGraph.get(body.frameId), position = this.states.get(body.id)!.positionM;
+      for (let i = 0; i < 3; i++) frame.originInParent[i] = position[i];
+    }
   }
 
   /**
@@ -111,7 +118,7 @@ export class ProceduralSystemRuntime implements CelestialSystemRuntime {
       const dx = observerM[0] - state.positionM[0];
       const dy = observerM[1] - state.positionM[1];
       const dz = observerM[2] - state.positionM[2];
-      const distance = Math.hypot(dx, dy, dz);
+      const distance = Math.hypot(dx, dy, dz) - body.equatorialRadiusM;
       if (distance < minDistance) {
         minDistance = distance;
         closest = body;
@@ -152,7 +159,8 @@ export class ProceduralSystemRuntime implements CelestialSystemRuntime {
   }
 
   registerFrames(graph: ReferenceFrameGraph): void {
-    const systemFrame = `system/${this.system.starId}`;
+    this.frameGraph = graph;
+    const systemFrame = this.systemFrameId;
     if (!graph.has(systemFrame)) {
       graph.register(referenceFrame({ id: systemFrame, kind: 'system', label: `System ${this.system.starId}` }));
     }

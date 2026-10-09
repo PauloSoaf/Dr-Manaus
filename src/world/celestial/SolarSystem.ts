@@ -44,6 +44,7 @@ export interface SolarSystemOptions {
  * at a genuine astronomical unit without a single astronomical number reaching a vertex buffer.
  */
 export class SolarSystem implements CelestialSystemRuntime {
+  readonly systemFrameId = SOLAR_SYSTEM_FRAME;
   private readonly ephemeris: EphemerisProvider;
   private readonly states = new Map<string, BodyState>();
   private epochS: number;

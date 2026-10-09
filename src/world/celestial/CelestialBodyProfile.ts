@@ -74,7 +74,7 @@ export const SOLAR_BODY_PROFILES: Readonly<Record<string, CelestialBodyProfile>>
 const UNKNOWN_PROFILE: CelestialBodyProfile = { ...SOLAR_BODY_PROFILES.mercury,
   canLand: false, supportsVolumeDestruction: false, surfaceKind: 'none' };
 export function bodyProfile(body: CelestialBody): CelestialBodyProfile {
-  return SOLAR_BODY_PROFILES[body.id] ?? (body.parentId ? UNKNOWN_PROFILE : SOLAR_BODY_PROFILES.sun);
+  return SOLAR_BODY_PROFILES[body.id] ?? body.profile ?? (body.parentId ? UNKNOWN_PROFILE : SOLAR_BODY_PROFILES.sun);
 }
 
 export interface BodyArrivalPolicy {

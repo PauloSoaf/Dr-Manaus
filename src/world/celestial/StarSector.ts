@@ -199,11 +199,12 @@ export function generateStarSector(
   const densityScale = (galDef?.densityScale ?? 1) * (options.densityScale ?? 1);
 
   // Where this sector sits in the galaxy, relative to the Solar System (Sector 0, 0, 0)
-  const localCentre: Vec3 = [
+  const bounded = [sector.x,sector.y,sector.z].every(v=>v>=-1_000_000n && v<=1_000_000n);
+  const localCentre: Vec3 = bounded ? [
     Number(sector.x) * SECTOR_SIZE_M,
     Number(sector.y) * SECTOR_SIZE_M,
     Number(sector.z) * SECTOR_SIZE_M,
-  ];
+  ] : [0,0,0];
   
   // The galactic center position relative to the local centre
   const LY_TO_M = 9.4607304725808e15;

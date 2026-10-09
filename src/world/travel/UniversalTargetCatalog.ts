@@ -52,7 +52,7 @@ export class UniversalTargetCatalog {
     let stars=this.sectors.get(key);
     if(!stars){stars=generateStarSector(galaxyId,sector).stars;this.sectors.set(key,stars);if(this.sectors.size>8)this.sectors.delete(this.sectors.keys().next().value!);}
     const index=stars.findIndex(s=>s.id===starId); if(index<0)return;
-    const star=stars[index], system=generateSystem(star.id,sectorSeed(galaxyId,sector)^BigInt(index+1),star.massSolar);
+    const star=stars[index], system=generateSystem(star.id,sectorSeed(galaxyId,sector)^BigInt(index+1),star);
     const descriptor={star,system,address:{galaxyId,sector,systemId:star.id}};
     this.procedural.set(systemKey,descriptor);if(this.procedural.size>64)this.procedural.delete(this.procedural.keys().next().value!);
     return descriptor;

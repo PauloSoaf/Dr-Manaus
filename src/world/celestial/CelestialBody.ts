@@ -8,6 +8,9 @@ import { satelliteOrbit, type SatelliteOrbit } from './SatelliteOrbit';
  * handed an angular size and a domain, and the logical position stays honest the whole way out.
  */
 export interface CelestialBody {
+  /** Deterministic generated capabilities; curated Solar profiles remain authoritative. */
+  readonly profile?: import('./CelestialBodyProfile').CelestialBodyProfile;
+  readonly stellar?: { readonly temperatureK: number; readonly luminositySolar: number; readonly spectralClass: string };
   readonly id: string;
   readonly name: string;
   /** The body this one orbits. Absent for the root, which is the Sun. */
