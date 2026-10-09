@@ -15,12 +15,15 @@ const resultPath=`artifacts/${sunOnly?'sun-approach-browser':d1Only?'space-harde
 const results={scope:sunOnly?'SUN-APPROACH-P0 fresh Game':d1Only?'D1 fresh Game':'full space regressions'};
 const errors=[];
 try {
-  browser=await chromium.launch({headless:true,args:['--use-angle=swiftshader','--ignore-gpu-blocklist','--enable-webgl']});
+  browser=await chromium.launch({headless:true,args:[...(process.env.DR_BROWSER_GPU?
+    (process.platform==='win32'?['--use-angle=d3d11']:[]):['--use-angle=swiftshader']),'--ignore-gpu-blocklist','--enable-webgl']});
   page=await browser.newPage({viewport:{width:1440,height:900},deviceScaleFactor:1});
   page.on('pageerror',e=>errors.push(e.message));
   page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
   await page.goto('http://127.0.0.1:5187/?webgl=1',{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.__DR_MANAUS__?.ready,null,{timeout:60_000});
+  // Use the production Low raster preset on SwiftShader, keeping gameplay/terrain unchanged.
+  if(!process.env.DR_BROWSER_GPU)await page.evaluate(()=>window.__DR_MANAUS__.rendering.setQuality('Low'));
   await mkdir('artifacts',{recursive:true});
   // Optional fresh-Game D1 acceptance run; the default still executes every regression.
   if(!d1Only&&!sunOnly) {

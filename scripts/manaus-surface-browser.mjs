@@ -15,7 +15,7 @@ try {
   server = await createServer({ server: { host, port, strictPort: true, hmr: false, watch: null } });
   await server.listen();
   browser = await chromium.launch({ headless: true, args: [
-    ...(process.env.DR_BROWSER_GPU ? [] : ['--use-angle=swiftshader']), '--ignore-gpu-blocklist', '--enable-webgl',
+    ...(process.env.DR_BROWSER_GPU ? (process.platform === 'win32' ? ['--use-angle=d3d11'] : []) : ['--use-angle=swiftshader']), '--ignore-gpu-blocklist', '--enable-webgl',
   ] });
   page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.on('pageerror', error => results.errors.push(`pageerror: ${error.message}`));
@@ -27,6 +27,9 @@ try {
   });
   await page.goto(`http://${host}:${port}/?webgl=1`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__DR_MANAUS__?.ready, null, { timeout: 90_000 });
+  // Software GPU rasterization uses the shipped Low preset; simulation, CSS viewport,
+  // geometry, camera and readiness contracts are unchanged. Native GPU runs keep High.
+  if (!process.env.DR_BROWSER_GPU) await page.evaluate(() => window.__DR_MANAUS__.rendering.setQuality('Low'));
   await page.waitForFunction(() => window.__DR_MANAUS__.realCity.stats.shellTriangles > 0,
     null, { timeout: 90_000 });
 
@@ -201,11 +204,95 @@ try {
     for (const name of ['ground-cover', 'terrain-backdrop', 'real-roads-arterial'])
       assert.ok(coverage.sheets.some(surface => surface.name === name), `${name} crater registration`);
   }
+  // One setup teleport, then real Space/B/V input drives the complete vertical flight.
+  // Observe the published end-of-frame state and actual GPU submissions without changing it.
+  await page.evaluate(() => {
+    const g = window.__DR_MANAUS__;
+    // The actual spawn is on the square, clear of the monument's collision volume at zero.
+    g.player.teleport(g.player.position.clone().set(38, 2.2, 12));
+    g.player.state = 'Grounded'; g.player.armed = 'none';
+    g.camera.skipIntro(); g.camera.pitch = 1.27; g.camera.yaw = 0;
+    window.__DR_AERIAL_TRACE__ = []; window.__DR_AERIAL_DRAWS__ = {};
+    const aerial = g.manausAerial, update = aerial.update.bind(aerial);
+    aerial.update = (...args) => {
+      const value = update(...args), stats = aerial.stats;
+      window.__DR_AERIAL_DRAWS__ = {};
+      window.__DR_AERIAL_TRACE__.push({ altitudeM: args[0], local: g.localWorldRoot.visible,
+        ready: stats.ready, aerial: stats.visible, opacity: stats.opacity,
+        groundOwner: g.earthTransition.groundOwner, origin: g.renderOriginVec.toArray() });
+      return value;
+    };
+    aerial.root.traverse(mesh => {
+      if (!mesh.isMesh) return;
+      const render = mesh.onBeforeRender.bind(mesh);
+      mesh.onBeforeRender = (...args) => {
+        render(...args); const draws = window.__DR_AERIAL_DRAWS__;
+        draws[mesh.name] = (draws[mesh.name] ?? 0) + 1;
+      };
+    });
+  });
+  await page.waitForTimeout(1500);
+  results.ascent = [];
+  const captureAscent = async targetM => {
+    const sample = await page.evaluate(targetM => {
+      const g = window.__DR_MANAUS__;
+      return { targetM, altitudeM: g.universe.telemetry.altitudeM, position: g.player.position.toArray(),
+        localVisible: g.localWorldRoot.visible, groundOwner: g.earthTransition.groundOwner,
+        presentation: g.presentationDomain, aerial: g.manausAerial.stats,
+        submittedDraws: { ...window.__DR_AERIAL_DRAWS__ }, renderOrigin: g.renderOriginVec.toArray(),
+        body: g.universe.telemetry.dominantBody, domain: g.travelDomain.kind,
+        city: g.realCity.stats, waterTriangles: g.water.triangles };
+    }, targetM);
+    results.ascent.push(sample);
+    await page.screenshot({ path: `artifacts/manaus-ascent-${targetM / 1000}km${suffix}.png`, timeout: 90_000 });
+    assert.equal(sample.body, 'earth'); assert.equal(sample.aerial.ready, true);
+    assert.equal(sample.aerial.physics, false);
+    if (targetM >= 12000) {
+      assert.ok(sample.aerial.visible && sample.aerial.opacity > .05, `Aerial absent at ${targetM}m`);
+      assert.ok(sample.submittedDraws['manaus-aerial-river'] > 0, `River not submitted at ${targetM}m`);
+      assert.ok(sample.submittedDraws['manaus-aerial-urban'] > 0, `City not submitted at ${targetM}m`);
+    }
+    if (targetM >= 20000) {
+      assert.equal(sample.localVisible, false, `Flat root retained at ${targetM}m`);
+      assert.equal(sample.groundOwner, 'planet');
+    }
+  };
+  await captureAscent(0);
+  await page.keyboard.down('Space');
+  await page.keyboard.press('f');
+  await page.waitForFunction(() => window.__DR_MANAUS__.player.position.y > 50);
+  await page.keyboard.press('v');
+  await page.waitForFunction(() => window.__DR_MANAUS__.player.armed === 'mega');
+  await page.keyboard.down('b');
+  for (const altitudeM of [5000, 8000, 12000, 15000, 20000, 40000, 60000, 100000, 200000]) {
+    await page.waitForFunction(altitudeM => window.__DR_MANAUS__.universe.telemetry.altitudeM >= altitudeM,
+      altitudeM, { timeout: 300_000 });
+    // Brake with ordinary input so the screenshot and its recorded pose describe the same view.
+    await page.keyboard.up('Space'); await page.keyboard.up('b');
+    await page.waitForFunction(() => window.__DR_MANAUS__.player.velocity.length() < 1,
+      null, { timeout: 90_000 });
+    await captureAscent(altitudeM);
+    console.log(`Manaus ascent capture ${altitudeM}m:`, JSON.stringify(results.ascent.at(-1)));
+    await page.keyboard.down('b'); await page.keyboard.down('Space');
+  }
+  await page.keyboard.up('Space'); await page.keyboard.up('b');
+  results.ascentTrace = await page.evaluate(() => window.__DR_AERIAL_TRACE__);
+  assert.ok(results.ascentTrace.length > 100, 'Actual flight was not observed');
+  assert.ok(results.ascentTrace.every(t => t.local || t.aerial), 'Visibility gap during ascent');
+  assert.ok(results.ascentTrace.some(t => t.local && t.aerial), 'No presentation overlap');
+  assert.ok(results.ascentTrace.some(t => !t.local && t.groundOwner === 'planet'), 'No planetary handoff');
+  console.log('Manaus continuous Space/B/V ascent and ten altitude captures:', JSON.stringify(results.ascent));
   assert.equal(results.errors.length, 0, results.errors.join('\n'));
   results.status = auditOnly ? 'audit-only' : 'passed';
   console.log(`Manaus surface browser ${results.status}: five radial samples, three aerial views, actual-road crater, zero browser errors.`);
 } catch (error) {
   results.failure = error.stack ?? String(error);
+  if (results.ascent) results.ascentFailureState = await page.evaluate(() => {
+    const g = window.__DR_MANAUS__;
+    return { position: g.player.position.toArray(), velocity: g.player.velocity.toArray(), state: g.player.state,
+      tier: g.player.speedMode, armed: g.player.armed, input: ['Space', 'KeyB'].map(k => g.input.held(k)),
+      trace: window.__DR_AERIAL_TRACE__?.slice(-10) };
+  }).catch(() => null);
   await page?.screenshot({ path: `artifacts/manaus-surface-failure${suffix}.png`, timeout: 5000 }).catch(() => {});
   throw error;
 } finally {

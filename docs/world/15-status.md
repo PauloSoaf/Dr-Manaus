@@ -1,6 +1,18 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — D1.1-FINAL (2026-10-08)
+## Current checkpoint — Manaus aerial presentation P0 (2026-10-08)
+
+Hotfix on `5b176f4`: curved Earth-fixed river/city/major-road presentation is prepared before
+the flat local root retires at the unchanged 15 km handoff. Regional water/mask coverage
+expands; full tree crowns reject real water. One ground authority, no aerial simulation,
+unchanged `curvedManaus=false`. Full unit 1,108/1,108; measured budgets, data provenance,
+browser results and manual gate: [25-status-MANAUS-AERIAL-PRESENTATION-P0.md](25-status-MANAUS-AERIAL-PRESENTATION-P0.md).
+**STOP for hotfix manual acceptance before supplied U0. D1 frozen; epic order unchanged.**
+Focused 109/109, types/build/diff and all three native Intel Arc/D3D11 browsers PASS,
+including continuous Manaus ascent to 200 km, full space regressions and local Earth reentry;
+zero browser errors. Exact final delivery SHA/CI are reported with the final response.
+
+## D1.1-FINAL (2026-10-08)
 
 D1.2 accepted; final D1 hardening is implemented: deterministic whole-region multi-crater
 residency/128 m retention, live solar direction/shared intact light response and vertex albedo,

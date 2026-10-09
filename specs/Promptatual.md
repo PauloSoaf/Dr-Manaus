@@ -1,6 +1,17 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — D1.1-FINAL-HARDENING (2026-10-08)
+## Checkpoint atual — MANAUS-AERIAL-PRESENTATION-P0 (2026-10-08)
+
+Novo anexo sobre `5b176f42fd6bf442a8cff130f077c2c6f79ee5cf`: hotfix Manaus/rio/árvores
+antes de U0. Contrato: [MANAUS-AERIAL-PRESENTATION-P0.md](MANAUS-AERIAL-PRESENTATION-P0.md).
+Camada aérea curva Earth-fixed, apresentação apenas, pronta antes da retirada do root local;
+água real ampliada, skyline/ruas agregados e máscara conservadora de copas. Handoff
+8/15/13/60 km e ground único preservados. Fonte/cache/licença, custos e evidências:
+[25-status-MANAUS-AERIAL-PRESENTATION-P0.md](../docs/world/25-status-MANAUS-AERIAL-PRESENTATION-P0.md).
+Documentar, commit e push autorizados. **PARAR para validação manual do hotfix; U0 recebido
+é a próxima tarefa, depois da aceitação. D1 congelado e ordem do epic preservada.**
+
+## Checkpoint anterior — D1.1-FINAL-HARDENING (2026-10-08)
 
 O último anexo aceita D1.2 no HEAD `c92249bc221c9f4ec16c6840f0823d77ffb9454f` e muda a prioridade:
 fechar D1.1, congelar destruição em D1 e avançar depois para o Universe Map.
