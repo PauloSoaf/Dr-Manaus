@@ -7,7 +7,7 @@ import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from './UniversalTargetC
 import { isUniverseAddress, type UniversalNavigationTarget } from './UniversalNavigationTarget';
 import { selectBodyDestination } from './BodyNavigation';
 
-export type TravelCapability = 'solar'|'interstellar-future'|'intergalactic-future'|'black-hole-future'|'cosmological-future';
+export type TravelCapability = 'solar'|'intra-system'|'interstellar-future'|'intergalactic-future'|'black-hole-future'|'cosmological-future';
 export interface ResolvedUniversalTarget {
   readonly target:UniversalNavigationTarget;
   readonly valid:boolean;
@@ -36,6 +36,16 @@ export function solarTargetBodyId(t:UniversalNavigationTarget|undefined,context:
 }
 export const solarNavigationTarget=(t:UniversalNavigationTarget|undefined,context:TargetResolutionContext)=>{
   const id=solarTargetBodyId(t,context);return id?selectBodyDestination(context.activeSystem,id):undefined;
+};
+/** Only a body in the current logical address can use the one-system flight controller. */
+export function activeSystemTargetBodyId(t:UniversalNavigationTarget|undefined,context:TargetResolutionContext):string|undefined {
+  const a=t?.address,current=context.address??SOLAR_TARGET_ADDRESS;
+  if(!t || !['body','star'].includes(t.kind) || !a || !isUniverseAddress(a)
+    || a.galaxyId!==current.galaxyId || a.systemId!==current.systemId || !sectorsEqual(a.sector,current.sector))return;
+  return t.bodyId && selectBodyDestination(context.activeSystem,t.bodyId) ? t.bodyId : undefined;
+}
+export const intraSystemNavigationTarget=(t:UniversalNavigationTarget|undefined,context:TargetResolutionContext)=>{
+  const id=activeSystemTargetBodyId(t,context);return id?selectBodyDestination(context.activeSystem,id):undefined;
 };
 
 export class UniversalTargetResolver {
@@ -70,6 +80,8 @@ export class UniversalTargetResolver {
         }
       }
       if(materialized && sameSystem){
+        domain='system';
+        if(activeSystemTargetBodyId(t,this.context))capability='intra-system';
         const live=t.kind==='system'?[0,0,0] as Vec3:this.context.activeSystem.positionOf(t.bodyId!);
         if(live)distanceM=Math.hypot(...live.map((v,i)=>v-observer[i]));
       }else if(positionM)distanceM=separationM({sector:current.sector,offsetM:this.context.location?.sectorOffsetM??observer},{sector:a.sector,offsetM:positionM});
@@ -102,7 +114,7 @@ export class UniversalTargetResolver {
 }
 
 export function travelCapabilityLabel(capability:TravelCapability):string {
-  return {solar:'Piloto automático Solar disponível','interstellar-future':'Viagem interestelar ainda indisponível',
+  return {solar:'Piloto automático Solar disponível','intra-system':'Piloto automático no sistema disponível','interstellar-future':'Viagem interestelar ainda indisponível',
     'intergalactic-future':'Viagem intergaláctica ainda indisponível','black-hole-future':'Viagem a buracos negros ainda indisponível',
     'cosmological-future':'Viagem cosmológica ainda indisponível'}[capability];
 }

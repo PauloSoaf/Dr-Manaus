@@ -114,6 +114,9 @@ export class TileCache {
     this.cpuBytes -= Math.max(0, finite(entry.payload.cpuBytes));
     return this.entries.delete(id);
   }
+  deleteWhere(predicate:(payload:TilePayload)=>boolean):void {
+    for(const entry of this.entries.values())if(predicate(entry.payload))this.delete(entry.payload.key);
+  }
 
   clear(): void {
     this.entries.clear();

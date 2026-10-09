@@ -394,9 +394,11 @@ export class RockyPlanetProvider implements WorldProvider {
     tile.dispose();
   }
 
+  dispose(): void { this.setLandingPrefetch(undefined); this.globe.dispose(); this.globe.root.removeFromParent(); }
+
   private resolveBodyFrame(): string | null {
     const primary = `${this.bodyDef.id}/fixed`;
-    const fallback = `solar-system/${this.bodyDef.id}-fixed`;
+    const fallback = this.frames.ids.find(id=>id === `${this.bodyDef.id}-fixed`) ?? `solar-system/${this.bodyDef.id}-fixed`;
     if (this.frames.has(primary)) return primary;
     if (this.frames.has(fallback)) return fallback;
     return null;

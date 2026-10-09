@@ -6,8 +6,9 @@ import { RockyPlanetProvider } from './RockyPlanetProvider';
 
 /** Registers lightweight provider shells; terrain meshes only exist after scheduler demand. */
 export function createPlanetProviders(parent: Object3D, universe: UniverseRuntime,
-  bodies: readonly CelestialBody[] = universe.activeSystem.bodies): Map<string, RockyPlanetProvider> {
+  bodies: readonly CelestialBody[] = universe.activeSystem.bodies, register = true): Map<string, RockyPlanetProvider> {
   const providers = new Map<string, RockyPlanetProvider>();
+  try {
   for (const body of bodies) {
     // Earth keeps its specialized WGS84/Manaus provider.
     if (body.id === 'earth') continue;
@@ -16,7 +17,14 @@ export function createPlanetProviders(parent: Object3D, universe: UniverseRuntim
     const provider = new RockyPlanetProvider(parent, universe.frames, surface.body, surface,
       { renderSpace: universe.renderSpace });
     providers.set(body.id, provider);
-    universe.providers.register(provider);
+    if (register) universe.providers.register(provider);
+  }
+  } catch(error) {
+    for(const provider of providers.values()) {
+      if(universe.providers.get(provider.id)===provider)universe.providers.unregister(provider.id);
+      provider.dispose();
+    }
+    throw error;
   }
   return providers;
 }

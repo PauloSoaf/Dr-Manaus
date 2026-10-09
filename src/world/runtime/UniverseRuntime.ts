@@ -128,6 +128,27 @@ export class UniverseRuntime {
     this.scheduler.registerSubsystem(this.volume);
   }
 
+  /** Synchronous commit only after a materializer has prepared and installed resources/frames. */
+  installSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, position: Vec3): void {
+    this.activeSystem=runtime;this.address=address;
+    this.setPlayerPose(runtime.systemFrameId,position);
+    this.playerPose.orientation=[0,0,0,1];
+    this.floatingOrigin.reset(this.playerPose);
+    this.frames.remove(TRAVEL_VIEW_FRAME);
+    this.updateSystemPose([...position],[0,0,0],0);
+    this.scheduler.invalidate();
+  }
+  restoreSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, saved: SpatialPose, velocity: Vec3): void {
+    this.activeSystem=runtime;this.address=address;
+    copyPose(this.playerPose,saved);
+    for(let i=0;i<3;i++)this.velocity[i]=velocity[i];
+    this.floatingOrigin.reset(this.playerPose);
+    this.frames.remove(TRAVEL_VIEW_FRAME);
+    if(saved.frame===runtime.systemFrameId)this.updateSystemPose([...saved.position],[...velocity],0);
+    else this.renderSpace.setOrigin(createRenderOrigin(saved.frame,saved.position,saved.orientation,this.timeS));
+    this.scheduler.invalidate();
+  }
+
   setAddress(address: UniverseAddress): void {
     this.address = address;
   }
@@ -184,7 +205,7 @@ export class UniverseRuntime {
   }
 
   get navigationState(): UniverseAddress {
-    if (this.playerPose.frame === SOLAR_SYSTEM_FRAME) {
+    if (this.playerPose.frame === this.activeSystem.systemFrameId) {
       return {
         galaxyId: this.address.galaxyId,
         sector: this.address.sector,
@@ -208,7 +229,7 @@ export class UniverseRuntime {
       frameId: this.playerPose.frame
     };
     
-    if (this.playerPose.frame === SOLAR_SYSTEM_FRAME) {
+    if (this.playerPose.frame === this.activeSystem.systemFrameId) {
       loc.systemPositionM = cloneVec3(this.playerPose.position);
     } else {
       const geo = this.surfaceCoordinates(this.bodyIdForFrame(this.playerPose.frame));
@@ -217,6 +238,10 @@ export class UniverseRuntime {
         lonDeg: radToDeg(geo.lonRad),
         altitudeM: geo.heightM,
       };
+    }
+    if(this.activeSystem instanceof ProceduralSystemRuntime && this.activeSystem.system.star){
+      const relative=this.playerSystemPositionM();
+      loc.sectorOffsetM=this.activeSystem.system.star.offsetM.map((v,i)=>v+relative[i]) as Vec3;
     }
     return loc;
   }
@@ -233,7 +258,7 @@ export class UniverseRuntime {
 
   /** Includes the parent body's orbital velocity; directions alone never include it. */
   systemVelocityMps(localVelocity: Vec3 = this.velocity): Vec3 {
-    const rotated = this.frames.convertDirection(this.playerPose.frame, SOLAR_SYSTEM_FRAME, localVelocity);
+    const rotated = this.frames.convertDirection(this.playerPose.frame, this.activeSystem.systemFrameId, localVelocity);
     const bodyId = this.bodyIdForFrame(this.playerPose.frame);
     const orbital = bodyId ? this.activeSystem.stateOf(bodyId)?.velocityMps : undefined;
     return [rotated[0] + (orbital?.[0] ?? 0), rotated[1] + (orbital?.[1] ?? 0), rotated[2] + (orbital?.[2] ?? 0)];
@@ -248,7 +273,7 @@ export class UniverseRuntime {
   private syncNavigationAddress(): void {
     const { bodyId: previousBody, childFrame: previousFrame, ...systemAddress } = this.address;
     const bodyId = this.bodyIdForFrame(this.playerPose.frame);
-    this.address = this.playerPose.frame === SOLAR_SYSTEM_FRAME
+    this.address = this.playerPose.frame === this.activeSystem.systemFrameId
       ? systemAddress
       : { ...systemAddress, bodyId, childFrame: this.playerPose.frame };
   }
@@ -319,7 +344,7 @@ export class UniverseRuntime {
       budget: budgetForSpeed(DEFAULT_STREAMING_BUDGET, speed),
     };
     this.scheduler.update(context, dt);
-    this.planetTiles = this.earthQuadtree.select(this.playerEcef(), this.options.sse).length;
+    this.planetTiles = this.activeSystem === this.solarSystem ? this.earthQuadtree.select(this.playerEcef(), this.options.sse).length : 0;
   }
 
   /**
@@ -329,11 +354,11 @@ export class UniverseRuntime {
    * that guesses it puts the player somewhere else in the solar system entirely.
    */
   playerSystemPositionM(): Vec3 {
-    if (this.playerPose.frame === SOLAR_SYSTEM_FRAME) {
+    if (this.playerPose.frame === this.activeSystem.systemFrameId) {
       return [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
     }
-    if (this.frames.has(this.playerPose.frame) && this.frames.has(SOLAR_SYSTEM_FRAME)) {
-      return this.frames.convertPosition(this.playerPose.frame, SOLAR_SYSTEM_FRAME, this.playerPose.position);
+    if (this.frames.has(this.playerPose.frame) && this.frames.has(this.activeSystem.systemFrameId)) {
+      return this.frames.convertPosition(this.playerPose.frame, this.activeSystem.systemFrameId, this.playerPose.position);
     }
     const earth = this.activeSystem.positionOf('earth') ?? [0, 0, 0];
     return [earth[0], earth[1], earth[2]];
@@ -346,17 +371,17 @@ export class UniverseRuntime {
     // Capture the outgoing surface axes once. A Moon/Mars departure must not snap the camera
     // back to Manaus axes, and no astronomical transform is sent to a render object.
     const sourceFrame = this.playerPose.frame;
-    if (sourceFrame !== SOLAR_SYSTEM_FRAME || !this.frames.has(TRAVEL_VIEW_FRAME)) {
-      const rotationToParent = this.frames.convertOrientation(sourceFrame, SOLAR_SYSTEM_FRAME, [0, 0, 0, 1]);
+    if (sourceFrame !== this.activeSystem.systemFrameId || !this.frames.has(TRAVEL_VIEW_FRAME)) {
+      const rotationToParent = this.frames.convertOrientation(sourceFrame, this.activeSystem.systemFrameId, [0, 0, 0, 1]);
       this.frames.register(referenceFrame({
         id: TRAVEL_VIEW_FRAME,
-        parentId: SOLAR_SYSTEM_FRAME,
+        parentId: this.activeSystem.systemFrameId,
         kind: 'render-local',
         rotationToParent,
       }));
-      this.playerPose.orientation = this.frames.convertOrientation(sourceFrame, SOLAR_SYSTEM_FRAME, this.playerPose.orientation);
+      this.playerPose.orientation = this.frames.convertOrientation(sourceFrame, this.activeSystem.systemFrameId, this.playerPose.orientation);
     }
-    this.playerPose.frame = SOLAR_SYSTEM_FRAME;
+    this.playerPose.frame = this.activeSystem.systemFrameId;
     this.playerPose.position[0] = finite(systemPosition[0]);
     this.playerPose.position[1] = finite(systemPosition[1]);
     this.playerPose.position[2] = finite(systemPosition[2]);
@@ -365,7 +390,7 @@ export class UniverseRuntime {
     this.velocity[2] = finite(systemVelocity[2]);
     this.syncNavigationAddress();
     this.setViewForward(viewForward
-      ? this.frames.convertDirection(TRAVEL_VIEW_FRAME, SOLAR_SYSTEM_FRAME, viewForward)
+      ? this.frames.convertDirection(TRAVEL_VIEW_FRAME, this.activeSystem.systemFrameId, viewForward)
       : undefined);
 
     this.solarSystem.update(this.timeS);
@@ -396,10 +421,10 @@ export class UniverseRuntime {
     altitudeM: number;
   } {
     let systemPos: Vec3 = [0, 0, 0];
-    if (this.playerPose.frame === SOLAR_SYSTEM_FRAME) {
+    if (this.playerPose.frame === this.activeSystem.systemFrameId) {
       systemPos = [this.playerPose.position[0], this.playerPose.position[1], this.playerPose.position[2]];
-    } else if (this.frames.has(this.playerPose.frame) && this.frames.has(SOLAR_SYSTEM_FRAME)) {
-      systemPos = this.frames.convertPosition(this.playerPose.frame, SOLAR_SYSTEM_FRAME, this.playerPose.position);
+    } else if (this.frames.has(this.playerPose.frame) && this.frames.has(this.activeSystem.systemFrameId)) {
+      systemPos = this.frames.convertPosition(this.playerPose.frame, this.activeSystem.systemFrameId, this.playerPose.position);
     } else {
       const earthPos = this.activeSystem.positionOf('earth') ?? [0, 0, 0];
       systemPos = [earthPos[0], earthPos[1], earthPos[2]];
@@ -483,7 +508,7 @@ export class UniverseRuntime {
         zM: this.playerPose.position[2],
       };
     }
-    if (this.frames.has(this.playerPose.frame) && this.frames.has(EARTH_FIXED_FRAME_ID)) {
+    if (this.activeSystem === this.solarSystem && this.frames.has(this.playerPose.frame) && this.frames.has(EARTH_FIXED_FRAME_ID)) {
       const converted = this.frames.convertPosition(this.playerPose.frame, EARTH_FIXED_FRAME_ID, this.playerPose.position);
       return { xM: converted[0], yM: converted[1], zM: converted[2] };
     }
@@ -563,7 +588,7 @@ export class UniverseRuntime {
       // mismatched radii by silently teleporting an underground point onto a different surface.
       nextPose = this.frames.convertPose(this.playerPose, targetFrame);
       const orbital = this.activeSystem.stateOf(bodyId)?.velocityMps ?? [0, 0, 0];
-      nextVelocity = this.frames.convertDirection(SOLAR_SYSTEM_FRAME, targetFrame, [
+      nextVelocity = this.frames.convertDirection(this.activeSystem.systemFrameId, targetFrame, [
         systemVelocity[0] - orbital[0],
         systemVelocity[1] - orbital[1],
         systemVelocity[2] - orbital[2],

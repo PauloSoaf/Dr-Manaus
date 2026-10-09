@@ -120,6 +120,20 @@ export class GlobalStreamingScheduler {
     }
     this.predictor.reset();
   }
+  /** Retire an unloaded body's jobs, active GPU meshes and dormant decoded payloads. */
+  retireProvider(providerId:string,bodyId:string):void {
+    for(const [id,tile] of this.tiles) {
+      if(tile.providerId!==providerId)continue;
+      tile.controller?.abort();
+      if(tile.active){
+        this.registry.get(providerId)?.deactivate(tile.active);
+        this.ledger.deactivated(tile.payload?.cpuBytes??0,tile.payload?.estimatedGpuBytes??0);
+      }
+      this.tiles.delete(id);
+    }
+    this.cache.deleteWhere(p=>p.key.kind==='planet' && p.key.bodyId===bodyId);
+    this.invalidate();
+  }
 
   /** One frame. Plan, rank, track, activate, fetch, retire — each inside its own budget. */
   update(context: StreamingContext, dtS: number): void {
