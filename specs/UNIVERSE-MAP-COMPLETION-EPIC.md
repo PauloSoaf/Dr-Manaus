@@ -3,7 +3,9 @@
 User decision after D1.2 (`c92249bc221c9f4ec16c6840f0823d77ffb9454f`): finish D1.1 hardening,
 then freeze destruction at functional D1 and prioritize the playable universe. This order supersedes
 the old automatic D2→D5 progression. Each checkpoint still requires its own implementation,
-validation, documentation, commit/push and manual gate. This document is a plan, not delivery of U0.
+validation, documentation, commit/push and manual gate. U0 is now implemented on the audited
+`9f7ac3e` baseline (2026-10-09); remaining rows are the future plan. Delivery/evidence:
+[26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](../docs/world/26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
 
 ## Starting point, audited locally
 
@@ -13,8 +15,11 @@ and Andromeda, including `sgra` and `m31_smbh` definitions. `GalaxyProvider`, `S
 and `LargeScaleStructureProvider` supply presentation foundations; `FEATURES.galaxyTravel` is
 true. A flag and macro visuals do not establish playable galaxy arrival or universal navigation.
 
-`NavigationTargetState` still owns a `bodyId` validated against `activeSystem`. The existing
-Solar flight tiers remain Solar/interplanetary travel. `BlackHoleProvider` computes a visual
+U0 replaces the old `bodyId`/`activeSystem`-only state with one immutable universal descriptor
+target, BigInt-safe canonical keys/serialization, catalog/resolver and a strict Solar adapter.
+Galaxies/BHs/cosmic anchors and deterministic procedural identities survive unloaded runtimes;
+selection never changes player location. The existing Solar flight tiers remain Solar/interplanetary
+travel. `BlackHoleProvider` computes a visual
 Schwarzschild radius and draws a black sphere/orange torus; its update currently assumes
 Milky Way. It does not implement gravity, capture, lensing, traversals or destination preparation.
 
@@ -23,7 +28,7 @@ Milky Way. It does not implement gravity, capture, lensing, traversals or destin
 | Checkpoint | Deliverable | Gate |
 | --- | --- | --- |
 | D1.1-FINAL | Multiple coherent crater regions, retention, real solar lighting, volume culling, per-tile masks, prepared publication | Craters A/B about 500 m apart remain physical and masked; constrained three-region eviction is whole and deterministic; D1.2 fidelity stays green |
-| U0 | Universal target/address shared by HUD, map and travel; `galaxy → sector → system → body`, including non-body targets | Lock Moon, a procedural star, Sgr A* and Andromeda using one authority; unloaded targets retain identity |
+| U0 | Implemented: universal target/catalog/resolver shared by HUD, map and Solar travel adapter, including non-body targets | Automated coverage delivered; STOP for manual Solar/SGRA/Andromeda/M31 acceptance before U1 |
 | U1 | Deterministic procedural sectors and materialized playable star systems | Approach/select a star, install its real bodies/orbits; leave/unload, return/regenerate identically; no duplicate providers |
 | U2 | `GalaxyDescriptor`/`GalaxyRuntime`; Milky Way and Andromeda use one architecture; curated Local Group overrides | Real arrival in Andromeda changes galaxy/runtime/address together; Triangulum/other overrides use the same descriptor contract |
 | U3 | Separate interstellar/intergalactic hypercruise domain | Spool, acceleration, continuous progress, cruise, braking, prepared destination and safe handoff; no instantaneous teleport |
@@ -60,4 +65,4 @@ and the historical [sprint plan](dr-manaus-universe-roadmap/11-SPRINT-AND-COMMIT
 They are deferred features, not part of the Universe completion gate. Preserve D0/D1/D1.2,
 Sun approach, C4, Manaus, navigation and landing throughout U0–U6/BH0–BH2.
 
-**After D1.1-FINAL validation, STOP for manual acceptance. U0 is next, not automatic in this delivery.**
+**After U0 delivery, STOP for manual acceptance. U1 is next; do not start U1/U2/U3/BH0 automatically.**

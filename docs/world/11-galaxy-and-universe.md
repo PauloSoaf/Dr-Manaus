@@ -3,12 +3,31 @@
 Implements the addressing and generation parts of `11-GALAXY-AND-OBSERVABLE-UNIVERSE.md`. Code:
 `src/world/celestial/StarSector.ts`, `src/world/spatial/UniverseAddress.ts`.
 
-**Status updated 2026-10-08:** addressing, deterministic generators and a procedural system runtime
+**Status updated 2026-10-09:** U0 universal target/address authority is implemented. Addressing,
+deterministic generators and a procedural system runtime
 exist. Galaxy/star-sector/cosmic-structure presentation foundations are wired with
-`FEATURES.galaxyTravel = true`. Playable galaxy arrival, universal targets, hypercruise and black-hole
+`FEATURES.galaxyTravel = true`. Playable galaxy arrival, hypercruise and black-hole
 transit remain pending. The previous “nothing rendered / flag off” description was stale.
 After final D1.1 hardening, the branch prioritizes the
 [Universe Map completion epic](../../specs/UNIVERSE-MAP-COMPLETION-EPIC.md); D2–D5 are deferred.
+
+## Universal target authority — U0
+
+`NavigationTargetState.current` stores one immutable `UniversalNavigationTarget`, validated by
+`UniversalTargetResolver` against logical descriptors, independently of the active system and
+render/provider lifecycles. `UniverseRuntime.address` remains player location; selecting a galaxy
+never changes it. Keys reuse BigInt sectors directly and versioned serialization writes decimal
+integer wrappers. Solar `navigationLock` / `navigationTarget` are read-only adapter projections.
+
+The catalog supports all 19 Solar bodies, deterministic generated stars/systems/planets, Milky
+Way, Andromeda (approximately 2.50 Mly), Sgr A*, M31 SMBH under Andromeda, existing cosmic anchors
+and the observer-relative horizon. The existing 26,000 ly Solar→MW-centre relationship is shared
+with `StarSector`; galaxy descriptor distances never use a render proxy or camera. Map, HUD and
+P gating use this authority; only current Solar body destinations can execute autopilot.
+
+Implementation, key examples, exact BigInt wire format, seed convention, tests and manual gate:
+[26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
+**Stop after U0 manual validation; U1 is the next checkpoint.**
 
 ## Addressing — `UniverseAddress.ts`
 
@@ -55,7 +74,6 @@ yet.
 
 - Promote existing macro/star-sector presentation and procedural system foundations to streamed,
   playable materialization and deterministic unload/return.
-- Replace the active-system `bodyId`-only lock with universal target/address identity.
 - Implement galaxy runtime/Andromeda arrival and separate interstellar/intergalactic hypercruise.
 - Replace black-hole sphere/torus scaffolds with gravity/horizon/lensing/capture/transit runtimes.
 - Make the map consume actual runtime descriptors across galaxy/cosmological scales. The observable

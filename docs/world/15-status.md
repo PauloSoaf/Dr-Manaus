@@ -1,13 +1,25 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — Manaus aerial presentation P0 (2026-10-08)
+## Current checkpoint — U0 universal navigation target (2026-10-09)
+
+Implemented on `9f7ac3e7a6a78d2944f32438ccdec9c1ebff8fef`: one immutable target state,
+logical catalog/resolver, exact BigInt keys/wire format, strict Solar travel/label adapter and
+shared map/HUD/F3. All 19 Solar bodies, procedural star/system/planet identities, MW, Andromeda
+(2.50 Mly), Sgr A*, Andromeda's M31 SMBH, existing anchors/horizon. Selection does not move
+player/change address or system; future travel stays gated. **1,163/1,163 unit, 137/137 focused,
+typecheck/build/diff PASS; full-space and local browsers PASS, zero errors**. Actual F3 and
+desktop/mobile viewport map flows validated. Evidence and limitations:
+[26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
+**STOP after U0 manual gate. U1 next; D1 frozen, U1/U2/U3/BH0 deferred.**
+
+## Previous checkpoint — Manaus aerial presentation P0 (2026-10-08)
 
 Hotfix on `5b176f4`: curved Earth-fixed river/city/major-road presentation is prepared before
 the flat local root retires at the unchanged 15 km handoff. Regional water/mask coverage
 expands; full tree crowns reject real water. One ground authority, no aerial simulation,
 unchanged `curvedManaus=false`. Full unit 1,108/1,108; measured budgets, data provenance,
 browser results and manual gate: [25-status-MANAUS-AERIAL-PRESENTATION-P0.md](25-status-MANAUS-AERIAL-PRESENTATION-P0.md).
-**STOP for hotfix manual acceptance before supplied U0. D1 frozen; epic order unchanged.**
+The subsequent U0 request supersedes this historical checkpoint stop; D1 remains frozen.
 Focused 109/109, types/build/diff and all three native Intel Arc/D3D11 browsers PASS,
 including continuous Manaus ascent to 200 km, full space regressions and local Earth reentry;
 zero browser errors. Exact final delivery SHA/CI are reported with the final response.
@@ -26,7 +38,8 @@ Details/limits/manual gate: [24-status-D1.1-FINAL-HARDENING.md](24-status-D1.1-F
 **Destruction frozen at D1; D2–D5 deferred. Next after manual gate: U0 universal target/address.**
 New branch priority: [Universe Map completion epic](../../specs/UNIVERSE-MAP-COMPLETION-EPIC.md).
 This current decision supersedes historical checkpoint stops/priorities below; no U0 implementation
-is included. Document/commit/push remain authorized; final exact-SHA CI reported after delivery.
+was included in that historical D1.1 delivery. Current U0 work is recorded above.
+Document/commit/push remain authorized; final exact-SHA CI is reported after delivery.
 
 ## D1.2 — high-resolution impact core — 2026-10-08
 

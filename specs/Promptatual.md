@@ -1,6 +1,21 @@
 # Patch v2 - indice e ordem obrigatoria
 
-## Checkpoint atual — MANAUS-AERIAL-PRESENTATION-P0 (2026-10-08)
+## Checkpoint atual — U0 UNIVERSAL NAVIGATION TARGET (2026-10-09)
+
+Novo pedido U0 após revisão do hotfix Manaus; baseline real
+`9f7ac3e7a6a78d2944f32438ccdec9c1ebff8fef`, branch `feat/universe-map`.
+Implementado: autoridade universal única em NavigationTargetState, catálogo/resolver lógico,
+chaves/serialização BigInt, adapter Solar preservado, seleção de Via Láctea/Andromeda/Sgr A*/M31,
+identidade procedural e âncoras cosmológicas. Mapa/HUD/F3 compartilham alvo; seleção não move
+jogador nem altera UniverseRuntime.address/sistema. P bloqueia destinos de viagem futura.
+1.163/1.163 unit, 137/137 focados, typecheck/build/diff PASS; browser espacial completo
+(incluindo F3 e mapa desktop/mobile) e local Manaus PASS, zero erros.
+Contrato, resultados e limites:
+[26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md](../docs/world/26-status-U0-UNIVERSAL-NAVIGATION-TARGET.md).
+Documentar, commit e push autorizados. **PARAR após U0 para gate manual; U1 é o próximo
+checkpoint. D1 continua congelado; U1/U2/U3/BH0 não entram nesta entrega.**
+
+## Checkpoint anterior — MANAUS-AERIAL-PRESENTATION-P0 (2026-10-08)
 
 Novo anexo sobre `5b176f42fd6bf442a8cff130f077c2c6f79ee5cf`: hotfix Manaus/rio/árvores
 antes de U0. Contrato: [MANAUS-AERIAL-PRESENTATION-P0.md](MANAUS-AERIAL-PRESENTATION-P0.md).
@@ -10,8 +25,8 @@ Camada aérea curva Earth-fixed, apresentação apenas, pronta antes da retirada
 [25-status-MANAUS-AERIAL-PRESENTATION-P0.md](../docs/world/25-status-MANAUS-AERIAL-PRESENTATION-P0.md).
 Validação: 1.108/1.108 unit, 109/109 focados, typecheck/build/diff PASS; browsers Manaus
 (dez capturas até 200 km), espacial completo e local PASS em GPU Intel Arc/D3D11, zero erros.
-Documentar, commit e push autorizados. **PARAR para validação manual do hotfix; U0 recebido
-é a próxima tarefa, depois da aceitação. D1 congelado e ordem do epic preservada.**
+Documentar, commit e push autorizados. Gate histórico do hotfix preservado; o novo pedido U0
+é o checkpoint atual acima. D1 congelado e ordem do epic preservada.
 
 ## Checkpoint anterior — D1.1-FINAL-HARDENING (2026-10-08)
 
