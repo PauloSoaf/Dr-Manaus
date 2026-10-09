@@ -149,7 +149,7 @@ for(const reverse of [false,true])test(reverse?'T_U1_SHIFT_TAB_CYCLES_GENERATED_
   const id=cycleNavigationTarget(candidates,undefined,reverse);assert.ok(runtime.bodies.some(b=>b.id===id));
 });
 test('T_U1_ACTIVE_SYSTEM_BODY_TARGET_AVAILABLE',()=>{const {u,r}=installed();assert.equal(activeSystemTargetBodyId(bodyTarget(),u),rocky.id);assert.equal(r.resolve(bodyTarget()).travelCapability,'intra-system');});
-test('T_U1_REMOTE_SYSTEM_BODY_TARGET_NOT_INTRA_SYSTEM',()=>{const {u,r}=fixture();assert.equal(activeSystemTargetBodyId(bodyTarget(),u),undefined);assert.equal(r.resolve(bodyTarget()).travelCapability,'interstellar-future');});
+test('T_U1_REMOTE_SYSTEM_BODY_TARGET_NOT_INTRA_SYSTEM',()=>{const {u,r}=fixture();assert.equal(activeSystemTargetBodyId(bodyTarget(),u),undefined);assert.equal(r.resolve(bodyTarget()).travelCapability,'interstellar');});
 test('T_U1_COSMIC_FLIGHT_GENERATED_SYSTEM',()=>{
   const {u}=installed(),flight=new CosmicCruiseController(),state={systemId:star.id,positionM:[...u.player.position] as [number,number,number],velocityMps:[0,0,0] as [number,number,number]};
   const next=flight.update(state,.05,new Vector3(1,0,0),{altitudeM:1e11,speedMps:0,requested:true,nearestColliderM:Infinity,bodyRadiusM:rocky.equatorialRadiusM,
@@ -158,7 +158,7 @@ test('T_U1_COSMIC_FLIGHT_GENERATED_SYSTEM',()=>{
 });
 test('T_U1_NO_CROSS_SYSTEM_COSMIC_FLIGHT',()=>{
   const {u}=installed();const remote=catalog.proceduralTarget('milky_way',sector,stars[1].id,'star')!;
-  assert.equal(activeSystemTargetBodyId(remote,u),undefined);assert.equal(new UniversalTargetResolver(catalog,u).resolve(remote).travelCapability,'interstellar-future');
+  assert.equal(activeSystemTargetBodyId(remote,u),undefined);assert.equal(new UniversalTargetResolver(catalog,u).resolve(remote).travelCapability,'interstellar');
   assert.ok(Number.isFinite(systemDomainLimitM(u.activeSystem)));
 });
 for(const b of [rocky,moon])test(b===rocky?'T_U1_GENERATED_ROCKY_LANDING':'T_U1_GENERATED_MOON_LANDING',()=>{
@@ -169,7 +169,7 @@ for(const b of [rocky,moon])test(b===rocky?'T_U1_GENERATED_ROCKY_LANDING':'T_U1_
 });
 test('T_U1_GENERATED_GAS_GIANT_NO_LANDING',()=>{const {u}=installed();u.handoffTo(giant.id);assert.equal(u.player.frame,u.activeSystem.systemFrameId);});
 test('T_U1_FLOATING_ORIGIN_GENERATED_SYSTEM',()=>{const {u,r}=installed(),key=bodyTarget().key,p=[...u.activeSystem.positionOf(rocky.id)!];u.floatingOrigin.reset(u.player);u.updateSystemPose([...u.player.position],[0,0,0],0);assert.deepEqual(u.activeSystem.positionOf(rocky.id),p);assert.equal(r.resolve(bodyTarget()).target.key,key);});
-test('T_U1_TARGET_SURVIVES_UNLOAD',()=>{const {m,r}=installed();m.returnToSolar();const t=r.resolve(bodyTarget());assert.equal(t.valid,true);assert.equal(t.materialized,false);assert.equal(t.travelCapability,'interstellar-future');});
+test('T_U1_TARGET_SURVIVES_UNLOAD',()=>{const {m,r}=installed();m.returnToSolar();const t=r.resolve(bodyTarget());assert.equal(t.valid,true);assert.equal(t.materialized,false);assert.equal(t.travelCapability,'interstellar');});
 test('T_U1_TARGET_REMATERIALIZES_SAME_KEY',()=>{const {m,r}=installed(),key=bodyTarget().key;m.returnToSolar();m.testArrival(target);assert.equal(r.resolve(bodyTarget()).materialized,true);assert.equal(r.resolve(bodyTarget()).target.key,key);});
 test('T_U1_REVISIT_SAME_DESCRIPTOR',()=>{const {m}=installed(),b=m.current!.runtime.bodies;m.returnToSolar();m.testArrival(target);assert.deepEqual(m.current!.runtime.bodies,b);});
 test('T_U1_GLOBAL_EPOCH_PRESERVED',()=>{const {u,m}=installed();m.returnToSolar();u.update([0,0,0],[0,0,0],.25);const t=u.time;m.testArrival(target);assert.equal(u.activeSystem.time,t);assert.equal(u.time,t);});

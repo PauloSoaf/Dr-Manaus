@@ -1,3 +1,4 @@
+import type { UniversalTransitState } from '../travel/UniversalTravelController';
 import { knownGalaxyRuntime, type GalaxyRuntime } from '../galaxy/GalaxyRuntime';
 import { SolarSystem, SOLAR_SYSTEM_FRAME } from '../celestial/SolarSystem';
 import { bodyFixedToGeodetic, bodyGeodeticToFixed, EARTH } from '../planet/PlanetBody';
@@ -154,6 +155,9 @@ export class UniverseRuntime {
   }
 
   setAddress(address: UniverseAddress): void {
+    if(address.galaxyId!==this.activeGalaxy.id || address.systemId!==this.address.systemId
+      || address.sector.x!==this.address.sector.x || address.sector.y!==this.address.sector.y || address.sector.z!==this.address.sector.z)
+      throw Error('Cross-system address changes require transactional install');
     this.address = address;
   }
 
@@ -226,10 +230,17 @@ export class UniverseRuntime {
     };
   }
 
+  transit?:UniversalTransitState;
+  get locationMode():'anchored'|'transit' {return this.transit?'transit':'anchored';}
+  advanceTransitEpoch(dtS:number):void {
+    this.timeS+=Math.max(0,finite(dtS));this.solarSystem.update(this.timeS);
+    if(this.activeSystem!==this.solarSystem)this.activeSystem.update(this.timeS);
+  }
   get location(): UniverseLocation {
+    if(this.transit)return {address:this.navigationState,frameId:'universal/transit',mode:'transit',transit:this.transit};
     const address = this.navigationState;
     const loc: UniverseLocation = {
-      address,
+      address,mode:'anchored',
       frameId: this.playerPose.frame
     };
     
@@ -333,6 +344,7 @@ export class UniverseRuntime {
   }
 
   updateStreaming(dtS: number): void {
+    if(this.transit)return;
     if (!this.options.streaming) { this.planetTiles = 0; return; }
     
     const dt = Math.max(0, Math.min(0.25, finite(dtS)));

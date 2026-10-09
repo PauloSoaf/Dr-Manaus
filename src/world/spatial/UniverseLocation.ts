@@ -1,8 +1,12 @@
+import type { UniversalTransitState } from '../travel/UniversalTravelController';
 import type { UniverseAddress, CosmologicalAddress } from './UniverseAddress';
 
 export type { CosmologicalAddress };
 
 export interface UniverseLocation {
+  /** Address is retained source metadata during transit; transit is the location authority. */
+  mode?:'anchored'|'transit';
+  transit?:UniversalTransitState;
   address: UniverseAddress;
   frameId: string;
 

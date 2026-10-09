@@ -8,7 +8,7 @@ import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from './UniversalTargetC
 import { isUniverseAddress, type UniversalNavigationTarget } from './UniversalNavigationTarget';
 import { selectBodyDestination } from './BodyNavigation';
 
-export type TravelCapability = 'solar'|'intra-system'|'interstellar-future'|'intergalactic-future'|'black-hole-future'|'cosmological-future';
+export type TravelCapability = 'solar'|'intra-system'|'interstellar'|'intergalactic'|'black-hole-future'|'cosmological-future';
 export interface ResolvedUniversalTarget {
   readonly target:UniversalNavigationTarget;
   readonly valid:boolean;
@@ -16,7 +16,7 @@ export interface ResolvedUniversalTarget {
   readonly domain:'system'|'interstellar'|'intergalactic'|'cosmological';
   readonly distanceM?:number;
   readonly logicalPosition?: { readonly address?:UniversalNavigationTarget['address']; readonly positionM:Vec3;
-    readonly frame:'solar-system'|'sector-offset'|'milky-way-centred'|'local-group'|'cosmological-relative' };
+    readonly frame:'solar-system'|'sector-offset'|'local-group-global'|'local-group'|'cosmological-relative' };
   readonly travelCapability:TravelCapability;
 }
 export interface TargetResolutionContext {
@@ -49,13 +49,20 @@ export const intraSystemNavigationTarget=(t:UniversalNavigationTarget|undefined,
   const id=activeSystemTargetBodyId(t,context);return id?selectBodyDestination(context.activeSystem,id):undefined;
 };
 
+const ephemerides=new WeakMap<UniversalTargetCatalog,Map<string,ProceduralSystemRuntime>>();
+function generatedEphemeris(catalog:UniversalTargetCatalog,p:NonNullable<ReturnType<UniversalTargetCatalog['proceduralDescriptor']>>,time:number):ProceduralSystemRuntime {
+  let cache=ephemerides.get(catalog);if(!cache){cache=new Map();ephemerides.set(catalog,cache);}
+  let runtime=cache.get(p.star.id);
+  if(!runtime){runtime=new ProceduralSystemRuntime(p.system,time);cache.set(p.star.id,runtime);if(cache.size>64)cache.delete(cache.keys().next().value!);}
+  if(runtime.time!==time)runtime.update(time);return runtime;
+}
 export class UniversalTargetResolver {
   constructor(readonly catalog:UniversalTargetCatalog,readonly context:TargetResolutionContext){}
   resolve(t:UniversalNavigationTarget):ResolvedUniversalTarget {
     const entry=this.catalog.resolve(t), current=this.context.address??SOLAR_TARGET_ADDRESS;
     const galaxy=t.galaxyId, intergalactic=!!galaxy && galaxy!==current.galaxyId;
     let domain:ResolvedUniversalTarget['domain']=intergalactic?'intergalactic':t.kind==='body'?'system':'interstellar';
-    let capability:TravelCapability=intergalactic?'intergalactic-future':'interstellar-future';
+    let capability:TravelCapability=intergalactic?'intergalactic':'interstellar';
     if(t.kind==='black-hole')capability='black-hole-future';
     if(['cluster','cosmic-anchor','observable-horizon'].includes(t.kind)){domain='cosmological';capability='cosmological-future';}
     if(!entry)return {target:t,valid:false,materialized:false,domain,travelCapability:capability};
@@ -76,7 +83,7 @@ export class UniversalTargetResolver {
           const live=sameSystem && this.context.activeSystem instanceof ProceduralSystemRuntime
             && this.context.activeSystem.system.starId===a.systemId ? this.context.activeSystem : undefined;
           materialized=!!live;
-          const relative=t.kind==='system'?[0,0,0]: (live??new ProceduralSystemRuntime(p.system,this.context.activeSystem.time)).positionOf(t.bodyId!)??[0,0,0];
+          const relative=t.kind==='system'?[0,0,0]: (live??generatedEphemeris(this.catalog,p,this.context.activeSystem.time)).positionOf(t.bodyId!)??[0,0,0];
           positionM=p.star.offsetM.map((v,i)=>v+relative[i]) as Vec3;
         }
       }
@@ -87,7 +94,7 @@ export class UniversalTargetResolver {
         if(live)distanceM=Math.hypot(...live.map((v,i)=>v-observer[i]));
       }else if(positionM)distanceM=addressSeparationM(current,this.context.location?.sectorOffsetM??observer,a,positionM);
     } else if(entry.globalPositionM){
-      frame='milky-way-centred';positionM=entry.globalPositionM;
+      frame='local-group-global';positionM=entry.globalPositionM;
       const delta=globalTargetDeltaM(current,this.context.location?.sectorOffsetM??observer,positionM);
       if(delta)distanceM=Math.hypot(...delta);
       const localGalaxy=galaxyDefinition(current.galaxyId);
@@ -123,7 +130,7 @@ export class UniversalTargetResolver {
 }
 
 export function travelCapabilityLabel(capability:TravelCapability):string {
-  return {solar:'Piloto automático Solar disponível','intra-system':'Piloto automático no sistema disponível','interstellar-future':'Viagem interestelar ainda indisponível',
-    'intergalactic-future':'Viagem intergaláctica ainda indisponível','black-hole-future':'Viagem a buracos negros ainda indisponível',
+  return {solar:'Piloto automático Solar disponível','intra-system':'Piloto automático no sistema disponível','interstellar':'Hypercruise interestelar disponível em espaço seguro',
+    'intergalactic':'Hypercruise intergaláctico disponível em espaço seguro','black-hole-future':'Viagem a buracos negros ainda indisponível',
     'cosmological-future':'Viagem cosmológica ainda indisponível'}[capability];
 }

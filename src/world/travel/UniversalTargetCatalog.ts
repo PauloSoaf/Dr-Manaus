@@ -19,6 +19,7 @@ export class UniversalTargetCatalog {
   private readonly procedural = new Map<string,ProceduralTargetDescriptor>();
   private readonly sectors = new Map<string,readonly GeneratedStar[]>();
   constructor(solar: CelestialSystemRuntime = new SolarSystem()) {
+    this.add({kind:'system',displayName:'Sol · Sistema Solar',objectId:'sol',galaxyId:'milky_way',systemId:'sol',address:SOLAR_TARGET_ADDRESS});
     for (const body of solar.bodies) this.add({ kind:'body', displayName:names[body.id]??body.name, objectId:body.id,
       galaxyId:'milky_way', systemId:'sol', bodyId:body.id, address:{...SOLAR_TARGET_ADDRESS,bodyId:body.id} });
     for (const galaxy of LOCAL_GROUP_CATALOG) {
@@ -26,6 +27,11 @@ export class UniversalTargetCatalog {
       const bh = galaxy.centralBlackHole;
       if (bh) this.add({ kind:'black-hole', displayName:bh.id==='sgra'?'Sagittarius A*':'M31 SMBH', objectId:bh.id, galaxyId:galaxy.id,
         address:{galaxyId:galaxy.id,sector:sectorIndex(0n,0n,0n)} },bh.positionM);
+    }
+    // Small production catalogue until U5 star picking/search. Canonical identities, shared HUD/map authority.
+    for(const sector of [sectorIndex(0n,0n,0n),sectorIndex(17n,-2n,4n),sectorIndex(18n,-2n,4n)]) {
+      const star=generateStarSector('milky_way',sector).stars.find(s=>s.planetCount>0);
+      if(star){const t=this.proceduralTarget('milky_way',sector,star.id,'system');if(t)this.add(t);}
     }
     for (const anchor of KNOWN_COSMIC_ANCHORS) this.add({ kind:anchor.id==='norma_cluster'?'cosmic-anchor':'cluster',
       displayName:anchor.name, objectId:anchor.id, address:{cell:sectorIndex(0n,0n,0n),localMpc:anchor.positionMpc} });

@@ -15,21 +15,11 @@ test('UniverseRuntime.navigationState uses this.address as true authority', () =
   assert.equal(runtime.navigationState.sector.x, 0n);
   assert.equal(runtime.navigationState.sector.y, 0n);
 
-  // If address moves 50,000 sectors, navigationState must reflect the moved address
-  runtime.setAddress({
-    galaxyId: 'andromeda',
-    sector: sectorIndex(50000n, -25000n, 12000n),
-    systemId: 'm31-prime',
-    bodyId: 'alpha',
-  });
-
-  const state = runtime.navigationState;
-  assert.equal(state.galaxyId, 'andromeda');
-  assert.equal(state.sector.x, 50000n);
-  assert.equal(state.sector.y, -25000n);
-  assert.equal(state.sector.z, 12000n);
-  assert.equal(state.systemId, 'm31-prime');
-  assert.equal(state.bodyId, 'alpha');
+  // Cross-system changes now require a transactional runtime install (U3).
+  const previous=runtime.address;
+  assert.throws(()=>runtime.setAddress({galaxyId:'andromeda',sector:sectorIndex(50000n,-25000n,12000n),systemId:'m31-prime'}));
+  assert.equal(runtime.address,previous);
+  assert.equal(runtime.navigationState.galaxyId,runtime.activeGalaxy.id);
 });
 
 test('SolarSystem.update() dynamically updates reference frame origins on ephemeris change', () => {

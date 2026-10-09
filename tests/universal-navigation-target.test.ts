@@ -74,7 +74,7 @@ test('T_U0_ANDROMEDA_TARGET',()=>assert.equal(target('andromeda').key,'galaxy/an
 test('T_U0_ANDROMEDA_KIND_GALAXY',()=>{assert.equal(target('andromeda').kind,'galaxy');assert.equal(target('andromeda').bodyId,undefined);});
 test('T_U0_ANDROMEDA_DISTANCE_APPROX_2_5_MLY',()=>{
   const r=fixture().resolver.resolve(target('andromeda'));assert.ok(Math.abs(r.distanceM!/LIGHT_YEAR_M-2.5e6)<2000);
-  assert.equal(formatDistance(r.distanceM!),'2.50 Mly');assert.equal(r.travelCapability,'intergalactic-future');assert.equal(r.materialized,false);
+  assert.equal(formatDistance(r.distanceM!),'2.50 Mly');assert.equal(r.travelCapability,'intergalactic');assert.equal(r.materialized,false);
 });
 test('T_U0_MILKY_WAY_TARGET',()=>{assert.equal(target('milky_way').kind,'galaxy');assert.equal(target('milky_way').key,'galaxy/milky_way');});
 test('T_U0_SGRA_TARGET',()=>{assert.equal(target('sgra').objectId,'sgra');assert.equal(target('sgra').galaxyId,'milky_way');assert.equal(target('sgra').bodyId,undefined);});
@@ -214,7 +214,7 @@ test('Malformed or nonexistent generated bodies never resolve through a valid st
 test('MW and Sgr A* distances reuse the existing Solar-to-galactic-centre relationship',()=>{
   const f=fixture();for(const id of ['milky_way','sgra']){
     const r=f.resolver.resolve(target(id));assert.ok(Math.abs(r.distanceM!/LIGHT_YEAR_M-26000)<.001);
-    assert.equal(formatDistance(r.distanceM!),'26.00 kly');assert.equal(r.logicalPosition?.frame,'milky-way-centred');
+    assert.equal(formatDistance(r.distanceM!),'26.00 kly');assert.equal(r.logicalPosition?.frame,'local-group-global');
   }
 });
 test('Curated descriptor validation ignores wire object property order',()=>{
@@ -226,7 +226,7 @@ test('F3 diagnostics project universal identity, exact integer sector and truthf
   const f=fixture(),d=universalTargetDiagnostics(f.resolver.resolve(target('andromeda')));
   assert.equal(d['Universal Target · Key'],'galaxy/andromeda');assert.equal(d['Universal Target · Distance'],'2.50 Mly');
   assert.equal(d['Universal Target · Kind'],'galaxy');assert.equal(d['Universal Target · Galaxy'],'andromeda');
-  assert.equal(d['Universal Target · Capability'],'intergalactic-future');assert.equal(d['Universal Target · Materialized'],'não');
+  assert.equal(d['Universal Target · Capability'],'intergalactic');assert.equal(d['Universal Target · Materialized'],'não');
   const enormous=universalTargetDiagnostics({...f.resolver.resolve(target('mars')),target:huge(9007199254740993n)});
   assert.equal(enormous['Universal Target · Sector'],'9007199254740993,-2,4');
   assert.equal(universalTargetDiagnostics()['Universal Target · Name'],'—');
