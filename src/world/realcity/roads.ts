@@ -2,6 +2,10 @@ import { BufferAttribute, BufferGeometry, Float32BufferAttribute, Group, Mesh, t
 import type { Collider } from '../../core/types';
 import { REAL_CITY } from '../../core/config';
 import { drawnByLandmark } from './ownership';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
+
+const surfaceService = new SurfaceFrameService('earth');
 
 export interface RoadRecord {
   class: string;
@@ -123,6 +127,22 @@ function canopy(
 
 function toGeometry(out: Ribbon): BufferGeometry | null {
   if (!out.position.length) return null;
+  
+  if (localManausPresentationMode() === 'curved') for (let i = 0; i < out.position.length; i += 3) {
+    // Preserve old coordinate to calculate direction correctly!
+    const ox = out.position[i], oy = out.position[i+1], oz = out.position[i+2];
+    
+    const pt = surfaceService.legacyPointToRenderLocal(ox, oy, oz);
+    out.position[i] = pt.x;
+    out.position[i + 1] = pt.y;
+    out.position[i + 2] = pt.z;
+    
+    const up = surfaceService.legacyDirectionToRenderLocal(out.normal[i], out.normal[i + 1], out.normal[i + 2], ox, oy, oz);
+    out.normal[i] = up.x;
+    out.normal[i + 1] = up.y;
+    out.normal[i + 2] = up.z;
+  }
+  
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new Float32BufferAttribute(out.position, 3));
   geometry.setAttribute('normal', new Float32BufferAttribute(out.normal, 3));
@@ -370,7 +390,7 @@ export class RoadNetwork {
             post(out, px - nx * side * 1.1, 8, pz - nz * side * 1.1, 2.6, .34, .42, mast, 0);
             post(out, px - nx * side * 2, 7.55, pz - nz * side * 2, 1.15, .5, .62, head, 1);
             this.spans.set(lampId, { first, count: out.position.length - first });
-            this.colliders.push({ id: lampId, x: px, y: 4.2, z: pz, width: 3, depth: 3, height: 8.4 });
+            this.colliders.push({ id: lampId, x: px, y: 4.2, z: pz, width: 3, depth: 3, height: 8.4,category:'fragile',impactKind:'lamp' });
           }
           // A street tree between every pair of lamps: never inside a footprint, because a road is not.
           const tx = ax + ux * (t + 19) + nx * (offset + 1.6) * -side;
@@ -382,7 +402,7 @@ export class RoadNetwork {
             canopy(out, tx, 4.6 + tint * 1.4, tz, 2.5 + tint * 1.3, 2.4 + tint * 1.1,
               [.20 + tint * .10, .38 + tint * .12, .19 + tint * .07]);
             this.spans.set(treeId, { first, count: out.position.length - first });
-            this.colliders.push({ id: treeId, x: tx, y: height * .5, z: tz, width, depth: width, height });
+            this.colliders.push({ id: treeId, x: tx, y: height * .5, z: tz, width, depth: width, height,category:'vegetation' });
           }
         }
       }

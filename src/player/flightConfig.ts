@@ -1,10 +1,52 @@
-export type FlightSpeedMode = 'ground' | 'normal' | 'fast' | 'super' | 'mega';
+export type FlightSpeedMode = 'ground' | 'normal' | 'fast' | 'super' | 'mega' | 'interplanetary';
 
-/** Metres per second. Mega requires a separate arm action before holding boost. */
+/**
+ * Which tier the arm key has selected for local planetary flight.
+ *
+ * Local flight is explicit: the player chooses the tier and then asks for it with the boost key.
+ * This is not the same decision as the cosmic gears out in the travel domain, which are warp steps
+ * on a held modifier, and the two must not be collapsed into one ladder -- holding a single key
+ * until a superhero crosses a city at eight kilometres a second is a countdown, not a choice.
+ */
+export type ArmedTier = 'none' | 'mega' | 'interplanetary';
+
+/**
+ * Metres per second. Mega and interplanetary both require an arm action before holding boost.
+ *
+ * Interplanetary is 800 000 km/h, which is 222 222 m/s — roughly twenty times what a spacecraft
+ * needs to leave Earth, and half an hour to the Moon rather than three days. It is a superhero's
+ * cruise, not a rocket's.
+ *
+ * It is also the ceiling of what may touch the local physics. Anything beyond this belongs to a
+ * travel domain that does not exist yet (spec P0-04, Sprint H5): a speed that reaches another star
+ * cannot share a `Vector3` with collision sweeps, streaming and the camera.
+ */
 export const FLIGHT = {
-  speeds: { normal: 120, fast: 500, super: 2000, mega: 8000 },
-  maxSpeed: 10000,
-  response: { normal: 8.5, fast: 8.5, super: 4.5, mega: 1.7, braking: 6 },
+  speeds: { normal: 120, fast: 500, super: 2000, mega: 8000, interplanetary: 222_222 },
+  maxSpeed: 260_000,
+  response: {
+    normal: 8.5, fast: 8.5, super: 4.5, mega: 1.7,
+    /**
+     * Heavier than mega, deliberately. At two hundred kilometres a second a turn that settles in a
+     * second has carried the player thirty-five times the width of the planet, so the response has
+     * to be slow enough that a heading is a decision rather than a twitch.
+     */
+    interplanetary: 0.85,
+    braking: 6,
+  },
+  /**
+   * Interplanetary only engages above the top of the atmosphere; below it, boost gives mega.
+   *
+   * Two reasons, and both are about the world rather than the fiction. A frame at 222 km/s covers
+   * thirteen kilometres, so nothing on the ground can be collided with — the player would pass
+   * through the city rather than over it. And the speed exists to leave the planet, which is a
+   * thing you do from the sky.
+   */
+  interplanetaryFloorM: 9000,
+  /** How quickly the arm key has to be struck twice for the second tap to mean the next tier. */
+  armDoubleTapS: 0.45,
+  /** On foot, boost is a bounded sprint; armed, it is the stride of someone who flies for a living. */
+  groundBoostSpeed: { armed: 650, plain: 120 },
   walkSpeed: 6.5,
   runSpeed: 16,
   groundResponse: 16,

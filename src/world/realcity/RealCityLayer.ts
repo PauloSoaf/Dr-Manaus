@@ -15,6 +15,7 @@ import {
   appendNearBuilding, appendShellBuilding, buildingExtent, createBuffers, districtCharacter, setDistrictSampler,
   type MeshBuffers, type RealBuilding,
 } from './buildingGeometry';
+import { manausTileSceneMatrix } from '../spatial/ManausSurfacePresentation';
 
 interface PackedTile { key: string; tx: number; tz: number; buildings: RealBuilding[] }
 interface RuinedBuilding { bounds: Collider; tile: string; blocks: number[] }
@@ -303,11 +304,15 @@ export class RealCityLayer {
       if (this.tiles.has(key)) continue;
       const [tx, tz] = key.split(',').map(Number);
       const originX = tx * size, originZ = tz * size;
+      const tileMatrix = manausTileSceneMatrix(key, originX, originZ);
+      
       for (let p = 0; p + 7 < blocks.length; p += 8) {
         if (this.ruinedSkyline.get(key)?.has(p)) continue;
         if (index >= mesh.instanceMatrix.count) break;
         for(const building of this.skylineShapes.get(key)![p/8]){
-          matrix.makeScale(building.width,building.height,building.depth);matrix.setPosition(building.x,0,building.z);
+          matrix.makeScale(building.width,building.height,building.depth);
+          matrix.setPosition(building.x - originX, 0, building.z - originZ);
+          matrix.premultiply(tileMatrix);
           mesh.setMatrixAt(index,matrix);mesh.setColorAt(index++,color.setRGB(building.gray*.96,building.gray,building.gray*1.04));
         }
       }
@@ -445,6 +450,27 @@ export class RealCityLayer {
     for (const tile of this.tiles.values()) if (tile.nearCount) this.schedule(tile);
   }
 
+  /**
+   * How many milliseconds the next `update` may spend building geometry.
+   *
+   * Set by the global scheduler when the city runs as a managed subsystem, so that Manaus and the
+   * planet are spending one budget rather than two that never meet. Left alone, it is the fixed
+   * budget the city has always used.
+   */
+  grantedBuildMs: number = REAL_CITY.buildBudgetMs;
+
+  /** Outstanding build work, in buildings, for whoever is handing out the budget. */
+  get pendingBuildings(): number {
+    let pending = 0;
+    for (const job of this.jobs) pending += Math.max(0, job.list.length - job.index);
+    return pending;
+  }
+
+  /** True while there is ground near the player that has no collision yet. */
+  get awaitingNearGeometry(): boolean {
+    return this.jobs.some(job => job.kind === 'detail' && job.index < job.list.length);
+  }
+
   update(position: Vector3, velocity: Vector3, dt: number): void {
     if (!this.enabled || !this.manifest) return;
     if (this.colliderFocus.distanceToSquared(position) > 32 * 32) { this.colliderFocus.copy(position); this.collidersDirty = true; }
@@ -471,7 +497,7 @@ export class RealCityLayer {
     }
     this.refreshRichness();
     this.classifyCells(position, speed);
-    this.runJobs();
+    this.runJobs(this.grantedBuildMs);
     this.roads?.update(position.x, position.z, speed);
     if (this.roads) this.metrics.roadTriangles = this.roads.triangleCount;
     if (this.collidersDirty || this.roads?.collidersChanged) { this.collidersDirty = false; this.refreshColliders(); }
@@ -558,9 +584,12 @@ export class RealCityLayer {
       }
       const group = new Group();
       group.name = `real-city-tile:${key}`;
-      group.position.set(packed.tx * size, 0, packed.tz * size);
+      group.matrixAutoUpdate = false;
+      manausTileSceneMatrix(key, packed.tx * size, packed.tz * size, group.matrix);
+      const originX = packed.tx * size;
+      const originZ = packed.tz * size;
       const tile: Tile = {
-        key, tx: packed.tx, tz: packed.tz, originX: group.position.x, originZ: group.position.z,
+        key, tx: packed.tx, tz: packed.tz, originX, originZ,
         cells, bounds, near: new Array(cells.length).fill(false), nearCount: 0,
         group, colliders: [], detailRanges: new Map(), shellRanges: new Map(), touched: performance.now(),
       };
@@ -630,12 +659,39 @@ export class RealCityLayer {
     });
   }
 
-  /** A fixed millisecond budget per frame; a 2 600-building tile spreads over several frames. */
-  private runJobs(): void {
+  /**
+   * A fixed millisecond budget per frame; a 2 600-building tile spreads over several frames.
+   *
+   * Two passes over one budget. The first takes the queue as `prioritise` ordered it, which puts
+   * facades first because facades are what the player is standing in. The second is reserved for
+   * the shell tier.
+   *
+   * That reservation is not tuning, it is the difference between the shell tier running and not
+   * running at all. Detail work is re-queued every time a tile streams in or a cell changes tier,
+   * so a moving player regenerates it faster than the budget drains it; with a strict ordering the
+   * shell jobs sat at index zero indefinitely and the middle distance stayed empty -- which is the
+   * exact failure the comment above `prioritise` was written to prevent, caused by the sort it
+   * describes.
+   */
+  private runJobs(budgetMs: number = REAL_CITY.buildBudgetMs): void {
     const start = performance.now();
+    const budget = Math.max(0, budgetMs);
+    this.pumpJobs(start, budget * REAL_CITY.detailBudgetShare);
+    this.pumpJobs(start, budget, 'shell');
+  }
+
+  /**
+   * Runs queued work until the deadline, optionally only of one kind.
+   *
+   * The deadline is measured from the frame's start rather than from this call, so two passes
+   * share one budget instead of each taking a whole one.
+   */
+  private pumpJobs(startMs: number, deadlineMs: number, kind?: BuildJob['kind']): void {
     while (this.jobs.length) {
-      const job = this.jobs[0];
-      if (!this.tiles.has(job.tile.key)) { this.jobs.shift(); continue; }
+      const position = kind ? this.jobs.findIndex(job => job.kind === kind) : 0;
+      if (position < 0) return;
+      const job = this.jobs[position];
+      if (!this.tiles.has(job.tile.key)) { this.jobs.splice(position, 1); continue; }
       while (job.index < job.list.length) {
         const building = job.list[job.index++];
         if (this.destroyed.has(building.id)) continue;
@@ -650,11 +706,11 @@ export class RealCityLayer {
           collider.x += job.tile.originX; collider.z += job.tile.originZ;
           job.colliders.push(collider);
         }
-        if ((job.index & 31) === 0 && performance.now() - start > REAL_CITY.buildBudgetMs) return;
+        if ((job.index & 31) === 0 && performance.now() - startMs > deadlineMs) return;
       }
       this.finish(job);
-      this.jobs.shift();
-      if (performance.now() - start > REAL_CITY.buildBudgetMs) return;
+      this.jobs.splice(position, 1);
+      if (performance.now() - startMs > deadlineMs) return;
     }
   }
 

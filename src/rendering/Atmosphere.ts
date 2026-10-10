@@ -14,6 +14,14 @@ const RAIN = { top: new Color('#5e727b'), horizon: new Color('#a0ada8'), zenith:
 const CLOUD_DAY = new Color('#eadac8'), CLOUD_RAIN = new Color('#7c8d92'), CLOUD_NIGHT = new Color('#263743');
 export class Atmosphere {
   time: TimeKind = 'Golden Hour'; weather: WeatherKind = 'clear'; dayCycle = false;
+  /**
+   * True while the real planet is what the player is looking at.
+   *
+   * The sky dome and the cloud deck are local weather drawn around the player; from orbit they
+   * cover the globe. A switch the layer honours rather than a `visible` flag set from outside,
+   * because `update` runs every frame and would put its own answer back.
+   */
+  planetaryView = false;
   readonly sun = new DirectionalLight('#ffcc94', 3.1);
   readonly ambient = new HemisphereLight('#d5e5df', '#665c44', 2.3);
   /** Unit vector from the player toward the sun. SpaceLayer needs it to place its disc and limb glow. */
@@ -25,8 +33,12 @@ export class Atmosphere {
   private warmth = uniform(TIMES['Golden Hour'].warm);
   private sunAxis = uniform(new Vector3(0, 1, 0));
   private space = uniform(0);
-  private sky: Mesh;
-  private clouds: InstancedMesh;
+  /**
+   * The 44 km sky dome, drawn around the player. It is a local-domain object: from orbit it would
+   * paint over the planet, so whoever owns the planetary view is allowed to stand it down.
+   */
+  readonly sky: Mesh;
+  readonly clouds: InstancedMesh;
   private cloudMaterial = new MeshStandardMaterial({ color: '#ead5be', roughness: 1, flatShading: false });
   private dummy = new Object3D();
   private elapsed = 0;
@@ -37,10 +49,11 @@ export class Atmosphere {
   constructor(private scene: Scene) {
     const skyMaterial = new MeshBasicNodeMaterial({ side: BackSide, depthWrite: false, fog: false });
     const direction = positionLocal.normalize();
-    const dome = mix(mix(this.horizon, this.top, smoothstep(-.07, .5, direction.y).pow(.85)), this.zenith, smoothstep(.32, 1, direction.y));
+    // Confine horizon tint to a narrow band so mid-sky and zenith remain blue
+    const dome = mix(mix(this.horizon, this.top, smoothstep(-.02, .18, direction.y).pow(.85)), this.zenith, smoothstep(.18, .75, direction.y));
     // Golden hour is a narrow band around the sun, not a tint across the whole dome.
-    const band = float(1).sub(smoothstep(0, .36, direction.y.add(.03).abs()));
-    const warm = mix(dome, this.glow, direction.dot(this.sunAxis).max(0).pow(2.6).mul(band).mul(this.warmth));
+    const band = float(1).sub(smoothstep(0, .20, direction.y.add(.02).abs()));
+    const warm = mix(dome, this.glow, direction.dot(this.sunAxis).max(0).pow(3.0).mul(band).mul(this.warmth));
     // Air is what makes a sky bright; above it this dome has to get out of SpaceLayer's way.
     skyMaterial.colorNode = mix(warm, this.zenith, this.space.mul(.6)).mul(float(1).sub(this.space.mul(.7)));
     this.sky = new Mesh(new SphereGeometry(44000, 32, 20), skyMaterial);
@@ -90,7 +103,10 @@ export class Atmosphere {
     this.temp.copy(this.sunDirection).multiplyScalar(620);
     this.sun.position.copy(playerLocal).add(this.temp); this.sun.target.position.copy(playerLocal);
     this.clouds.position.set(playerLocal.x, 0, playerLocal.z);
-    this.clouds.visible = this.altitude < SPACE.karman;
+    this.clouds.visible = !this.planetaryView && this.altitude < SPACE.karman && this.weather !== 'clear';
+    // The dome is drawn around the player, so from orbit it paints straight over the planet the
+    // far pass just drew. It stands down with the flat ground it belongs to.
+    this.sky.visible = !this.planetaryView;
     this.cloudMaterial.color.copy(this.time === 'Night' ? CLOUD_NIGHT : rain ? CLOUD_RAIN : CLOUD_DAY);
     // Thin air means the horizon stops being a wall, so the city survives being looked at from orbit.
     const climb = Math.min(1, Math.max(0, (this.altitude - 900) / 25100));

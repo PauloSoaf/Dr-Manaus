@@ -1,4 +1,7 @@
 import type { Landmark } from '../../core/types';
+import {
+  LEGACY_METRES_PER_DEGREE, MANAUS_ANCHOR, geoToLegacyLocal, legacyLocalToGeo,
+} from '../spatial/ManausFrameAdapter';
 import osmRoads from './osm-roads.json';
 import { LAND_MASK, type LandMaskPayload } from './landmask';
 // Bundled rather than fetched: `isLand` runs inside the chunk worker and must answer synchronously.
@@ -12,19 +15,25 @@ LAND_MASK.load(landmask as LandMaskPayload);
  * theatre when the monument is 97 m EAST, so the whole square was 128 m out in the wrong
  * direction. Every compiled asset is regenerated against this origin.
  */
-export const GEO_ORIGIN = { lat: -3.130333, lon: -60.022528 } as const;
+export const GEO_ORIGIN = { lat: MANAUS_ANCHOR.latDeg, lon: MANAUS_ANCHOR.lonDeg } as const;
 /**
  * The generalized shoreline and the legacy OSM road sketch were hand-drawn against the previous
  * origin, so they are translated rather than left 97 m adrift from the compiled river and streets.
  */
 const LEGACY_ORIGIN = { lat: -3.1303, lon: -60.0234 } as const;
-const METERS_PER_DEGREE = 111320;
+const METERS_PER_DEGREE = LEGACY_METRES_PER_DEGREE;
 const LONGITUDE_SCALE = METERS_PER_DEGREE * Math.cos(GEO_ORIGIN.lat * Math.PI / 180);
+/**
+ * The city's projection now lives in `spatial/ManausFrameAdapter`, which is also what ties it to
+ * the WGS84 ellipsoid and to the rest of the planet. These two remain the API the game calls, and
+ * they answer exactly what they always did — the adapter reproduces this projection bit for bit,
+ * because all 645 compiled tiles, the road network and the landmask are expressed in it.
+ */
 export function latLonToWorld(lat: number, lon: number): { x: number; z: number } {
-  return { x: (lon - GEO_ORIGIN.lon) * LONGITUDE_SCALE, z: (GEO_ORIGIN.lat - lat) * METERS_PER_DEGREE };
+  return geoToLegacyLocal(lat, lon);
 }
 export function worldToLatLon(x: number, z: number): { lat: number; lon: number } {
-  return { lat: GEO_ORIGIN.lat - z / METERS_PER_DEGREE, lon: GEO_ORIGIN.lon + x / LONGITUDE_SCALE };
+  return legacyLocalToGeo(x, z);
 }
 const LEGACY_SHIFT = {
   x: (LEGACY_ORIGIN.lon - GEO_ORIGIN.lon) * (METERS_PER_DEGREE * Math.cos(GEO_ORIGIN.lat * Math.PI / 180)),
@@ -81,6 +90,18 @@ export function isLand(x: number, z: number): boolean {
   const shore = shoreZ(x);
   return z <= shore || z >= shore + riverWidth(x);
 }
+/** The baked mask has precedence throughout the footprint, including coverage edges. */
+export function isLandFootprint(x:number,z:number,radiusM:number):boolean {
+  if(!Number.isFinite(radiusM)||radiusM<0||!isLand(x,z)||LAND_MASK.hasWaterWithin(x,z,radiusM))return false;
+  // The expanded real mask covers local gameplay. Unknown areas keep the legacy fallback,
+  // conservatively sampled over the whole disk instead of just its centre.
+  if(LAND_MASK.covers(x-radiusM,z-radiusM)&&LAND_MASK.covers(x+radiusM,z+radiusM))return true;
+  const step=Math.max(1,Math.min(32,radiusM/4||1));
+  for(let dz=-radiusM;dz<=radiusM;dz+=step)for(let dx=-radiusM;dx<=radiusM;dx+=step)
+    if(dx*dx+dz*dz<=radiusM*radiusM&&!isLand(x+dx,z+dz))return false;
+  for(let i=0;i<32;i++)if(!isLand(x+Math.cos(i*Math.PI/16)*radiusM,z+Math.sin(i*Math.PI/16)*radiusM))return false;
+  return true;
+}
 export function isUrban(x: number, z: number): boolean {
   const manaus = z < shoreZ(x) - 25 && x > -12800 && x < 19500 && z > -17100;
   const oppositeShore = shoreZ(x) + riverWidth(x);
@@ -133,7 +154,7 @@ export function buildingAllowed(x: number, z: number, padding = 0): boolean {
 
 /** Reservations also apply to wilderness trees, independently of the urban boundary. */
 export function vegetationAllowed(x: number, z: number, padding = 0): boolean {
-  if ( !isLand(x - padding, z + padding) || !isLand(x + padding, z + padding)) return false;
+  if (!isLandFootprint(x,z,padding)) return false;
   if (onAirfield(x, z, padding)) return false;
   for (const landmark of LANDMARKS) if ((x - landmark.x) ** 2 + (z - landmark.z) ** 2 < (landmark.radius + padding) ** 2) return false;
   for (const segment of roadIndex.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`) ?? []) {

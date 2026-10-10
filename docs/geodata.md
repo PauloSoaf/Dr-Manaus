@@ -1,5 +1,20 @@
 # Geographic data and art boundaries
 
+Current regional water (2026-10-08) is compiled from the cached Overture/OSM base polygons,
+not the historical generalized river described below. The same authority feeds local and
+curved aerial water. The compiler clips to ±80 km, bakes centre/footprint masks over actual
+bounds with a 256 m margin, and creates `aerial.json` from existing skyline/major-road data.
+Water provenance carries the original acquisition bbox/release/retrieval/hash/ODbL license;
+no new download was needed for the available whole river polygons. Coverage limits,
+reproduction, dimensions, crown queries and costs are in
+[Manaus aerial P0](world/25-status-MANAUS-AERIAL-PRESENTATION-P0.md).
+Run `node scripts/geodata/compile-real-city.mjs` against the existing ignored raw cache;
+`scripts/geodata/prepare-real-city.ps1` uses the free official Overture client for fresh data.
+Its new water query covers the regional window while respecting an existing cache.
+
+The following small-extract foundation and generalized fallbacks are historical/contextual;
+inside the real regional mask, real water always takes precedence.
+
 The checked-in `public/geodata/manaus.json` is a compact OpenStreetMap extract, downloaded during implementation on 2026-09-18. Its metadata records the precise Overpass query, source timestamp, attribution, projection origin and retrieval timestamp. It contains **264 road ways / 2,150 projected vertices** from selected arterial corridors and **12 named OSM features**. The smaller `src/world/geodata/osm-roads.json` is the build-time road dataset used by terrain rendering and the worker's building exclusion index. Gameplay performs no requests to OSM/Overpass.
 
 Data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/). The bundled extracted database retains this license. Architectural models, generated city buildings and the manually generalized shoreline are original game assets, not OSM building geometry.
@@ -10,7 +25,11 @@ The initial public endpoint timed out; the successful extract used `https://over
 
 ## What is geographically grounded
 
-The local equirectangular projection uses the Teatro Amazonas origin at latitude −3.1303, longitude −60.0234; one unit is approximately one meter, east is +X and south is +Z. Landmark locations for the market, palace, arena, bridge, MUSA and Bosque use named OSM feature centers from the committed extract. The theater origin is a few meters from its OSM polygon center. The remaining landmark coordinates are manually selected approximate points; they are not cadastral surveys. Ponta Negra is over 12 km from the theater, and MUSA is about 16 km away.
+The local equirectangular projection is anchored at the **Monumento à Abertura dos Portos**, at the centre of the Largo de São Sebastião: latitude −3.130333, longitude −60.022528. That point is world zero. One unit is approximately one metre, east is +X and south is +Z.
+
+The origin was previously described here as the Teatro Amazonas at −3.1303, −60.0234. That conflated two separate places: the Teatro is its own landmark about 98 m **west** of the monument. Every compiled asset has been regenerated against the monument anchor, and `src/world/geodata/geodata.ts` is the authority — this document follows it, not the other way round.
+
+The projection itself assumes a fixed 111 320 m per degree on both axes. On the WGS84 ellipsoid a degree of latitude at Manaus is about 110 574 m, so the local north axis is stretched by roughly 0.67%: a point 20 km north sits about 135 m from where the ellipsoid would put it. That is consistent across every compiled tile, road vertex and landmark, which is why the projection is kept rather than corrected. `src/world/spatial/ManausFrameAdapter.ts` holds both this projection and the true WGS84 tangent plane, and states the gap between them as a number. Landmark locations for the market, palace, arena, bridge, MUSA and Bosque use named OSM feature centers from the committed extract. The theater origin is a few meters from its OSM polygon center. The remaining landmark coordinates are manually selected approximate points; they are not cadastral surveys. Ponta Negra is over 12 km from the theater, and MUSA is about 16 km away.
 
 The preserved roads include Avenida Djalma Batista, Constantino Nery, Torquato Tapajós, Coronel Teixeira, Eduardo Ribeiro, Sete de Setembro and Avenida Brasil. Rendered polyline ribbons and indexed building clearance both use the same projected vertices. Secondary streets and building footprints are deterministic procedural content, not actual property boundaries. Procedural streets follow the chunk grid between these preserved arterial corridors.
 

@@ -1,4 +1,6 @@
-import { CircleGeometry, Color, DynamicDrawUsage, Group, InstancedMesh, Matrix4, MeshBasicMaterial, MultiplyBlending, Object3D } from 'three/webgpu';
+import { CircleGeometry, Color, DynamicDrawUsage, Group, InstancedMesh, Matrix4, MeshBasicMaterial, MultiplyBlending, Object3D, Vector3 } from 'three/webgpu';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
 
 export interface ScarOptions {
   /** Total life of a scorch mark, in seconds. Long: these are meant to read as a trail. */
@@ -72,7 +74,7 @@ export class ScarField {
   }
 
   /** `heat` in 0..1 biases the starting colour: 1 is a fresh beam strike, 0 is cold rubble. */
-  spawn(x: number, z: number, radius: number, heat = 1): void {
+  spawn(x: number, y: number, z: number, radius: number, heat = 1): void {
     if (this.limit <= 0) return;
     const i = this.cursor;
     this.cursor = this.cursor + 1 >= this.limit ? 0 : this.cursor + 1;
@@ -80,9 +82,29 @@ export class ScarField {
     this.phase[i] = heat > .05 ? COOLING : SETTLED;
     this.life[i] = this.options.duration;
     // A 27 mm ladder over sixteen slots stops overlapping scars from fighting each other for depth.
-    this.dummy.position.set(x, this.options.height + (i & 15) * .0018, z);
-    this.dummy.rotation.set(0, this.random() * Math.PI * 2, 0);
-    this.dummy.scale.set(radius * 2, 1, radius * 2);
+    const flatY = localManausPresentationMode() === 'curved' ? 0 : this.options.height;
+    const finalY = flatY + (i & 15) * .0018;
+    
+    if (localManausPresentationMode() === 'curved') {
+      // Find the uncurved equivalent point just to sample its normal
+      const surface = new SurfaceFrameService('earth');
+      const flat = surface.renderLocalToLegacyPoint(x, y, z);
+      
+      const up = surface.legacyDirectionToRenderLocal(0, 1, 0, flat.x, flat.y, flat.z).normalize();
+      const randYaw = this.random() * Math.PI * 2;
+      const fwd = surface.legacyDirectionToRenderLocal(Math.sin(randYaw), 0, Math.cos(randYaw), flat.x, flat.y, flat.z).normalize();
+      const right = new Vector3().crossVectors(up, fwd).normalize();
+      const realFwd = new Vector3().crossVectors(right, up).normalize();
+      
+      const offset = up.clone().multiplyScalar(this.options.height + (i & 15) * .0018);
+      this.dummy.position.set(x, y, z).add(offset);
+      this.dummy.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(right, up, realFwd));
+      this.dummy.scale.set(radius * 2, 1, radius * 2);
+    } else {
+      this.dummy.position.set(x, finalY, z);
+      this.dummy.rotation.set(0, this.random() * Math.PI * 2, 0);
+      this.dummy.scale.set(radius * 2, 1, radius * 2);
+    }
     this.dummy.updateMatrix();
     this.mesh.setMatrixAt(i, this.dummy.matrix);
     this.matrixDirty = true;

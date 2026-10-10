@@ -1,9 +1,12 @@
-import { BoxGeometry, Color, Group, InstancedMesh, MeshStandardMaterial, Object3D, Vector3 } from 'three/webgpu';
+import { BoxGeometry, Color, Group, InstancedMesh, MeshStandardMaterial, Object3D, Vector3, Matrix4 } from 'three/webgpu';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import type { Collider } from '../../core/types';
 import type { RoadGraph, RoadSegment } from './RoadGraph';
 import { hash32, VehicleNavigator } from './VehicleNavigator';
 import { roadHeightOf } from '../realcity/roads';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
+import { IMPACT } from '../../player/combat/MeteorImpact';
 
 /** The pool is sized once; `setCount` only changes how much of it drives. */
 const CAPACITY = 256;
@@ -31,7 +34,7 @@ const CLASS_COLOUR: Record<string, number> = {
 };
 
 interface Vehicle {
-  vy:number; wreck:boolean; wreckLife:number; pitch:number;
+  vx:number; vz:number; vy:number; wreck:boolean; wreckLife:number; pitch:number;
   nav: VehicleNavigator;
   x: number; z: number; y: number; yaw: number;
   /** Set on spawn so the drawn pose snaps to the lane instead of sliding in from the last car. */
@@ -48,6 +51,7 @@ interface Vehicle {
 export class TrafficSystem {
   readonly colliders:Collider[]=[];
   readonly stats = { active: 0, segments: 0, nodes: 0 };
+  lastImpulseWrecks = 0;
   private readonly bodies: InstancedMesh;
   private readonly glass: InstancedMesh;
   private readonly pool: Vehicle[] = [];
@@ -56,6 +60,7 @@ export class TrafficSystem {
   private readonly colour = new Color();
   private readonly position = new Vector3();
   private readonly tangent = new Vector3();
+  private readonly surfaceService = new SurfaceFrameService('earth');
   private deck: ((x: number, z: number) => number) | null = null;
   private count = 0;
   private cursor = 0;
@@ -82,7 +87,7 @@ export class TrafficSystem {
     this.dummy.scale.setScalar(0);
     this.dummy.updateMatrix();
     for (let i = 0; i < CAPACITY; i++) {
-      this.pool.push({ vy:0,wreck:false,wreckLife:0,pitch:0,nav: new VehicleNavigator(), x: 0, z: 0, y: 0, yaw: 0, fresh: true, shown: false });
+      this.pool.push({ vx:0,vz:0,vy:0,wreck:false,wreckLife:0,pitch:0,nav: new VehicleNavigator(), x: 0, z: 0, y: 0, yaw: 0, fresh: true, shown: false });
       this.bodies.setMatrixAt(i, this.dummy.matrix);
       this.glass.setMatrixAt(i, this.dummy.matrix);
     }
@@ -146,6 +151,8 @@ export class TrafficSystem {
       if(vehicle.wreck){
         vehicle.wreckLife-=step;
         if(vehicle.wreckLife<=0||(vehicle.x-px)**2+(vehicle.z-pz)**2>CULL_RADIUS*CULL_RADIUS){this.retire(i,vehicle);continue;}
+        vehicle.x+=vehicle.vx*step;vehicle.z+=vehicle.vz*step;
+        const damping=Math.exp(-step*.7);vehicle.vx*=damping;vehicle.vz*=damping;
         vehicle.vy-=24*step;vehicle.y+=vehicle.vy*step;
         const floor=PhysicsWorld.terrainHeight(vehicle.x,vehicle.z)+BODY_H*.35;
         if(vehicle.y<floor){vehicle.y=floor;vehicle.vy=0;}
@@ -176,7 +183,7 @@ export class TrafficSystem {
         vehicle.yaw += delta * blend;
       }
       if(!segment?.bridge&&PhysicsWorld.terrainHeight(vehicle.x,vehicle.z)<-.8){vehicle.wreck=true;vehicle.wreckLife=25;vehicle.vy=0;}
-      else this.colliders.push({id:`traffic:${i}`,x:vehicle.x,y:vehicle.y,z:vehicle.z,width:4.5,height:2,depth:4.5});
+      else this.colliders.push({id:`traffic:${i}`,x:vehicle.x,y:vehicle.y,z:vehicle.z,width:4.5,height:2,depth:4.5,category:'vehicle'});
       this.drawVehicle(i,vehicle,false);
       vehicle.shown = true;
       active++;
@@ -195,13 +202,43 @@ export class TrafficSystem {
     const index=this.colliders.findIndex(c=>c.id===id);if(index>=0)this.colliders.splice(index,1);
     return true;
   }
+  /** A blast transfers existing visible cars to the bounded wreck simulation, never a new pool. */
+  impulse(at:Vector3,radius:number,force:number):number{
+    this.lastImpulseWrecks=0;
+    if(radius<=0||force<=0)return 0;let affected=0;
+    for(let i=0;i<this.pool.length;i++){
+      const v=this.pool[i];if(!v.shown)continue;
+      const dx=v.x-at.x,dz=v.z-at.z,d=Math.hypot(dx,dz);if(d>=radius)continue;
+      if(!v.wreck&&this.destroy(`traffic:${i}`))this.lastImpulseWrecks++;
+      const speed=Math.min(IMPACT.maxActorSpeed,force*(1-d/radius));
+      v.vx=dx/(d||1)*speed;v.vz=dz/(d||1)*speed;v.vy=Math.min(60,8+speed*.16);affected++;
+    }
+    return affected;
+  }
   private drawVehicle(i:number,vehicle:Vehicle,wreck:boolean):void{
-      this.dummy.position.set(vehicle.x, vehicle.y, vehicle.z);
-      this.dummy.rotation.set(vehicle.pitch, vehicle.yaw, wreck?.18:0);
       this.dummy.scale.set(1,wreck?.65:1,1);
-      this.dummy.updateMatrix();
+      if (localManausPresentationMode() === 'curved') {
+        const pt = this.surfaceService.legacyPointToRenderLocal(vehicle.x, vehicle.y, vehicle.z);
+        // Vehicle direction is yaw (rotation around Y).
+        const fwdX = Math.sin(vehicle.yaw), fwdZ = Math.cos(vehicle.yaw);
+        // Pitch is rotation around local X.
+        const upX = 0, upY = 1, upZ = 0; // Simplified up, but let's just get the local normal
+        const up = this.surfaceService.legacyDirectionToRenderLocal(0, 1, 0, vehicle.x, vehicle.y, vehicle.z).normalize();
+        const fwd = this.surfaceService.legacyDirectionToRenderLocal(fwdX, 0, fwdZ, vehicle.x, vehicle.y, vehicle.z).normalize();
+        const right = new Vector3().crossVectors(up, fwd).normalize();
+        const realFwd = new Vector3().crossVectors(right, up).normalize();
+        this.dummy.position.copy(pt);
+        this.dummy.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(right, up, realFwd));
+        this.dummy.rotateX(vehicle.pitch);
+        if (wreck) this.dummy.rotateZ(.18);
+        this.dummy.updateMatrix();
+      } else {
+        this.dummy.position.set(vehicle.x, vehicle.y, vehicle.z);
+        this.dummy.rotation.set(vehicle.pitch, vehicle.yaw, wreck?.18:0);
+        this.dummy.updateMatrix();
+      }
       this.bodies.setMatrixAt(i, this.dummy.matrix);
-      this.dummy.position.y += GLASS_Y;
+      this.dummy.translateY(GLASS_Y);
       this.dummy.updateMatrix();
       this.glass.setMatrixAt(i, this.dummy.matrix);
       vehicle.shown = true;
@@ -230,7 +267,7 @@ export class TrafficSystem {
       const distance = (this.position.x - px) ** 2 + (this.position.z - pz) ** 2;
       if (distance < SPAWN_MIN * SPAWN_MIN || distance > CULL_RADIUS * CULL_RADIUS) continue;
       if(!segment.bridge&&PhysicsWorld.terrainHeight(this.position.x,this.position.z)<-.5)continue;
-      vehicle.fresh = true;vehicle.wreck=false;vehicle.wreckLife=0;vehicle.vy=0;vehicle.pitch=0;
+      vehicle.fresh = true;vehicle.wreck=false;vehicle.wreckLife=0;vehicle.vx=0;vehicle.vz=0;vehicle.vy=0;vehicle.pitch=0;
       this.tint(slot, segment, seed);
       return true;
     }
@@ -239,7 +276,7 @@ export class TrafficSystem {
   }
 
   private retire(slot: number, vehicle: Vehicle): void {
-    vehicle.nav.clear();vehicle.wreck=false;vehicle.vy=0;vehicle.pitch=0;
+    vehicle.nav.clear();vehicle.wreck=false;vehicle.vx=0;vehicle.vz=0;vehicle.vy=0;vehicle.pitch=0;
     vehicle.fresh = true;
     if (!vehicle.shown) return;
     vehicle.shown = false;

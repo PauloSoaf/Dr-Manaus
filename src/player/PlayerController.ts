@@ -4,25 +4,20 @@ import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { CharacterModel } from './CharacterModel';
 import type { InputController } from './InputController';
 import { SPACE, WORLD } from '../core/config';
-import { FLIGHT, type FlightSpeedMode } from './flightConfig';
-import { getDoubleJumpDuration, getJumpHeight, getJumpVelocity, getGravity } from './physics/JumpPhysics';
+import { FLIGHT, type ArmedTier, type FlightSpeedMode } from './flightConfig';
+
+export type { ArmedTier };
+import { getDoubleJumpDuration, getJumpVelocity, getGravity, JUMP_CONFIG } from './physics/JumpPhysics';
+import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { TitanGroundSupport } from './physics/TitanGroundSupport';
 import type { FlipDirection } from './animations/types';
 import { DodgeSystem, type DodgeKind } from './movement/DodgeSystem';
-import { resolveImpact, type ImpactResult } from './combat/MeteorImpact';
+import { resolveContactImpact, type ImpactResult } from './combat/MeteorImpact';
 
 /** Fraction of the run speed the somersault throws forward, so the flip travels. */
 const DOUBLE_JUMP_CARRY = 0.45;
 /** How long a committed downward strike stays committed, and how hard it drives. */
 const SLAM = { window: 1.4, accel: 260, entry: 45 } as const;
-/**
- * Metres per second of descent below which a contact is not a landing at all. Without it,
- * clipping a kerb during a 650 m/s boosted run would read as arriving from orbit, because the
- * horizontal speed alone would carry the energy. Skimming the ground at speed is the plough's
- * job; this system only answers for things that came down.
- */
-const MIN_DESCENT = 12;
-
 export interface LandingImpact {
   readonly impact: ImpactResult;
   readonly position: Vector3;
@@ -38,7 +33,7 @@ export class PlayerController {
   readonly dodge = new DodgeSystem();
   /** The key that evades: a roll on the ground, a dash in the air. */
   dodgeKey = 'KeyZ';
-  state: 'Grounded' | 'Hover' | 'Flight' = 'Grounded';
+  state: 'Grounded' | 'Falling' | 'Hover' | 'Flight' = 'Grounded';
   facingYaw = 0;
   size = 1;
   speedMultiplier = 1;
@@ -46,8 +41,11 @@ export class PlayerController {
   beforeMove?: (position: Vector3, velocity: Vector3, dt: number) => readonly Collider[];
   readonly input: InputController;
   private jumps = 0;
-  private megaEnabled = false;
+  private armedTier: ArmedTier = 'none';
   private megaNeedsBoostRelease = false;
+  /** Seconds since the controller started, used only to time the arm key's double tap. */
+  private armClockS = 0;
+  private lastArmTapS = -Infinity;
   private targetSize = 1;
   private readonly desired = new Vector3();
   private readonly physics = new PhysicsWorld();
@@ -61,6 +59,7 @@ export class PlayerController {
   private pendingImpact: ImpactResult | null = null;
   private slamTimer = 0;
   private desiredSpeed = 0;
+  private bodyGravityMps2 = surfaceGravityMps2(EARTH);
 
   constructor(root: Group, input: InputController) {
     this.input = input;
@@ -70,6 +69,15 @@ export class PlayerController {
 
   get jumpCount(): number { return this.jumps; }
   get isGrounded(): boolean { return this.grounded; }
+  /** Physical gravity of the current body, before the existing Earth gameplay calibration. */
+  get surfaceGravityMps2(): number { return this.bodyGravityMps2; }
+  get gravityMps2(): number {
+    return getGravity(this.size, JUMP_CONFIG.baseGravity * this.bodyGravityMps2 / surfaceGravityMps2(EARTH));
+  }
+  setSurfaceGravity(gravityMps2: number): void {
+    if (!Number.isFinite(gravityMps2) || gravityMps2 < 0) throw new RangeError('Surface gravity must be finite and non-negative');
+    this.bodyGravityMps2 = gravityMps2;
+  }
   /** The speed the player is currently asking for; flight rights the body against it. */
   get requestedSpeed(): number { return this.desiredSpeed; }
   get isSlamming(): boolean { return this.slamTimer > 0; }
@@ -96,41 +104,88 @@ export class PlayerController {
     const dive = SLAM.entry * Math.sqrt(Math.max(1, this.size));
     this.velocity.y = Math.min(this.velocity.y, 0) - dive;
   }
-  get megaMode(): boolean { return this.megaEnabled; }
-  set megaMode(enabled: boolean) {
-    if (enabled === this.megaEnabled) return;
-    this.megaEnabled = enabled;
-    this.megaNeedsBoostRelease = enabled && this.input.held('KeyB');
+  /** Which tier the arm key has selected: none, mega, or interplanetary. */
+  get armed(): ArmedTier { return this.armedTier; }
+  set armed(tier: ArmedTier) {
+    if (tier === this.armedTier) return;
+    const wasArmed = this.armedTier !== 'none';
+    this.armedTier = tier;
+    // Arming from cold while boost is already down must not fling the player: the key has to be
+    // released and pressed again, so arming is never itself an acceleration.
+    //
+    // Stepping up a tier mid-flight is different. The player is already boosting and already
+    // entitled to that speed, and asking for more should not drop them to super until they let
+    // go -- which is what it did, and it read as the key not working.
+    if (!wasArmed) this.megaNeedsBoostRelease = tier !== 'none' && this.input.held('KeyB');
   }
-  toggleMegaMode(): void { this.megaMode = !this.megaMode; }
+
+  /** True for either armed tier. Interplanetary is mega and then some. */
+  get megaMode(): boolean { return this.armedTier !== 'none'; }
+  set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
+  get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
+  get lastTerrainContact() { return this.physics.lastTerrainContact; }
+  get lastVolumeContact() { return this.physics.lastVolumeContact; }
+  /** True while an armed tier waits for the boost key to be let go and pressed again. */
+  get armWaitingForBoostRelease(): boolean { return this.megaNeedsBoostRelease; }
+
+  /**
+   * One press of the arm key.
+   *
+   * Off to mega, mega to interplanetary when the second press follows quickly, and anything to off
+   * otherwise. A slow second press still means "off", so the key keeps the plain on/off behaviour
+   * it had before the second tier existed: the double tap adds a level without taking one away.
+   */
+  private tapArm(): void {
+    const quick = this.armClockS - this.lastArmTapS <= FLIGHT.armDoubleTapS;
+    this.lastArmTapS = this.armClockS;
+    this.armed = this.armedTier === 'none' ? 'mega'
+      : this.armedTier === 'mega' && quick ? 'interplanetary'
+        : 'none';
+  }
+  toggleMegaMode(): void { this.tapArm(); }
+
+  /**
+   * The local flight tier the player is actually in this frame.
+   *
+   * Interplanetary needs sky under it: a frame at 222 km/s covers thirteen kilometres, so nothing
+   * on the ground could be collided with and the player would pass through the city rather than
+   * over it. Below the floor an armed interplanetary gives mega, which is what the tier below it
+   * would have given anyway.
+   */
+  private localTier(flying: boolean, boosting: boolean, sprinting: boolean): FlightSpeedMode {
+    if (!flying) return 'ground';
+    if (!boosting) return sprinting ? 'fast' : 'normal';
+    if (this.armedTier === 'none' || this.megaNeedsBoostRelease) return 'super';
+    return this.armedTier === 'interplanetary' && this.position.y >= FLIGHT.interplanetaryFloorM
+      ? 'interplanetary' : 'mega';
+  }
 
   update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0): void {
     dt = Math.min(0.06, dt);
-    if (this.input.consume('KeyV')) this.toggleMegaMode();
+    this.armClockS += dt;
+    if (this.input.consume('KeyV')) this.tapArm();
     if (!this.input.held('KeyB')) this.megaNeedsBoostRelease = false;
     if (this.input.consume('KeyF')) {
-      this.state = this.state === 'Grounded' ? 'Hover' : 'Grounded';
+      this.state = this.state === 'Grounded' || this.state === 'Falling' ? 'Hover' : 'Falling';
       if (this.state === 'Hover') {
         this.velocity.y = 5;
         this.position.y += 0.18;
       }
     }
-    const flying = this.state !== 'Grounded';
+    const flying = this.state === 'Hover' || this.state === 'Flight';
+    
     const boosting = this.input.held('KeyB');
     const sprinting = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
     const movementX = Number(this.input.held('KeyD')) - Number(this.input.held('KeyA'));
     const movementZ = Number(this.input.held('KeyS')) - Number(this.input.held('KeyW'));
     const ascent = Number(this.input.held('Space')) - Number(this.input.held('ControlLeft') || this.input.held('ControlRight'));
     const sizeSpeed = Math.sqrt(this.size);
-
-    this.speedMode = flying
-      ? boosting
-        ? this.megaEnabled && !this.megaNeedsBoostRelease ? 'mega' : 'super'
-        : sprinting ? 'fast' : 'normal'
-      : 'ground';
-
+    this.speedMode = this.localTier(flying, boosting, sprinting);
+    const armedReady = this.armedTier !== 'none' && !this.megaNeedsBoostRelease;
+    const ground = FLIGHT.groundBoostSpeed;
     const speed = this.speedMode === 'ground'
-      ? Math.min(3000, (boosting ? this.megaEnabled && !this.megaNeedsBoostRelease ? 650 : 120 : sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * sizeSpeed * this.speedMultiplier)
+      ? Math.min(3000, (boosting ? armedReady ? ground.armed : ground.plain
+        : sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * sizeSpeed * this.speedMultiplier)
       : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
 
     this.dodge.update(dt);
@@ -152,9 +207,9 @@ export class PlayerController {
         rightZ * movementX + forwardZ * -movementZ,
       );
       if (this.desired.lengthSq() > 0) this.desired.normalize().multiplyScalar(speed);
-      if (boosting && movementX === 0 && movementZ === 0 && ascent === 0) {
-        this.desired.set(forwardX, forwardY, forwardZ).multiplyScalar(speed);
-      }
+      // Boost is a modifier, never a direction. Synthesising a forward intent from it -- which
+      // this did -- means the player drifts off whenever they hold it to think, and it let the
+      // cosmic cruise engage with no forward input at all.
     } else {
       this.desired.set(movementX, 0, movementZ);
       if (this.desired.lengthSq() > 0) this.desired.normalize();
@@ -193,7 +248,8 @@ export class PlayerController {
 
       if (this.input.consume('Space') && this.jumps < 2) {
         if (this.grounded || this.jumps === 0) {
-          // First jump: standard jump scaled by v = sqrt(2 * g * h)
+          // Keep the same muscular impulse on each body: lower gravity gives a higher,
+          // longer jump, while Earth's established movement remains exactly as before.
           this.jumps = 1;
           this.velocity.y = getJumpVelocity(this.size);
           this.grounded = false;
@@ -209,7 +265,7 @@ export class PlayerController {
               start.y = this.position.y + 2.2 * this.size;
               const ceiling = PhysicsWorld.raycast(start, new Vector3(0, 1, 0), colliders, Math.max(0, rise), 0.32 * this.size);
               if (rise > 0.55 * this.size && rise < 2.5 * this.size && !ceiling) {
-                this.velocity.y = Math.sqrt(2 * getGravity(this.size) * (rise + 0.5 * this.size));
+                this.velocity.y = Math.max(this.velocity.y, Math.sqrt(2 * this.gravityMps2 * (rise + 0.5 * this.size)));
                 this.powerPose('vault', 0.55);
               }
             }
@@ -237,7 +293,7 @@ export class PlayerController {
           this.powerPose('flip', getDoubleJumpDuration(this.size));
         }
       }
-      this.velocity.y -= getGravity(this.size) * dt;
+      this.velocity.y -= this.gravityMps2 * dt;
     }
 
     this.size = MathUtils.lerp(this.size, this.targetSize, 1 - Math.exp(-dt * 4));
@@ -264,15 +320,25 @@ export class PlayerController {
     if (this.size >= 4 && supportInfo.hasSupport) {
       this.grounded = true;
     }
+    // Surface contact ends downward flight. Ordinary jumps/falls remain under body gravity.
+    if (this.grounded && (!flying || (this.desired.y <= 0 && !this.input.held('Space')))) {
+      this.state = 'Grounded';
+    } else if (!flying) this.state = 'Falling';
 
     // The one reliable contact event: the frame the sweep first reports ground. `velocity` has
     // already been zeroed by the sweep, so the arrival speed is the snapshot taken before it.
     if (!wasGrounded && this.grounded) this.registerImpact();
 
-    if (this.position.y >= SPACE.maxAltitude) {
-      this.position.y = SPACE.maxAltitude;
-      this.velocity.y = Math.min(0, this.velocity.y);
-    }
+    /**
+     * The ceiling holds.
+     *
+     * It was briefly removed so that interplanetary flight could keep climbing, and that is the
+     * one thing the roadmap says not to do yet: "remove altitude ceiling only after successful
+     * handoff" (Sprint H5). Until the player can be handed into another body's reference frame,
+     * an unbounded `position.y` is not freedom, it is the point at which a coordinate stops being
+     * representable — and every system downstream takes it at face value.
+     */
+    // The altitude ceiling was removed here as part of Sprint H5 step 7.
 
     // Model facing rotation
     if (flying && this.velocity.lengthSq() > 2) {
@@ -300,7 +366,7 @@ export class PlayerController {
       dt,
       Math.hypot(this.velocity.x, this.velocity.z) / sizeSpeed,
       flying,
-      boosting,
+      sprinting,
       this.pose || (showFallAnimation ? 'jump' : ''),
       this.velocity.y / sizeSpeed,
       bank,
@@ -315,6 +381,36 @@ export class PlayerController {
 
     this.model.position.copy(this.position);
     this.model.scale.setScalar(this.size);
+  }
+
+  /**
+   * Updates the visual proxy during interplanetary travel.
+   * The logical position moves through UniverseRuntime/TravelDomain, while the visual model
+   * stays at the camera-relative origin with flight animation alive and oriented by view/thrust.
+   */
+  updateTravelVisual(dt: number, speedMps: number, viewForward: Vector3, cameraYaw: number, cameraPitch: number, issprinting = true): void {
+    this.model.position.set(0, 0, 0);
+    this.model.scale.setScalar(this.size);
+    this.forward.copy(viewForward).normalize();
+    this.facingYaw = cameraYaw;
+    this.speedMode = 'interplanetary';
+    this.state = 'Flight';
+    this.character.animate(
+      dt,
+      speedMps,
+      true,
+      issprinting,
+      'interplanetary',
+      0,
+      0,
+      this.size,
+      undefined,
+      1,
+      'interplanetary',
+      viewForward,
+      cameraYaw,
+      { desiredSpeed: speedMps, grounded: false, dodge: undefined },
+    );
   }
 
   /**
@@ -376,23 +472,21 @@ export class PlayerController {
   }
 
   /**
-   * Turns a contact into an impact. Descent is what digs a crater; a grazing pass at speed still
-   * cracks the ground, but it counts for a third, because most of that energy carries on past.
+   * Uses the swept contact point and pre-response velocity. Contact normal and tangent energy
+   * are resolved by the shared local footprint policy, including its shallow-graze gate.
    */
   private registerImpact(): void {
-    const descent = Math.max(0, -this.impactVelocity.y);
-    const horizontal = Math.hypot(this.impactVelocity.x, this.impactVelocity.z);
-    const arrival = descent < MIN_DESCENT ? 0 : descent + horizontal * 0.25;
+    const contact=this.lastTerrainContact;
     const slam = this.slamTimer > 0;
     this.slamTimer = 0;
-    const impact = resolveImpact(arrival, this.size, slam);
+    const impact = resolveContactImpact(this.impactVelocity,contact?.normal??{x:0,y:1,z:0},this.size,slam,!!contact);
     this.character.animationController.triggerLanding(
       impact.profile === 'titan' ? 'titan'
         : impact.profile === 'meteor' ? 'super'
         : impact.profile === 'soft' ? 'soft' : 'hard',
     );
     if (impact.profile === 'soft') return;
-    this.impactPoint.copy(this.position);
+    this.impactPoint.copy(contact?.position??this.position);
     this.pendingImpact = impact;
   }
 
@@ -400,13 +494,22 @@ export class PlayerController {
     this.position.copy(position);
     this.velocity.set(0, 0, 0);
     this.model.position.copy(position);
-    this.state = position.y > 1 ? 'Hover' : 'Grounded';
+    this.state = position.y > PhysicsWorld.terrainHeight(position.x, position.z, 0.32 * this.size) + 1 ? 'Hover' : 'Grounded';
     this.grounded = false;
     this.jumps = 0;
     this.slamTimer = 0;
     this.pendingImpact = null;
     this.dodge.reset();
     this.titanSupport.reset();
+  }
+
+  /** A normal travel return continues toward the terrain under the active body's gravity. */
+  beginSurfaceApproach(): void {
+    const floor = PhysicsWorld.terrainHeight(this.position.x, this.position.z, 0.32 * this.size);
+    if (Number.isFinite(floor)) this.position.y = Math.max(this.position.y, floor + 0.05);
+    this.state = 'Falling';
+    this.grounded = false;
+    this.model.position.copy(this.position);
   }
 
   setSize(scale: number): void {

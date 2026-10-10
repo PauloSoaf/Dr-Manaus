@@ -1,0 +1,217 @@
+import { finite } from '../spatial/units';
+import { satelliteOrbit, type SatelliteOrbit } from './SatelliteOrbit';
+
+/**
+ * A body in the solar system, described by its physics rather than by how it will be drawn.
+ *
+ * Radii and distances are real. Nothing here is scaled for rendering convenience: the renderer is
+ * handed an angular size and a domain, and the logical position stays honest the whole way out.
+ */
+export interface CelestialBody {
+  /** Deterministic generated capabilities; curated Solar profiles remain authoritative. */
+  readonly profile?: import('./CelestialBodyProfile').CelestialBodyProfile;
+  readonly stellar?: { readonly temperatureK: number; readonly luminositySolar: number; readonly spectralClass: string };
+  readonly id: string;
+  readonly name: string;
+  /** The body this one orbits. Absent for the root, which is the Sun. */
+  readonly parentId?: string;
+
+  readonly equatorialRadiusM: number;
+  readonly polarRadiusM?: number;
+  readonly massKg?: number;
+
+  readonly rotationPeriodS?: number;
+  /** Obliquity of the rotation axis to the orbital plane, radians. */
+  readonly axialTiltRad?: number;
+
+  /** The reference frame this body's fixed frame is registered under. */
+  readonly frameId: string;
+
+  /**
+   * Where this body is in its orbit, for bodies that were generated rather than measured.
+   *
+   * The real solar system does not use this: its positions come from published Keplerian elements
+   * with secular rates, in `OfflineEphemeris`. A procedural system has no published anything, so
+   * its generator writes the elements here at the moment it invents the body -- which is the only
+   * moment they are known.
+   *
+   * Leaving them off and re-deriving them later is what this replaces, and it could not work: the
+   * generator and the runtime were both replaying the same seeded stream but consuming different
+   * numbers of values from it, so the orbit a planet was given and the orbit it was drawn in had
+   * nothing to do with each other.
+   */
+  readonly orbit?: OrbitElements;
+  /** Measured parent-relative mean elements. Procedural circular orbits above are separate. */
+  readonly satelliteOrbit?: SatelliteOrbit;
+}
+
+/**
+ * A circular orbit, which is what a generated system needs and all it needs.
+ *
+ * Deliberately not the full Keplerian set. Eccentricity, inclination and precession are what make
+ * the real planets interesting and are exactly what `OfflineEphemeris` exists to carry; inventing
+ * them for a star nobody has visited would be detail without information. What matters here is
+ * that the same seed puts the same planet in the same place forever.
+ */
+export interface OrbitElements {
+  /** Orbital radius from the parent, metres. */
+  readonly semiMajorAxisM: number;
+  /** Angle at epoch zero, radians. */
+  readonly phaseRad: number;
+  /** Radians per second. Positive is counter-clockwise seen from the north of the orbital plane. */
+  readonly angularRateRadS: number;
+  /** Tilt of the orbital plane, radians. Small, so a system reads as a disc rather than a shell. */
+  readonly inclinationRad: number;
+}
+
+/** Newton's constant, for turning a parent mass and a radius into an orbital rate. */
+export const GRAVITATIONAL_CONSTANT_SI = 6.674_30e-11;
+
+/**
+ * The angular rate of a circular orbit of `radiusM` about `parentMassKg`.
+ *
+ * v = sqrt(GM/r), and the angular rate is v/r. Returns zero rather than infinity for a degenerate
+ * radius, because a body at the centre of its parent should sit still, not divide by zero.
+ */
+export function circularOrbitRateRadS(radiusM: number, parentMassKg: number): number {
+  const radius = finite(radiusM);
+  const mass = finite(parentMassKg);
+  if (!(radius > 0) || !(mass > 0)) return 0;
+  return Math.sqrt((GRAVITATIONAL_CONSTANT_SI * mass) / radius) / radius;
+}
+
+const DEG = Math.PI / 180;
+
+// GM: JPL SSD physical parameters. Radii: NAIF pck00011; triaxial equatorial axes averaged.
+function satellite(id: string, name: string, parentId: string, equatorialKm: number, polarKm: number,
+  gmKm3S2: number, orbit: SatelliteOrbit): CelestialBody {
+  return { id, name, parentId, equatorialRadiusM: equatorialKm * 1000, polarRadiusM: polarKm * 1000,
+    massKg: gmKm3S2 * 1e9 / GRAVITATIONAL_CONSTANT_SI, rotationPeriodS: orbit.periodS,
+    frameId: `solar-system/${id}-fixed`, satelliteOrbit: orbit };
+}
+
+// Preserve the established lunar ellipse and secular rates exactly, now catalog-owned.
+const EARTH_MOON_ORBIT: SatelliteOrbit = {
+  ...satelliteOrbit(384400, 0.0549, 5.145, 125.0445, 83.353 - 125.0445, 218.316 - 83.353, 2360591.5 / 86400),
+  elements: { ...satelliteOrbit(384400, 0.0549, 5.145, 125.0445, 83.353 - 125.0445, 218.316 - 83.353, 2360591.5 / 86400).elements,
+    meanLongitudeRateRadPerCentury: 481267.881 * DEG,
+    longitudeOfPerihelionRateRadPerCentury: 4069.0134 * DEG,
+    longitudeOfAscendingNodeRateRadPerCentury: -1934.1362 * DEG },
+};
+
+/**
+ * The bodies the specification asks for, with published values.
+ *
+ * Radii are the IAU equatorial and polar values; masses are from the standard gravitational
+ * parameters. Rotation periods are sidereal, and negative where the spin is retrograde — Venus
+ * and Uranus genuinely turn the other way, and a sign is how that is recorded rather than a bug.
+ */
+export const SOLAR_SYSTEM_BODIES: readonly CelestialBody[] = [
+  {
+    id: 'sun', name: 'Sol', equatorialRadiusM: 695_700_000, polarRadiusM: 695_700_000,
+    massKg: 1.988_5e30, rotationPeriodS: 2_192_832, axialTiltRad: 7.25 * DEG,
+    frameId: 'solar-system/sun-fixed',
+  },
+  {
+    id: 'mercury', name: 'Mercúrio', parentId: 'sun',
+    equatorialRadiusM: 2_440_500, polarRadiusM: 2_438_300, massKg: 3.301e23,
+    rotationPeriodS: 5_067_032, axialTiltRad: 0.034 * DEG, frameId: 'solar-system/mercury-fixed',
+  },
+  {
+    id: 'venus', name: 'Vênus', parentId: 'sun',
+    equatorialRadiusM: 6_051_800, polarRadiusM: 6_051_800, massKg: 4.867_5e24,
+    rotationPeriodS: -20_996_798, axialTiltRad: 177.36 * DEG, frameId: 'solar-system/venus-fixed',
+  },
+  {
+    id: 'earth', name: 'Terra', parentId: 'sun',
+    equatorialRadiusM: 6_378_137, polarRadiusM: 6_356_752.314_245, massKg: 5.972_2e24,
+    rotationPeriodS: 86_164.090_5, axialTiltRad: 23.439_3 * DEG, frameId: 'solar-system/earth-fixed',
+  },
+  {
+    id: 'moon', name: 'Lua', parentId: 'earth',
+    equatorialRadiusM: 1_738_100, polarRadiusM: 1_736_000, massKg: 7.346e22,
+    rotationPeriodS: 2_360_591.5, axialTiltRad: 6.68 * DEG, frameId: 'solar-system/moon-fixed',
+    satelliteOrbit: EARTH_MOON_ORBIT,
+  },
+  {
+    id: 'mars', name: 'Marte', parentId: 'sun',
+    equatorialRadiusM: 3_396_200, polarRadiusM: 3_376_200, massKg: 6.417_1e23,
+    rotationPeriodS: 88_642.663, axialTiltRad: 25.19 * DEG, frameId: 'solar-system/mars-fixed',
+  },
+  {
+    id: 'jupiter', name: 'Júpiter', parentId: 'sun',
+    equatorialRadiusM: 71_492_000, polarRadiusM: 66_854_000, massKg: 1.898_2e27,
+    rotationPeriodS: 35_730, axialTiltRad: 3.13 * DEG, frameId: 'solar-system/jupiter-fixed',
+  },
+  {
+    id: 'saturn', name: 'Saturno', parentId: 'sun',
+    equatorialRadiusM: 60_268_000, polarRadiusM: 54_364_000, massKg: 5.683_4e26,
+    rotationPeriodS: 38_362, axialTiltRad: 26.73 * DEG, frameId: 'solar-system/saturn-fixed',
+  },
+  {
+    id: 'uranus', name: 'Urano', parentId: 'sun',
+    equatorialRadiusM: 25_559_000, polarRadiusM: 24_973_000, massKg: 8.681_0e25,
+    rotationPeriodS: -62_064, axialTiltRad: 97.77 * DEG, frameId: 'solar-system/uranus-fixed',
+  },
+  {
+    id: 'neptune', name: 'Netuno', parentId: 'sun',
+    equatorialRadiusM: 24_764_000, polarRadiusM: 24_341_000, massKg: 4.813_4e25,
+    rotationPeriodS: 57_996, axialTiltRad: 28.32 * DEG, frameId: 'solar-system/neptune-fixed',
+  },
+  satellite('io', 'Io', 'jupiter', 1824.4, 1815.7, 5959.91547,
+    satelliteOrbit(421800, .004, 0, 0, 49.1, 330.9, 1.762732, [268.1, 64.5])),
+  satellite('europa', 'Europa', 'jupiter', 1561.45, 1559.5, 3202.71210,
+    satelliteOrbit(671100, .009, .5, 184, 45, 345.4, 3.525463, [268.1, 64.5])),
+  satellite('ganymede', 'Ganimedes', 'jupiter', 2631.2, 2631.2, 9887.83275,
+    satelliteOrbit(1070400, .001, .2, 58.5, 198.3, 324.8, 7.155588, [268.2, 64.6])),
+  satellite('callisto', 'Calisto', 'jupiter', 2410.3, 2410.3, 7179.28340,
+    satelliteOrbit(1882700, .007, .3, 309.1, 43.8, 87.4, 16.690440, [268.7, 64.8])),
+  satellite('titan', 'Titã', 'saturn', 2574.965, 2574.47, 8978.13710,
+    satelliteOrbit(1221900, .029, .3, 78.6, 78.3, 11.7, 15.945448, [36.4, 84])),
+  satellite('enceladus', 'Encélado', 'saturn', 254, 248.3, 7.21037,
+    satelliteOrbit(238400, .005, 0, 0, 119.5, 57, 1.370218, [40.6, 83.5])),
+  // Uranian satellites follow the rotation pole (opposite the IAU north pole), RA/Dec from PCK.
+  satellite('titania', 'Titânia', 'uranus', 788.9, 788.9, 226.9,
+    satelliteOrbit(436298, .002, .1, 29.5, 184, 68.1, 8.705869, [77.311, 15.175])),
+  satellite('oberon', 'Oberon', 'uranus', 761.4, 761.4, 205.3,
+    satelliteOrbit(583511, .002, .1, 76.8, 132.2, 143.6, 13.463237, [77.311, 15.175])),
+  satellite('triton', 'Tritão', 'neptune', 1352.6, 1352.6, 1428.49546,
+    satelliteOrbit(354800, 0, 157.3, 178.1, 0, 63, 5.876994, [299.8, 43.1])),
+];
+
+export const GRAVITATIONAL_CONSTANT = 6.674_30e-11;
+
+export function bodyById(id: string): CelestialBody | undefined {
+  return SOLAR_SYSTEM_BODIES.find(body => body.id === id);
+}
+
+export const meanRadiusM = (body: CelestialBody): number =>
+  (2 * body.equatorialRadiusM + finite(body.polarRadiusM, body.equatorialRadiusM)) / 3;
+
+export const flattening = (body: CelestialBody): number => {
+  const polar = finite(body.polarRadiusM, body.equatorialRadiusM);
+  return (body.equatorialRadiusM - polar) / body.equatorialRadiusM;
+};
+
+/** Standard gravitational parameter, m³/s². */
+export const gravitationalParameter = (body: CelestialBody): number =>
+  GRAVITATIONAL_CONSTANT * finite(body.massKg);
+
+/** Surface gravity at the equator, m/s². */
+export const surfaceGravityMps2 = (body: CelestialBody): number =>
+  gravitationalParameter(body) / body.equatorialRadiusM ** 2;
+
+/** Escape velocity from the surface, m/s. What "leaving" a body actually costs. */
+export const escapeVelocityMps = (body: CelestialBody): number =>
+  Math.sqrt(2 * gravitationalParameter(body) / body.equatorialRadiusM);
+
+/**
+ * The sphere of influence: how far out this body, rather than its parent, dominates gravity.
+ * This is the radius at which the game hands control of the active frame from one body to the
+ * next, so a ship near the Moon is in the Moon's frame and not in Earth's.
+ */
+export function sphereOfInfluenceM(body: CelestialBody, semiMajorAxisM: number, parentMassKg: number): number {
+  const mass = finite(body.massKg);
+  if (!(mass > 0) || !(parentMassKg > 0) || !(semiMajorAxisM > 0)) return 0;
+  return semiMajorAxisM * (mass / parentMassKg) ** (2 / 5);
+}

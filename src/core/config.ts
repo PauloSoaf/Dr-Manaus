@@ -29,6 +29,16 @@ export const REAL_CITY = {
   /** Prediction: the ring rides ahead of the player instead of loading what is behind. */
   leadSeconds: 1.6, maxLead: 3200,
   buildBudgetMs: 3.5,
+  /**
+   * The share of the build budget facades may take before the shell tier is served.
+   *
+   * Facades first is right -- they are what the player is standing in -- but "first" has to mean
+   * "before", not "instead of". Detail work is re-queued every time a tile streams in or a cell
+   * changes tier, so a moving player regenerates it faster than it drains, and a strict ordering
+   * meant the shell tier never ran at all: the middle distance stayed empty for as long as the
+   * player kept flying. The remainder of the budget is reserved for shells so they always advance.
+   */
+  detailBudgetShare: 0.7,
   /** The physical region is far smaller than the visible one at every flight speed. */
   maxColliders: 900,
   /** Levelled buildings remembered before the oldest is allowed to rebuild. */
@@ -47,6 +57,7 @@ export const DESTRUCTION = {
   chunksPerCollapse: 9, maxChunksPerCollapse: 46, maxChunkEnergy: 26,
   /** Bounds the cost of a single frame: surplus damage collapses the rest on the next one. */
   maxCollapsesPerFrame: 16,
+  maxLightRetirementsPerFrame: 1024,
   /** Debris pool. `maxDebris` is the hard instance cap; `debrisPerParticle` scales it by preset. */
   maxDebris: 420, debrisPerParticle: .7, debrisGravity: 26, debrisBounce: .26, debrisFriction: 3.2,
   debrisLifetime: 4.5, debrisSpeed: 1, debrisSize: 1, debrisCullRadius: 1400,
@@ -60,9 +71,58 @@ export const DESTRUCTION = {
   maxEntries: 512, entryTtl: 25, evictInterval: 2,
 } as const;
 
-/** Altitude bands for the flight-to-orbit transition. */
+/**
+ * Phase switches for the planetary and cosmic architecture.
+ *
+ * Each one is temporary and exists so a phase can ship without a second complete architecture
+ * living alongside the first. `spatialCore` is on because it only observes; everything that
+ * changes what is drawn stays off until its phase is finished and verified in play.
+ */
+export const FEATURES = {
+  /** The reference frames, floating origin and solar system model. Observes; draws nothing. */
+  spatialCore: true,
+  /** Global tile streaming through the new scheduler. */
+  planetStreaming: false,
+  /**
+   * The WGS84 globe as visible geometry.
+   *
+   * On. Above 15 km the flat backdrop, the sky dome and the old space shell stand down and the
+   * real ellipsoid takes over: real coastlines from Natural Earth, lit from where the Sun actually
+   * is. Below that the city is untouched, because it is still a flat plane and the two must not be
+   * on screen at the same time. See docs/world/15-status.md.
+   */
+  earthGlobe: true,
+  /** Global terrain from a DEM. */
+  planetTerrain: false,
+  /** Manaus curved onto the ellipsoid. */
+  curvedManaus: false,
+  /** Planet-aware atmosphere and the render-domain composer. */
+  newAtmosphere: false,
+  /**
+   * The bodies beyond the atmosphere, as places.
+   *
+   * On. The Moon has a surface now -- a cube-sphere quadtree streamed through the same scheduler
+   * as the Earth's -- and it is drawn only when the player is far enough out for it to be one.
+   * Below 400 km it is a light in the sky, which is what it is from here.
+   */
+  solarSystem: true,
+  galaxyTravel: true,
+} as const;
+
+/**
+ * Altitude bands for the flight-to-orbit transition.
+ *
+ * `maxAltitude` was a 140 km ceiling because there was nothing above it to look at — a flat world
+ * has no outside. With the planetary domain drawing a real globe there is somewhere to go, so the
+ * ceiling moves out past the Moon's orbit. It is still a ceiling rather than nothing: an unbounded
+ * coordinate is how a position stops being representable, and the phase that removes it entirely
+ * is the one that hands the player to another body's frame.
+ */
 export const SPACE = {
-  atmosphereTop: 9000, karman: 26000, orbit: 60000, maxAltitude: 140000,
+  atmosphereTop: 9000, karman: 26000, orbit: 60000,
+  maxAltitude: FEATURES.earthGlobe ? 500_000_000 : 140_000,
+  /** Where the globe stops being a place and starts being a body in the sky. */
+  planetaryHandoff: 2_000_000,
 } as const;
 export const QUALITY = {
   Low: { pixelRatio: .7, shadows: false, detailRadius: 280, npcs: 10, vehicles: 7, particles: 160 },

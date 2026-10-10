@@ -30,5 +30,8 @@ export class CityMap {
     const p=this.project(player.x,player.z);ctx.save();ctx.translate(p.x,p.y);ctx.rotate(-yaw);ctx.shadowColor='#d8fda7';ctx.shadowBlur=8;ctx.fillStyle='#e7ffca';ctx.beginPath();ctx.moveTo(0,-7);ctx.lineTo(-4,5);ctx.lineTo(0,3);ctx.lineTo(4,5);ctx.closePath();ctx.fill();ctx.restore();
     ctx.fillStyle='#d5decf';ctx.font='9px monospace';ctx.fillText('N',this.canvas.width-15,18);
   }
+  clear() {
+    this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
+  }
   hit(clientX:number,clientY:number):string|undefined{const rect=this.canvas.getBoundingClientRect(),x=(clientX-rect.left)*this.canvas.width/rect.width,y=(clientY-rect.top)*this.canvas.height/rect.height;let closest:string|undefined,distance=28;for(const l of LANDMARKS){const p=this.project(l.x,l.z),d=Math.hypot(p.x-x,p.y-y);if(d<distance){closest=l.id;distance=d;}}return closest;}
 }

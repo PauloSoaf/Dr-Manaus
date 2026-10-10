@@ -36,7 +36,9 @@ if ($LASTEXITCODE -ne 0) { throw "Falha ao instalar overturemaps." }
 $bbox = "-60.16,-3.20,-59.85,-2.95"
 # O Rio Negro e o Solimoes precisam preencher o horizonte muito alem da cidade, entao a agua usa
 # uma caixa bem mais larga do que os temas urbanos.
-$waterBbox = "-60.45,-3.45,-59.60,-2.75"
+# Fresh downloads cover the compiler's +/-80 km window. Existing whole-polygon cache
+# is retained; its original acquisition bbox is recorded in water.json provenance.
+$waterBbox = "-60.75,-3.85,-59.29,-2.40"
 
 function Download-Overture([string]$type, [string]$output, [string]$box = $bbox) {
   if (Test-Path $output) {

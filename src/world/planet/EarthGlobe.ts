@@ -1,0 +1,543 @@
+import {
+  BufferAttribute, BufferGeometry, Color, FrontSide, Group, Mesh, MeshBasicNodeMaterial,
+  type Object3D, Vector3, SphereGeometry, DoubleSide, AdditiveBlending
+} from 'three/webgpu';
+import {
+  attribute, cameraPosition, float, normalWorld, positionWorld, smoothstep, uniform, vec3,
+} from 'three/tsl';
+import { scaleVec3, cloneVec3, quatFromBasis, type Quat, type Vec3 } from '../spatial/units';
+import { MANAUS_ANCHOR_ECEF, MANAUS_BASIS } from '../spatial/ManausFrameAdapter';
+import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
+import { geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
+import { directionToGeodetic } from './CubeSphere';
+import { type PlanetTileAddress, planetTile, tileBounds, tileCentreDirection } from './PlanetTileAddress';
+import { surfaceColour } from './EarthLandMask';
+import { surfaceHeightAt, surfaceNormalEnu } from './EarthElevation';
+import { enuBasis } from '../spatial/ENU';
+import { faceUvToDirection } from './CubeSphere';
+import { PlanetVolumeSurfaceMask } from '../../rendering/PlanetVolumeSurfaceMask';
+import {earthDirectLightNode,earthNightAmbientNode} from '../../rendering/PlanetVolumeLighting';
+
+export function parseTileKey(key: string): PlanetTileAddress | undefined {
+  const parts = key.split(':');
+  if (parts[0] === 'planet' && parts.length >= 6) {
+    return {
+      bodyId: parts[1],
+      face: parseInt(parts[2], 10) as any,
+      level: parseInt(parts[3], 10),
+      x: parseInt(parts[4], 10),
+      y: parseInt(parts[5], 10),
+    };
+  }
+  if (parts.length > 1 && parts[1].includes(',')) {
+    const coords = parts[1].split(',');
+    if (coords.length >= 4) {
+      return {
+        bodyId: parts[0],
+        face: parseInt(coords[0], 10) as any,
+        level: parseInt(coords[1], 10),
+        x: parseInt(coords[2], 10),
+        y: parseInt(coords[3], 10),
+      };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Geometry for one quadtree tile of a planet, on the real ellipsoid.
+ *
+ * Vertices are stored **relative to the tile's own centre**, never in planet coordinates. A tile
+ * on the far side of Earth sits twelve million metres from the city, and putting that number into
+ * a float32 vertex buffer would quantise the surface to metres. The large number lives once, in
+ * the group's transform, where the renderer turns it camera-relative before it is ever uploaded.
+ */
+
+/**
+ * How far from the render origin this globe can be placed, metres.
+ *
+ * Past it the position is an astronomical number in a float32 transform and the renderer cannot
+ * express it, so `setCenterM` refuses rather than drawing something wrong. Callers are expected to
+ * stand the globe down before reaching it -- see `EarthProvider.covers`.
+ */
+export const EARTH_GLOBE_RENDER_LIMIT_M = 20_000_000;
+
+/** Vertices per tile edge. 17 gives 512 triangles: fine enough to read as curved, cheap to build. */
+export const TILE_RESOLUTION = 17;
+
+/** Rayleigh blue, near enough. The limb of the Earth from orbit is this colour. */
+const ATMOSPHERE = uniform(new Color(0.29, 0.53, 0.93));
+// The surface and shell both contribute air at the limb. Keep each subtle so their sum never
+// becomes the opaque white/blue line that used to hide the real ground handoff defect.
+const LIMB_GAIN = 0.06;
+const ATMOSPHERE_SHELL_GAIN = 0.035;
+
+/**
+ * The coarse planet is a continuous safety net below refined tiles.
+ * Four metres is invisible at planetary scale but comfortably larger than float/depth noise,
+ * so the two representations can overlap without coplanar z-fighting.
+ */
+export const COARSE_FALLBACK_INSET_M = 4;
+export const EARTH_SURFACE_PALETTE = 'earth-natural-surface-v1';
+
+export interface TileMesh {
+  readonly geometry: BufferGeometry;
+  /** The tile's centre on the ellipsoid, in the body's fixed frame. */
+  readonly centre: EcefPosition;
+  readonly triangles: number;
+  readonly bytes: number;
+}
+
+/**
+ * Builds a tile's surface.
+ *
+ * Every vertex goes cube face → direction → geodetic → ellipsoid, so the surface is the WGS84
+ * ellipsoid rather than a sphere. Normals come from the ellipsoid normal at each point, which is
+ * not the direction to the centre — on an oblate body those differ, and using the geocentric
+ * direction instead would tilt the shading slightly everywhere away from the equator.
+ */
+/**
+ * Geometry for one tile, on the ellipsoid and at the real elevation.
+ *
+ * `heightM` offsets the whole tile; the terrain on top of it comes from the global relief grid,
+ * sampled per vertex. Pass `flat` to get the bare ellipsoid, which is what the tests want when
+ * they are checking that a vertex lands on it.
+ */
+export function buildTileMesh(address: PlanetTileAddress, heightM = 0, flat = false): TileMesh {
+  const size = TILE_RESOLUTION;
+  const { minU, maxU, minV, maxV } = tileBounds(address);
+  const centreDirection = tileCentreDirection(address, [0, 0, 0]);
+  const centre = geodeticToEcef(directionToGeodetic(centreDirection, heightM));
+
+  const positions = new Float32Array(size * size * 3);
+  const normals = new Float32Array(size * size * 3);
+  const colors = new Float32Array(size * size * 3);
+  const direction: Vec3 = [0, 0, 0];
+  const colour: [number, number, number] = [0, 0, 0];
+  const slope: [number, number, number] = [0, 0, 1];
+
+  for (let row = 0; row < size; row++) {
+    const v = minV + (maxV - minV) * (row / (size - 1));
+    for (let column = 0; column < size; column++) {
+      const u = minU + (maxU - minU) * (column / (size - 1));
+      faceUvToDirection(address.face, u, v, direction);
+      const base = directionToGeodetic(direction, heightM);
+      // Real relief on top of the ellipsoid, from the global grid. Two tiles that share an edge
+      // sample the same coordinate and get the same height, so edges match with no seam handling.
+      const relief = flat ? 0 : surfaceHeightAt(base.latRad, base.lonRad);
+      const geodetic = { latRad: base.latRad, lonRad: base.lonRad, heightM: base.heightM + relief };
+      const point = geodeticToEcef(geodetic);
+      const index = (row * size + column) * 3;
+      positions[index] = point.xM - centre.xM;
+      positions[index + 1] = point.yM - centre.yM;
+      positions[index + 2] = point.zM - centre.zM;
+
+      // The ellipsoid normal is the direction a plumb line points, not the direction to the
+      // centre. The terrain normal tilts it by the real slope, which is what makes a mountain
+      // range visible from orbit -- height alone is 0.2% of the radius and shows up nowhere.
+      const cosLat = Math.cos(geodetic.latRad), sinLat = Math.sin(geodetic.latRad);
+      const cosLon = Math.cos(geodetic.lonRad), sinLon = Math.sin(geodetic.lonRad);
+      if (flat) {
+        normals[index] = cosLat * cosLon;
+        normals[index + 1] = cosLat * sinLon;
+        normals[index + 2] = sinLat;
+      } else {
+        surfaceNormalEnu(base.latRad, base.lonRad, slope);
+        const basis = enuBasis(geodetic);
+        for (let axis = 0; axis < 3; axis++) {
+          normals[index + axis] = basis.east[axis] * slope[0]
+            + basis.north[axis] * slope[1]
+            + basis.up[axis] * slope[2];
+        }
+      }
+
+      // Real coastlines, from the bundled Natural Earth mask. Per vertex rather than per texel:
+      // at these tile sizes the interpolation reads as a coast, and it costs no texture at all.
+      surfaceColour(geodetic.latRad, geodetic.lonRad, colour);
+      colors[index] = colour[0];
+      colors[index + 1] = colour[1];
+      colors[index + 2] = colour[2];
+    }
+  }
+
+  const quads = (size - 1) * (size - 1);
+  const indices = new Uint16Array(quads * 6);
+  let cursor = 0;
+  /**
+   * Which way round the triangles go is measured, not assumed.
+   *
+   * Three of the six cube-face parameterisations mirror, so one fixed index order is outward on
+   * half the planet and inward on the other half. Drawing both sides hides that and then lies
+   * about the lighting: a renderer flips the shading normal on a back face, so those tiles face
+   * the sun geometrically and are shaded as though the sun were underneath them. Half the globe
+   * came out black, which looked like a lighting bug and was a winding bug.
+   *
+   * So the first quad's triangle normal is compared with the surface normal there, and the order
+   * is reversed for the whole tile when they disagree.
+   */
+  const outward = windingIsOutward(positions, normals, size);
+  for (let row = 0; row < size - 1; row++) {
+    for (let column = 0; column < size - 1; column++) {
+      const a = row * size + column, b = a + 1, c = a + size, d = c + 1;
+      if (outward) {
+        indices[cursor++] = a; indices[cursor++] = c; indices[cursor++] = b;
+        indices[cursor++] = b; indices[cursor++] = c; indices[cursor++] = d;
+      } else {
+        indices[cursor++] = a; indices[cursor++] = b; indices[cursor++] = c;
+        indices[cursor++] = b; indices[cursor++] = d; indices[cursor++] = c;
+      }
+    }
+  }
+
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new BufferAttribute(colors, 3));
+  geometry.setIndex(new BufferAttribute(indices, 1));
+  geometry.computeBoundingSphere();
+
+  return {
+    geometry, centre, triangles: quads * 2,
+    bytes: positions.byteLength + normals.byteLength + colors.byteLength + indices.byteLength,
+  };
+}
+
+/**
+ * True when the order `a, c, b` faces away from the planet's centre at the tile's first quad.
+ *
+ * One quad settles it for the whole tile: within a tile the parameterisation does not change
+ * handedness, only between faces.
+ */
+function windingIsOutward(positions: Float32Array, normals: Float32Array, size: number): boolean {
+  const a = 0, b = 3, c = size * 3;
+  const e1x = positions[c] - positions[a], e1y = positions[c + 1] - positions[a + 1], e1z = positions[c + 2] - positions[a + 2];
+  const e2x = positions[b] - positions[a], e2y = positions[b + 1] - positions[a + 1], e2z = positions[b + 2] - positions[a + 2];
+  const nx = e1y * e2z - e1z * e2y;
+  const ny = e1z * e2x - e1x * e2z;
+  const nz = e1x * e2y - e1y * e2x;
+  return nx * normals[a] + ny * normals[a + 1] + nz * normals[a + 2] >= 0;
+}
+
+/**
+ * The globe's place in the scene.
+ *
+ * One group, one shared material, one mesh per active tile. No textures: the coastlines come
+ * through as vertex colours from the bundled Natural Earth mask, which costs nothing to upload
+ * and puts the continents in their real shapes rather than an invented pattern.
+ */
+export class EarthGlobe {
+  readonly volumeMask=new PlanetVolumeSurfaceMask('earth');
+  readonly group = new Group();
+  /** Planetary geometry only. The Manaus anchor remains live when this sub-tree is hidden. */
+  readonly surfaceGroup = new Group();
+  readonly fallbackGroup = new Group();
+  private readonly material: MeshBasicNodeMaterial;
+  private readonly fallbackMaterial: MeshBasicNodeMaterial;
+  private readonly atmosphereMaterial: MeshBasicNodeMaterial;
+  private readonly atmosphereMesh: Mesh;
+  private readonly meshes = new Map<string, Mesh>();
+  /**
+   * Where the Sun is, in scene axes. A unit vector from the planet toward the Sun.
+   *
+   * The planet is shaded against this rather than by a light, because a light would be shared.
+   * There is one camera and therefore one light list, and the scene's lights belong to a city at
+   * golden hour: one sun near the horizon and a bright hemisphere fill. Applied to a planet they
+   * wash the day side out and lift the night side off the black, and the terminator disappears
+   * with them. A planet is lit by one star and shades itself.
+   */
+  private readonly uSun = uniform(new Vector3(0, 1, 0));
+  private readonly uSurfaceOpacity = uniform(1);
+  private triangles = 0;
+  private fallbackTriangles = 0;
+  private altitudeM = 0;
+
+  readonly manausSurfaceAnchor = new Group();
+
+  constructor(parent: Object3D) {
+    this.group.name = 'earth-globe';
+    this.group.visible = true;
+    parent.add(this.group);
+    this.surfaceGroup.name = 'earth-planetary-surface';
+    this.surfaceGroup.visible = false;
+    this.surfaceGroup.layers.set(PLANET_LAYER);
+    this.group.add(this.surfaceGroup);
+    this.material = this.buildMaterial(false);
+    this.fallbackMaterial = this.buildMaterial(true);
+    this.material.userData.surfacePalette = EARTH_SURFACE_PALETTE;
+    this.material.userData.coverageRole = 'detail';
+    this.fallbackMaterial.userData.surfacePalette = EARTH_SURFACE_PALETTE;
+    this.fallbackMaterial.userData.coverageRole = 'coarse-fallback';
+    this.fallbackGroup.name = 'earth-coarse-fallback';
+    this.fallbackGroup.layers.set(PLANET_LAYER);
+    this.fallbackGroup.renderOrder = -1;
+    this.surfaceGroup.add(this.fallbackGroup);
+    this.initCoarseFallback();
+
+    // Geometric anchor permanently holding Manaus onto the WGS84 surface
+    const south = scaleVec3(cloneVec3(MANAUS_BASIS.north), -1, [0, 0, 0]);
+    const rot = quatFromBasis(cloneVec3(MANAUS_BASIS.east), cloneVec3(MANAUS_BASIS.up), south);
+    this.manausSurfaceAnchor.name = 'manaus-surface-anchor';
+    this.manausSurfaceAnchor.position.set(MANAUS_ANCHOR_ECEF.xM, MANAUS_ANCHOR_ECEF.yM, MANAUS_ANCHOR_ECEF.zM);
+    this.manausSurfaceAnchor.quaternion.set(rot[0], rot[1], rot[2], rot[3]);
+    this.group.add(this.manausSurfaceAnchor);
+
+    this.atmosphereMaterial = this.buildAtmosphereMaterial();
+    const atmoGeo = new SphereGeometry(6378137 + 60000, 64, 64);
+    atmoGeo.rotateX(Math.PI / 2); // Align Three.js Y-up sphere with ECEF Z-up pole
+    this.atmosphereMesh = new Mesh(atmoGeo, this.atmosphereMaterial);
+    this.atmosphereMesh.layers.set(PLANET_LAYER);
+    this.atmosphereMesh.frustumCulled = false;
+    this.atmosphereMesh.renderOrder = 2;
+    this.surfaceGroup.add(this.atmosphereMesh);
+  }
+
+  private initCoarseFallback(): void {
+    for (let face = 0; face < 6; face++) {
+      const tileAddr = planetTile('earth', face as any, 0, 0, 0);
+      // The fallback deliberately sits just below the authoritative detailed surface. It remains
+      // continuous across missing/streaming tiles and can show through an edge crack, while never
+      // fighting a refined tile for the same depth samples.
+      const mesh = buildTileMesh(tileAddr, -COARSE_FALLBACK_INSET_M);
+      const obj = new Mesh(mesh.geometry, this.fallbackMaterial);
+      this.volumeMask.attach(obj,[mesh.centre.xM,mesh.centre.yM,mesh.centre.zM]);
+      obj.name = `earth-fallback-face-${face}`;
+      obj.position.set(mesh.centre.xM, mesh.centre.yM, mesh.centre.zM);
+      obj.frustumCulled = false;
+      obj.renderOrder = -1;
+      obj.userData.coverageRole = 'coarse-fallback';
+      obj.userData.surfaceInsetM = COARSE_FALLBACK_INSET_M;
+      obj.userData.surfacePalette = EARTH_SURFACE_PALETTE;
+      obj.layers.set(PLANET_LAYER);
+      this.fallbackGroup.add(obj);
+      this.fallbackTriangles += mesh.triangles;
+    }
+  }
+
+  setCenterM(positionM: Vec3, orientation?: Quat, altitudeM = 0): void {
+    const limit = EARTH_GLOBE_RENDER_LIMIT_M;
+    if (Math.abs(positionM[0]) > limit || Math.abs(positionM[1]) > limit || Math.abs(positionM[2]) > limit) {
+      throw new Error(`Invariant violation: Astronomical coordinate [${positionM.join(', ')}] reached EarthGlobe Mesh.position. Must use camera-relative rendering.`);
+    }
+    this.altitudeM = altitudeM;
+    this.group.position.set(positionM[0], positionM[1], positionM[2]);
+    if (orientation) {
+      this.group.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
+    }
+    this.atmosphereMesh.position.set(0, 0, 0);
+    this.atmosphereMesh.quaternion.identity();
+    this.atmosphereMesh.visible = this.surfaceGroup.visible && altitudeM >= 20_000;
+    this.fallbackGroup.position.set(0, 0, 0);
+    this.fallbackGroup.quaternion.identity();
+  }
+
+  /**
+   * The planet's own shading: one star, a soft terminator, and an atmosphere at the limb.
+   *
+   * Unlit as far as the renderer is concerned -- `MeshBasicNodeMaterial` takes no part in the
+   * light list -- and then lit explicitly against `uSun`. That is the point: see `uSun` for why
+   * the scene's lights must not reach the planet.
+   */
+  private buildMaterial(isFallback = false): MeshBasicNodeMaterial {
+    const material = new MeshBasicNodeMaterial({
+      /**
+       * No fog, ever.
+       *
+       * The scene's fog is calibrated for a 260 km far plane, so a globe thousands of kilometres
+       * away comes out entirely the colour of the haze -- purple at dusk, black at night. Clearing
+       * `scene.fog` around the draw instead looks equivalent and is not: a material compiled with
+       * fog keeps a node that reads `scene.fog.color`, so the first fogged draw throws on null and
+       * everything after it in that pass is lost. Distance haze on a planet seen from orbit is the
+       * atmosphere's job, and that is a limb, not a ramp.
+       */
+      fog: false,
+      /**
+       * Front faces only, now that every tile winds outward.
+       *
+       * Drawing both sides was how the mirrored faces were papered over, and it cost the lighting:
+       * a back face is shaded with its normal flipped, so those tiles came out black in full
+       * sunlight. With the winding measured per tile in `buildTileMesh`, culling is correct again
+       * and the far side of the planet stops being rasterised at all.
+       */
+      side: FrontSide,
+      transparent: true,
+      depthWrite: true,
+      depthTest: true,
+      polygonOffset: isFallback,
+      polygonOffsetFactor: isFallback ? 4 : 0,
+      polygonOffsetUnits: isFallback ? 4 : 0,
+    });
+
+    // The surface colour comes from the vertex attribute the land mask wrote. Read by name rather
+    // than through `vertexColors`, because this material multiplies it in itself.
+    const surface = attribute('color', 'vec3');
+    const incidence = normalWorld.dot(this.uSun);
+
+    /**
+     * The terminator is a band, not an edge.
+     *
+     * Two real effects widen it: the Sun is half a degree across rather than a point, and the
+     * atmosphere carries light past the geometric horizon. A hard `max(0)` gives a knife edge that
+     * reads as a shading bug, so the lambert term is faded across a few degrees either side.
+     */
+    // Not black at night: very subtle blue ambient to maintain readability without looking like a hole.
+    const lit = surface.mul(earthDirectLightNode(incidence)).add(earthNightAmbientNode());
+
+    /**
+     * The atmosphere, seen edge on.
+     *
+     * Looking at the centre of the disc there is a few hundred kilometres of air between the eye
+     * and the ground; looking at the limb the same line of sight runs through thousands, so the
+     * air is what you see. That is the blue rim on every photograph of the Earth, and it is a
+     * property of the viewing angle -- which is exactly what this term measures.
+     */
+    const toCamera = cameraPosition.sub(positionWorld).normalize();
+    const grazing = float(1).sub(normalWorld.dot(toCamera).max(0)).pow(3.2);
+    // Lit air only. The night limb is dark, not blue.
+    const halo = ATMOSPHERE.mul(grazing.mul(smoothstep(-0.25, 0.15, incidence)).mul(LIMB_GAIN));
+
+    material.colorNode = lit.add(halo);
+    material.opacityNode = this.uSurfaceOpacity;
+    return material;
+  }
+
+  private buildAtmosphereMaterial(): MeshBasicNodeMaterial {
+    const material = new MeshBasicNodeMaterial({
+      fog: false,
+      side: FrontSide,
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
+      blending: AdditiveBlending,
+    });
+    
+    const incidence = normalWorld.dot(this.uSun);
+    const daylight = smoothstep(-0.25, 0.15, incidence);
+    const toCamera = cameraPosition.sub(positionWorld).normalize();
+    const grazing = float(1).sub(normalWorld.dot(toCamera).max(0));
+    
+    // density peaks at the horizon, falls off at zenith
+    const density = smoothstep(float(0.65), float(1.0), grazing);
+    
+    material.colorNode = ATMOSPHERE;
+    material.opacityNode = density.pow(2.5).mul(daylight).mul(ATMOSPHERE_SHELL_GAIN);
+    return material;
+  }
+
+  get stats(): { tiles: number; triangles: number; visible: boolean; coarseFallback: boolean } {
+    return {
+      tiles: this.meshes.size,
+      triangles: this.triangles,
+      visible: this.surfaceGroup.visible,
+      coarseFallback: this.fallbackGroup.children.length === 6,
+    };
+  }
+
+  hasLevel(requiredLod: number): boolean {
+    if (requiredLod <= 0) return true; // Level 0 is guaranteed by the coarse base tiles
+    for (const key of this.meshes.keys()) {
+      const addr = parseTileKey(key);
+      if (addr && addr.level >= requiredLod) return true;
+    }
+    return false;
+  }
+
+  hasTile(key: string): boolean {
+    return this.meshes.has(key);
+  }
+
+  getActiveKeys(): readonly string[] {
+    return [...this.meshes.keys()];
+  }
+
+  set visible(visible: boolean) {
+    this.surfaceGroup.visible = visible;
+    this.atmosphereMesh.visible = visible && this.altitudeM >= 20_000;
+  }
+  get visible(): boolean { return this.surfaceGroup.visible; }
+
+  set opacity(opacity: number) {
+    this.uSurfaceOpacity.value = Math.max(0, Math.min(1, opacity));
+  }
+
+  get opacity(): number { return this.uSurfaceOpacity.value; }
+
+  /** Points the planet's sun. `direction` runs from the planet toward the Sun, in scene axes. */
+  setSunDirection(direction: Vec3): void {
+    const length = Math.hypot(direction[0], direction[1], direction[2]);
+    if (!(length > 0)) return;
+    this.uSun.value.set(direction[0] / length, direction[1] / length, direction[2] / length);
+  }
+
+  /**
+   * Adds a tile, positioned by its centre in the scene's own metres and rotated out of the body's
+   * axes into the scene's.
+   *
+   * The rotation is not optional. A tile's vertices are offsets along Earth-fixed axes, and the
+   * scene's axes are the city's tangent plane — placing the mesh without turning it leaves every
+   * tile flat at an arbitrary angle, which is a field of plates rather than a planet.
+   */
+  add(key: string, mesh: TileMesh, positionM?: Vec3, orientation?: Quat): Mesh {
+    this.remove(key);
+    const object = new Mesh(mesh.geometry, this.material);
+    this.volumeMask.attach(object,[mesh.centre.xM,mesh.centre.yM,mesh.centre.zM]);
+    object.name = `globe-${key}`;
+    const pos = positionM ?? [mesh.centre.xM, mesh.centre.yM, mesh.centre.zM];
+    object.position.set(pos[0], pos[1], pos[2]);
+    if (orientation) {
+      object.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
+    } else {
+      object.quaternion.identity();
+    }
+    /**
+     * Frustum culling off, deliberately.
+     *
+     * With it on, the planetary pass drew exactly one object out of eighty — the only tile whose
+     * bounding sphere was large enough to always intersect. The two cameras were measured to be
+     * in the same place, pointing the same way, with matching projections and layers, so the
+     * per-object test was rejecting tiles that were plainly in view.
+     *
+     * The quadtree already culls against the body's horizon, which is a stricter and more correct
+     * test than a bounding sphere on a curved patch, and the selection is capped at a couple of
+     * hundred tiles of five hundred triangles each. Letting the GPU clip them costs less than the
+     * bug did.
+     */
+    object.frustumCulled = false;
+    object.renderOrder = 1;
+    object.userData.coverageRole = 'detail';
+    object.userData.surfaceInsetM = 0;
+    object.userData.surfacePalette = EARTH_SURFACE_PALETTE;
+    // The planetary domain, so it is drawn by the far camera rather than clipped by the near one.
+    object.layers.set(PLANET_LAYER);
+    this.surfaceGroup.add(object);
+    this.meshes.set(key, object);
+    this.triangles += mesh.triangles;
+    return object;
+  }
+
+  remove(key: string): void {
+    const existing = this.meshes.get(key);
+    if (!existing) return;
+    const index = existing.geometry.getIndex();
+    this.triangles -= index ? index.count / 3 : 0;
+    existing.removeFromParent();
+    this.volumeMask.detach(existing);
+    existing.geometry.dispose();
+    this.meshes.delete(key);
+  }
+
+  dispose(): void {
+    this.volumeMask.dispose();
+    for (const key of [...this.meshes.keys()]) this.remove(key);
+    for (const child of [...this.fallbackGroup.children]) {
+      if ((child as Mesh).geometry) (child as Mesh).geometry.dispose();
+    }
+    this.fallbackGroup.clear();
+    this.fallbackMaterial.dispose();
+    this.material.dispose();
+    this.atmosphereMaterial.dispose();
+    this.atmosphereMesh.geometry.dispose();
+    this.group.removeFromParent();
+    this.triangles = 0;
+    this.fallbackTriangles = 0;
+  }
+}

@@ -9,6 +9,7 @@ import { EffectPool } from './EffectPool';
 import { COMBAT_MOVES } from '../combat/CombatMoves';
 import { SoftTargeting, type SoftTargetCandidate } from '../combat/SoftTargeting';
 import { HitStopSystem } from '../combat/HitStopSystem';
+import { IMPACT } from '../combat/MeteorImpact';
 
 export interface PowerHooks {
   targets: () => readonly Target[];
@@ -26,6 +27,9 @@ export interface PowerHooks {
    * buildings collapsed. Absent, every power behaves exactly as it did before destruction.
    */
   damage?: (point: Vector3, radius: number, amount: number, deform?: number) => number;
+  impact?: (point: Vector3, footprint: import('../combat/MeteorImpact').ImpactResult) => number;
+  /** City crater/debris visuals require an active deformable surface. */
+  canDeformSurface?: () => boolean;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }
@@ -339,19 +343,28 @@ export class PowerSystem {
    */
   private applyImpact(landing: LandingImpact): void {
     const { impact, position } = landing;
+    if (this.hooks.canDeformSurface?.() === false) {
+      // Preserve a bounded stylized impact and the effects bus on airless terrain. The city's
+      // large warm dust bursts and crater notices cannot claim deformation of a NASA heightmap.
+      this.effects.wave(position, Math.min(8, Math.max(2, impact.radius)), 0xa8fff0, 0.6);
+      this.hooks.sound('giant');
+      return;
+    }
     const size = this.player.size;
     const hot = impact.profile === 'meteor' || impact.profile === 'titan';
     const core = hot ? 0xffe6a8 : 0xa8fff0;
 
-    const levelled = impact.damage > 0 ? this.hooks.damage?.(position, impact.radius, impact.damage, impact.deform) ?? 0 : 0;
-    if (impact.impulse > 0) this.hooks.impulse(position, Math.max(2, impact.radius), impact.impulse);
+    const levelled = this.hooks.impact ? this.hooks.impact(position,impact)
+      : impact.damage > 0 ? this.hooks.damage?.(position, impact.blastDamageRadiusM, impact.damage, 0) ?? 0 : 0;
+    if (!this.hooks.impact && impact.impulse > 0) this.hooks.impulse(position, Math.max(2, impact.impulseRadiusM), impact.impulse);
 
-    this.effects.wave(position, Math.max(2, impact.radius * 1.2), core, hot ? 1.3 : 0.8);
+    this.effects.wave(position, Math.max(2, impact.blastDamageRadiusM), core, hot ? 1.3 : 0.8);
     if (hot) {
       this.effects.wave(position, impact.radius * 0.55, 0xfff4d0, 0.95);
-      this.effects.flash(position, Math.min(60, 2 + impact.radius * 0.35), 0xfff1c4);
+      this.effects.flash(position, Math.min(IMPACT.maxFlash, 2 + impact.radius * 0.35), 0xfff1c4);
     }
-    this.effects.burst(position, core, Math.min(40, Math.sqrt(size) * (1 + impact.radius * 0.06)), impact.debris);
+    this.effects.burst(position, core, Math.min(50, Math.sqrt(size) * (1 + impact.radius * 0.06)), impact.debris,
+      IMPACT.maxDustSpeed, impact.craterRadiusM*.85);
     if (impact.hitStopMs > 0) this.hitStop.trigger(impact.hitStopMs);
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: impact.shake }));
     this.hooks.sound(hot ? 'shockwave' : 'giant');

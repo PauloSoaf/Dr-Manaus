@@ -1,0 +1,462 @@
+import type { ActiveReferenceFrame } from '../spatial/ReferenceFrame';
+import { finite, subVec3, type Vec3 } from '../spatial/units';
+import type { StreamingContext, WorldProvider } from '../providers/WorldProvider';
+import type { ProviderRegistry } from '../runtime/ProviderRegistry';
+import type { ManagedStats, ManagedSubsystem } from './ManagedSubsystem';
+import { PrefetchPredictor } from './PrefetchPredictor';
+import { StreamingLedger } from './StreamingBudget';
+import { TileCache } from './TileCache';
+import {
+  type ActiveTile, type TileDemand, type TilePayload, type TileState, tileKeyToString,
+  type WorldTileKey,
+} from './TileDemand';
+
+interface TrackedTile {
+  readonly id: string;
+  key: WorldTileKey;
+  providerId: string;
+  demand: TileDemand;
+  state: TileState;
+  /** The scheduler generation this work belongs to. Older results are dropped on arrival. */
+  generation: number;
+  controller?: AbortController;
+  payload?: TilePayload;
+  active?: ActiveTile;
+  failures: number;
+  lastSeenFrame: number;
+}
+
+export interface SchedulerOptions {
+  cache?: TileCache;
+  predictor?: PrefetchPredictor;
+  ledger?: StreamingLedger;
+  /** Attempts before a tile is left alone. A hole is better than a fetch storm. */
+  maxFailures?: number;
+}
+
+/**
+ * One queue for the whole universe.
+ *
+ * Providers say what they want; this decides what the frame can afford. Distance alone does not
+ * rank tiles — a tile straight ahead at 4 km matters more than one behind at 1 km, and one the
+ * player reaches in half a second matters more than either — so the ranking folds in visual
+ * error, the view cone, time to contact, gameplay criticality and provider priority.
+ *
+ * Two properties are load-bearing:
+ *
+ *   - **Nothing is allowed to answer "load everything."** Every stage is capped by the ledger.
+ *   - **Obsolete work is cancelled, not awaited.** Turning around or teleporting bumps the
+ *     generation; fetches from an older one are aborted, and any that still land are dropped.
+ */
+export class GlobalStreamingScheduler {
+  private readonly tiles = new Map<string, TrackedTile>();
+  private readonly cache: TileCache;
+  private readonly predictor: PrefetchPredictor;
+  private readonly ledger: StreamingLedger;
+  private readonly maxFailures: number;
+  private generation = 0;
+  private frame = 0;
+  private activationsLastFrame = 0;
+
+  /** Subsystems that load their own content out of the same budget. See `ManagedSubsystem`. */
+  private readonly subsystems: ManagedSubsystem[] = [];
+  private lastGrants: ManagedStats[] = [];
+  /** Round robin, so one subsystem cannot take the remainder every frame. */
+  private grantCursor = 0;
+
+  registerSubsystem(subsystem: ManagedSubsystem): this {
+    if (!this.subsystems.some(existing => existing.id === subsystem.id)) this.subsystems.push(subsystem);
+    return this;
+  }
+
+  unregisterSubsystem(id: string): boolean {
+    const index = this.subsystems.findIndex(subsystem => subsystem.id === id);
+    if (index < 0) return false;
+    this.subsystems.splice(index, 1);
+    return true;
+  }
+
+  constructor(private readonly registry: ProviderRegistry, options: SchedulerOptions = {}) {
+    this.cache = options.cache ?? new TileCache();
+    this.predictor = options.predictor ?? new PrefetchPredictor();
+    this.ledger = options.ledger ?? new StreamingLedger();
+    this.maxFailures = Math.max(1, finite(options.maxFailures, 3));
+  }
+
+  get stats() {
+    let active = 0, fetching = 0, readyCpu = 0, failed = 0;
+    for (const tile of this.tiles.values()) {
+      if (tile.state === 'active') active++;
+      else if (tile.state === 'fetching') fetching++;
+      else if (tile.state === 'ready-cpu') readyCpu++;
+      else if (tile.state === 'failed') failed++;
+    }
+    return {
+      tracked: this.tiles.size, active, fetching, readyCpu, failed,
+      activationsLastFrame: this.activationsLastFrame,
+      generation: this.generation,
+      cache: this.cache.stats,
+      cpuBytes: this.ledger.cpuBytes,
+      gpuBytes: this.ledger.gpuBytes,
+      subsystems: this.lastGrants,
+    };
+  }
+
+  get tileCache(): TileCache { return this.cache; }
+  get prefetch(): PrefetchPredictor { return this.predictor; }
+
+  /**
+   * Invalidates outstanding work. Called on teleport and on a reference frame change, where what
+   * was being fetched is no longer anywhere near the player.
+   */
+  invalidate(): void {
+    this.generation++;
+    for (const tile of this.tiles.values()) {
+      if (tile.state === 'fetching' || tile.state === 'queued') {
+        tile.controller?.abort();
+        tile.controller = undefined;
+        tile.state = tile.payload ? 'ready-cpu' : 'unloaded';
+      }
+    }
+    this.predictor.reset();
+  }
+  /** Retire an unloaded body's jobs, active GPU meshes and dormant decoded payloads. */
+  retireProvider(providerId:string,bodyId?:string,galaxyId?:string):void {
+    const provider=this.registry.get(providerId),released=new Set<TilePayload>();
+    for(const [id,tile] of this.tiles) {
+      if(tile.providerId!==providerId)continue;
+      tile.controller?.abort();
+      if(tile.active){
+        this.registry.get(providerId)?.deactivate(tile.active);
+        this.ledger.deactivated(tile.payload?.cpuBytes??0,tile.payload?.estimatedGpuBytes??0);
+      }
+      if(tile.payload){if(!tile.active)provider?.discard?.(tile.payload);released.add(tile.payload);}
+      this.tiles.delete(id);
+    }
+    this.cache.deleteWhere(p=>{
+      const retire=(p.key.kind==='planet' && p.key.bodyId===bodyId) || (p.key.kind==='star-sector' && p.key.galaxyId===galaxyId);
+      if(retire&&!released.has(p))provider?.discard?.(p);return retire;
+    });
+    this.invalidate();
+  }
+
+  /** One frame. Plan, rank, track, activate, fetch, retire — each inside its own budget. */
+  update(context: StreamingContext, dtS: number): void {
+    this.frame++;
+    this.ledger.setBudget(context.budget);
+    this.ledger.beginFrame();
+    this.cache.tick(dtS);
+    this.activationsLastFrame = 0;
+
+    const player = context.spatial.player.position;
+    this.predictor.update(player, context.spatial.localVelocityMps, dtS);
+
+    const demands = this.collectDemands(context);
+    this.rank(demands, context, player);
+    this.track(demands);
+    // Finished work goes into the world before new work is started.
+    //
+    // The other order looks natural and starves the world. Planning and fetching run first, spend
+    // the frame's milliseconds, and activation is then asked for permission it can never get --
+    // so the cache fills, the scheduler reports everything ready, and nothing is ever drawn. That
+    // is not a theoretical ordering concern: with a provider that generates its tiles
+    // synchronously, ninety-six tiles sat decoded in memory and zero reached the scene.
+    this.activateReady(context.spatial.frame);
+    this.startFetches(demands);
+    this.retireUnwanted(demands);
+    this.grantSubsystems(context);
+  }
+
+  /**
+   * Hands what is left of the frame's milliseconds to the managed subsystems.
+   *
+   * What is *left*, which is the whole point: the city used to spend a fixed 3.5 ms whatever the
+   * planet was doing, so a frame could spend 3.5 ms on Manaus and 4 ms on the globe and call each
+   * of them within budget. Now there is one budget and the tile work goes first, because a tile is
+   * ground the player may be about to stand on.
+   *
+   * Round robin between subsystems, and a critical demand jumps the queue. Without the rotation a
+   * subsystem that always plans first would always be served first, which is how the shell tier of
+   * the city starved for months.
+   */
+  private grantSubsystems(context: StreamingContext): void {
+    if (this.subsystems.length === 0) { this.lastGrants = []; return; }
+    const active = this.subsystems.filter(subsystem => {
+      try { return subsystem.covers(context); } catch { return false; }
+    });
+    if (active.length === 0) { this.lastGrants = []; return; }
+
+    /**
+     * The budget is divided once, before anybody is called.
+     *
+     * Re-reading the clock between calls looks more adaptive and is a bug: whoever goes first
+     * benefits from a fresher clock, and one subsystem that overruns -- or merely throws, since
+     * logging the failure is itself slow -- leaves nothing for everyone after it. Measured
+     * exactly that way: a subsystem that threw took the whole frame and the next one was granted
+     * zero. Dividing up front makes a grant independent of what the others did with theirs.
+     */
+    const remainingMs = Math.max(0, context.budget.mainThreadMs - this.ledger.elapsedMs);
+    const share = remainingMs / active.length;
+    // Critical work first, then everyone else starting from wherever the rotation left off, so
+    // that no subsystem is permanently the one served last.
+    const ordered = [...active].sort((a, b) => Number(this.isCritical(b, context)) - Number(this.isCritical(a, context)));
+    const start = this.grantCursor % ordered.length;
+    const grants: ManagedStats[] = [];
+    for (let i = 0; i < ordered.length; i++) {
+      const subsystem = ordered[(start + i) % ordered.length];
+      // The last in the rotation takes the rounding, so the frame is not left partly unspent.
+      const grant = i === ordered.length - 1 ? remainingMs - share * (ordered.length - 1) : share;
+      if (grant > 0) {
+        try { subsystem.advance(grant); } catch (error) { console.error(`Subsystem "${subsystem.id}" failed`, error); }
+      }
+      try { grants.push({ ...subsystem.stats(), grantedMs: grant }); } catch { /* telemetry is optional */ }
+    }
+    this.grantCursor = (this.grantCursor + 1) % ordered.length;
+    this.lastGrants = grants;
+  }
+
+  private isCritical(subsystem: ManagedSubsystem, context: StreamingContext): boolean {
+    try { return subsystem.plan(context).some(demand => demand.critical); } catch { return false; }
+  }
+
+  /** Gathers every provider's plan, deduplicating by key and keeping the highest priority claim. */
+  private collectDemands(context: StreamingContext): TileDemand[] {
+    const byKey = new Map<string, TileDemand>();
+    for (const provider of this.registry.active(context.spatial)) {
+      let planned: readonly TileDemand[] = [];
+      try {
+        planned = provider.plan(context);
+      } catch (error) {
+        console.error(`Provider "${provider.id}" failed to plan`, error);
+        continue;
+      }
+      for (const demand of planned) {
+        const id = tileKeyToString(demand.key);
+        const existing = byKey.get(id);
+        // Providers are visited highest priority first, so the first claim on a key wins.
+        if (!existing) byKey.set(id, demand);
+      }
+    }
+    return [...byKey.values()];
+  }
+
+  /**
+   * Scores and sorts. The weights are deliberately plain numbers rather than a tuned black box:
+   * every term is something a person can reason about when a tile arrives late.
+   */
+  private rank(demands: TileDemand[], context: StreamingContext, player: Vec3): void {
+    const offset: Vec3 = [0, 0, 0];
+    for (const demand of demands) {
+      const provider = this.registry.get(demand.providerId);
+      // Visual error against the target: a tile twice over budget is worth twice as much.
+      const errorTerm = Math.min(8, demand.screenSpaceError / Math.max(1, context.quality.sseTargetPx));
+      // Where it is relative to travel. Tiles behind the player are worth a fraction.
+      const relevance = this.relevanceOf(demand, player, offset);
+      // Arriving before the player does is the whole point of prefetching.
+      const contactTerm = Number.isFinite(demand.timeToContactS)
+        ? Math.max(0, 3 - demand.timeToContactS)
+        : 0;
+      // What the player is actually looking at. Without this the queue is ordered by how wrong
+      // each tile is rather than by whether it is on the screen, and a hovering player staring
+      // straight down waits while the far side of the planet refines.
+      const inView = this.viewTerm(demand, player, context.camera.forward, offset);
+      // Large enough that nothing else can add up to it. Critical means physics the player is
+      // about to touch, a spawn point, a teleport destination: those are not weighed against
+      // detail, they come first.
+      const criticality = demand.gameplayCritical ? 100 : 0;
+      const providerTerm = (provider?.priority ?? 0) / 100;
+      const cachedTerm = this.cache.has(demand.key) ? 2 : 0;
+
+      demand.priority = errorTerm * 3 + inView * 6 + relevance * 4 + contactTerm * 2
+        + criticality + providerTerm + cachedTerm;
+    }
+    demands.sort((a, b) => b.priority - a.priority);
+  }
+
+  /**
+   * 1 for a tile straight ahead, 0 for one directly behind, and nothing in between is wasted:
+   * the half-way value is the edge of a hemisphere, which is roughly what a wide view covers.
+   */
+  private viewTerm(demand: TileDemand, player: Vec3, forward: Vec3, scratch: Vec3): number {
+    if (!demand.centreM) return 0.5;
+    subVec3([demand.centreM[0], demand.centreM[1], demand.centreM[2]], player, scratch);
+    const distance = Math.hypot(scratch[0], scratch[1], scratch[2]);
+    if (!(distance > 0)) return 1;
+    const alignment = (scratch[0] * forward[0] + scratch[1] * forward[1] + scratch[2] * forward[2]) / distance;
+    return Math.min(1, Math.max(0, 0.5 + 0.5 * alignment));
+  }
+
+  /** A tile with no known centre is treated as neutrally placed rather than guessed at. */
+  private relevanceOf(demand: TileDemand, player: Vec3, scratch: Vec3): number {
+    if (!demand.centreM) return 0.5;
+    subVec3([demand.centreM[0], demand.centreM[1], demand.centreM[2]], player, scratch);
+    return this.predictor.relevance(scratch);
+  }
+
+  /**
+   * Records what was asked for this frame, and promotes anything already in the cache.
+   *
+   * Separate from starting fetches because starting fetches is allowed to stop early when the
+   * budget runs out, and a tile that was wanted but not reached must still count as wanted --
+   * otherwise `retireUnwanted` throws away the far half of the plan every frame.
+   */
+  private track(demands: readonly TileDemand[]): void {
+    for (const demand of demands) {
+      const id = tileKeyToString(demand.key);
+      let tile = this.tiles.get(id);
+      if (!tile) {
+        tile = {
+          id, key: demand.key, providerId: demand.providerId, demand,
+          state: 'unloaded', generation: this.generation, failures: 0, lastSeenFrame: this.frame,
+        };
+        this.tiles.set(id, tile);
+      }
+      tile.demand = demand;
+      tile.lastSeenFrame = this.frame;
+
+      if (tile.state !== 'unloaded' && tile.state !== 'dormant') continue;
+      // A cached payload needs no network and no worker; it only needs to be put back in.
+      const cached = this.cache.get(demand.key);
+      if (!cached) continue;
+      tile.payload = cached;
+      tile.state = 'ready-cpu';
+      tile.generation = this.generation;
+    }
+  }
+
+  /** Starts as many fetches as the budget allows, best first. */
+  private startFetches(demands: readonly TileDemand[]): void {
+    for (const demand of demands) {
+      const tile = this.tiles.get(tileKeyToString(demand.key));
+      if (!tile) continue;
+      if (tile.state !== 'unloaded' && tile.state !== 'dormant' && tile.state !== 'failed') continue;
+      if (tile.state === 'failed' && tile.failures >= this.maxFailures) continue;
+      if (!this.ledger.canFetch) break;
+      // Concurrency is not the only limit. A provider that generates rather than downloads returns
+      // an already-resolved promise, so its whole cost lands on this thread inside this loop; the
+      // frame clock is what stops it from spending the budget the rest of the frame needs.
+      if (!this.ledger.hasFrameTime) break;
+
+      const provider = this.registry.get(demand.providerId);
+      if (!provider) { tile.state = 'failed'; tile.failures++; continue; }
+      this.beginFetch(tile, provider, demand);
+    }
+  }
+
+  private beginFetch(tile: TrackedTile, provider: WorldProvider, demand: TileDemand): void {
+    const controller = new AbortController();
+    const generation = this.generation;
+    tile.controller = controller;
+    tile.state = 'fetching';
+    tile.generation = generation;
+    this.ledger.fetchStarted();
+
+    provider.load(demand, controller.signal).then(payload => {
+      this.ledger.fetchFinished();
+      // Dropped rather than applied: the world moved on while this was in flight.
+      if (generation !== this.generation || controller.signal.aborted) {
+        provider.discard?.(payload);
+        tile.state = 'unloaded';
+        tile.controller = undefined;
+        return;
+      }
+      tile.payload = payload;
+      tile.state = 'ready-cpu';
+      tile.controller = undefined;
+      this.cache.set(payload);
+    }).catch(error => {
+      this.ledger.fetchFinished();
+      tile.controller = undefined;
+      if (generation !== this.generation || controller.signal.aborted) {
+        tile.state = 'unloaded';
+        return;
+      }
+      tile.failures++;
+      tile.state = 'failed';
+      // A failed tile is a gap, not a crash. It is retried until `maxFailures`, then left alone
+      // so one bad tile cannot turn into a fetch storm.
+      console.warn(`Tile ${tile.id} failed to load (attempt ${tile.failures})`, error);
+    });
+  }
+
+  /** Puts decoded tiles into the world, strictly within the frame's activation budget. */
+  private activateReady(frame: ActiveReferenceFrame): void {
+    const ready = [...this.tiles.values()]
+      .filter(tile => tile.state === 'ready-cpu' && tile.payload)
+      .sort((a, b) => b.demand.priority - a.demand.priority);
+
+    for (const tile of ready) {
+      const payload = tile.payload!;
+      // The hard limits -- the per-frame activation cap, the upload cap, the memory ceiling --
+      // are never crossed.
+      if (!this.ledger.canActivateWithinLimits(payload.estimatedGpuBytes)) break;
+      // Frame time is softer than that, for the first tile only. A frame that is already over
+      // budget still places one, because a machine slow enough to never have a spare millisecond
+      // would otherwise never populate its world at all: one small tile is a hitch, an empty
+      // planet is a bug.
+      if (!this.ledger.hasFrameTime && this.activationsLastFrame > 0) break;
+      const provider = this.registry.get(tile.providerId);
+      if (!provider) { tile.state = 'failed'; continue; }
+      tile.state = 'activating';
+      try {
+        tile.active = provider.activate(payload, frame);
+        tile.state = 'active';
+        this.ledger.activated(payload.cpuBytes, payload.estimatedGpuBytes);
+        this.activationsLastFrame++;
+      } catch (error) {
+        tile.state = 'failed';
+        tile.failures++;
+        console.error(`Tile ${tile.id} failed to activate`, error);
+      }
+    }
+  }
+
+  /**
+   * Removes tiles nobody asked for this frame.
+   *
+   * The parent-stays-visible rule lives in the providers, not here: this only retires what fell
+   * out of every plan, and a provider that still wants its coarse parent keeps asking for it.
+   */
+  private retireUnwanted(demands: readonly TileDemand[]): void {
+    const wanted = new Set(demands.map(demand => tileKeyToString(demand.key)));
+    for (const tile of this.tiles.values()) {
+      if (wanted.has(tile.id)) continue;
+      if (tile.state === 'fetching') {
+        tile.controller?.abort();
+        tile.controller = undefined;
+        tile.state = 'unloaded';
+        continue;
+      }
+      if (tile.state === 'active' && tile.active) {
+        const provider = this.registry.get(tile.providerId);
+        try {
+          provider?.deactivate(tile.active);
+        } catch (error) {
+          console.error(`Tile ${tile.id} failed to deactivate`, error);
+        }
+        this.ledger.deactivated(tile.payload?.cpuBytes ?? 0, tile.payload?.estimatedGpuBytes ?? 0);
+        tile.active = undefined;
+        tile.state = tile.payload ? 'dormant' : 'unloaded';
+      }
+      // The payload stays in the cache so flying back does not refetch; the tracker itself goes.
+      if (tile.state === 'dormant' || tile.state === 'unloaded') this.tiles.delete(tile.id);
+    }
+  }
+
+  /** Tears everything down. Used on shutdown and when switching worlds entirely. */
+  dispose(): void {
+    for (const tile of this.tiles.values()) {
+      tile.controller?.abort();
+      if (tile.active) {
+        try {
+          this.registry.get(tile.providerId)?.deactivate(tile.active);
+        } catch (error) {
+          console.error(`Tile ${tile.id} failed to deactivate during dispose`, error);
+        }
+      }
+    }
+    this.tiles.clear();
+    this.cache.clear();
+    this.ledger.reset();
+  }
+}

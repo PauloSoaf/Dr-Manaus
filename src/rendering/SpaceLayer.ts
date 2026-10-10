@@ -1,6 +1,8 @@
 import { AdditiveBlending, BackSide, BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshBasicNodeMaterial, NormalBlending, PerspectiveCamera, PlaneGeometry, Scene, SphereGeometry, Uint32BufferAttribute, Vector3 } from 'three/webgpu';
 import { attribute, float, mix, positionLocal, sin, smoothstep, time, uniform, uv } from 'three/tsl';
-import { SPACE } from '../core/config';
+import { FEATURES, SPACE } from '../core/config';
+import { PLANET_LAYER } from './domains/RenderDomains';
+import type { CelestialRenderSample } from './celestial/types';
 /** The rig rides the camera, so these are viewing distances, not world extents. Far plane is 260 km. */
 const STAR_RADIUS = 150000, SHELL_RADIUS = 170000, SUN_DISTANCE = 120000, SUN_QUAD = SUN_DISTANCE * .0968;
 const FIELD_STARS = 2200, BAND_STARS = 1200, STARS = FIELD_STARS + BAND_STARS;
@@ -39,14 +41,23 @@ export function spaceFactorFor(altitude: number): number {
 export class SpaceLayer {
   private rig = new Group();
   private stars: Mesh;
-  private shell: Mesh;
-  private disc: Mesh;
-  private starMaterial = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, fog: false });
+  /**
+   * The old stand-in for the planet seen from space: a back-faced shell and a glow disc. Once the
+   * real globe is drawn they are a blue haze painted straight over it, so whoever owns the
+   * planetary view may stand them down. The stars are independent and stay.
+   */
+  readonly shell: Mesh;
+  readonly disc: Mesh;
+  private starMaterial = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, depthTest: true, blending: AdditiveBlending, fog: false });
   private shellMaterial = new MeshBasicNodeMaterial({ side: BackSide, transparent: true, depthWrite: false, blending: NormalBlending, fog: false });
   private discMaterial = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, blending: AdditiveBlending, fog: false });
   private uSpace = uniform(0);
   private uVisible = uniform(0);
   private uSun = uniform(new Vector3(0, 1, 0));
+  private uStellarDirection = uniform(new Vector3(0, 1, 0));
+  private uStellarGlareOuterCos = uniform(1);
+  private uStellarGlareInnerCos = uniform(1);
+  private uStellarGlareStrength = uniform(0);
   private uBand = uniform(new Vector3().copy(BAND_AXIS));
   private uLimb = uniform(0);
   private uRimWidth = uniform(.17);
@@ -70,7 +81,7 @@ export class SpaceLayer {
   private nightBlend = 0;
   private axis = new Vector3(0, 1, 0);
   private facing = new Vector3(0, 0, -1);
-  constructor(private scene: Scene, private camera: PerspectiveCamera) {
+  constructor(private scene: Scene | Group, private camera: PerspectiveCamera) {
     this.stars = new Mesh(this.buildStars(), this.starMaterial);
     this.shell = new Mesh(new SphereGeometry(SHELL_RADIUS, 48, 28), this.shellMaterial);
     this.disc = new Mesh(new PlaneGeometry(SUN_QUAD, SUN_QUAD), this.discMaterial);
@@ -84,6 +95,27 @@ export class SpaceLayer {
   }
   /** 0 on the ground, .62 at the Karman line, 1 from orbit up. Smoothed, so the HUD can show it raw. */
   get spaceFactor() { return this.factor; }
+  /** Angular optical masking only; looking away preserves the sky. */
+  setSolarPresentation(sample: CelestialRenderSample | undefined) {
+    const angle = sample?.angularRadiusRad ?? 0;
+    this.uStellarGlareStrength.value = sample?.visible ? 1 : 0;
+    if (sample) this.uStellarDirection.value.set(...sample.directionRender);
+    this.uStellarGlareInnerCos.value = Math.cos(Math.min(Math.PI / 2, angle * 1.05));
+    this.uStellarGlareOuterCos.value = Math.cos(Math.min(Math.PI * .7, Math.max(.02, angle * 1.5)));
+  }
+
+  /**
+   * Stands the fake planet down while the real one is being drawn.
+   *
+   * The shell is a sphere the size of the sky painted with an Earth seen from space, and the disc
+   * is the Sun at a fixed local distance. Both are stand-ins for a planetary domain that did not
+   * exist, and with one in the scene the shell covers the real globe completely -- it is nearer
+   * than the planet and it is opaque. The stars are not a stand-in and are not stood down.
+   *
+   * This is a switch the layer honours rather than a `visible` flag set from outside, because
+   * `update` runs every frame and would put its own answer back.
+   */
+  planetaryView = false;
   update(altitude: number, sunDirection: Vector3, night: boolean, dt: number, overcast = 0) {
     const metres = Number.isFinite(altitude) ? Math.min(Math.max(altitude, 0), SPACE.maxAltitude) : 0;
     const step = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), .25) : 0;
@@ -98,8 +130,19 @@ export class SpaceLayer {
     this.uSun.value.copy(this.axis);
     this.uSpace.value = space;
     this.uVisible.value = Math.min(1, Math.max(dark * .9, space * 1.2)) * veil;
-    // True horizon dip for the altitude, so the limb keeps opening up all the way to 140 km.
-    this.uLimb.value = -Math.sin(Math.acos(EARTH_RADIUS / (EARTH_RADIUS + this.height)));
+    /**
+     * The horizon the stars fade out below.
+     *
+     * A true horizon dip for the altitude, so the limb keeps opening up all the way to 140 km --
+     * but only while the painted sky is what is underfoot. Once the local ground has stood down the
+     * planet below is real geometry on `PLANET_LAYER` that occludes the star sphere by being in
+     * front of it, and this term becomes a second, flat horizon with nothing under it: looking down
+     * in deep space gave an empty black hemisphere. Pushed below every direction there, so the
+     * only thing that can hide a star is a body actually in the way.
+     */
+    this.uLimb.value = this.planetaryView
+      ? -1.2
+      : -Math.sin(Math.acos(EARTH_RADIUS / (EARTH_RADIUS + this.height)));
     this.uRimWidth.value = .17 - .125 * fade(0, SPACE.karman, this.height);
     this.uRimStrength.value = .3 + .7 * fade(.05, .7, space);
     this.uRimGain.value = 1 + space * 1.5;
@@ -117,10 +160,30 @@ export class SpaceLayer {
     this.disc.position.copy(this.axis).multiplyScalar(SUN_DISTANCE);
     this.facing.copy(this.axis).negate();
     this.disc.quaternion.setFromUnitVectors(FORWARD, this.facing);
-    this.stars.visible = this.uVisible.value > .004;
-    this.shell.visible = this.uShellFade.value > .003;
-    this.disc.visible = veil > .02;
+    // The stars stay in the planetary view. They are additive points with no sky behind them, and
+    // `lift` already fades them below the limb, so they sit above the horizon of a real planet as
+    // readily as above a painted one. The sky gradient is the shell's, not theirs.
+    const local = !this.planetaryView;
+    // Semantic guard: at low altitude during daytime, stars are forbidden to prevent leakage through transparent sky dome
+    const allowStars = night || space > 0.05 || metres >= SPACE.atmosphereTop || this.planetaryView;
+    this.stars.visible = allowStars && this.uVisible.value > .004;
+    this.shell.visible = !FEATURES.earthGlobe && local && this.uShellFade.value > .003;
+    this.disc.visible = !FEATURES.earthGlobe && local && veil > .02;
+
+    // The camera's far plane is set by RenderDomains. Push the stars
+    // out to just inside it, so they are physically behind planets and occluded by them.
+    const farM = this.camera.far * 0.95;
+    this.stars.scale.setScalar(farM / STAR_RADIUS);
+    if (this.planetaryView) {
+      this.stars.layers.set(PLANET_LAYER);
+    } else {
+      this.stars.layers.set(0);
+    }
   }
+  get starsVisible(): boolean {
+    return this.stars.visible;
+  }
+
   dispose() {
     this.scene.remove(this.rig);
     this.stars.geometry.dispose(); this.shell.geometry.dispose(); this.disc.geometry.dispose();
@@ -184,9 +247,13 @@ export class SpaceLayer {
     const beat = sin(time.mul(2.1).add(glint.y)).mul(sin(time.mul(1.27).add(glint.y.mul(3.7))));
     const twinkle = beat.mul(.24).mul(float(1).sub(this.uSpace).mul(.92).add(.08));
     const direction = positionLocal.normalize();
-    const lift = mix(smoothstep(-.02, .26, direction.y), smoothstep(this.uLimb.sub(.01), this.uLimb.add(.05), direction.y), this.uSpace);
-    const glare = float(1).sub(smoothstep(.75, .995, direction.dot(this.uSun)).mul(float(1).sub(this.uSpace.mul(.45))));
-    this.starMaterial.colorNode = tint.mul(glint.x).mul(float(1).add(twinkle));
+    const spaceLift = FEATURES.earthGlobe ? float(1.0) : smoothstep(this.uLimb.sub(.01), this.uLimb.add(.05), direction.y);
+    const lift = mix(smoothstep(-.02, .26, direction.y), spaceLift, this.uSpace);
+    const atmosphericGlare = float(1).sub(smoothstep(.75, .995, direction.dot(this.uSun)).mul(float(1).sub(this.uSpace.mul(.45))));
+    const stellarGlare = float(1).sub(smoothstep(this.uStellarGlareOuterCos, this.uStellarGlareInnerCos,
+      direction.dot(this.uStellarDirection)).mul(this.uStellarGlareStrength));
+    const glare = atmosphericGlare.mul(stellarGlare);
+    this.starMaterial.colorNode = tint.mul(glint.x).mul(float(1).add(twinkle)).mul(lift).mul(glare);
     this.starMaterial.opacityNode = shape.mul(glint.x).mul(this.uVisible).mul(lift).mul(glare).saturate();
   }
   private writeShellShader() {

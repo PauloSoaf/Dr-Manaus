@@ -1,4 +1,6 @@
-import { Group, Mesh, SphereGeometry, TorusGeometry, Vector3 } from 'three/webgpu';
+import { Group, Mesh, SphereGeometry, TorusGeometry, Vector3, Matrix4 } from 'three/webgpu';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
 import type { Collider, Landmark } from '../../core/types';
 import { LANDMARKS } from '../geodata/geodata';
 import { GeometryBatch, treeProxy } from './GeometryBatch';
@@ -83,8 +85,20 @@ export class LandmarkManager {
   isDestroyed(id: string): boolean { return this.destruction.isDestroyed(id); }
 
   constructor(private readonly root: Group) {
+    const surfaceService = new SurfaceFrameService('earth');
     for (const landmark of LANDMARKS) {
-      const anchor = new Group(); anchor.name = landmark.name; anchor.position.set(landmark.x, 0, landmark.z);
+      const anchor = new Group(); anchor.name = landmark.name;
+      if (localManausPresentationMode() === 'curved') {
+        const pt = surfaceService.legacyPointToRenderLocal(landmark.x, 0, landmark.z);
+        const up = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, landmark.x, 0, landmark.z).normalize();
+        const north = surfaceService.legacyDirectionToRenderLocal(0, 0, -1, landmark.x, 0, landmark.z).normalize();
+        const east = surfaceService.legacyDirectionToRenderLocal(1, 0, 0, landmark.x, 0, landmark.z).normalize();
+        anchor.position.copy(pt);
+        const mat = new Matrix4().makeBasis(east, up, north);
+        anchor.quaternion.setFromRotationMatrix(mat);
+      } else {
+        anchor.position.set(landmark.x, 0, landmark.z);
+      }
       const distant = silhouette(landmark.id); anchor.add(distant);
       const node: LandmarkNode = { landmark, anchor, distant, visibleDetail: false };
       if (landmark.id === 'teatro') {

@@ -5,6 +5,7 @@ import {
 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
+import { manausTileSceneMatrix } from '../spatial/ManausSurfacePresentation';
 import { BUILDING_STRIDE, TREE_STRIDE, type ChunkPayload } from './Chunk';
 
 function facadeAtlas(): { color: CanvasTexture; light: CanvasTexture } {
@@ -64,7 +65,10 @@ export class ChunkMeshes {
 
   create(payload: ChunkPayload): { group: Group; colliders: Collider[]; bytes: number } {
     const group = new Group(); group.name = `chunk:${payload.key}`;
-    group.position.set(payload.cx * WORLD.chunkSize, 0, payload.cz * WORLD.chunkSize);
+    const originX = payload.cx * WORLD.chunkSize, originZ = payload.cz * WORLD.chunkSize;
+    group.matrixAutoUpdate = false;
+    manausTileSceneMatrix(payload.key, originX, originZ, group.matrix);
+
     const buildings = payload.buildings, trees = payload.trees;
     const count = buildings.length / BUILDING_STRIDE, treeCount = trees.length / TREE_STRIDE;
     const colliders: Collider[] = [];
@@ -80,7 +84,7 @@ export class ChunkMeshes {
       const sidewalk = make(this.box, this.pavement, count, 'sidewalks');
       for (let i = 0; i < count; i++) {
         const p = i * BUILDING_STRIDE;
-        const x = buildings[p] - group.position.x, z = buildings[p + 1] - group.position.z;
+        const x = buildings[p] - originX, z = buildings[p + 1] - originZ;
         const w = buildings[p + 2], h = buildings[p + 3], d = buildings[p + 4], roof = buildings[p + 8];
         this.set(walls, i, x, h * .5 + .25, z, w, h, d);
         walls.setColorAt(i, this.color.setRGB(buildings[p + 5], buildings[p + 6], buildings[p + 7]));
@@ -100,7 +104,7 @@ export class ChunkMeshes {
       let leafCount = 0;
       for (let i = 0; i < treeCount; i++) {
         const p = i * TREE_STRIDE;
-        const x = trees[p] - group.position.x, z = trees[p + 1] - group.position.z;
+        const x = trees[p] - originX, z = trees[p + 1] - originZ;
         const h = trees[p + 2], radius = trees[p + 3], palm = trees[p + 4] > .5;
         canopyStart[i] = leafCount;
         this.set(trunks, i, x, h * .5, z, palm ? .3 : .5, h, palm ? .3 : .5);
@@ -132,7 +136,10 @@ export class ChunkMeshes {
   }
 
   private set(mesh: InstancedMesh, index: number, x: number, y: number, z: number, w: number, h: number, d: number, yaw = 0): void {
-    this.position.set(x, y, z); this.scale.set(w, h, d);
+    const parent = mesh.parent as Group;
+    const gx = x + parent.position.x, gz = z + parent.position.z;
+    this.position.set(gx - parent.position.x, y, gz - parent.position.z);
+    this.scale.set(w, h, d);
     this.rotation.set(0, Math.sin(yaw * .5), 0, Math.cos(yaw * .5));
     this.matrix.compose(this.position, this.rotation, this.scale); mesh.setMatrixAt(index, this.matrix);
   }
@@ -143,7 +150,9 @@ export class ChunkMeshes {
     if (!collider) return null;
     const tree = id.includes('/tree/'), index = Number(id.slice(id.lastIndexOf('/') + 1));
     const data = tree ? payload.trees : payload.buildings, p = index * (tree ? TREE_STRIDE : BUILDING_STRIDE);
-    const x = data[p] - group.position.x, z = data[p + 1] - group.position.z;
+    // The explicit group matrix owns translation/orientation; group.position stays zero.
+    // Rebuild in the same tile-local coordinates as create(), including away from the anchor.
+    const x = data[p] - payload.cx * WORLD.chunkSize, z = data[p + 1] - payload.cz * WORLD.chunkSize;
     for (const mesh of group.children) {
       if (!(mesh instanceof InstancedMesh)) continue;
       if (!tree) {

@@ -1,14 +1,37 @@
 import { BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Shape, ShapeGeometry } from 'three/webgpu';
+import { localManausPresentationMode, MANAUS_GROUND_COVER_Y } from '../spatial/ManausSurfacePresentation';
 import { LAND_MASK } from './landmask';
 import { urbanDensity } from '../chunks/BuildingGenerator';
 import { LANDMARKS, OSM_ROADS, SHORELINE, isLand, riverWidth, shoreZ } from './geodata';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+
+const surfaceService = new SurfaceFrameService('earth');
 
 function polygon(points: readonly (readonly [number, number])[], material: MeshStandardMaterial, y: number): Mesh {
   const shape = new Shape();
   points.forEach(([x, z], i) => i === 0 ? shape.moveTo(x, -z) : shape.lineTo(x, -z));
   shape.closePath();
   const geometry = new ShapeGeometry(shape); geometry.rotateX(-Math.PI / 2);
-  const mesh = new Mesh(geometry, material); mesh.position.y = y; mesh.receiveShadow = true; return mesh;
+  
+  const posAttr = geometry.getAttribute('position');
+  const arr = posAttr.array as Float32Array;
+  if (localManausPresentationMode() === 'curved') {
+    for (let i = 0; i < arr.length; i += 3) {
+      const pt = surfaceService.legacyPointToRenderLocal(arr[i], y, arr[i + 2]);
+      arr[i] = pt.x;
+      arr[i + 1] = pt.y;
+      arr[i + 2] = pt.z;
+    }
+  } else {
+    for (let i = 1; i < arr.length; i += 3) {
+      arr[i] = y;
+    }
+  }
+  posAttr.needsUpdate = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+
+  const mesh = new Mesh(geometry, material); mesh.receiveShadow = true; return mesh;
 }
 
 /**
@@ -42,7 +65,16 @@ function groundCover(): Mesh {
     const g = (base[1] + (target[1] - base[1]) * f) * shade;
     const b = (base[2] + (target[2] - base[2]) * f) * shade;
     for (const [px, pz] of [[x, z], [x + CELL, z], [x + CELL, z + CELL], [x, z], [x + CELL, z + CELL], [x, z + CELL]] as const) {
-      position.push(px, .02, pz); normal.push(0, 1, 0); color.push(r, g, b);
+      if (localManausPresentationMode() === 'curved') {
+        const pt = surfaceService.legacyPointToRenderLocal(px, MANAUS_GROUND_COVER_Y, pz);
+        position.push(pt.x, pt.y, pt.z); 
+        const up = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, px, MANAUS_GROUND_COVER_Y, pz);
+        normal.push(up.x, up.y, up.z); 
+      } else {
+        position.push(px, MANAUS_GROUND_COVER_Y, pz);
+        normal.push(0, 1, 0);
+      }
+      color.push(r, g, b);
     }
   }
   const geometry = new BufferGeometry();
@@ -52,11 +84,12 @@ function groundCover(): Mesh {
   geometry.computeBoundingSphere();
   const mesh = new Mesh(geometry, new MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
   mesh.name = 'ground-cover'; mesh.receiveShadow = true;
+  mesh.userData.terrainSurface = 'sheet';
   return mesh;
 }
 
 /** A handful of terrain/road batches covering the horizon, never detailed city objects. */
-export function createTerrain(root: Group): void {
+export function createTerrain(root: Group): Group {
   const terrain = new Group(); terrain.name = 'Generalized Manaus land and OSM arteries';
   const green = new MeshStandardMaterial({ color: '#465c3b', roughness: 1, side: DoubleSide });
   const urban = new MeshStandardMaterial({ color: '#565753', roughness: 1, side: DoubleSide });
@@ -67,19 +100,33 @@ export function createTerrain(root: Group): void {
   // stretch of genuine land that the old polyline called river would render as a hole in the world.
   const backdrop = polygon([[-120000, -120000], [120000, -120000], [120000, 120000], [-120000, 120000]], green, -.6);
   backdrop.name = 'terrain-backdrop';
+  backdrop.userData.terrainSurface = 'sheet';
+  backdrop.userData.terrainFallback = true;
   terrain.add(backdrop);
   const opposite = SHORELINE.map(([x, z]) => [x, z + riverWidth(x)] as const);
-  terrain.add(polygon([...SHORELINE, [50000, -50000], [-50000, -50000]], green, -.15));
-  terrain.add(polygon([...opposite, [50000, 50000], [-50000, 50000]], green, -.2));
+  const shore1 = polygon([...SHORELINE, [50000, -50000], [-50000, -50000]], green, -.15);
+  shore1.name = 'terrain-shoreline-north';
+  shore1.userData.terrainSurface = 'sheet';
+  terrain.add(shore1);
+  const shore2 = polygon([...opposite, [50000, 50000], [-50000, 50000]], green, -.2);
+  shore2.name = 'terrain-shoreline-south';
+  shore2.userData.terrainSurface = 'sheet';
+  terrain.add(shore2);
   terrain.add(groundCover());
   const irandubaCoast = opposite.filter(([x]) => x > -11200 && x < -5900);
   if (irandubaCoast.length > 1) {
     const inland = [...irandubaCoast].reverse().map(([x, z]) => [x, z + 2600] as const);
-    terrain.add(polygon([...irandubaCoast, ...inland], irandubaUrban, .01));
+    const irandubaMesh = polygon([...irandubaCoast, ...inland], irandubaUrban, .01);
+    irandubaMesh.name = 'terrain-iranduba-urban';
+    irandubaMesh.userData.terrainSurface = 'sheet';
+    terrain.add(irandubaMesh);
   }
   // Narrow embankment ribbon makes river scale readable from flight altitude.
   const bank: (readonly [number, number])[] = [...SHORELINE, ...[...SHORELINE].reverse().map(([x, z]) => [x, z - 16] as const)];
-  terrain.add(polygon(bank, sand, .035));
+  const bankMesh = polygon(bank, sand, .035);
+  bankMesh.name = 'terrain-shore-bank';
+  bankMesh.userData.terrainSurface = 'sheet';
+  terrain.add(bankMesh);
   const roadVertices: number[] = [], lineVertices: number[] = [];
   const ribbon = (target: number[], ax: number, az: number, bx: number, bz: number, width: number, y: number) => {
     const length = Math.hypot(bx - ax, bz - az); if (!length) return;
@@ -94,6 +141,8 @@ export function createTerrain(root: Group): void {
     ribbon(roadVertices, a[0], a[1], b[0], b[1], width, .16);
     ribbon(lineVertices, a[0], a[1], b[0], b[1], .42, .18);
   }
+
+
   const bridge = LANDMARKS.find(landmark => landmark.id === 'ponte');
   const iranduba = LANDMARKS.find(landmark => landmark.id === 'iranduba');
   if (bridge && iranduba) {
@@ -107,6 +156,19 @@ export function createTerrain(root: Group): void {
       ribbon(lineVertices, a[0], a[1], b[0], b[1], .48, .19);
     }
   }
+  
+  // Curve the ribbons only if curvedManaus is enabled
+  if (localManausPresentationMode() === 'curved') {
+    for (const verts of [roadVertices, lineVertices]) {
+      for (let i = 0; i < verts.length; i += 3) {
+        const pt = surfaceService.legacyPointToRenderLocal(verts[i], verts[i + 1], verts[i + 2]);
+        verts[i] = pt.x;
+        verts[i + 1] = pt.y;
+        verts[i + 2] = pt.z;
+      }
+    }
+  }
+
   for (const [vertices, color, name] of [
     [roadVertices, '#383d3d', 'legacy-osm-roads'],
     [lineVertices, '#d0be89', 'legacy-osm-road-markings'],
@@ -114,7 +176,24 @@ export function createTerrain(root: Group): void {
     if (!vertices.length) continue;
     const geometry = new BufferGeometry(); geometry.setAttribute('position', new Float32BufferAttribute(vertices, 3)); geometry.computeVertexNormals();
     const mesh = new Mesh(geometry, new MeshStandardMaterial({ color, roughness: 1, side: DoubleSide }));
-    mesh.name = name; mesh.receiveShadow = true; terrain.add(mesh);
+    mesh.name = name; mesh.receiveShadow = true;
+    mesh.userData.terrainSurface = 'road';
+    terrain.add(mesh);
   }
   root.add(terrain);
+  return terrain;
+}
+
+/** Set opacity of the generalized flat terrain for crossfading with planetary tiles. */
+export function setTerrainOpacity(terrain: Group, opacity: number): void {
+  terrain.visible = opacity > 0.01;
+  if (!terrain.visible) return;
+  const transparent = opacity < 0.99;
+  for (const child of terrain.children) {
+    if ((child as Mesh).material) {
+      const mat = (child as Mesh).material as MeshStandardMaterial;
+      if (mat.transparent !== transparent) mat.transparent = transparent;
+      if (mat.opacity !== opacity) mat.opacity = opacity;
+    }
+  }
 }

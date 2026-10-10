@@ -1,9 +1,11 @@
 import { BoxGeometry, Color, DynamicDrawUsage, Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Vector3 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
 import type { Collider } from '../../core/types';
 import { buildingAllowed, isLand, isUrban, riverWidth, shoreZ } from '../geodata/geodata';
 import { BUILDING_STRIDE, TREE_STRIDE, chunkKey, type ChunkPayload } from '../chunks/Chunk';
 import { chunkSeed, generateChunk, seededRandom, urbanDensity } from '../chunks/BuildingGenerator';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
 
 interface Aggregate { x: number; z: number; w: number; d: number; h: number; color: number }
 interface DestructionSource { readonly destroyedIds: ReadonlySet<string>; readonly destroyedBounds: ReadonlyMap<string, Collider>; readonly destructionRevision: number }
@@ -21,6 +23,7 @@ function distantColor(x: number, z: number, random: () => number): number {
  * Proxy data is generated incrementally and never carries physics, actors or lights.
  */
 export class HLODManager {
+  private readonly surfaceService = new SurfaceFrameService('earth');
   private readonly group = new Group();
   private readonly geometry = new BoxGeometry(1, 1, 1);
   private readonly canopyGeometry = new IcosahedronGeometry(1, 0);
@@ -259,7 +262,20 @@ export class HLODManager {
   }
 
   private set(mesh: InstancedMesh, index: number, x: number, y: number, z: number, w: number, h: number, d: number): void {
-    this.matrix.makeScale(w, h, d); this.matrix.setPosition(x, y, z); mesh.setMatrixAt(index, this.matrix);
+    if (localManausPresentationMode() === 'curved') {
+      const up = this.surfaceService.legacyDirectionToRenderLocal(0, 1, 0, x, y, z).normalize();
+      const north = this.surfaceService.legacyDirectionToRenderLocal(0, 0, -1, x, y, z).normalize();
+      const east = this.surfaceService.legacyDirectionToRenderLocal(1, 0, 0, x, y, z).normalize();
+      const pt = this.surfaceService.legacyPointToRenderLocal(x, y, z);
+      
+      this.matrix.makeBasis(east, up, north);
+      this.matrix.scale(new Vector3(w, h, d));
+      this.matrix.setPosition(pt);
+    } else {
+      this.matrix.makeScale(w, h, d);
+      this.matrix.setPosition(x, y, z);
+    }
+    mesh.setMatrixAt(index, this.matrix);
   }
   setDetailRadius(radius: number): void { this.detailRadius = radius; this.dirty = true; }
   setDebug(enabled: boolean): void {

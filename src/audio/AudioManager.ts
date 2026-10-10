@@ -1,9 +1,34 @@
-/** Procedural soundscape: one filtered noise loop crossfades urban, river, wind and rain textures. */
+export interface AudioEnvironment {
+  medium: 'earth-atmosphere' | 'vacuum' | 'airless-surface';
+  atmosphericDensity01: number;
+  speedMps: number;
+  altitudeM: number;
+  rain: boolean;
+  river: boolean;
+}
+
+/** A continuous atmosphere fade with an inaudible tail rounded to exact vacuum silence. */
+export function earthAtmosphericDensity01(altitudeM: number): number {
+  const density = Math.exp(-Math.max(0, altitudeM) / 8500);
+  return density < 1e-5 ? 0 : density;
+}
+
+export function environmentalAudioMix(environment: AudioEnvironment) {
+  const density = environment.medium === 'earth-atmosphere' && Number.isFinite(environment.atmosphericDensity01)
+    ? Math.max(0, Math.min(1, environment.atmosphericDensity01)) : 0;
+  const speed = Number.isFinite(environment.speedMps) ? Math.max(0, environment.speedMps) : 0;
+  const windGain = Math.min(speed / 400, 0.35) * density;
+  const ambienceGain = (environment.rain ? 0.55 : 0.12) * density + (environment.rain ? 0 : windGain);
+  const frequency = environment.rain ? 2400 : environment.altitudeM > 70 ? 800 + Math.min(speed * 4, 1500) : environment.river ? 550 : 280;
+  return { windGain, ambienceGain, frequency };
+}
+
+/** Environment noise has its own bus; stylized power/impact effects survive in vacuum. */
 export class AudioManager {
   enabled=true; private context?:AudioContext;private master?:GainNode;private ambience?:GainNode;private effects?:GainNode;private filter?:BiquadFilterNode;
   /** Mixer buses, 0..1, set from the pause menu. `enabled` mutes the master independently. */
   private volumes={master:.7,ambience:.6,effects:.8};
-  private ambienceLevel=.18;
+  private ambienceLevel=0;
   async unlock() {
     if(this.context){if(this.context.state==='suspended')await this.context.resume();return;}
     const ctx=this.context=new AudioContext();this.master=ctx.createGain();this.master.gain.value=this.masterGain();this.master.connect(ctx.destination);
@@ -28,6 +53,13 @@ export class AudioManager {
     this.ambience?.gain.setTargetAtTime(this.ambienceLevel*this.volumes.ambience,t,.15);
     this.effects?.gain.setTargetAtTime(this.volumes.effects,t,.1);
   }
-  update(speed:number,altitude:number,rain:boolean,river:boolean){if(!this.context||!this.ambience||!this.filter)return;const t=this.context.currentTime;this.filter.frequency.setTargetAtTime(rain?2400:altitude>70?800+Math.min(speed*4,1500):river?550:280,t,.4);this.ambienceLevel=rain?.55:.12+Math.min(speed/400,.35);this.ambience.gain.setTargetAtTime(this.ambienceLevel*this.volumes.ambience,t,.5);}
+  update(environment:AudioEnvironment){
+    const mix=environmentalAudioMix(environment);
+    this.ambienceLevel=mix.ambienceGain;
+    if(!this.context||!this.ambience||!this.filter)return;
+    const t=this.context.currentTime;
+    this.filter.frequency.setTargetAtTime(mix.frequency,t,.4);
+    this.ambience.gain.setTargetAtTime(this.ambienceLevel*this.volumes.ambience,t,.2);
+  }
   play(name:string){if(!this.context||!this.effects||!this.enabled)return;const ctx=this.context,t=ctx.currentTime,osc=ctx.createOscillator(),gain=ctx.createGain();const low=name.includes('shock')||name.includes('giant');osc.type=low?'sine':'triangle';osc.frequency.setValueAtTime(low?85:name.includes('teleport')?440:680,t);osc.frequency.exponentialRampToValueAtTime(low?24:70,t+.5);gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(low?.45:.16,t+.025);gain.gain.exponentialRampToValueAtTime(.0001,t+.7);osc.connect(gain);gain.connect(this.effects);osc.start(t);osc.stop(t+.75);osc.onended=()=>{osc.disconnect();gain.disconnect();};}
 }

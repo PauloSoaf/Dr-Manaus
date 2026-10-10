@@ -1,10 +1,10 @@
 import { AdditiveBlending, BufferGeometry, Float32BufferAttribute, Mesh, MeshBasicNodeMaterial, Scene } from 'three/webgpu';
 import { float, max, mix, positionGeometry, smoothstep, uniform, uv, vec3, vec4 } from 'three/tsl';
 
-export type SpeedState = 'normal' | 'fast' | 'super' | 'mega';
+export type SpeedState = 'normal' | 'fast' | 'super' | 'mega' | 'interplanetary';
 
 /** Where each state sits on the 0..1 intensity ramp the shader reads. */
-const LEVEL: Record<SpeedState, number> = { normal: 0, fast: .22, super: .62, mega: 1 };
+const LEVEL: Record<SpeedState, number> = { normal: 0, fast: .22, super: .62, mega: 1, interplanetary: 0 };
 
 /**
  * Edge-only speed effect.
@@ -70,8 +70,12 @@ export class SpeedVFX {
    */
   update(dt: number, state: SpeedState, speed: number): void {
     if (!Number.isFinite(dt) || !Number.isFinite(speed)) return;
-    const within = Math.min(1, Math.max(0, speed / 9000));
-    this.target = Math.min(1, LEVEL[state] + within * .18);
+    if (state === 'interplanetary') {
+      this.target = 0;
+    } else {
+      const within = Math.min(1, Math.max(0, speed / 9000));
+      this.target = Math.min(1, LEVEL[state] + within * .18);
+    }
     // Rising fast enough to feel like a surge, falling slowly enough to feel like coasting down.
     const rate = this.target > this.current ? 3.4 : 1.6;
     this.current += (this.target - this.current) * (1 - Math.exp(-dt * rate));

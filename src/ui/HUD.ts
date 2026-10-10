@@ -1,12 +1,158 @@
+import { hypercruiseTelemetry } from './HypercruiseTelemetry';
+import type { FlightTelemetry } from '../world/travel/CosmicFlight';
+import type { NavigationLock } from '../world/travel/NavigationLock';
 import { Vector3, type PerspectiveCamera } from 'three/webgpu';
 import { LANDMARKS, worldToLatLon } from '../world/geodata/geodata';
 import type { Settings, SaveManager } from '../core/SaveManager';
 import type { QualityPreset } from '../core/config';
 import type { TimeKind, WeatherKind } from '../core/types';
 import { CityMap } from './CityMap';
+import { UniversalMapPanel } from './map/UniversalMapPanel';
+import type { UniverseLocation } from '../world/spatial/UniverseLocation';
+import { sectorIndex } from '../world/spatial/UniverseAddress';
 import { icon, POWERS } from './icons';
-export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; spaceFactor:number; district:string; debug:Record<string,string|number> }
+import { formatDistance, formatDuration, formatSpeed, formatGalaxyName } from './format';
+import type { UniversalTargetDescriptor } from '../world/travel/UniversalNavigationTarget';
+import { travelCapabilityLabel, type ResolvedUniversalTarget } from '../world/travel/UniversalTargetResolver';
+export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string,source?:NavigationLock['source'])=>string|undefined|void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void }
+export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; }
+
+/** The body close enough to be a place rather than a point of light. */
+export interface HUDNearbyBody {
+  readonly id: string;
+  readonly name: string;
+  readonly distanceM: number;
+  /** Apparent diameter in degrees -- how much of the view it takes up from where the player is. */
+  readonly angularDeg: number;
+}
+
+/**
+ * A body as the destination list needs it.
+ *
+ * Position and distance included, because the list is a navigation aid and a name on its own
+ * does not tell the player which way to go or how far. Derived from the live ephemeris each
+ * time the panel refreshes; never cached here.
+ */
+export interface HUDBody {
+  readonly id: string;
+  readonly name: string;
+  readonly parentId?: string;
+  readonly profile?: import('../world/celestial/CelestialBodyProfile').CelestialBodyProfile;
+  readonly orbit?: import('../world/celestial/CelestialBody').OrbitElements;
+  /** Live barycentric metres. */
+  readonly systemPositionM: readonly [number, number, number];
+  readonly distanceFromPlayerM: number;
+  readonly selected: boolean;
+}
+
+/** What the cruise controller knows, as the HUD needs to show it. */
+export interface HUDFlightTelemetry {
+  readonly universalTarget?:ResolvedUniversalTarget;
+  readonly photosphereClearanceM?: number;
+  readonly angularDiameterDeg?: number;
+  readonly phase: FlightTelemetry['phase'];
+  readonly relativeSpeedMps?: number;
+  readonly closingSpeedMps?: number;
+  readonly lockSource?: string;
+  readonly lockActive?: boolean;
+  readonly autopilotActive?: boolean;
+  readonly speedMps: number;
+  readonly accelerationMps2: number;
+  readonly targetBodyId?: string;
+  readonly targetName?: string;
+  readonly distanceToTargetM?: number;
+  readonly timeToTargetS?: number;
+  /** The engaged warp step and its label, for a readout that says which gear is in. */
+  readonly warpStep?: number;
+  readonly warpLabel?: string;
+}
+
+export interface HUDPresentation {
+  readonly domain: HUDPresentationDomain;
+  readonly place: string;
+  readonly coordinates: string;
+  readonly domainLabel: string;
+  readonly contextLabel: string;
+  readonly locationState: string;
+  readonly localUiVisible: boolean;
+}
+
+const BODY_NAMES: Readonly<Record<string, string>> = {
+  mercury: 'Mercúrio', venus: 'Vênus', earth: 'Terra', moon: 'Lua', mars: 'Marte',
+  jupiter: 'Júpiter', saturn: 'Saturno', uranus: 'Urano', neptune: 'Netuno',
+};
+
+const bodyName = (id: string | undefined): string | undefined => id
+  ? BODY_NAMES[id.toLowerCase()] ?? id
+  : undefined;
+
+const signedCoordinate = (value: number, positive: string, negative: string): string =>
+  `${Math.abs(value).toFixed(4)}° ${value >= 0 ? positive : negative}`;
+
+/**
+ * Pure presentation policy shared by the DOM update and structural tests.
+ * The explicit domain wins; the fallback keeps older callers safe until Game wires the transition
+ * controller directly into HUDState.
+ */
+export function resolveHUDPresentation(state: Pick<HUDState,
+  'position' | 'location' | 'missionMarkerActive' | 'presentationDomain' | 'district' | 'nearbyBody' | 'systemBodies'
+>): HUDPresentation {
+  const domain = state.presentationDomain
+    ?? (state.missionMarkerActive ? 'local' : state.location.surface ? 'planetary' : 'orbital');
+
+  if (domain === 'local') {
+    const nearest = LANDMARKS.reduce((best, landmark) =>
+      Math.hypot(landmark.x - state.position.x, landmark.z - state.position.z)
+        < Math.hypot(best.x - state.position.x, best.z - state.position.z) ? landmark : best,
+    LANDMARKS[0]);
+    const near = Math.hypot(nearest.x - state.position.x, nearest.z - state.position.z)
+      < Math.max(400, nearest.radius * 2);
+    const geo = worldToLatLon(state.position.x, state.position.z);
+    return {
+      domain,
+      place: near ? nearest.name : 'Sobre a Amazônia',
+      coordinates: `${signedCoordinate(geo.lat, 'N', 'S')}   ${signedCoordinate(geo.lon, 'L', 'O')}`,
+      domainLabel: 'MANAUS',
+      contextLabel: state.district,
+      locationState: near ? 'ASSINATURA LOCALIZADA' : 'EXPLORAÇÃO LIVRE',
+      localUiVisible: true,
+    };
+  }
+
+  const id = state.location.address.bodyId;
+  const name = state.systemBodies?.find(b=>b.id===id)?.name ?? (state.nearbyBody && state.nearbyBody.id===id ? state.nearbyBody.name : bodyName(id));
+  const surface = state.location.surface;
+  const coordinates = surface
+    ? `${signedCoordinate(surface.latDeg, 'N', 'S')}   ${signedCoordinate(surface.lonDeg, 'L', 'O')}`
+    : '—';
+
+  if (domain === 'planetary') {
+    return {
+      domain,
+      place: name ? `Sobre: ${name}` : 'Superfície planetária',
+      coordinates,
+      domainLabel: 'PLANETA',
+      contextLabel: (name ?? 'SUPERFÍCIE').toUpperCase(),
+      locationState: 'SUPERFÍCIE PLANETÁRIA',
+      localUiVisible: false,
+    };
+  }
+
+  // Falling back to whatever is big in the sky: the address names a body only once a provider owns
+  // its ground, so between bodies it is empty and only apparent size can say where the player is.
+  const near = state.nearbyBody;
+  const approaching = !name && near ? near.name : undefined;
+  return {
+    domain,
+    place: name ? `Órbita: ${name}` : approaching ? `Aproximando: ${approaching}` : 'Espaço profundo',
+    coordinates: near ? `${formatDistance(near.distanceM)}   ${near.angularDeg.toFixed(1)}°` : '—',
+    domainLabel: 'NAVEGAÇÃO',
+    contextLabel: name ? 'ÓRBITA' : approaching ? approaching.toUpperCase() : 'INTERPLANETÁRIA',
+    locationState: name ? 'NAVEGAÇÃO ORBITAL' : approaching ? 'CORPO À VISTA' : 'ESPAÇO PROFUNDO',
+    localUiVisible: false,
+  };
+}
 const $=<T extends HTMLElement=HTMLElement>(selector:string)=>document.querySelector<T>(selector)!;
 /** A labelled slider with a live readout; `format` turns the raw value into what the player reads. */
 const slider=(id:string,label:string,min:number,max:number,step:number,note='')=>
@@ -19,17 +165,17 @@ const PAUSE_TABS=[['audio','Áudio'],['video','Vídeo'],['world','Mundo'],['cont
 const CONTROLS: readonly (readonly [string,string])[]=[
   ['F5','Câmera: atrás / ombro / primeira pessoa / frente / olhar para trás'],['X','Alternar energia / combate'],
   ['Clique (combate)','Sequência: jab / direto / uppercut'],['Botão direito (combate)','Sequência: chute frontal / lateral / circular'],
-  ['Espaço (solo)','Pulo duplo / parkour'],['Shift (solo)','Correr'],['B / V + B (solo)','Super / mega corrida'],
+  ['Espaço (solo)','Pulo duplo / parkour'],['Shift (solo)','Correr'],['B (solo)','Impulso / Super — em voo local'],
   ['Z (solo)','Rolamento de esquiva'],['Z (no ar)','Dash aéreo'],
   ['Clique olhando para baixo (no ar)','Soco meteoro: cratera e destruição em massa'],
-  ['W A S D','Mover'],['Mouse','Olhar ao redor'],['F','Alternar voo'],['Espaço','Subir'],
-  ['Ctrl','Descer'],['Shift','Voo rápido'],['B (segurar)','Super velocidade'],['V','Armar mega velocidade'],
+  ['W A S D','Mover'],['Mouse','Olhar ao redor'],['F (planeta)','Voar / pousar'],['Espaço','Subir'],
+  ['Ctrl','Descer'],['Shift (planeta)','Voo rápido'],['V (planeta)','Armar Mega / Interplanetário (duplo toque) · depois B'],['F (espaço)','Pousar no corpo próximo: captura e desce sozinho'],['Shift (espaço)','Boost cósmico'],['B (espaço)','Warp · cada toque dobra (1c, 2c, 4c…)'],['X (espaço)','Freio · desengata o warp'],['Mouse','Direção de voo'],
   ['L','Ligar / desligar laser continuo'],['Clique / 1','Emitir energia'],['E','Teleportar à mira'],['Q','Onda de choque'],['R','Reconstruir matéria'],
   ['G','Alternar tamanho até 1 km'],['C','Criar ecos temporários'],['T','Percepção temporal'],
-  ['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
+  ['Tab / Shift+Tab (espaço)','Travar alvo / próximo / anterior'],['P (espaço)','Piloto automático: ligar / desligar'],['Backspace (espaço)','Liberar alvo e cancelar piloto'],['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
 ];
 export class HUD {
-  private mini:CityMap;private map:CityMap;private elapsed=0;private mapElapsed=0;private toastTimer=0;private lastPlace='';private temp=new Vector3();
+  private mini:CityMap;private map:CityMap;private universalMap:UniversalMapPanel;private elapsed=0;private mapElapsed=0;private toastTimer=0;private lastPlace='';private temp=new Vector3();
   private openPanel='';private pauseTab='audio';private lastFps=0;private lastBackend='\u2014';debugOpen=false;
   constructor(private save:SaveManager,private hooks:HUDHooks){
     const root=document.createElement('div');root.id='hud';root.innerHTML=`
@@ -41,9 +187,9 @@ export class HUD {
       <div id="objective-marker" class="objective-marker" hidden><span>◇</span><small></small></div>
       <div class="welcome" id="welcome"><span>VOCÊ É A ENERGIA DESTA CIDADE.</span><p>O horizonte é só o começo.</p></div>
       <div class="toast" id="toast" role="status"></div>
-      <div class="location"><span class="eyebrow">MANAUS · <b id="district">AMAZONAS</b></span><h2 id="place-name">Teatro Amazonas</h2><p id="coordinates">3.1303° S &nbsp; 60.0234° O</p><div class="location-line"><i></i><span id="location-state">CENTRO HISTÓRICO</span></div></div>
+      <div class="location"><span class="eyebrow"><span id="location-domain">MANAUS</span> · <b id="district">AMAZONAS</b></span><h2 id="place-name">Teatro Amazonas</h2><p id="coordinates">3.1303° S &nbsp; 60.0234° O</p><div class="location-line"><i></i><span id="location-state">CENTRO HISTÓRICO</span></div></div>
       <footer class="power-dock"><div class="power-caption"><span>MANIPULAÇÃO CÓSMICA</span><i></i><span id="power-current">EMISSÃO DE ENERGIA</span></div><div class="power-buttons">${POWERS.map(([id,label,key],i)=>`<button class="power ${i===0?'active':''}" data-power="${id}" title="${label} (${key})" aria-label="${label}">${icon(id)}<kbd>${key}</kbd><span>${label}</span></button>`).join('')}</div><div class="control-hint" id="control-hint"><kbd>F</kbd> levitar <i></i><kbd>W A S D</kbd> mover <i></i><span>clique na cena para controlar a câmera</span></div></footer>
-      <aside class="mini-cluster"><div class="space-band" id="space-band" hidden>${icon('flight',11)}<span id="space-label">ALTA ATMOSFERA</span><i></i></div><div class="flight-modes" id="flight-modes"><b data-mode="normal">NORMAL</b><b data-mode="fast">RÁPIDO</b><b data-mode="super">SUPER</b><b data-mode="mega">MEGA</b></div><div class="flight-readout">${icon('flight',17)}<span id="flight-state">EM SOLO</span><b id="speed">0</b><small>km/h</small></div><button class="minimap-button" data-panel="map" aria-label="Abrir mapa da cidade"><canvas id="minimap"></canvas><span class="map-caption">${icon('map',13)} EXPLORAR MANAUS <kbd>M</kbd></span></button><div class="mini-status"><i></i><span id="render-state">MUNDO CONECTADO</span><span id="altitude">38 m</span></div></aside>
+      <aside class="mini-cluster"><div class="space-band" id="space-band" hidden>${icon('flight',11)}<span id="space-label">ALTA ATMOSFERA</span><i></i></div><div class="flight-modes" id="flight-modes"><b data-mode="normal">NORMAL</b><b data-mode="fast">RÁPIDO</b><b data-mode="super">SUPER</b><b data-mode="mega">MEGA</b><b data-mode="interplanetary">INTERPLANETAR</b><em id="flight-tier-label" hidden style="font-style:normal;margin-left:8px;letter-spacing:.08em;font-size:11px;opacity:.9"></em></div><div class="cruise-block" id="cruise-block" hidden></div><div class="flight-readout">${icon('flight',17)}<span id="flight-state">EM SOLO</span><b id="speed">0</b><small id="speed-unit">km/h</small></div><button class="minimap-button" data-panel="map" aria-label="Abrir mapa da cidade"><canvas id="minimap"></canvas><span class="map-caption">${icon('map',13)} EXPLORAR MANAUS <kbd>M</kbd></span></button><div class="mini-status"><i></i><span id="render-state">MUNDO CONECTADO</span><span id="altitude">38 m</span></div></aside>
       <div id="panel-backdrop" class="panel-backdrop" hidden></div>
       <section class="panel pause-panel" id="pause-panel" hidden><div class="pause-layout">
         <nav class="pause-nav"><span class="eyebrow">JOGO PAUSADO</span><h2>DR Manaus</h2>
@@ -85,10 +231,11 @@ export class HUD {
             <p class="field-note">Apaga as descobertas e o progresso salvos neste navegador.</p>
           </div>
         </div></div></section>
-      <section class="panel map-panel" id="map-panel" hidden><div class="panel-header"><div><span class="eyebrow">03° S · 60° O</span><h2>Uma cidade. Infinitas possibilidades.</h2></div><button class="icon-button close-panel" aria-label="Fechar mapa">${icon('close')}</button></div><div class="map-layout"><div class="map-visual"><canvas id="city-map"></canvas><div class="map-scale">━━━━━━ <span>5 km</span></div><span class="map-credit">Dados viários © OpenStreetMap contributors · Geografia estilizada</span></div><div class="map-destinations"><span class="eyebrow">PONTOS DE INTERESSE</span><div id="landmark-list"></div><p>Descubra um lugar voando até ele para liberar a translocação.</p></div></div></section>
+      <section class="panel map-panel" id="map-panel" hidden><div class="panel-header"><div><span class="eyebrow">MAPA UNIVERSAL</span><h2>Navegação Cósmica</h2></div><button class="icon-button close-panel" aria-label="Fechar mapa">${icon('close')}</button></div><div id="universal-map-container"></div></section>
       <section class="debug-panel" id="debug-panel" hidden><div class="eyebrow">DIAGNÓSTICO · F3</div><div id="debug-metrics"></div><div class="debug-controls"><select id="debug-travel"><option value="">Teleportar para…</option>${LANDMARKS.map(l=>`<option value="${l.id}">${l.shortName}</option>`).join('')}</select>${[['bounds','Limites de chunks'],['lod','Cores de LOD'],['hlod','HLOD'],['geo','Marcos geográficos'],['roads','Cores de via'],['wireframe','Wireframe'],['culling','Frustum de câmera']].map(([id,label])=>`<label><input type="checkbox" data-debug="${id}"/>${label}</label>`).join('')}<label>Velocidade <input type="range" min="0.25" max="3" step="0.25" value="1" id="flight-speed"/></label><button class="text-button" id="stress-run">Iniciar rota de stress</button></div></section>
       <div class="loading-tag" id="loading-tag"><span class="spinner"></span>Despertando sobre a Amazônia…</div>`;
     document.querySelector('#app')!.append(root);
+    this.universalMap = new UniversalMapPanel($('#universal-map-container'), { address: { galaxyId: 'milky_way', sector: sectorIndex(0n, 0n, 0n), systemId: 'sol', bodyId: 'earth' }, frameId: 'earth/manaus/legacy-enu' }, id => this.travel(id), () => this.togglePanel(''), id => this.hooks.setTarget(id,'map'));
     this.mini=new CityMap($('#minimap'),false);this.map=new CityMap($('#city-map'),true);
     root.querySelectorAll<HTMLButtonElement>('[data-panel]').forEach(button=>button.onclick=()=>this.togglePanel(button.dataset.panel!));
     root.querySelectorAll<HTMLButtonElement>('.close-panel').forEach(button=>button.onclick=()=>this.togglePanel(''));
@@ -179,37 +326,139 @@ export class HUD {
   }
   toggleDebug(){this.debugOpen=!this.debugOpen;$('#debug-panel').hidden=!this.debugOpen;if(this.debugOpen&&document.pointerLockElement)void document.exitPointerLock();}
   notify(message:string){$('#toast').textContent=message;$('#toast').classList.add('visible');this.toastTimer=4;}
-  private travel(id:string){if(!this.save.data.discovered.includes(id)){this.notify('Voe até este lugar para descobrir sua assinatura.');return;}this.togglePanel('');this.hooks.travel(id);}
-  refreshDestinations(){const list=$('#landmark-list');list.innerHTML=LANDMARKS.map(l=>`<button class="destination ${this.save.data.discovered.includes(l.id)?'discovered':''}" data-id="${l.id}"><span>${icon('pin',16)}${l.shortName}</span><small>${this.save.data.discovered.includes(l.id)?'TRANSLOCAR ↗':'NÃO DESCOBERTO'}</small></button>`).join('');list.querySelectorAll<HTMLButtonElement>('button').forEach(button=>button.onclick=()=>this.travel(button.dataset.id!));}
+  private travel(id:string){if(id.startsWith('u1-test-')||id.startsWith('u2-test-')){this.hooks.travel(id,true);return;}if(!this.save.data.discovered.includes(id)){this.notify('Voe até este lugar para descobrir sua assinatura.');return;}this.togglePanel('');this.hooks.travel(id);}
+  /** Phase names the player can act on, rather than the controller's internal vocabulary. */
+  private static readonly CRUISE_PHASES: Record<string,string> = {
+    capture:'CAPTURA', arrived:'CHEGADA', idle: 'PRONTO PARA CRUISE',
+    align: 'ALINHE-SE AO DESTINO',
+    acceleration: 'ACELERANDO',
+    cruise: 'COSMIC CRUISE',
+    braking: 'FRENAGEM',
+    approach: 'APROXIMAÇÃO',
+    'landing-capture': 'POUSO · CAPTURA', 'landing-hold': 'POUSO · AGUARDANDO SUPERFÍCIE',
+  };
+
+  /**
+   * The cruise readout.
+   *
+   * The controller has carried this telemetry for a while and nothing consumed it, so the numbers
+   * the player most needs -- how far, how fast, how long -- existed only inside an object nobody
+   * read. Shown beside the flight modes rather than buried in the debug panel, because a
+   * destination and an ETA are gameplay, not diagnostics.
+   */
+  private renderCruiseBlock(state:HUDState){
+    const block=$('#cruise-block');
+    if(state.location.transit){block.hidden=false;block.innerHTML=hypercruiseTelemetry(state.location.transit,state.flight?.universalTarget?.target.displayName);return;}
+    const flight=state.flight;
+    // Shown for a target *or* an engaged warp: the gear matters even with nowhere chosen.
+    if(!flight||(!flight.universalTarget&&!flight.targetBodyId&&!flight.warpStep)){block.hidden=true;return;}
+    block.hidden=false;
+    const speed=formatSpeed(flight.speedMps);
+    const accel=Math.abs(flight.accelerationMps2)>=1000
+      ? `${Math.round(flight.accelerationMps2/1000).toLocaleString('pt-BR')} km/s²`
+      : `${Math.round(flight.accelerationMps2)} m/s²`;
+    block.innerHTML=`<b>${HUD.CRUISE_PHASES[flight.phase]??flight.phase}</b>`
+      +`<span>GALÁXIA ATUAL<i>${formatGalaxyName(state.location?.address.galaxyId)}</i></span><span>SISTEMA ATUAL<i>${this.lastSystemBodies.find(b=>!b.parentId)?.name??state.location?.address.systemId??'—'}</i></span><span>SETOR<i>${state.location?Object.values(state.location.address.sector).join(','):'—'}</i></span><span>LOCK<i>${flight.lockActive?'ATIVO':'—'}</i></span><span>PILOTO<i>${flight.autopilotActive?'ATIVO':'MANUAL'}</i></span>`
+      +(flight.warpLabel?`<span>WARP<i class="warp">${flight.warpLabel}</i></span>`:'')
+      +`<span>DESTINO<i>${flight.targetName??flight.targetBodyId??'—'}</i></span>`
+      +(flight.universalTarget?`<span>TIPO<i>${flight.universalTarget.target.kind.replaceAll('-',' ').toUpperCase()}</i></span><span>GALÁXIA DO ALVO<i>${formatGalaxyName(flight.universalTarget.target.galaxyId)}</i></span><span>VIAGEM<i>${travelCapabilityLabel(flight.universalTarget.travelCapability)}</i></span>`:'')
+      +`<span>${flight.photosphereClearanceM===undefined?'DISTÂNCIA':'FOTOSFERA'}<i>${flight.distanceToTargetM===undefined?'—':formatDistance(flight.photosphereClearanceM??flight.distanceToTargetM)}</i></span>`
+      +(flight.photosphereClearanceM===undefined?'':`<span>CENTRO<i>${formatDistance(flight.distanceToTargetM!)}</i></span><span>DIÂMETRO ANGULAR<i>${flight.angularDiameterDeg?.toFixed(2)}°</i></span>`)
+      +`<span>VELOCIDADE<i>${speed.value} ${speed.unit}</i></span>`
+      +`<span>ACELERAÇÃO<i>${accel}</i></span>`
+      +`<span>RELATIVA<i>${formatSpeed(flight.relativeSpeedMps??0).value} ${formatSpeed(flight.relativeSpeedMps??0).unit}</i></span>`
+      +`<span>FECHAMENTO<i>${(flight.closingSpeedMps??0)<0?'-':''}${formatSpeed(flight.closingSpeedMps??0).value} ${formatSpeed(flight.closingSpeedMps??0).unit}</i></span>`
+      +`<span>ETA<i>${formatDuration(flight.timeToTargetS)}</i></span>`;
+  }
+
+  private setTarget(id:string){this.togglePanel('');this.hooks.setTarget(id);}
+  
+  private lastSystemBodies: readonly HUDBody[] = [];
+  private lastFlight?: HUDFlightTelemetry;
+  refreshDestinations(systemBodies?: readonly HUDBody[]){
+    if (systemBodies) this.lastSystemBodies = systemBodies;
+    const list=$('#landmark-list');
+    let html=LANDMARKS.map(l=>`<button class="destination ${this.save.data.discovered.includes(l.id)?'discovered':''}" data-id="${l.id}"><span>${icon('pin',16)}${l.shortName}</span><small>${this.save.data.discovered.includes(l.id)?'TRANSLOCAR ↗':'NÃO DESCOBERTO'}</small></button>`).join('');
+    
+    if (this.lastSystemBodies.length > 0) {
+      html += '<div style="margin-top: 1rem; border-top: 1px solid #333; padding-top: 1rem;"><span class="eyebrow" style="color: #94a3b8; font-size: 10px; font-weight: 600;">SISTEMA SOLAR (NAVEGAÇÃO)</span></div>';
+      html += this.lastSystemBodies.map(b => {
+        const [x,y,z] = b.systemPositionM;
+        return `<button class="destination discovered${b.selected?' on':''}" data-target="${b.id}">`
+          + `<span>${icon('orbit',16)}${b.name}</span>`
+          + `<small>${b.selected?'ALVO ATUAL':'SELECIONAR ALVO ↗'}</small>`
+          + `<i class="body-coords">X ${formatDistance(x)} · Y ${formatDistance(y)} · Z ${formatDistance(z)}`
+          + ` · ${formatDistance(b.distanceFromPlayerM)}</i></button>`;
+      }).join('');
+    }
+    
+    list.innerHTML = html;
+    list.querySelectorAll<HTMLButtonElement>('button[data-id]').forEach(button=>button.onclick=()=>this.travel(button.dataset.id!));
+    list.querySelectorAll<HTMLButtonElement>('button[data-target]').forEach(button=>button.onclick=()=>this.setTarget(button.dataset.target!));
+  }
   update(dt:number,state:HUDState,camera:PerspectiveCamera){
     this.lastFps=state.fps;this.lastBackend=state.backend;
+    // The list was built from a field nothing ever wrote to: Game passed the bodies and the
+    // HUD kept its own empty copy, so the destination list was permanently empty.
+    if(state.systemBodies)this.lastSystemBodies=state.systemBodies;
+    this.lastFlight=state.flight;
     // The video tab shows a live frame rate, which is the whole point of reading it while paused.
     if(this.openPanel==='pause'&&this.pauseTab==='video'){this.elapsed+=dt;if(this.elapsed>.4){this.elapsed=0;this.refreshPause();}}
     this.elapsed+=dt;this.mapElapsed+=dt;this.toastTimer-=dt;if(this.toastTimer<=0)$('#toast').classList.remove('visible');
     if(this.elapsed<.1)return;this.elapsed=0;
     $('#welcome').classList.toggle('faded',performance.now()>16000||state.velocity.length()>2);
-    const nearest=LANDMARKS.reduce((best,l)=>Math.hypot(l.x-state.position.x,l.z-state.position.z)<Math.hypot(best.x-state.position.x,best.z-state.position.z)?l:best,LANDMARKS[0]);
-    const near=Math.hypot(nearest.x-state.position.x,nearest.z-state.position.z)<Math.max(400,nearest.radius*2);
-    const place=near?nearest.name:'Sobre a Amazônia';if(this.lastPlace!==place){$('#place-name').textContent=place;this.lastPlace=place;}
-    $('#location-state').textContent=state.temporal?'PERCEPÇÃO TEMPORAL':state.size>12?'MAGNITUDE COLOSSAL':state.size>2?'MAGNITUDE GIGANTE':near?'ASSINATURA LOCALIZADA':'EXPLORAÇÃO LIVRE';
-    $('#district').textContent=state.district;
-    const geo=worldToLatLon(state.position.x,state.position.z);$('#coordinates').textContent=`${Math.abs(geo.lat).toFixed(4)}° S   ${Math.abs(geo.lon).toFixed(4)}° O`;
+    const presentation = resolveHUDPresentation(state);
+    const localMissionActive = presentation.localUiVisible && state.missionMarkerActive;
+    $('#hud').dataset.presentationDomain = presentation.domain;
+    $('.mission').hidden = !presentation.localUiVisible;
+    $('.minimap-button').hidden = !presentation.localUiVisible;
+    if(this.lastPlace!==presentation.place){$('#place-name').textContent=presentation.place;this.lastPlace=presentation.place;}
+    $('#location-domain').textContent=presentation.domainLabel;
+    $('#location-state').textContent=state.temporal?'PERCEPÇÃO TEMPORAL':state.size>12?'MAGNITUDE COLOSSAL':state.size>2?'MAGNITUDE GIGANTE':presentation.locationState;
+    $('#district').textContent=presentation.contextLabel;
+    $('#coordinates').textContent=presentation.coordinates;
     $('#mission-title').textContent=state.title;$('#mission-objective').textContent=state.objective;$('#mission-type').textContent=state.stage>=4?'EXPLORAÇÃO LIVRE':'CAPÍTULO 01';
-    const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`;
+    const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':(!localMissionActive?'(Fora do alcance de Manaus)':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`);
     $('#control-hint').textContent=state.hint;
-    for(const badge of document.querySelectorAll<HTMLElement>('#flight-modes b')){const mode=badge.dataset.mode!;badge.classList.toggle('on',mode===state.speedMode);badge.classList.toggle('armed',mode==='mega'&&state.megaMode&&state.speedMode!=='mega');}
+    const tierLabel=$('#flight-tier-label');tierLabel.textContent=state.flightLabel??'';tierLabel.hidden=!state.flightLabel;
+    for(const badge of document.querySelectorAll<HTMLElement>('#flight-modes b')){const mode=badge.dataset.mode!;badge.classList.toggle('on',mode===state.speedMode);badge.classList.toggle('armed',(mode==='mega'&&state.megaMode&&state.speedMode!=='mega')||(mode==='interplanetary'&&state.interplanetaryMode&&state.speedMode!=='interplanetary'));}
     // The orbital band only appears once the atmosphere has actually started to thin.
-    const band=$('#space-band');band.hidden=state.spaceFactor<=.02;
-    if(!band.hidden)$('#space-label').textContent=state.spaceFactor>.92?'ÓRBITA':state.spaceFactor>.55?'LINHA DE KÁRMÁN':'ALTA ATMOSFERA';
-    $('#speed').textContent=Math.round(state.velocity.length()*3.6).toString();$('#altitude').textContent=Math.round(state.position.y)+' m';$('#flight-state').textContent=state.velocity.length()>343?'SUPERSÔNICO':state.state==='Grounded'?'EM SOLO':state.state==='Hover'?'LEVITANDO':'EM VOO';
+    const band=$('#space-band');band.hidden=presentation.domain==='local'&&state.spaceFactor<=.02;
+    this.renderCruiseBlock(state);
+    if(!band.hidden)$('#space-label').textContent=presentation.domain==='orbital'?'ÓRBITA':presentation.domain==='planetary'?'CURVATURA PLANETÁRIA':state.spaceFactor>.55?'LINHA DE KÁRMÁN':'ALTA ATMOSFERA';
+    const speed=typeof state.speedMps==='number'?state.speedMps:state.velocity.length();
+    let speedStr = '0', unitStr = 'km/h';
+    if (speed > 29979245) { speedStr = (speed / 299792458).toFixed(2); unitStr = 'c'; }
+    else if (speed > 50000) { speedStr = Math.round(speed / 1000).toLocaleString(); unitStr = 'km/s'; }
+    else if (speed > 1000) { speedStr = (speed / 1000).toFixed(1); unitStr = 'km/s'; }
+    else { speedStr = Math.round(speed * 3.6).toLocaleString(); unitStr = 'km/h'; }
+    $('#speed').textContent=speedStr;
+    const speedUnitElement = $('#speed-unit');
+    if (speedUnitElement) speedUnitElement.textContent=unitStr;
+    
+    const alt=typeof state.altitudeM==='number'?state.altitudeM:state.position.y;
+    $('#altitude').textContent=alt>999999?(alt/1000).toFixed(0)+' km':alt>9999?(alt/1000).toFixed(1)+' km':Math.round(alt)+' m';
+    $('#flight-state').textContent=speed>343?'SUPERSÔNICO':state.state==='Grounded'?'EM SOLO':state.state==='Falling'?'EM QUEDA':state.state==='Hover'?'LEVITANDO':'EM VOO';
+    if(state.location.transit){$('#altitude').textContent='EM TRÂNSITO';$('#flight-state').textContent='HYPERCRUISE';}
     $('#world-time').textContent=state.time;$('#world-weather').textContent=({clear:'CÉU LIMPO',cloudy:'NUBLADO',rain:'CHUVA',storm:'TEMPORAL'} as Record<string,string>)[state.weather]??state.weather;
     const directions=['N','NE','L','SE','S','SO','O','NO'];const heading=((state.yaw*180/Math.PI)%360+360)%360;$('#heading').textContent=directions[Math.round(heading/45)%8];
     document.querySelectorAll<HTMLButtonElement>('[data-power]').forEach(button=>button.classList.toggle('active',button.dataset.power===state.selected));
     $('#power-current').textContent=state.selected==='punch'?'COMBATE · SOCO':state.selected==='kick'?'COMBATE · CHUTE':POWERS.find(p=>p[0]===state.selected)?.[1].toUpperCase()??'EMISSÃO';
     document.body.classList.toggle('temporal',state.temporal);document.body.classList.toggle('supersonic',state.velocity.length()>300);
-    const marker=$('#objective-marker');this.temp.copy(state.destination).sub(state.origin).project(camera);marker.hidden=state.stage===0||state.stage===4&&state.remaining===0||this.temp.z>1||Math.abs(this.temp.x)>.85||Math.abs(this.temp.y)>.7;
+    const marker=$('#objective-marker');this.temp.copy(state.destination).sub(state.origin).project(camera);marker.hidden=!localMissionActive||state.stage===0||state.stage===4&&state.remaining===0||this.temp.z>1||Math.abs(this.temp.x)>.85||Math.abs(this.temp.y)>.7;
     if(!marker.hidden){marker.style.left=`${(this.temp.x*.5+.5)*100}%`;marker.style.top=`${(-this.temp.y*.5+.5)*100}%`;marker.querySelector('small')!.textContent=distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m';}
     if(this.debugOpen)$('#debug-metrics').innerHTML=Object.entries(state.debug).map(([key,value])=>`<div><span>${key}</span><b>${value}</b></div>`).join('');
-    if(this.mapElapsed>.3){this.mapElapsed=0;this.mini.draw(state.position,state.yaw,this.save.data.discovered,state.stage>0?state.destination:undefined);if(this.openPanel==='map')this.map.draw(state.position,state.yaw,this.save.data.discovered,state.destination);}
+    if(this.mapElapsed>.3){
+      this.mapElapsed=0;
+      if (presentation.localUiVisible) {
+        this.mini.draw(state.position,state.yaw,this.save.data.discovered,state.stage>0?state.destination:undefined);
+      } else {
+        this.mini.clear();
+      }
+      if(this.openPanel==='map'){
+        if(presentation.localUiVisible)this.map.draw(state.position,state.yaw,this.save.data.discovered,state.destination);
+        this.universalMap.update(state.location, state.position, state.destination, this.lastSystemBodies, this.lastFlight, state.targetCatalog);
+      }
+    }
   }
 }
