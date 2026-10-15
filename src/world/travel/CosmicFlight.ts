@@ -66,6 +66,7 @@ export interface FlightTelemetry {
 
 export interface CosmicCruiseContext extends TravelContext {
   targetCanLand?: boolean;
+  targetLandingMode?: 'none' | 'surface' | 'photosphere';
   targetSurfaceClearanceM?: number;
   targetSurfaceReady?: boolean;
   returnAltitudeM?: number;

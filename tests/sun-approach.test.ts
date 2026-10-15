@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu';
 import { SOLAR_SYSTEM_BODIES } from '../src/world/celestial/CelestialBody.ts';
-import { bodyArrivalPolicy, bodyProfile } from '../src/world/celestial/CelestialBodyProfile.ts';
+import { bodyArrivalPolicy, bodyProfile, supportsLanding, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2, PROCEDURAL_STAR_PROFILE } from '../src/world/celestial/CelestialBodyProfile.ts';
 import { bodyExclusionEnvelopes, resolveBodyDestination } from '../src/world/travel/BodyNavigation.ts';
 import { CosmicCruiseController, type CosmicCruiseContext } from '../src/world/travel/CosmicFlight.ts';
 import { LIGHT_SPEED_MPS } from '../src/world/travel/TravelConstants.ts';
@@ -66,13 +66,38 @@ test('T_SUN_MANUAL_CAN_CONTINUE_AFTER_AUTOPILOT_CANCEL',()=>{const f=flight();f.
 test('T_SUN_C4_CONTACT_USES_NEW_BOUNDARY',()=>{const r=manual(edge+1000,LIGHT_SPEED_MPS*1.001);assert.equal(r.contact?.envelopeRadiusM,edge);assert.ok(Math.abs(r.event.contactSystemPositionM[1]-edge)<1);});
 test('T_SUN_CATASTROPHIC_EVENT_AT_HIGH_SPEED',()=>{const f=impactFixture('sun',LIGHT_SPEED_MPS*1.001);try {f.step();for(let i=0;i<120;i++)f.step();assert.equal(f.event().classification,'CATASTROPHIC_IMPACT');assert.equal(f.game.celestialImpacts.emittedCount,1);}finally{f.dispose();}});
 test('T_SUN_NO_PLANET_VOLUME',()=>{const f=impactFixture('sun');try{const before={...f.universe.volume.metrics};f.universe.volume.edits.add=()=>{throw Error('star must never edit');};f.step();assert.deepEqual(f.universe.volume.metrics,before);assert.equal(bodyProfile(sun).supportsVolumeDestruction,false);}finally{f.dispose();}});
-test('T_SUN_PHOTOSPHERE_LANDING_SUPPORTED', () => {
+test('T_SUN_CAPABILITY_CONSISTENT', () => {
   const p = bodyProfile(sun);
   assert.equal(p.canLand, true);
+  assert.equal(p.hasSolidSurface, false);
   assert.equal(p.landingMode, 'photosphere');
+  assert.equal(supportsLanding(p), 'photosphere');
 });
 
-test('T_SUN_NOT_ROCKY_SURFACE', () => {
+test('T_SUN_AUTOPILOT_LANDING_POLICY', () => {
+  const f = flight();
+  assert.equal(f.controller.autopilot.phase, 'arrived');
+  // Autopilot without explicit landing intent captures and holds at standoff (captureRadius = R + arrivalMarginM)
+  assert.ok(Math.abs(f.state.positionM[1] - R - policy.arrivalMarginM) < 4);
+  assert.equal(policy.arrivalMarginM, 20_871_000);
+  assert.ok(f.minimum >= R + policy.arrivalMarginM, 'Autopilot does not descend to photosphere without explicit intent');
+});
+
+test('T_SUN_EXPLICIT_F_LANDING_INTENT', () => {
+  const f = impactFixture('sun', 200);
+  try {
+    f.game.landingIntent.request('sun');
+    assert.equal(f.game.landingIntent.active, true);
+    assert.equal(f.game.landingIntent.bodyId, 'sun');
+    assert.equal(f.game.landingIntent.phase, 'capture');
+    for (let i = 0; i < 30; i++) f.step();
+    assert.ok(f.travelDomain.state);
+  } finally {
+    f.dispose();
+  }
+});
+
+test('T_SUN_NOT_ROCKY', () => {
   const p = bodyProfile(sun);
   assert.equal(p.hasSolidSurface, false);
   assert.equal(p.surfaceKind, 'none');
@@ -84,17 +109,27 @@ test('T_SUN_PHOTOSPHERE_RADIUS_695700KM', () => {
   assert.equal(R, 695_700_000);
 });
 
-test('T_SUN_LANDING_CAPTURE', () => {
-  const f = impactFixture('sun', 200);
-  try {
-    f.game.landingIntent.request('sun');
-    assert.equal(f.game.landingIntent.active, true);
-    assert.equal(f.game.landingIntent.bodyId, 'sun');
-    for (let i = 0; i < 30; i++) f.step();
-    assert.ok(f.travelDomain.state);
-  } finally {
-    f.dispose();
-  }
+test('T_SUN_GAMEPLAY_GRAVITY_EXPLICIT', () => {
+  assert.equal(PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2, 9.80665);
+  // Verify it is explicit gameplay buoyancy policy, NOT the lethal 274 m/s² gravitational field
+  assert.ok(PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2 < 20.0);
+});
+
+test('T_GENERIC_PROCEDURAL_STARS_NOT_LANDABLE', () => {
+  const genericStar = {
+    id: 'procedural_star_hd12345',
+    name: 'HD 12345',
+    frameId: 'system/hd12345',
+    equatorialRadiusM: 800_000_000,
+    massKg: 2e30,
+    axialTiltRad: 0,
+    rotationPeriodS: 2_000_000,
+  };
+  const profile = bodyProfile(genericStar as any);
+  assert.equal(profile.bodyClass, 'star');
+  assert.equal(profile.canLand, false, 'Generic procedural stars must not be landable');
+  assert.equal(profile.landingMode, 'none', 'Generic procedural stars landingMode is none');
+  assert.equal(supportsLanding(profile), 'none');
 });
 
 test('T_SUN_PHOTOSPHERE_CONTACT_NO_BOUNCE', () => {
@@ -103,7 +138,7 @@ test('T_SUN_PHOTOSPHERE_CONTACT_NO_BOUNCE', () => {
   assert.equal(r.contact?.responseRadialSpeedMps, 0);
 });
 
-test('T_SUN_SAFE_LOCAL_HANDOFF', () => {
+test('T_SUN_ACTUAL_LOCAL_HANDOFF', () => {
   const u = new UniverseRuntime({ epochS: 0 });
   try {
     const sunCentre = u.activeSystem.positionOf('sun')!;
@@ -131,6 +166,38 @@ test('T_SUN_SAFE_LOCAL_HANDOFF', () => {
   }
 });
 
+test('T_SUN_PHOTOSPHERE_GROUND_CONTACT', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    u.updateSystemPose([sunCentre[0], sunCentre[1] + R, sunCentre[2]], [0, 0, 0], 0);
+    const localPos = u.handoffTo('sun');
+    assert.equal(u.player.frame, 'sun/local-enu');
+    assert.ok(localPos.every(Number.isFinite));
+    assert.ok(Math.abs(localPos[1]) < 0.1, 'Character is placed on the photospheric surface plane at y=0');
+  } finally {
+    u.dispose();
+  }
+});
+
+test('T_SUN_PHOTOSPHERE_MOVEMENT', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    u.updateSystemPose([sunCentre[0], sunCentre[1] + R, sunCentre[2]], [0, 0, 0], 0);
+    u.handoffTo('sun');
+    assert.equal(u.player.frame, 'sun/local-enu');
+    // Move 100m east (+X) and 50m south (+Z) on the photospheric ENU plane
+    u.player.position[0] += 100;
+    u.player.position[2] += 50;
+    assert.ok(u.player.position.every(Number.isFinite));
+    const loc = u.location;
+    assert.equal(loc.frameId, 'sun/local-enu');
+  } finally {
+    u.dispose();
+  }
+});
+
 test('T_SUN_TANGENT_FRAME_FINITE', () => {
   const u = new UniverseRuntime({ epochS: 0 });
   try {
@@ -146,7 +213,7 @@ test('T_SUN_TANGENT_FRAME_FINITE', () => {
   }
 });
 
-test('T_SUN_TAKEOFF', () => {
+test('T_SUN_PHOTOSPHERE_TAKEOFF', () => {
   const u = new UniverseRuntime({ epochS: 0 });
   try {
     const sunCentre = u.activeSystem.positionOf('sun')!;
@@ -165,7 +232,7 @@ test('T_SUN_TAKEOFF', () => {
   }
 });
 
-test('T_SUN_PHOTOSPHERE_NO_CRATER', () => {
+test('T_SUN_NO_CRATER', () => {
   const p = bodyProfile(sun);
   assert.equal(p.supportsVolumeDestruction, false);
   const plan = planRockyImpact({
@@ -180,6 +247,12 @@ test('T_SUN_PHOTOSPHERE_NO_CRATER', () => {
     kineticEnergyJoules: 1e12,
   } as any, sun, p, undefined as any);
   assert.equal(plan, null);
+});
+
+test('T_SUN_256C_CCD_PRESERVED', () => {
+  const r = manual(5 * R, LIGHT_SPEED_MPS * 256, 0.25);
+  assert.ok(r.contact, 'CCD detects contact even at 256c');
+  assert.ok(Math.hypot(...r.position.map((v, i) => v - r.centre[i])) >= edge, 'Does not tunnel through photospheric exclusion boundary');
 });
 test('T_SUN_ANGULAR_SIZE_MONOTONIC',()=>{let previous=0;for(const d of [149597870700,10*R,5*R,2*R,1.5*R,1.1*R,1.03*R,edge]){const angle=angularRadiusRad(R,d);assert.ok(Number.isFinite(angle)&&angle>previous);previous=angle;}});
 for(const [name,d] of [['1AU_SIZE_FINITE',149597870700],['10R_SIZE',10*R],['5R_SIZE',5*R],['2R_SIZE',2*R],['1_5R_SIZE',1.5*R],['1_1R_SIZE',1.1*R],['1_03R_SIZE',1.03*R],['NEAR_PHOTOSPHERE_SIZE_FINITE',edge]] as const) {

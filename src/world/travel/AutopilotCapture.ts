@@ -36,7 +36,8 @@ export class AutopilotCapture {
     const speed = Math.hypot(rx, ry, rz);
     const captureRadius = target.radiusM + target.arrivalMarginM;
     if (distance <= captureRadius + 3 && speed <= 3) this.captured = true;
-    const approach = this.captured && ctx.targetCanLand === true;
+    const targetIsPhotosphere = ctx.targetLandingMode === 'photosphere' || target.bodyId === 'sun';
+    const approach = this.captured && ctx.targetCanLand === true && (!targetIsPhotosphere || ctx.landingIntent?.bodyId === target.bodyId);
     // First capture at the shared arrival margin. Then descend slowly, waiting above the
     // TravelDomain return gate until its real terrain provider covers the landing site.
     const clearance = ctx.targetSurfaceClearanceM;

@@ -76,9 +76,57 @@ export const SOLAR_BODY_PROFILES: Readonly<Record<string, CelestialBodyProfile>>
 // Unclassified procedural bodies remain proxies; their surfaces require an explicit profile.
 const UNKNOWN_PROFILE: CelestialBodyProfile = { ...SOLAR_BODY_PROFILES.mercury,
   canLand: false, landingMode: 'none', supportsVolumeDestruction: false, surfaceKind: 'none' };
+
+export const PROCEDURAL_STAR_PROFILE: CelestialBodyProfile = {
+  bodyClass: 'star',
+  hasSolidSurface: false,
+  canLand: false,
+  landingMode: 'none',
+  hasAtmosphere: false,
+  supportsVolumeDestruction: false,
+  surfaceKind: 'none',
+  visual: {
+    albedo: [1, 0.98, 0.9],
+    solarGlow: { innerScale: 2, outerScale: 5 },
+    labelPriority: 10,
+  },
+};
+
 export function bodyProfile(body: CelestialBody): CelestialBodyProfile {
-  return SOLAR_BODY_PROFILES[body.id] ?? body.profile ?? (body.parentId ? UNKNOWN_PROFILE : SOLAR_BODY_PROFILES.sun);
+  if (SOLAR_BODY_PROFILES[body.id]) {
+    return SOLAR_BODY_PROFILES[body.id];
+  }
+  if (body.profile) {
+    return body.profile;
+  }
+  return body.parentId ? UNKNOWN_PROFILE : PROCEDURAL_STAR_PROFILE;
 }
+
+export type LandingSupportKind = 'none' | 'surface' | 'photosphere';
+
+/**
+ * Centrally evaluates the landing capability supported by a celestial profile.
+ * - 'surface': rocky / solid surface terrain landing (Earth, Moon, Mars)
+ * - 'photosphere': controlled stellar photosphere landing (Sun / Sol)
+ * - 'none': cannot be landed on (gas giants, icy moon proxies, generic procedural stars)
+ */
+export function supportsLanding(profile: CelestialBodyProfile): LandingSupportKind {
+  if (!profile.canLand) return 'none';
+  if (profile.landingMode === 'photosphere') return 'photosphere';
+  if (profile.landingMode === 'surface' || (profile.hasSolidSurface && profile.landingMode !== 'none')) {
+    return 'surface';
+  }
+  return 'none';
+}
+
+/**
+ * Explicit named gameplay gravity policy for photosphere contact (m/s²).
+ * Solar surface gravity in reality is ~274 m/s² (28g), which would immediately immobilize
+ * or crush a humanoid character controller. Fictional contact semantics use an active
+ * Lorentz/magnetohydrodynamic buoyancy suspension field calibrated to Earth-normal gravity (9.81 m/s²),
+ * allowing stable and responsive character locomotion across the convective photosphere envelope.
+ */
+export const PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2 = 9.80665;
 
 export interface BodyArrivalPolicy {
   readonly arrivalMarginM: number;

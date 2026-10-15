@@ -43,8 +43,8 @@
 | [`4cc6b2f`](https://github.com/PauloSoaf/Dr-Manaus/commit/4cc6b2f) | U3: controles de hipercruzeiro e apresentação de trânsito limitada |
 | [`b3156a2`](https://github.com/PauloSoaf/Dr-Manaus/commit/b3156a2) | U3: cancelamento robusto e seleção de destino de produção |
 | [`6cb37fb`](https://github.com/PauloSoaf/Dr-Manaus/commit/6cb37fb) | Preserva a posição de trânsito após falha de ativação da chegada |
-| [`225e995`](https://github.com/PauloSoaf/Dr-Manaus/commit/225e995) | Benchmark de rota procedural considera a espera de chegada |
-| [`P0-POLISH`](https://github.com/PauloSoaf/Dr-Manaus) | P0: apresentação planetária, mapa 3D da Terra, rios, iluminação, voo e fotosfera solar |
+| [`68af476`](https://github.com/PauloSoaf/Dr-Manaus/commit/68af476) | P0: apresentação planetária, mapa 3D da Terra, rios, iluminação, voo e fotosfera solar |
+| [`P0.1-HARDENING`](https://github.com/PauloSoaf/Dr-Manaus) | P0.1: fidelidade geográfica, rios orbitais no EarthGlobe, mapa 3D WebGL e pouso solar consistente |
 
 **Depende de:** nenhuma outra branch. O diff é contra `main`; como a branch acumula o histórico desde a base jogável, ele é grande (1.222 arquivos, a maior parte dados de tiles em `public/geodata/real-city/tiles/`).
 

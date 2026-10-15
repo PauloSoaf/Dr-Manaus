@@ -1,4 +1,4 @@
-import {BufferGeometry,Color,DoubleSide,FrontSide,Float32BufferAttribute,Group,Mesh,MeshBasicNodeMaterial,ShapeUtils,Vector2,Vector3} from 'three/webgpu';
+import {BufferGeometry,Color,DoubleSide,FrontSide,Float32BufferAttribute,Group,Mesh,MeshBasicNodeMaterial,Quaternion,ShapeUtils,Vector2,Vector3} from 'three/webgpu';
 import {attribute,normalWorld,uniform} from 'three/tsl';
 import type {WaterFile} from './WaterSystem';
 import {earthDirectLightNode,earthNightAmbientNode} from './PlanetVolumeLighting';
@@ -12,7 +12,8 @@ import {surfaceHeightAt} from '../world/planet/EarthElevation';
 
 export const MANAUS_AERIAL=Object.freeze({startM:8000,fullM:12000,massFadeStartM:25000,massFadeEndM:40000,
   regionSizeM:40000,fadePixels:80,fullPixels:180,chunkM:16000,maxMeshes:256,maxBytes:32*1048576,
-  maxRiverTriangles:120000,maxUrbanCells:8000,maxRoadSegments:20000,maxEdgeM:2000,renderLimitM:20000000});
+  maxRiverTriangles:120000,maxUrbanCells:8000,maxRoadSegments:20000,maxEdgeM:2000,
+  fadeDistanceStartM:25000000,renderLimitM:40000000,farMarkerRadiusM:4500});
 export interface ManausAerialData {version:number;tileSize:number;skyline:Record<string,number[]>;
   roads:readonly {class:string;width:number;p:number[]}[];}
 type Kind='river'|'urban'|'mass'|'roads';
@@ -25,7 +26,7 @@ export function manausAerialWeights(altitudeM:number,distanceM:number,fovRad:num
   const opacity=altFade*pixelFadeB;
   const mass=opacity*(1-smooth(MANAUS_AERIAL.massFadeStartM,MANAUS_AERIAL.massFadeEndM,altitudeM));
   const farPixelFade=1-pixelFadeB;
-  const farDistanceLimit=distanceM<MANAUS_AERIAL.renderLimitM?1:0;
+  const farDistanceLimit=1-smooth(MANAUS_AERIAL.fadeDistanceStartM,MANAUS_AERIAL.renderLimitM,distanceM);
   const farOpacity=altFade*farPixelFade*farDistanceLimit;
   return {opacity,mass,farOpacity,pixels};
 }
@@ -110,7 +111,7 @@ export class ManausAerialPresentation {
     this.root.name='Manaus · curved aerial presentation';this.root.visible=false;parent.add(this.root);
   }
   private buildFarMarker():void {
-    const segments=32,radiusM=14000,positions:number[]=[],normals:number[]=[],colors:number[]=[];
+    const segments=32,radiusM=MANAUS_AERIAL.farMarkerRadiusM,positions:number[]=[],normals:number[]=[],colors:number[]=[];
     const norm=new Vector3(MANAUS_ANCHOR_ECEF.xM,MANAUS_ANCHOR_ECEF.yM,MANAUS_ANCHOR_ECEF.zM).normalize();
     const up=norm,east=new Vector3(-up.y,up.x,0).normalize(),north=new Vector3().crossVectors(up,east).normalize();
     const rEarth=6378137,heightOffset=30;
@@ -186,9 +187,13 @@ export class ManausAerialPresentation {
     for(const {part,mesh} of this.parts){const pos=this.renderSpace.logicalToRender(EARTH_FIXED_FRAME_ID,part.centre);
       mesh.position.set(...pos);mesh.quaternion.set(...orientation);mesh.visible=part.kind!=='mass'?weights.opacity>.001:weights.mass>.001;}
     if(this.farMesh){
+      const normEcef=new Vector3(MANAUS_ANCHOR_ECEF.xM,MANAUS_ANCHOR_ECEF.yM,MANAUS_ANCHOR_ECEF.zM).normalize();
+      const normRender=normEcef.applyQuaternion(new Quaternion(orientation[0],orientation[1],orientation[2],orientation[3]));
+      const toCam=new Vector3(cameraPosition[0]-anchor[0],cameraPosition[1]-anchor[1],cameraPosition[2]-anchor[2]).normalize();
+      const occludedByEarth=toCam.dot(normRender)<-0.02;
       this.farMesh.position.set(...anchor);
       this.farMesh.quaternion.set(...orientation);
-      this.farMesh.visible=weights.farOpacity>.001;
+      this.farMesh.visible=weights.farOpacity>.001&&!occludedByEarth;
     }
   }
   get stats(){const triangles={river:0,urban:0,mass:0,roads:0,far:this.farTriangles};let bytes=this.farBytes,drawCalls=0;

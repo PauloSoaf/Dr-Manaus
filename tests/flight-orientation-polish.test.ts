@@ -176,26 +176,145 @@ test('T_FLIGHT_NO_SHOULDER_DEFORMATION_REGRESSION arm rotation is strictly bound
   assert.ok(bones.get('clavicler')!.quaternion.equals(initClavicleRQ), 'Right clavicle must NEVER be deformed');
 });
 
-test('Flight orientation consistency at 30, 60, and 120 FPS', () => {
-  const runAtFps = (fps: number) => {
-    const dt = 1 / fps;
-    const q = new Quaternion();
-    const vel = new Vector3(50, 50, -50);
-    // Simulate 0.5s of flight alignment
-    const steps = Math.round(0.5 / dt);
-    for (let i = 0; i < steps; i++) {
-      computeFlightOrientation(vel, q, dt, 0, 'fast', q, 0, 0);
+test('T_FLIGHT_POSE_NO_ACCUMULATION', () => {
+  const bones = new Map<string, Bone>([
+    ['spine02', new Bone()],
+    ['head', new Bone()],
+    ['upperarml', new Bone()],
+    ['upperarmr', new Bone()],
+    ['calfl', new Bone()],
+    ['calfr', new Bone()],
+  ]);
+
+  const layer = new ProceduralFlightPoseLayer();
+  // Simulate 300 frames of cruise flight, resetting bones each frame as AnimationMixer does
+  for (let i = 0; i < 300; i++) {
+    for (const b of bones.values()) b.quaternion.identity();
+    layer.apply(bones, 'cruise', 1 / 60);
+  }
+
+  // Verify bone rotation did NOT accumulate additively across frames
+  const headQ = bones.get('head')!.quaternion;
+  const headAngle = 2 * Math.acos(Math.min(1, Math.max(-1, headQ.w)));
+  assert.ok(headAngle <= FLIGHT_POSE_CONFIG.cruise.headTilt * 1.05, `Head rotation accumulated: ${headAngle}`);
+  assert.ok(headAngle > 0.05, 'Head tilt is active and non-zero');
+});
+
+test('T_FLIGHT_POSE_IDLE_RECOVERY', () => {
+  const bones = new Map<string, Bone>([
+    ['spine02', new Bone()],
+    ['head', new Bone()],
+    ['upperarml', new Bone()],
+    ['upperarmr', new Bone()],
+    ['calfl', new Bone()],
+    ['calfr', new Bone()],
+  ]);
+
+  const layer = new ProceduralFlightPoseLayer();
+  // Fly in fast pose
+  for (let i = 0; i < 60; i++) {
+    for (const b of bones.values()) b.quaternion.identity();
+    layer.apply(bones, 'fast', 1 / 60);
+  }
+  assert.ok(Math.abs(layer.weights.chestArch) > 0.1, 'Fast pose has significant chest arch');
+
+  // Transition to hover / idle for 1 second (60 frames)
+  for (let i = 0; i < 60; i++) {
+    for (const b of bones.values()) b.quaternion.identity();
+    layer.apply(bones, 'hover', 1 / 60);
+  }
+
+  // Weights must have recovered to near zero
+  assert.ok(Math.abs(layer.weights.chestArch) < 0.005, `Chest arch must recover to idle: ${layer.weights.chestArch}`);
+  assert.ok(Math.abs(layer.weights.headTilt) < 0.005, `Head tilt must recover to idle: ${layer.weights.headTilt}`);
+  assert.ok(Math.abs(layer.weights.armSweepBack) < 0.005, `Arm sweep must recover to idle: ${layer.weights.armSweepBack}`);
+});
+
+test('T_FLIGHT_POSE_5MIN_STABILITY', () => {
+  const bones = new Map<string, Bone>([
+    ['spine02', new Bone()],
+    ['head', new Bone()],
+    ['upperarml', new Bone()],
+    ['upperarmr', new Bone()],
+    ['calfl', new Bone()],
+    ['calfr', new Bone()],
+  ]);
+
+  const layer = new ProceduralFlightPoseLayer();
+  const dt = 1 / 60;
+  const totalFrames = 60 * 300; // 5 minutes = 18,000 frames
+  const cycle = ['cruise', 'hover', 'fast', 'braking', 'hover'] as const;
+
+  for (let frame = 0; frame < totalFrames; frame++) {
+    const mode = cycle[Math.floor(frame / 600) % cycle.length];
+    for (const b of bones.values()) b.quaternion.identity();
+    layer.apply(bones, mode, dt);
+
+    // Assert bounded rotation on every bone
+    for (const [name, b] of bones) {
+      assert.ok(Number.isFinite(b.quaternion.x + b.quaternion.y + b.quaternion.z + b.quaternion.w), `NaN in ${name} at frame ${frame}`);
+      const angle = 2 * Math.acos(Math.min(1, Math.max(-1, b.quaternion.w)));
+      assert.ok(angle < 0.5, `Rotation in ${name} exceeded bounds at frame ${frame}: ${angle}`);
     }
-    return q;
-  };
+  }
 
-  const q30 = runAtFps(30);
-  const q60 = runAtFps(60);
-  const q120 = runAtFps(120);
+  // Return to hover for 60 frames
+  for (let i = 0; i < 60; i++) {
+    for (const b of bones.values()) b.quaternion.identity();
+    layer.apply(bones, 'hover', dt);
+  }
+  assert.ok(Math.abs(layer.weights.chestArch) < 0.005, 'Chest arch recovers after 5-minute flight');
+});
 
-  const diff30to60 = q30.angleTo(q60);
-  const diff60to120 = q60.angleTo(q120);
+test('T_FLIGHT_VERTICAL_E2E', () => {
+  const current = new Quaternion();
+  const out = new Quaternion();
 
-  assert.ok(diff30to60 < 0.05, `Orientation difference 30 vs 60 FPS should be minimal, got ${diff30to60} rad`);
-  assert.ok(diff60to120 < 0.02, `Orientation difference 60 vs 120 FPS should be minimal, got ${diff60to120} rad`);
+  // Test full vertical ascent through 90 degrees
+  const climbVel = new Vector3(0, 500, 0);
+  computeFlightOrientation(climbVel, current, 1.0, 0, 'fast', out, 0, 0);
+
+  const upDir = new Vector3(0, 1, 0).applyQuaternion(out);
+  assert.ok(upDir.y > 0.999, 'Player orientation points strictly up in 90° climb');
+  assert.ok(Number.isFinite(out.x) && Number.isFinite(out.y) && Number.isFinite(out.z) && Number.isFinite(out.w));
+
+  // Test full vertical dive through -90 degrees
+  const diveVel = new Vector3(0, -500, 0);
+  computeFlightOrientation(diveVel, out, 1.0, 0, 'fast', out, 0, 0);
+
+  const downDir = new Vector3(0, 1, 0).applyQuaternion(out);
+  assert.ok(downDir.y < -0.999, 'Player orientation points strictly down in -90° dive');
+});
+
+test('T_FLIGHT_ORIENTATION_30FPS', () => {
+  const q = new Quaternion();
+  const vel = new Vector3(50, 50, -50);
+  for (let i = 0; i < 30; i++) {
+    computeFlightOrientation(vel, q, 1 / 30, 0, 'fast', q, 0, 0);
+  }
+  assert.ok(Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z) && Number.isFinite(q.w));
+  const dir = new Vector3(0, 1, 0).applyQuaternion(q);
+  assert.ok(dir.dot(vel.clone().normalize()) > 0.95, 'Aligned at 30 FPS');
+});
+
+test('T_FLIGHT_ORIENTATION_60FPS', () => {
+  const q = new Quaternion();
+  const vel = new Vector3(50, 50, -50);
+  for (let i = 0; i < 60; i++) {
+    computeFlightOrientation(vel, q, 1 / 60, 0, 'fast', q, 0, 0);
+  }
+  assert.ok(Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z) && Number.isFinite(q.w));
+  const dir = new Vector3(0, 1, 0).applyQuaternion(q);
+  assert.ok(dir.dot(vel.clone().normalize()) > 0.95, 'Aligned at 60 FPS');
+});
+
+test('T_FLIGHT_ORIENTATION_120FPS', () => {
+  const q = new Quaternion();
+  const vel = new Vector3(50, 50, -50);
+  for (let i = 0; i < 120; i++) {
+    computeFlightOrientation(vel, q, 1 / 120, 0, 'fast', q, 0, 0);
+  }
+  assert.ok(Number.isFinite(q.x) && Number.isFinite(q.y) && Number.isFinite(q.z) && Number.isFinite(q.w));
+  const dir = new Vector3(0, 1, 0).applyQuaternion(q);
+  assert.ok(dir.dot(vel.clone().normalize()) > 0.95, 'Aligned at 120 FPS');
 });

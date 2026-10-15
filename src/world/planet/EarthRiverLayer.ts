@@ -4,10 +4,17 @@ import { DEG_TO_RAD } from '../spatial/units';
 export interface RiverDefinition {
   readonly id: string;
   readonly name: string;
+  readonly name_en?: string;
   readonly basin: string;
   readonly tier: 'main' | 'tributary';
   readonly continent: string;
+  readonly scalerank?: number;
+  readonly featurecla?: string;
+  readonly sourceScale?: string;
+  readonly pointCount?: number;
   readonly coordinates: readonly (readonly [number, number])[];
+  readonly segments?: readonly (readonly (readonly [number, number])[])[];
+  readonly lod0Coordinates?: readonly (readonly [number, number])[];
 }
 
 export interface EarthRiverDataset {
@@ -15,6 +22,12 @@ export interface EarthRiverDataset {
   readonly licence: string;
   readonly retrievedAt: string;
   readonly homepage: string;
+  readonly upstreamSources?: readonly {
+    readonly name: string;
+    readonly scale: string;
+    readonly url: string;
+    readonly sha256: string;
+  }[];
   readonly notes: string;
   readonly rivers: readonly RiverDefinition[];
 }

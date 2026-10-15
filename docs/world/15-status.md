@@ -1,6 +1,18 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — P0 Planetary Presentation + Earth Map + Flight Polish (2026-10-15)
+## Current checkpoint — P0.1 Final Hardening: Geographic Fidelity & 3D Earth Presentation (2026-10-15)
+
+P0 baseline at `68af476eb02380a86abeb43c9d314dd6d2162757`. Resolved all 8 fidelity and hardening issues:
+reproducible offline Natural Earth river geodata pipeline (`build-earth-rivers.mjs`), body-fixed continental
+Amazon river renderer on orbital EarthGlobe (`EarthContinentalRiverRenderer.ts`), genuine Three.js WebGL/WebGPU
+spherical 3D Earth map (`PlanetMap3DRenderer.ts`), canonical geodetic Manaus anchor alignment, unified solar
+photosphere landing criteria (`isLandableBody()`), enhanced Manaus orbital LOD with spherical occlusion, and
+stable procedural flight pose bone transforms.
+Permanent regression gate at 629/629 PASS; full unit test suite at 1,417/1,417 PASS; impact-fidelity 24/24 PASS; build clean.
+Evidence: [31-status-P0.1-FINAL-HARDENING.md](31-status-P0.1-FINAL-HARDENING.md).
+STOP after P0.1; U4/BH0 remain separate work pending manual operator acceptance.
+
+## Previous checkpoint — P0 Planetary Presentation + Earth Map + Flight Polish (2026-10-15)
 
 U3 accepted at `225e99507856e4508c558bc94e56c0b07d0d5d1c`. Implemented: solar elevation and day/night transitions,
 occlusion testing and space ambient floor, lunar earthshine (phase floor 0.14), singularity-free 3D flight orientation,

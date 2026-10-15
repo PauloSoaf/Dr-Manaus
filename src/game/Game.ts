@@ -78,7 +78,7 @@ import { impactCategory, impactKind } from '../world/destruction/ImpactCategorie
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
 import { RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
 import { createPlanetProviders } from '../world/providers/PlanetProviderRegistry';
-import { bodyProfile, bodyArrivalPolicy } from '../world/celestial/CelestialBodyProfile';
+import { bodyProfile, bodyArrivalPolicy, supportsLanding, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2 } from '../world/celestial/CelestialBodyProfile';
 import { NavigationTargetState, celestialLockCandidates, cycleNavigationTarget, type NavigationLock } from '../world/travel/NavigationLock';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../world/travel/UniversalTargetCatalog';
 import { UniversalTargetResolver, activeSystemTargetBodyId, intraSystemNavigationTarget, travelCapabilityLabel } from '../world/travel/UniversalTargetResolver';
@@ -1046,7 +1046,8 @@ export class Game {
       warpStep: this.warpStep,
       inputBrake,
       target,
-      targetCanLand:targetBody ? (bodyProfile(targetBody).canLand && bodyProfile(targetBody).hasSolidSurface) : false,
+      targetCanLand:targetBody ? (supportsLanding(bodyProfile(targetBody)) !== 'none') : false,
+      targetLandingMode:targetBody ? supportsLanding(bodyProfile(targetBody)) : 'none',
       targetSurfaceClearanceM:target ? this.surfaceClearanceM(target.bodyId) : undefined,
       targetSurfaceReady:target ? this.surfaceReadyForLanding(target.bodyId) : false,
       returnAltitudeM:this.travelDomain.landingGate.returnAltitudeM,
@@ -1191,7 +1192,7 @@ export class Game {
   }
 
   private landingBodies():LandingBody[] {
-    return this.universe.activeSystem.bodies.map(body=>({id:body.id,canLand:bodyProfile(body).canLand,
+    return this.universe.activeSystem.bodies.map(body=>({id:body.id,canLand:supportsLanding(bodyProfile(body))!=='none',
       clearanceM:this.clearanceOrSphereM(body.id),radiusM:body.equatorialRadiusM}));
   }
 
@@ -1327,7 +1328,7 @@ export class Game {
     }else if(isPhotosphere&&domain!=='space'){
       PhysicsWorld.setVolumeCollision(null);
       PhysicsWorld.setTerrain({heightfieldOnly:true,heightAt:()=>0});
-      this.player.setSurfaceGravity(surfaceGravityMps2(EARTH));
+      this.player.setSurfaceGravity(PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2);
       this.district='FOTOSFERA';
     }else if(surface&&domain!=='space'){
       let terrain=this.surfaceTerrains.get(domain);
