@@ -8,6 +8,7 @@ import type { QualityPreset } from '../core/config';
 import type { TimeKind, WeatherKind } from '../core/types';
 import { CityMap } from './CityMap';
 import { UniversalMapPanel } from './map/UniversalMapPanel';
+import { PlanetMap3DRenderer } from './map/PlanetMap3DRenderer';
 import type { UniverseLocation } from '../world/spatial/UniverseLocation';
 import { sectorIndex } from '../world/spatial/UniverseAddress';
 import { icon, POWERS } from './icons';
@@ -460,5 +461,11 @@ export class HUD {
         this.universalMap.update(state.location, state.position, state.destination, this.lastSystemBodies, this.lastFlight, state.targetCatalog);
       }
     }
+  }
+
+  get isMapOpen(): boolean { return this.openPanel === 'map'; }
+  get universalMapLevel(): string { return this.universalMap.currentLevel; }
+  get mapRenderer3D(): PlanetMap3DRenderer | undefined {
+    return this.universalMap.renderers.planet;
   }
 }

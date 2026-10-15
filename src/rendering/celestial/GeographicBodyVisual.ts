@@ -29,8 +29,8 @@ export class GeographicBodyVisual {
     const material = new MeshBasicNodeMaterial({ transparent: true, depthWrite: false, fog: false });
     const illumination = bodyId === 'moon' ? smoothstep(-0.1, 0.1, normalLocal.dot(this.sun))
       : smoothstep(-0.06, 0.16, normalLocal.dot(this.sun));
-    material.colorNode = attribute('color', 'vec3').mul(bodyId === 'moon'
-      ? illumination.mul(0.95).add(0.05) : illumination.mul(0.92).add(0.08));
+    const floor = bodyId === 'moon' ? 0.14 : 0.08;
+    material.colorNode = attribute('color', 'vec3').mul(illumination.mul(1 - floor).add(floor));
     material.opacityNode = this.opacity;
     this.mesh = new Mesh(geometry, material);
     this.mesh.frustumCulled = false;

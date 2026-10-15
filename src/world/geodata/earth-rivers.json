@@ -1,0 +1,451 @@
+{
+  "source": "Natural Earth 1:110m / 1:50m Rivers & Lake Centerlines",
+  "licence": "Public Domain",
+  "retrievedAt": "2026-10-14",
+  "homepage": "https://www.naturalearthdata.com/",
+  "notes": "Continental river centerlines for South America Amazon basin and major global rivers. Presentation only.",
+  "rivers": [
+    {
+      "id": "amazon_main",
+      "name": "Rio Amazonas / Solimões",
+      "basin": "Amazon",
+      "tier": "main",
+      "continent": "South America",
+      "coordinates": [
+        [
+          -73.5,
+          -4.5
+        ],
+        [
+          -71.5,
+          -3.9
+        ],
+        [
+          -69.94,
+          -4.25
+        ],
+        [
+          -68.96,
+          -3.46
+        ],
+        [
+          -67.8,
+          -3
+        ],
+        [
+          -66.09,
+          -2.51
+        ],
+        [
+          -64.71,
+          -3.35
+        ],
+        [
+          -63.14,
+          -4.09
+        ],
+        [
+          -62,
+          -3.8
+        ],
+        [
+          -60.8,
+          -3.3
+        ],
+        [
+          -60.03,
+          -3.14
+        ],
+        [
+          -59.903,
+          -3.135
+        ],
+        [
+          -58.44,
+          -3.14
+        ],
+        [
+          -57.5,
+          -2.8
+        ],
+        [
+          -56.73,
+          -2.63
+        ],
+        [
+          -55.52,
+          -1.9
+        ],
+        [
+          -54.71,
+          -2.44
+        ],
+        [
+          -53.8,
+          -1.8
+        ],
+        [
+          -52.58,
+          -1.52
+        ],
+        [
+          -51.85,
+          -1.5
+        ],
+        [
+          -50.5,
+          0.04
+        ],
+        [
+          -49.8,
+          0.5
+        ]
+      ]
+    },
+    {
+      "id": "rio_negro",
+      "name": "Rio Negro",
+      "basin": "Amazon",
+      "tier": "tributary",
+      "continent": "South America",
+      "coordinates": [
+        [
+          -67.5,
+          1.9
+        ],
+        [
+          -67.08,
+          -0.13
+        ],
+        [
+          -65.8,
+          -0.25
+        ],
+        [
+          -65.02,
+          -0.41
+        ],
+        [
+          -64,
+          -0.65
+        ],
+        [
+          -62.92,
+          -0.97
+        ],
+        [
+          -61.63,
+          -1.45
+        ],
+        [
+          -60.62,
+          -2.62
+        ],
+        [
+          -60.1,
+          -3
+        ],
+        [
+          -60.03,
+          -3.14
+        ],
+        [
+          -59.903,
+          -3.135
+        ]
+      ]
+    },
+    {
+      "id": "rio_madeira",
+      "name": "Rio Madeira",
+      "basin": "Amazon",
+      "tier": "tributary",
+      "continent": "South America",
+      "coordinates": [
+        [
+          -65.34,
+          -9.7
+        ],
+        [
+          -63.9,
+          -8.76
+        ],
+        [
+          -63.03,
+          -7.51
+        ],
+        [
+          -62.2,
+          -6.6
+        ],
+        [
+          -61.3,
+          -5.81
+        ],
+        [
+          -60.38,
+          -5.12
+        ],
+        [
+          -59.5,
+          -4.2
+        ],
+        [
+          -58.75,
+          -3.38
+        ]
+      ]
+    },
+    {
+      "id": "rio_tapajos",
+      "name": "Rio Tapajós",
+      "basin": "Amazon",
+      "tier": "tributary",
+      "continent": "South America",
+      "coordinates": [
+        [
+          -58.1,
+          -7.35
+        ],
+        [
+          -57.2,
+          -5.8
+        ],
+        [
+          -55.98,
+          -4.27
+        ],
+        [
+          -55.2,
+          -3.2
+        ],
+        [
+          -54.71,
+          -2.44
+        ]
+      ]
+    },
+    {
+      "id": "rio_xingu",
+      "name": "Rio Xingu",
+      "basin": "Amazon",
+      "tier": "tributary",
+      "continent": "South America",
+      "coordinates": [
+        [
+          -53.2,
+          -11.5
+        ],
+        [
+          -52.6,
+          -9
+        ],
+        [
+          -51.98,
+          -6.64
+        ],
+        [
+          -52.21,
+          -3.2
+        ],
+        [
+          -51.85,
+          -1.5
+        ]
+      ]
+    },
+    {
+      "id": "nile",
+      "name": "Nile",
+      "basin": "Nile",
+      "tier": "main",
+      "continent": "Africa",
+      "coordinates": [
+        [
+          31.8,
+          -2
+        ],
+        [
+          32.5,
+          5
+        ],
+        [
+          31.6,
+          10
+        ],
+        [
+          32.5,
+          15.6
+        ],
+        [
+          32.8,
+          24
+        ],
+        [
+          31.2,
+          30
+        ],
+        [
+          31.2,
+          31.5
+        ]
+      ]
+    },
+    {
+      "id": "mississippi",
+      "name": "Mississippi",
+      "basin": "Mississippi",
+      "tier": "main",
+      "continent": "North America",
+      "coordinates": [
+        [
+          -95.2,
+          47.2
+        ],
+        [
+          -92.8,
+          44.5
+        ],
+        [
+          -90.5,
+          41.5
+        ],
+        [
+          -90.2,
+          38.6
+        ],
+        [
+          -89.15,
+          37
+        ],
+        [
+          -91,
+          33.5
+        ],
+        [
+          -91.4,
+          31.5
+        ],
+        [
+          -89.2,
+          29.1
+        ]
+      ]
+    },
+    {
+      "id": "congo",
+      "name": "Congo",
+      "basin": "Congo",
+      "tier": "main",
+      "continent": "Africa",
+      "coordinates": [
+        [
+          25.8,
+          -9.5
+        ],
+        [
+          26.2,
+          -4
+        ],
+        [
+          25.2,
+          0.5
+        ],
+        [
+          21.5,
+          2
+        ],
+        [
+          18,
+          0
+        ],
+        [
+          15.3,
+          -4.3
+        ],
+        [
+          12.3,
+          -6
+        ]
+      ]
+    },
+    {
+      "id": "danube",
+      "name": "Danube",
+      "basin": "Danube",
+      "tier": "main",
+      "continent": "Europe",
+      "coordinates": [
+        [
+          8.2,
+          48
+        ],
+        [
+          12.1,
+          49
+        ],
+        [
+          16.4,
+          48.2
+        ],
+        [
+          19,
+          47.5
+        ],
+        [
+          20.5,
+          44.8
+        ],
+        [
+          24.5,
+          43.7
+        ],
+        [
+          28.2,
+          45.2
+        ],
+        [
+          29.6,
+          45.2
+        ]
+      ]
+    },
+    {
+      "id": "yangtze",
+      "name": "Yangtze",
+      "basin": "Yangtze",
+      "tier": "main",
+      "continent": "Asia",
+      "coordinates": [
+        [
+          91.2,
+          33.4
+        ],
+        [
+          98.5,
+          29
+        ],
+        [
+          104.5,
+          28.7
+        ],
+        [
+          106.5,
+          29.5
+        ],
+        [
+          112.5,
+          30
+        ],
+        [
+          118.8,
+          32
+        ],
+        [
+          121.9,
+          31.6
+        ]
+      ]
+    }
+  ]
+}

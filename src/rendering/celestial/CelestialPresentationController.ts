@@ -8,6 +8,7 @@ import { CelestialBodyVisualLayer } from './CelestialBodyVisualLayer';
 import type { CelestialRenderSample } from './types';
 import { angularRadiusRad, boundedCelestialProxy, projectedDiameterPx } from './math';
 import { bodyPresentation } from './presentation';
+import { occludingBodyId, type OcclusionBody } from './occlusion';
 
 export interface CelestialPresentationContext {
   universe: UniverseRuntime;
@@ -68,7 +69,11 @@ export class CelestialPresentationController {
       if (id !== physical?.body.id) provider.setVisible(false);
     }
 
-    this.samples = candidates.map(candidate => {
+    // Geometric occlusion in logical coordinates: nearer and larger discs hide what lies fully behind them.
+    const occlusionBodies: OcclusionBody[] = candidates.map(c => ({ id: c.body.id, delta: c.delta, distanceM: c.distance,
+      angularRadiusRad: angularRadiusRad(c.body.equatorialRadiusM, c.distance) }));
+    this.samples = candidates.map((candidate, index) => {
+      const occludedBy = occludingBodyId(occlusionBodies[index], occlusionBodies);
       const { body, position, delta, distance, handoff, angle, provider, profile } = candidate;
       const direction = normalizeVec3(universe.frames.convertDirection(
         system.systemFrameId, renderFrame, delta));
@@ -88,7 +93,7 @@ export class CelestialPresentationController {
       const physicalProxyRadiusM = presentation.physicalTangent * proxy.distanceM;
       const presentationProxyRadiusM = presentation.presentationTangent * proxy.distanceM;
       const glowProxyRadiusM = presentation.glowTangent * proxy.distanceM;
-      let visible = proxy.safe && distance > 0;
+      let visible = proxy.safe && distance > 0 && !occludedBy;
       let opacity = 1;
       if (body.id === physical?.body.id) {
         if (profile.surfaceKind === 'earth' && earth) {
@@ -113,7 +118,7 @@ export class CelestialPresentationController {
         physicalProjectedDiameterPx: presentation.physicalProjectedDiameterPx,
         presentationDiameterPx: presentation.presentationDiameterPx,
         pointMix: presentation.pointMix, ringsOpacity: presentation.ringsOpacity,
-        visible, opacity, phaseLightDirection, bodyOrientationRender, bodyFixedOrientationRender };
+        visible, opacity, phaseLightDirection, bodyOrientationRender, bodyFixedOrientationRender, occludedBy };
     });
   }
 

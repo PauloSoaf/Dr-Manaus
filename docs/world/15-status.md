@@ -1,6 +1,15 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U3 Universal Hypercruise (2026-10-09)
+## Current checkpoint — P0 Planetary Presentation + Earth Map + Flight Polish (2026-10-15)
+
+U3 accepted at `225e99507856e4508c558bc94e56c0b07d0d5d1c`. Implemented: solar elevation and day/night transitions,
+occlusion testing and space ambient floor, lunar earthshine (phase floor 0.14), singularity-free 3D flight orientation,
+procedural aerodynamic flight pose blending, solar photosphere landing (tangent plane ENU heightfield), offline 3D Earth globe
+with Natural Earth rivers and geodetic markers, Manaus Tier C far orbital presentation with continuous cross-fade and local mesh culling,
+and 18 F3 diagnostic metrics. Permanent regression gate maintained at 610/610 PASS; full repository suite at 1,390/1,390 PASS.
+Evidence: [30-status-P0-PLANETARY-POLISH.md](30-status-P0-PLANETARY-POLISH.md). STOP after P0; U4/BH0 remain separate work.
+
+## Previous checkpoint — U3 Universal Hypercruise (2026-10-09)
 
 U2 accepted at `64eb0210fda8a111af6cd1cf3d8743f59c362ba8`. Implemented: permanent regression
 gate, immutable travel plans, anchored/transit authority, interstellar/intergalactic production P,

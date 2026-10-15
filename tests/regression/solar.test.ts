@@ -6,3 +6,7 @@ import '../celestial-ccd-p0.test.ts';
 import '../moon-landing-hardening.test.ts';
 import '../planetary-landing-integration.test.ts';
 import '../space-controls.test.ts';
+import '../planetary-lighting.test.ts';
+import '../moon-lighting.test.ts';
+import '../earth-map-3d.test.ts';
+import '../earth-rivers.test.ts';

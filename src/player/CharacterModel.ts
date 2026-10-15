@@ -10,6 +10,7 @@ import { findCharacterBone, loadCharacterAsset, type CharacterAsset } from './an
 import { CharacterAnimator } from './animations/CharacterAnimator';
 import { ANIMATION_LIBRARY, loadAnimationLibrary } from './animations/AnimationLibrary';
 import { measureSkinnedGround, type GroundAlignmentResult } from './animations/GroundAlignment';
+import { ProceduralFlightPoseLayer } from './animations/ProceduralFlightPose';
 
 export type { CosmicLevel };
 const TARGET_HEIGHT = 2.07;
@@ -54,6 +55,8 @@ export class CharacterModel {
   private enabled = true;
   private disposed = false;
   private readonly defaultVelocity = new Vector3();
+  private readonly flightPoseLayer = new ProceduralFlightPoseLayer();
+  get proceduralFlightPose(): ProceduralFlightPoseLayer { return this.flightPoseLayer; }
 
   constructor(echo = false) {
     this.group.name = echo ? 'cosmic-echo' : 'DR Manaus · native Quaternius player';
@@ -217,6 +220,9 @@ export class CharacterModel {
     this.flightRoot.quaternion.copy(this.yaw).invert().multiply(this.animationController.rootOrientation);
     this.visualRoot.position.y = this.groundAlignment.offset + this.animationController.bodyOffset.y;
     this.animator?.update(dt, params, this.animationController.activeCombatMove, this.animationController.isDoubleJumping, this.animationController.currentFlipPhase);
+    if (params.flying && this.asset) {
+      this.flightPoseLayer.apply(this.asset.bonesByName, this.animationController.currentFlightPose, dt, !!this.animationController.activeCombatMove);
+    }
 
     const level: CosmicLevel = pose ? 'power' : this.level ?? (boost ? 'boost' : flying ? 'flight' : 'idle');
     const pace = this.level ? this.levelSpeed : speed;

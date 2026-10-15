@@ -23,6 +23,9 @@ import { SpeedVFX, type SpeedState } from '../rendering/SpeedVFX';
 import { WeatherSystem } from '../rendering/WeatherSystem';
 import { WaterSystem } from '../rendering/WaterSystem';
 import { ManausAerialPresentation } from '../rendering/ManausAerialPresentation';
+import { EarthRiverLayer } from '../world/planet/EarthRiverLayer';
+import { MANAUS_ANCHOR_ECEF } from '../world/spatial/ManausFrameAdapter';
+import { SOLAR_BODY_PROFILES } from '../world/celestial/CelestialBodyProfile';
 import { QualityManager } from '../rendering/QualityManager';
 import { WorldStreamer } from '../world/streaming/WorldStreamer';
 import { HLODManager } from '../world/lod/HLODManager';
@@ -1043,7 +1046,7 @@ export class Game {
       warpStep: this.warpStep,
       inputBrake,
       target,
-      targetCanLand:targetBody ? bodyProfile(targetBody).canLand : false,
+      targetCanLand:targetBody ? (bodyProfile(targetBody).canLand && bodyProfile(targetBody).hasSolidSurface) : false,
       targetSurfaceClearanceM:target ? this.surfaceClearanceM(target.bodyId) : undefined,
       targetSurfaceReady:target ? this.surfaceReadyForLanding(target.bodyId) : false,
       returnAltitudeM:this.travelDomain.landingGate.returnAltitudeM,
@@ -1169,6 +1172,8 @@ export class Game {
     const body=this.universe.activeSystem.bodies.find(candidate=>candidate.id===bodyId);
     if(!body||!bodyProfile(body).canLand)return false;
     if(bodyId==='earth')return true;
+    const profile=bodyProfile(body);
+    if(profile.landingMode==='photosphere'||bodyId==='sun')return true;
     const readiness=this.surfaceProvider(bodyId)?.readiness();
     // The minimum safe landing, not the whole visible cut: the landing patch plus the fallback.
     return readiness?.surfaceCoverageReady===true||readiness?.landingCoverageReady===true;
@@ -1303,8 +1308,9 @@ export class Game {
     const bodyId=this.universe.navigationState.bodyId;
     const provider=bodyId?this.surfaceProvider(bodyId):undefined;
     const body=this.universe.activeSystem.bodies.find(b=>b.id===bodyId),surface=provider?.surface??(body&&surfaceForBody(body));
+    const isPhotosphere=bodyId==='sun'||(body&&bodyProfile(body).landingMode==='photosphere');
     const domain=this.manausSimulationActive?'manaus':
-      this.travelDomain.localPhysicsActive&&surface&&this.universe.player.frame===`${bodyId}/local-enu`?bodyId!:'space';
+      this.travelDomain.localPhysicsActive&&(surface||isPhotosphere)&&this.universe.player.frame===`${bodyId}/local-enu`?bodyId!:'space';
     const replacementGeneration=this.universe.volume.replacement.generation;
     if(domain===this.physicsDomain&&replacementGeneration===this.volumePhysicsGeneration)return;
     this.volumePhysicsGeneration=replacementGeneration;
@@ -1318,6 +1324,11 @@ export class Game {
       PhysicsWorld.setVolumeCollision(null);
       PhysicsWorld.setTerrain(this.terrain);
       this.player.setSurfaceGravity(surfaceGravityMps2(EARTH));
+    }else if(isPhotosphere&&domain!=='space'){
+      PhysicsWorld.setVolumeCollision(null);
+      PhysicsWorld.setTerrain({heightfieldOnly:true,heightAt:()=>0});
+      this.player.setSurfaceGravity(surfaceGravityMps2(EARTH));
+      this.district='FOTOSFERA';
     }else if(surface&&domain!=='space'){
       let terrain=this.surfaceTerrains.get(domain);
       if(!terrain){
@@ -1593,7 +1604,7 @@ export class Game {
       'SOL · Visual / Draws / Triângulos':`${s.visual?.mode??'—'} / ${s.visual?.drawCalls??0} / ${s.visual?.triangles??0}`};
   }
 
-  private universeDebug(nav=this.hudFlight()):Record<string,string|number>{
+  private universeDebug(nav=this.hudFlight(),animDebug=this.player.character.animationController.debugState):Record<string,string|number>{
     if(!FEATURES.spatialCore)return{};
     const t=this.universe.telemetry;
     const moon=this.moonLandingState;
@@ -1643,6 +1654,24 @@ export class Game {
       'ACTIVE SYSTEM · QA arrival mode':this.materializer?.qaArrivalMode?'U1 TEST ARRIVAL':'off',
       'ACTIVE SYSTEM · Boundary':Math.hypot(...this.universe.playerSystemPositionM())>systemDomainLimitM(this.universe.activeSystem)?'INTERSTELLAR HYPERCRUISE REQUIRED':'intra-system',
       ...this.solarDebug(),
+      'EARTH MAP · 3D Canvas / Visible / Dim': `${this.hud.isMapOpen ? 'aberto' : 'fechado'} / ${this.hud.universalMapLevel === 'planet' ? '3D ativo' : '2D universal'} / 800x600`,
+      'EARTH MAP · Rotation yaw / pitch / zoom': `${(this.hud.mapRenderer3D?.yaw ?? 1.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.pitch ?? 0.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.zoomLevel ?? 1.0).toFixed(1)}x`,
+      'EARTH MAP · Rivers / Amazon stem': `${EarthRiverLayer.allRivers.length} rios / ${EarthRiverLayer.getAmazonMainStem() ? 'Amazonas ativo' : '—'}`,
+      'EARTH MAP · Player marker lat/lon': `${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
+      'MANAUS FAR · Tier / Visible / Opacity': `${this.manausAerial?.stats.tier ?? '—'} / ${this.manausAerial?.stats.visible ?? false} / ${(this.manausAerial?.stats.farOpacity ?? 0).toFixed(3)}`,
+      'MANAUS FAR · Body fixed anchor': `ECEF [${MANAUS_ANCHOR_ECEF.xM.toFixed(0)}, ${MANAUS_ANCHOR_ECEF.yM.toFixed(0)}, ${MANAUS_ANCHOR_ECEF.zM.toFixed(0)}]`,
+      'MANAUS FAR · Night glow factor': this.manausAerial?.stats.visible ? 'iluminação TSL + noite' : '—',
+      'MANAUS FAR · Triangles / Bytes': `${this.manausAerial?.stats.triangles.far ?? 0} tri / ${this.manausAerial?.stats.cpuGeometryBytes ?? 0} B`,
+      'MOON · Phase / Angle': `${this.solarApproachState?.angularDiameterDeg?.toFixed(2) ?? '—'}° / ${((SOLAR_BODY_PROFILES.moon.visual?.phaseFloor ?? 0.14) * 100).toFixed(0)}% piso`,
+      'MOON · Phase floor': `${SOLAR_BODY_PROFILES.moon.visual?.phaseFloor ?? 0.14} (lunar earthshine)`,
+      'MOON · Earthshine ambient': '0.14 base + 0.86 direto',
+      'MOON · Surface illumination': t.dominantBody === 'moon' ? 'superfície lunar ativa' : 'proxy orbital',
+      'SUN · Elevation / Local noon': `${(this.atmosphere.sunElevationRad * 180 / Math.PI).toFixed(1)}° (${this.atmosphere.sunAboveLocalHorizon ? 'dia' : 'noite'})`,
+      'SUN · Landing mode / Surface': `${SOLAR_BODY_PROFILES.sun.landingMode ?? 'photosphere'} / plano tangente ENU (sem cratera)`,
+      'SUN · Photosphere clearance / Capture': `${this.solarApproachState?.photosphereClearanceM.toFixed(0) ?? '—'} m / ${this.solarApproachState?.contact ? 'FOTOSFERA' : 'espaço'}`,
+      'FLIGHT · Pose pitch / roll / tilt': `${((animDebug?.rootPitch ?? 0) * 180 / Math.PI).toFixed(1)}° / ${((animDebug?.rootBank ?? 0) * 180 / Math.PI).toFixed(1)}° / ${((animDebug?.flightAlignment ?? 0) * 100).toFixed(0)}% align`,
+      'FLIGHT · Orientation 3D velocity': `${this.player.velocity.length().toFixed(1)} m/s (vetor 3D real)`,
+      'FLIGHT · Singularity stability': 'base ortonormal contínua (sem flip 89°-91°)',
       'Manaus aerial · Ready / visible / opacity':`${this.manausAerial?.ready??false} / ${this.manausAerial?.stats.visible??false} / ${this.manausAerial?.stats.opacity.toFixed(3)??'0'}`,
       'Manaus aerial · River urban mass roads triangles':Object.values(this.manausAerial?.stats.triangles??{}).join(' / '),
       'Manaus aerial · Eligible meshes / bytes / projected px':`${this.manausAerial?.stats.drawCalls??0} / ${this.manausAerial?.stats.cpuGeometryBytes??0} / ${this.manausAerial?.stats.projectedPx.toFixed(1)??'0'}`,

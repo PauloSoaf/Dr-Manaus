@@ -6,3 +6,8 @@ OpenStreetMap: https://www.openstreetmap.org/copyright
 Overture Maps: https://overturemaps.org/
 
 Copernicus DEM is not bundled by this phase. If added later, retain the required Copernicus attribution in this file.
+
+Global land mask and continental rivers: Natural Earth (1:110m / 1:50m public domain).
+Source: https://www.naturalearthdata.com/
+License: Public Domain. Retrieved: 2026-10-14.
+Build scripts: scripts/geodata/build-earth-vectors.mjs, scripts/geodata/build-earth-rivers.mjs.

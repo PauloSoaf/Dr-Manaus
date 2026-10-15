@@ -1,4 +1,14 @@
-# Checkpoint atual — U3 Universal Hypercruise — 2026-10-09
+# Checkpoint atual — P0 Planetary Presentation + Earth Map + Flight Polish — 2026-10-15
+
+Baseline: `225e99507856e4508c558bc94e56c0b07d0d5d1c`, branch `feat/universe-map`.
+Foco: apresentação planetária, iluminação solar e lunar com earthshine, orientação de voo 3D sem gimbal lock, pose aerodinâmica, pouso solar na fotosfera (plano tangente ENU), globo 3D da Terra com rios Natural Earth e LOD distante de Manaus (Tier C).
+Relatório: [30-status-P0-PLANETARY-POLISH.md](../docs/world/30-status-P0-PLANETARY-POLISH.md).
+Gate permanente: [REGRESSION-GATE.md](../docs/world/REGRESSION-GATE.md).
+STOP após P0; não iniciar U4, BH0, U5 ou U6 automaticamente.
+
+---
+
+# Histórico — U3 Universal Hypercruise — 2026-10-09
 
 Baseline: `64eb0210fda8a111af6cd1cf3d8743f59c362ba8`, branch `feat/universe-map`.
 Os anexos mais recentes aceitam U2 e autorizam U3, documentação, commits e push.
@@ -10,9 +20,6 @@ P em espaço SYSTEM seguro inicia viagem a sistemas MW/Andrômeda; X desacelera 
 P retoma. Chegadas são transacionais e o retorno à Via Láctea chega ao Sol em espaço seguro.
 A velocidade FTL é ficcional; distâncias lógicas usam escala astronômica real.
 Não reabrir D1. STOP após U3; não iniciar U4, BH0, U5 ou U6 automaticamente.
-
-O prompt anterior e o prompt Solar do usuário estão preservados abaixo como histórico.
-Suas declarações de viagem indisponível e gates de U1/U2 não são instruções atuais.
 
 ---
 

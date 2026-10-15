@@ -5,7 +5,7 @@ import { formatDistance, formatDuration, formatSpeed, formatGalaxyName } from '.
 import type { HUDBody, HUDFlightTelemetry } from '../HUD';
 import type { UniverseLocation } from '../../world/spatial/UniverseLocation';
 import type { Vector3 } from 'three/webgpu';
-import { SurfaceMapRenderer, PlanetMapRenderer, SystemMapRenderer, GalaxyMapRenderer, CosmologyMapRenderer } from './MapRenderers';
+import { SurfaceMapRenderer, PlanetMapRenderer, PlanetMap3DRenderer, SystemMapRenderer, GalaxyMapRenderer, CosmologyMapRenderer } from './MapRenderers';
 import { UniverseCoordinates } from '../../world/spatial/UniverseCoordinates';
 import { universalTargetKey, type UniversalTargetDescriptor } from '../../world/travel/UniversalNavigationTarget';
 import { travelCapabilityLabel } from '../../world/travel/UniversalTargetResolver';
@@ -16,14 +16,14 @@ export class UniversalMapPanel {
   private readonly root: HTMLElement;
   model: MapNavigationModel;
   
-  private renderers: {
+  readonly renderers: {
     surface: SurfaceMapRenderer;
-    planet: PlanetMapRenderer;
+    planet: PlanetMap3DRenderer;
     system: SystemMapRenderer;
     galaxy: GalaxyMapRenderer;
     cosmology: CosmologyMapRenderer;
   };
-  private currentLevel: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology' = 'surface';
+  currentLevel: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology' = 'surface';
   private selectedLevel?: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology';
   /** Live bodies and cruise telemetry, fed by the HUD each refresh. */
   private bodies: readonly HUDBody[] = [];
@@ -48,7 +48,7 @@ export class UniversalMapPanel {
     const canvas = this.root.querySelector('#universal-canvas') as HTMLCanvasElement;
     this.renderers = {
       surface: new SurfaceMapRenderer(canvas),
-      planet: new PlanetMapRenderer(canvas),
+      planet: new PlanetMap3DRenderer(((this.root.querySelector('#planet-3d-canvas') as HTMLCanvasElement) ?? canvas)),
       system: new SystemMapRenderer(canvas),
       galaxy: new GalaxyMapRenderer(canvas),
       cosmology: new CosmologyMapRenderer(canvas)
@@ -166,7 +166,10 @@ export class UniversalMapPanel {
     const cityCanvas = this.root.querySelector('#city-map') as HTMLCanvasElement;
     const universalCanvas = this.root.querySelector('#universal-canvas') as HTMLCanvasElement;
     if (cityCanvas) cityCanvas.style.display = city ? 'block' : 'none';
-    if (universalCanvas) universalCanvas.style.display = city ? 'none' : 'block';
+    const isPlanet = this.currentLevel === 'planet';
+    const planet3DCanvas = this.root.querySelector('#planet-3d-canvas') as HTMLCanvasElement;
+    if (universalCanvas) universalCanvas.style.display = (city || isPlanet) ? 'none' : 'block';
+    if (planet3DCanvas) planet3DCanvas.style.display = isPlanet ? 'block' : 'none';
     const credit = this.root.querySelector<HTMLElement>('.map-credit');
     if (credit) credit.style.display = city ? 'block' : 'none';
   }
@@ -200,6 +203,7 @@ export class UniversalMapPanel {
       <div class="map-visual" style="flex: 1; position: relative;">
         <canvas id="city-map" style="position: absolute; width: 100%; height: 100%;"></canvas>
         <canvas id="universal-canvas" style="position: absolute; width: 100%; height: 100%;"></canvas>
+        <canvas id="planet-3d-canvas" style="position: absolute; width: 100%; height: 100%; display: none;"></canvas>
         <div class="map-scale">━━━━━━ <span>5 km</span></div>
         <span class="map-credit">Dados viários © OpenStreetMap contributors · Geografia estilizada</span>
       </div>

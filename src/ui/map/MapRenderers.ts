@@ -84,6 +84,8 @@ export class SurfaceMapRenderer extends BaseMapRenderer {
   }
 }
 
+export { PlanetMap3DRenderer } from './PlanetMap3DRenderer';
+
 export class PlanetMapRenderer extends BaseMapRenderer {
   private offset = 0;
   

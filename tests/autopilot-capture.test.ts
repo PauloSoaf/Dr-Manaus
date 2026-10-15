@@ -10,7 +10,7 @@ import { planetSurfaceRadius } from '../src/world/planet/PlanetSurface.ts';
 import { TravelDomain, type InterplanetaryState } from '../src/world/travel/TravelDomain.ts';
 
 function fixture(id='moon', gap=150000, fps=60) {
-  const body=SOLAR_SYSTEM_BODIES.find(b=>b.id===id)!, policy=bodyArrivalPolicy(body), canLand=bodyProfile(body).canLand;
+  const body=SOLAR_SYSTEM_BODIES.find(b=>b.id===id)!, policy=bodyArrivalPolicy(body), canLand=bodyProfile(body).hasSolidSurface && bodyProfile(body).canLand;
   const surface=surfaceForBody(body), radius=surface ? planetSurfaceRadius(surface,[0,1,0]) : body.equatorialRadiusM;
   const orbital:[number,number,number]=[1000,2000,-300];
   let centre:[number,number,number]=[0,0,0];
@@ -79,7 +79,7 @@ for(const [name,id] of [['MOON_SAFE_CAPTURE','moon'],['MARS_SAFE_CAPTURE','mars'
   ['SUN_STANDOFF','sun'],['EUROPA_STANDOFF','europa'],['TITAN_STANDOFF','titan']] as const) {
   test(`T_AUTOPILOT_${name}`,()=>{
     const f=fixture(id);f.run();assert.ok(f.minimum>f.radius+1000);
-    if(bodyProfile(f.body).canLand) {
+    if(bodyProfile(f.body).hasSolidSurface && bodyProfile(f.body).canLand) {
       const clearance=Math.hypot(...f.state.positionM.map((v,i)=>v-f.centre[i]))-f.radius;
       assert.ok(clearance<=7000 && clearance>1000);assert.ok(f.relativeSpeed()<=120);
       const domain=new TravelDomain();domain.update({...f.ctx(),altitudeM:20000,requested:true},0);

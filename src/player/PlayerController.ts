@@ -383,6 +383,8 @@ export class PlayerController {
     this.model.scale.setScalar(this.size);
   }
 
+  private readonly travelVelocity = new Vector3();
+
   /**
    * Updates the visual proxy during interplanetary travel.
    * The logical position moves through UniverseRuntime/TravelDomain, while the visual model
@@ -395,16 +397,17 @@ export class PlayerController {
     this.facingYaw = cameraYaw;
     this.speedMode = 'interplanetary';
     this.state = 'Flight';
+    this.travelVelocity.copy(viewForward).normalize().multiplyScalar(speedMps);
     this.character.animate(
       dt,
       speedMps,
       true,
       issprinting,
       'interplanetary',
-      0,
+      this.travelVelocity.y,
       0,
       this.size,
-      undefined,
+      this.travelVelocity,
       1,
       'interplanetary',
       viewForward,

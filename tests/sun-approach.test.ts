@@ -11,11 +11,13 @@ import { angularRadiusRad, boundedCelestialProxy } from '../src/rendering/celest
 import { solarDiagnostics, solarPresentation, solarRaySurface } from '../src/rendering/celestial/solarPresentation.ts';
 import { celestialLabelOpacity } from '../src/rendering/celestial/CelestialLabelLayer.ts';
 import type { CelestialRenderSample } from '../src/rendering/celestial/types.ts';
-import type { InterplanetaryState } from '../src/world/travel/TravelDomain.ts';
+import { TravelDomain, type InterplanetaryState } from '../src/world/travel/TravelDomain.ts';
 import { impactFixture } from './helpers/celestial-impact.ts';
 import { CelestialPresentationController } from '../src/rendering/celestial/CelestialPresentationController.ts';
 import { CelestialBodyVisualLayer } from '../src/rendering/celestial/CelestialBodyVisualLayer.ts';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
+import { planRockyImpact } from '../src/world/destruction/RockyImpactDestructionPolicy.ts';
+import { surfaceForBody } from '../src/world/planet/BodySurfaceFactory.ts';
 
 const sun=SOLAR_SYSTEM_BODIES.find(b=>b.id==='sun')!,earth=SOLAR_SYSTEM_BODIES.find(b=>b.id==='earth')!;
 const R=sun.equatorialRadiusM,policy=bodyArrivalPolicy(sun),edge=R+policy.exclusionMarginM;
@@ -64,7 +66,121 @@ test('T_SUN_MANUAL_CAN_CONTINUE_AFTER_AUTOPILOT_CANCEL',()=>{const f=flight();f.
 test('T_SUN_C4_CONTACT_USES_NEW_BOUNDARY',()=>{const r=manual(edge+1000,LIGHT_SPEED_MPS*1.001);assert.equal(r.contact?.envelopeRadiusM,edge);assert.ok(Math.abs(r.event.contactSystemPositionM[1]-edge)<1);});
 test('T_SUN_CATASTROPHIC_EVENT_AT_HIGH_SPEED',()=>{const f=impactFixture('sun',LIGHT_SPEED_MPS*1.001);try {f.step();for(let i=0;i<120;i++)f.step();assert.equal(f.event().classification,'CATASTROPHIC_IMPACT');assert.equal(f.game.celestialImpacts.emittedCount,1);}finally{f.dispose();}});
 test('T_SUN_NO_PLANET_VOLUME',()=>{const f=impactFixture('sun');try{const before={...f.universe.volume.metrics};f.universe.volume.edits.add=()=>{throw Error('star must never edit');};f.step();assert.deepEqual(f.universe.volume.metrics,before);assert.equal(bodyProfile(sun).supportsVolumeDestruction,false);}finally{f.dispose();}});
-test('T_SUN_CANLAND_FALSE',()=>assert.equal(bodyProfile(sun).canLand,false));
+test('T_SUN_PHOTOSPHERE_LANDING_SUPPORTED', () => {
+  const p = bodyProfile(sun);
+  assert.equal(p.canLand, true);
+  assert.equal(p.landingMode, 'photosphere');
+});
+
+test('T_SUN_NOT_ROCKY_SURFACE', () => {
+  const p = bodyProfile(sun);
+  assert.equal(p.hasSolidSurface, false);
+  assert.equal(p.surfaceKind, 'none');
+  assert.equal(surfaceForBody(sun), undefined);
+});
+
+test('T_SUN_PHOTOSPHERE_RADIUS_695700KM', () => {
+  assert.equal(sun.equatorialRadiusM, 695_700_000);
+  assert.equal(R, 695_700_000);
+});
+
+test('T_SUN_LANDING_CAPTURE', () => {
+  const f = impactFixture('sun', 200);
+  try {
+    f.game.landingIntent.request('sun');
+    assert.equal(f.game.landingIntent.active, true);
+    assert.equal(f.game.landingIntent.bodyId, 'sun');
+    for (let i = 0; i < 30; i++) f.step();
+    assert.ok(f.travelDomain.state);
+  } finally {
+    f.dispose();
+  }
+});
+
+test('T_SUN_PHOTOSPHERE_CONTACT_NO_BOUNCE', () => {
+  const r = manual(edge + 1000, LIGHT_SPEED_MPS);
+  assert.ok(Math.hypot(...r.velocity) < 0.001);
+  assert.equal(r.contact?.responseRadialSpeedMps, 0);
+});
+
+test('T_SUN_SAFE_LOCAL_HANDOFF', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    const entryPos: [number, number, number] = [sunCentre[0], sunCentre[1] + R + 5000, sunCentre[2]];
+    u.updateSystemPose(entryPos, [0, 0, 0], 0);
+    const domain = new TravelDomain();
+    domain.enterSystem({ systemId: 'sol', positionM: entryPos, velocityMps: [0, 0, 0] });
+    const trans = domain.update({
+      altitudeM: 5000,
+      speedMps: 20,
+      radialSpeedMps: -20,
+      requested: false,
+      nearestColliderM: Infinity,
+      bodyRadiusM: R,
+      bodyId: 'sun',
+      surfaceReady: true,
+    }, 1 / 60);
+    assert.equal(trans.kind, 'returned');
+    const localPos = u.handoffTo('sun');
+    assert.equal(u.player.frame, 'sun/local-enu');
+    assert.ok(localPos.every(Number.isFinite));
+    assert.ok(Math.abs(localPos[1] - 5000) < 1);
+  } finally {
+    u.dispose();
+  }
+});
+
+test('T_SUN_TANGENT_FRAME_FINITE', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    u.updateSystemPose([sunCentre[0], sunCentre[1] + R + 100, sunCentre[2]], [0, 0, 0], 0);
+    const pos = u.handoffTo('sun');
+    assert.ok(pos.every(Number.isFinite));
+    const frame = u.frames.get('sun/local-enu')!;
+    assert.ok(frame.originInParent.every(Number.isFinite));
+    assert.ok(frame.rotationToParent.every(Number.isFinite));
+  } finally {
+    u.dispose();
+  }
+});
+
+test('T_SUN_TAKEOFF', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    u.updateSystemPose([sunCentre[0], sunCentre[1] + R + 100, sunCentre[2]], [0, 0, 0], 0);
+    u.handoffTo('sun');
+    assert.equal(u.player.frame, 'sun/local-enu');
+    const domain = new TravelDomain();
+    const refused = domain.update({ altitudeM: 100, speedMps: 500, requested: true, nearestColliderM: Infinity, bodyRadiusM: R }, 1 / 60);
+    assert.equal(refused.kind, 'refused');
+    const departed = domain.update({ altitudeM: 10_000, speedMps: 2500, requested: true, nearestColliderM: Infinity, bodyRadiusM: R,
+      entryPositionM: [sunCentre[0], sunCentre[1] + R + 10_000, sunCentre[2]], entryVelocityMps: [0, 2500, 0] }, 1 / 60);
+    assert.equal(departed.kind, 'departed');
+    assert.equal(domain.kind, 'interplanetary');
+  } finally {
+    u.dispose();
+  }
+});
+
+test('T_SUN_PHOTOSPHERE_NO_CRATER', () => {
+  const p = bodyProfile(sun);
+  assert.equal(p.supportsVolumeDestruction, false);
+  const plan = planRockyImpact({
+    eventId: 'impact-sun-1',
+    bodyId: 'sun',
+    contactSystemPositionM: [0, R, 0],
+    contactBodyFixedM: [0, R, 0],
+    classification: 'MAJOR_IMPACT',
+    relativeSpeedMps: 5000,
+    inwardRadialSpeedMps: 5000,
+    tangentialSpeedMps: 0,
+    kineticEnergyJoules: 1e12,
+  } as any, sun, p, undefined as any);
+  assert.equal(plan, null);
+});
 test('T_SUN_ANGULAR_SIZE_MONOTONIC',()=>{let previous=0;for(const d of [149597870700,10*R,5*R,2*R,1.5*R,1.1*R,1.03*R,edge]){const angle=angularRadiusRad(R,d);assert.ok(Number.isFinite(angle)&&angle>previous);previous=angle;}});
 for(const [name,d] of [['1AU_SIZE_FINITE',149597870700],['10R_SIZE',10*R],['5R_SIZE',5*R],['2R_SIZE',2*R],['1_5R_SIZE',1.5*R],['1_1R_SIZE',1.1*R],['1_03R_SIZE',1.03*R],['NEAR_PHOTOSPHERE_SIZE_FINITE',edge]] as const) {
   test(`T_SUN_${name}`,()=>{const s=sample(d),angle=s.angularRadiusRad;assert.ok(Number.isFinite(s.physicalProjectedDiameterPx));

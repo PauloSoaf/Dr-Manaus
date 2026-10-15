@@ -20,8 +20,14 @@ type Point=[number,number,number];
 const smooth=(lo:number,hi:number,v:number)=>{const t=Math.max(0,Math.min(1,(v-lo)/(hi-lo)));return t*t*(3-2*t);};
 export function manausAerialWeights(altitudeM:number,distanceM:number,fovRad:number,viewportHeightPx:number,ready:boolean) {
   const pixels=MANAUS_AERIAL.regionSizeM*Math.max(1,viewportHeightPx)/(2*Math.tan(fovRad/2)*Math.max(1,distanceM));
-  const opacity=ready?smooth(MANAUS_AERIAL.startM,MANAUS_AERIAL.fullM,altitudeM)*smooth(MANAUS_AERIAL.fadePixels,MANAUS_AERIAL.fullPixels,pixels):0;
-  return {opacity,mass:opacity*(1-smooth(MANAUS_AERIAL.massFadeStartM,MANAUS_AERIAL.massFadeEndM,altitudeM)),pixels};
+  const altFade=ready?smooth(MANAUS_AERIAL.startM,MANAUS_AERIAL.fullM,altitudeM):0;
+  const pixelFadeB=smooth(MANAUS_AERIAL.fadePixels,MANAUS_AERIAL.fullPixels,pixels);
+  const opacity=altFade*pixelFadeB;
+  const mass=opacity*(1-smooth(MANAUS_AERIAL.massFadeStartM,MANAUS_AERIAL.massFadeEndM,altitudeM));
+  const farPixelFade=1-pixelFadeB;
+  const farDistanceLimit=distanceM<MANAUS_AERIAL.renderLimitM?1:0;
+  const farOpacity=altFade*farPixelFade*farDistanceLimit;
+  return {opacity,mass,farOpacity,pixels};
 }
 /** All source coordinates take the existing legacy -> geodetic -> WGS84 path. */
 export function aerialBodyPoint(x:number,z:number,heightM=0):Vec3 {
@@ -95,9 +101,47 @@ export class ManausAerialPresentation {
   private readonly sun=uniform(new Vector3(0,1,0));
   private readonly materials=new Map<Kind,MeshBasicNodeMaterial>();
   private readonly opacity=uniform(0);private readonly massOpacity=uniform(0);
+  private readonly farOpacity=uniform(0);
+  private farMesh?:Mesh;
+  private farTriangles=0;
+  private farBytes=0;
   private pixels=0;
   constructor(parent:Group,private readonly frames:ReferenceFrameGraph,private readonly renderSpace:RenderSpaceService) {
     this.root.name='Manaus · curved aerial presentation';this.root.visible=false;parent.add(this.root);
+  }
+  private buildFarMarker():void {
+    const segments=32,radiusM=14000,positions:number[]=[],normals:number[]=[],colors:number[]=[];
+    const norm=new Vector3(MANAUS_ANCHOR_ECEF.xM,MANAUS_ANCHOR_ECEF.yM,MANAUS_ANCHOR_ECEF.zM).normalize();
+    const up=norm,east=new Vector3(-up.y,up.x,0).normalize(),north=new Vector3().crossVectors(up,east).normalize();
+    const rEarth=6378137,heightOffset=30;
+    const centerPos=up.clone().multiplyScalar(heightOffset);
+    for(let i=0;i<segments;i++){
+      const a0=(i/segments)*Math.PI*2,a1=((i+1)/segments)*Math.PI*2;
+      const p0=new Vector3().addScaledVector(east,Math.cos(a0)*radiusM).addScaledVector(north,Math.sin(a0)*radiusM).addScaledVector(up,heightOffset-(radiusM*radiusM)/(2*rEarth));
+      const p1=new Vector3().addScaledVector(east,Math.cos(a1)*radiusM).addScaledVector(north,Math.sin(a1)*radiusM).addScaledVector(up,heightOffset-(radiusM*radiusM)/(2*rEarth));
+      positions.push(centerPos.x,centerPos.y,centerPos.z);normals.push(up.x,up.y,up.z);colors.push(0.72,0.68,0.62,1.0);
+      positions.push(p0.x,p0.y,p0.z);normals.push(up.x,up.y,up.z);colors.push(0.55,0.52,0.48,0.0);
+      positions.push(p1.x,p1.y,p1.z);normals.push(up.x,up.y,up.z);colors.push(0.55,0.52,0.48,0.0);
+    }
+    const geometry=new BufferGeometry();
+    geometry.setAttribute('position',new Float32BufferAttribute(positions,3));
+    geometry.setAttribute('normal',new Float32BufferAttribute(normals,3));
+    geometry.setAttribute('color',new Float32BufferAttribute(colors,4));
+    geometry.computeBoundingBox();geometry.computeBoundingSphere();
+    const material=new MeshBasicNodeMaterial({transparent:true,depthWrite:false,fog:false,side:FrontSide,polygonOffset:true,polygonOffsetFactor:-3,polygonOffsetUnits:-3});
+    const dayLight=earthDirectLightNode(normalWorld.dot(this.sun));
+    const nightFactor=normalWorld.dot(this.sun).negate().clamp(0,1);
+    const nightGlow=uniform(new Color('#ffaa44')).mul(nightFactor).mul(1.5);
+    material.colorNode=attribute('color','vec4').xyz.mul(dayLight).add(earthNightAmbientNode()).add(nightGlow);
+    material.opacityNode=this.farOpacity.mul(attribute('color','vec4').w);
+    this.farMesh=new Mesh(geometry,material);
+    this.farMesh.name='manaus-far-marker';
+    this.farMesh.layers.set(PLANET_LAYER);
+    this.farMesh.renderOrder=4;
+    this.farMesh.frustumCulled=true;
+    this.root.add(this.farMesh);
+    this.farTriangles=segments;
+    this.farBytes=(positions.length+normals.length+colors.length)*4;
   }
   build(water:WaterFile,data:ManausAerialData):void {
     if(this.ready)throw new Error('Aerial already prepared');
@@ -118,6 +162,7 @@ export class ManausAerialPresentation {
       // may cross the river. Earth still depth-tests below every aerial layer.
       mesh.renderOrder=part.kind==='river'?5:part.kind==='roads'?6:part.kind==='mass'?4:3;this.root.add(mesh);this.parts.push({part,mesh});
     }
+    this.buildFarMarker();
     this.waterSource=water;this.ready=true;
   }
   async initialize(water?:WaterFile):Promise<void> {
@@ -129,22 +174,31 @@ export class ManausAerialPresentation {
     }catch(error){this.failure=String(error);this.root.visible=false;}
   }
   update(altitudeM:number,isEarth:boolean,cameraPosition:Vec3,fovRad:number,viewportHeightPx:number,solarDirection?:Vec3):void {
-    if(!isEarth){this.root.visible=false;this.opacity.value=0;this.massOpacity.value=0;this.pixels=0;return;}
+    if(!isEarth){this.root.visible=false;this.opacity.value=0;this.massOpacity.value=0;this.farOpacity.value=0;this.pixels=0;return;}
     const anchor=this.renderSpace.logicalToRender(EARTH_FIXED_FRAME_ID,[MANAUS_ANCHOR_ECEF.xM,MANAUS_ANCHOR_ECEF.yM,MANAUS_ANCHOR_ECEF.zM]);
     const distance=Math.hypot(...anchor.map((v,i)=>v-cameraPosition[i]));
     const weights=manausAerialWeights(altitudeM,distance,fovRad,viewportHeightPx,this.ready&&isEarth&&distance<MANAUS_AERIAL.renderLimitM);
-    this.opacity.value=weights.opacity;this.massOpacity.value=weights.mass;this.pixels=weights.pixels;this.root.visible=weights.opacity>.001;
+    this.opacity.value=weights.opacity;this.massOpacity.value=weights.mass;this.farOpacity.value=weights.farOpacity;this.pixels=weights.pixels;
+    this.root.visible=weights.opacity>.001||weights.farOpacity>.001;
     if(!this.root.visible)return;
     if(solarDirection)this.sun.value.set(...solarDirection);
     const orientation=this.frames.convertOrientation(EARTH_FIXED_FRAME_ID,this.renderSpace.currentOrigin.frame,[0,0,0,1]);
     for(const {part,mesh} of this.parts){const pos=this.renderSpace.logicalToRender(EARTH_FIXED_FRAME_ID,part.centre);
-      mesh.position.set(...pos);mesh.quaternion.set(...orientation);mesh.visible=part.kind!=='mass'||weights.mass>.001;}
+      mesh.position.set(...pos);mesh.quaternion.set(...orientation);mesh.visible=part.kind!=='mass'?weights.opacity>.001:weights.mass>.001;}
+    if(this.farMesh){
+      this.farMesh.position.set(...anchor);
+      this.farMesh.quaternion.set(...orientation);
+      this.farMesh.visible=weights.farOpacity>.001;
+    }
   }
-  get stats(){const triangles={river:0,urban:0,mass:0,roads:0};let bytes=0,drawCalls=0;
+  get stats(){const triangles={river:0,urban:0,mass:0,roads:0,far:this.farTriangles};let bytes=this.farBytes,drawCalls=0;
     for(const {part,mesh} of this.parts){triangles[part.kind]+=part.triangles;bytes+=part.bytes;if(this.root.visible&&mesh.visible)drawCalls++;}
-    return {ready:this.ready,visible:this.root.visible,opacity:this.opacity.value,massOpacity:this.massOpacity.value,projectedPx:this.pixels,
-      triangles,drawCalls,meshes:this.parts.length,cpuGeometryBytes:bytes,gpuBufferBytes:bytes,physics:false,failure:this.failure};
+    if(this.root.visible&&this.farMesh?.visible)drawCalls++;
+    const tier=this.opacity.value>.5?'aerial':this.farOpacity.value>.001?'far':'none';
+    return {ready:this.ready,visible:this.root.visible,opacity:this.opacity.value,massOpacity:this.massOpacity.value,farOpacity:this.farOpacity.value,tier,projectedPx:this.pixels,
+      triangles,drawCalls,meshes:this.parts.length+(this.farMesh?1:0),cpuGeometryBytes:bytes,gpuBufferBytes:bytes,physics:false,failure:this.failure};
   }
   dispose():void {for(const {part} of this.parts)part.geometry.dispose();for(const material of this.materials.values())material.dispose();
+    if(this.farMesh){this.farMesh.geometry.dispose();(this.farMesh.material as MeshBasicNodeMaterial).dispose();this.farMesh=undefined;}
     this.parts.length=0;this.materials.clear();this.root.clear();this.root.removeFromParent();this.ready=false;}
 }

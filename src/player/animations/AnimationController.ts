@@ -86,6 +86,7 @@ export class AnimationController {
   /** 0 is belly-down flight, 1 is standing in the air. Driven by speed *and* intent. */
   get uprightAmount(): number { return this.upright; }
   get currentFlightMode(): FlightMode { return this.flightMode; }
+  get currentFlightPose(): FlightPoseName { return this.flightPose; }
   get currentFlipPhase(): FlipPhase { return this.flipPhaseName; }
   /** How settled the hover is, 0 to 1. Drives both the sway and the at-ease posture. */
   get restAmount(): number { return this.restPose; }
@@ -163,6 +164,7 @@ export class AnimationController {
       : this.dodgePose === 'airDash' ? 'dash'
       : this.takeoffTimer > 0 ? 'takeoff'
       : this.flightMode === 'braking' && this.upright > 0.28 ? 'braking'
+      : params.speedMode === 'interplanetary' ? 'interplanetary'
       : params.speedMode === 'mega' ? 'mega'
       : params.speedMode === 'super' ? 'super'
       : params.speedMode === 'fast' ? 'fast'
