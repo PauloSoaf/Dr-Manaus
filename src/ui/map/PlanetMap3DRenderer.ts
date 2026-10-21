@@ -47,7 +47,7 @@ export const MANAUS_GEODETIC = {
  * and clean resource lifecycle disposal.
  */
 export class PlanetMap3DRenderer {
-  readonly canvas: HTMLCanvasElement;
+  canvas: HTMLCanvasElement;
   readonly mode: 'gpu-3d' | '2d-fallback';
 
   // Three.js 3D resources
@@ -161,11 +161,43 @@ export class PlanetMap3DRenderer {
       this.manausMarker = null;
       this.playerMarker = null;
       this.riverLines = null;
+
+      // When WebGLRenderer throws or WebGL is unsupported, try 2D context.
+      // If gl was already acquired by this canvas element, browsers disallow switching
+      // context type and getContext('2d') returns null per HTML spec.
+      // Replace the canvas element with a fresh, clean element preserving attributes and DOM attachment.
+      let ctx: CanvasRenderingContext2D | null = null;
       try {
-        this.fallbackCtx = canvas.getContext('2d');
+        ctx = this.canvas.getContext('2d');
       } catch {
-        this.fallbackCtx = null;
+        ctx = null;
       }
+
+      if (!ctx) {
+        const doc = this.canvas.ownerDocument || (typeof document !== 'undefined' ? document : null);
+        if (doc && typeof doc.createElement === 'function') {
+          try {
+            const replacement = doc.createElement('canvas');
+            if (this.canvas.id) replacement.id = this.canvas.id;
+            if (this.canvas.className) replacement.className = this.canvas.className;
+            replacement.width = this.canvas.width;
+            replacement.height = this.canvas.height;
+            if (this.canvas.style?.cssText) {
+              replacement.style.cssText = this.canvas.style.cssText;
+            } else if (this.canvas.style) {
+              replacement.style.display = this.canvas.style.display;
+            }
+            if (this.canvas.parentElement) {
+              this.canvas.parentElement.replaceChild(replacement, this.canvas);
+            }
+            this.canvas = replacement;
+            ctx = this.canvas.getContext('2d');
+          } catch {
+            // Safe fallback
+          }
+        }
+      }
+      this.fallbackCtx = ctx;
     }
 
     this.attachEvents();

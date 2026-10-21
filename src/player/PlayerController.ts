@@ -71,6 +71,7 @@ export class PlayerController {
   get isGrounded(): boolean { return this.grounded; }
   /** Physical gravity of the current body, before the existing Earth gameplay calibration. */
   get surfaceGravityMps2(): number { return this.bodyGravityMps2; }
+  get gravity(): number { return this.bodyGravityMps2; }
   get gravityMps2(): number {
     return getGravity(this.size, JUMP_CONFIG.baseGravity * this.bodyGravityMps2 / surfaceGravityMps2(EARTH));
   }

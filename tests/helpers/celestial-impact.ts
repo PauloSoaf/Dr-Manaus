@@ -1,4 +1,4 @@
-import { PerspectiveCamera, Vector3 } from 'three/webgpu';
+import { Group, PerspectiveCamera, Vector3 } from 'three/webgpu';
 import { Game } from '../../src/game/Game.ts';
 import { UniverseRuntime } from '../../src/world/runtime/UniverseRuntime.ts';
 import { CosmicCruiseController } from '../../src/world/travel/CosmicFlight.ts';
@@ -10,6 +10,7 @@ import { bodyExclusionEnvelopes } from '../../src/world/travel/BodyNavigation.ts
 import type { CelestialContact } from '../../src/world/travel/CelestialContact.ts';
 import type { Vec3 } from '../../src/world/spatial/units.ts';
 import { RockyImpactDestructionService } from '../../src/world/destruction/RockyImpactDestructionService.ts';
+import { PlayerController } from '../../src/player/PlayerController.ts';
 
 export function contact(relative: Vec3 = [0, -LIGHT_SPEED_MPS, 0], bodyId = 'earth',
   orbital: Vec3 = [12_000, 29_000, -300]): CelestialContact {
@@ -33,6 +34,16 @@ export function impactFixture(id = 'earth', speed = LIGHT_SPEED_MPS, fps = 60) {
     bodyId: id, bodyRadiusM: body.equatorialRadiusM, entryPositionM: position, entryVelocityMps: velocity }, 0);
   const game = Object.create(Game.prototype) as any;
   const controller = new CosmicCruiseController(), held = new Set<string>();
+  const input = {
+    held: (key: string) => held.has(key),
+    consume: (key: string) => {
+      const has = held.has(key);
+      held.delete(key);
+      return has;
+    },
+  };
+  const player = new PlayerController(new Group(), input as any);
+  player.state = 'Flight';
   Object.assign(game, {
     universe,
     travelDomain,
@@ -47,23 +58,8 @@ export function impactFixture(id = 'earth', speed = LIGHT_SPEED_MPS, fps = 60) {
     surfaceTerrains: new Map(),
     planetProviders: new Map(),
     hud: { notify() {} },
-    input: {
-      held: (key: string) => held.has(key),
-      consume: (key: string) => {
-        const has = held.has(key);
-        held.delete(key);
-        return has;
-      },
-    },
-    player: {
-      state: 'Flight',
-      velocity: new Vector3(),
-      position: new Vector3(),
-      teleport(v: any) { this.position.copy(v); },
-      beginSurfaceApproach() { this.state = 'SurfaceApproach'; },
-      setSurfaceGravity(g: number) { this.gravity = g; },
-      interplanetaryMode: false,
-    },
+    input,
+    player,
     rendering: { camera: new PerspectiveCamera() },
     viewForward: new Vector3(0, -1, 0),
     camera: {
@@ -82,9 +78,32 @@ export function impactFixture(id = 'earth', speed = LIGHT_SPEED_MPS, fps = 60) {
     const trans = travelDomain.transition;
     if (trans.kind === 'returned') {
       game.finishSurfaceReturn(universe.telemetry.dominantBody);
+    } else if (trans.kind === 'departed') {
+      const barycentricPos = universe.frames.convertPosition(
+        universe.player.frame,
+        universe.activeSystem.systemFrameId,
+        universe.player.position
+      );
+      const velocityMps = universe.systemVelocityMps();
+      travelDomain.setState({
+        systemId: universe.address.systemId!,
+        positionM: [barycentricPos[0], barycentricPos[1], barycentricPos[2]],
+        velocityMps,
+        referenceBodyId: universe.telemetry.dominantBody,
+      });
+      game.player.position.set(0, 0, 0);
+      game.player.velocity.set(0, 0, 0);
     }
     game.bindSurfacePhysics();
-    if (!travelDomain.localPhysicsActive && travelDomain.state) {
+    if (travelDomain.localPhysicsActive) {
+      game.player.update(dt, game.colliders, 0, 0);
+      universe.update(
+        [game.player.position.x, game.player.position.y, game.player.position.z],
+        [game.player.velocity.x, game.player.velocity.y, game.player.velocity.z],
+        dt,
+        [0, 0, -1]
+      );
+    } else if (travelDomain.state) {
       game.updateInterplanetaryFlight(dt);
     }
   };

@@ -44,8 +44,8 @@
 | [`b3156a2`](https://github.com/PauloSoaf/Dr-Manaus/commit/b3156a2) | U3: cancelamento robusto e seleção de destino de produção |
 | [`6cb37fb`](https://github.com/PauloSoaf/Dr-Manaus/commit/6cb37fb) | Preserva a posição de trânsito após falha de ativação da chegada |
 | [`68af476`](https://github.com/PauloSoaf/Dr-Manaus/commit/68af476) | P0: apresentação planetária, mapa 3D da Terra, rios, iluminação, voo e fotosfera solar |
-| [`P0.1-HARDENING`](https://github.com/PauloSoaf/Dr-Manaus) | P0.1: fidelidade geográfica, rios orbitais no EarthGlobe, mapa 3D WebGL e pouso solar consistente |
-| [P0.2-HARDENING](https://github.com/PauloSoaf/Dr-Manaus) | P0.2: rios independentes sem conexões artificiais, robustez WebGL com fallback 2D e teste E2E de pouso no Sol |
+| [`4c05785`](https://github.com/PauloSoaf/Dr-Manaus/commit/4c05785) | P0.2: rios independentes sem conexões artificiais, robustez WebGL com fallback 2D e teste E2E de pouso no Sol |
+| [`8fa65d7`](https://github.com/PauloSoaf/Dr-Manaus/commit/8fa65d7) | P0.2 Hotfix: substituição de canvas DOM no fallback 2D WebGL e teste E2E solar puro via controladores |
 
 **Depende de:** nenhuma outra branch. O diff é contra `main`; como a branch acumula o histórico desde a base jogável, ele é grande (1.222 arquivos, a maior parte dados de tiles em `public/geodata/real-city/tiles/`).
 

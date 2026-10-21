@@ -12,6 +12,7 @@ import { SphereGeometry } from 'three';
 
 function createMockCanvas(width = 800, height = 600, supportWebGL = true, throwOnWebGLConstructor = false) {
   const events = new Map<string, Function[]>();
+  let acquiredContextType: string | null = null;
   const ctx2d = {
     setTransform() {},
     clearRect() {},
@@ -112,17 +113,50 @@ function createMockCanvas(width = 800, height = 600, supportWebGL = true, throwO
 
   let getContext2DCalled = false;
 
+  const parent = {
+    children: [] as any[],
+    replaceChild(newChild: any, oldChild: any) {
+      const idx = this.children.indexOf(oldChild);
+      if (idx !== -1) this.children[idx] = newChild;
+      else this.children.push(newChild);
+      newChild.parentElement = this;
+      oldChild.parentElement = null;
+      return oldChild;
+    },
+  };
+
+  const doc = {
+    createElement(tag: string) {
+      if (tag === 'canvas') {
+        const mock = createMockCanvas(width, height, false, false);
+        mock.canvas.ownerDocument = doc as any;
+        return mock.canvas;
+      }
+      return {};
+    },
+  };
+
   const canvas = {
+    id: 'planet-3d-canvas',
+    className: 'planet-canvas',
     width,
     height,
-    style: { display: 'block' },
+    style: { display: 'block', cssText: 'display: block;' },
+    parentElement: parent,
+    ownerDocument: doc as any,
     getContext: (type: string) => {
       if (type === '2d') {
+        // Real browser behavior: once WebGL context has been acquired on this element, getContext('2d') returns null
+        if (acquiredContextType && acquiredContextType !== '2d') return null;
+        acquiredContextType = '2d';
         getContext2DCalled = true;
         return ctx2d;
       }
       if (type === 'webgl' || type === 'webgl2') {
-        return supportWebGL ? glCtx : null;
+        if (acquiredContextType && acquiredContextType !== 'webgl' && acquiredContextType !== 'webgl2') return null;
+        if (!supportWebGL) return null;
+        acquiredContextType = type;
+        return glCtx;
       }
       return null;
     },
@@ -143,6 +177,8 @@ function createMockCanvas(width = 800, height = 600, supportWebGL = true, throwO
       return true;
     },
   } as unknown as HTMLCanvasElement;
+
+  parent.children.push(canvas);
 
   return {
     canvas,
@@ -337,11 +373,15 @@ test('T_PLANET_MAP_WEBGL_UNAVAILABLE_FALLBACK_2D', () => {
 
 test('T_PLANET_MAP_WEBGL_CONSTRUCTOR_THROW_FALLBACK', () => {
   // When WebGL context is returned but WebGLRenderer constructor throws (e.g. context loss during init)
-  const { canvas, was2DCalled } = createMockCanvas(800, 600, true, true);
+  const { canvas } = createMockCanvas(800, 600, true, true);
   const renderer = new PlanetMap3DRenderer(canvas);
   assert.equal(renderer.is3D, false, 'is3D must be false when WebGL constructor throws');
   assert.equal(renderer.mode, '2d-fallback', 'Mode must fallback cleanly to 2d-fallback');
-  assert.equal(was2DCalled(), true, 'Must request 2D context as fallback');
+  // Original canvas had WebGL context acquired, so calling getContext('2d') on that original canvas returns null.
+  // The renderer safely replaced canvas with a fresh element attached to DOM that has a renderable 2D context.
+  assert.notEqual(renderer.canvas, canvas, 'Canvas element was safely replaced after WebGL context clash');
+  assert.ok(renderer.canvas.parentElement, 'Replacement canvas attached to DOM parent');
+  assert.equal((renderer.canvas as any).id, 'planet-3d-canvas', 'Replacement canvas preserves element id');
   assert.doesNotThrow(() => renderer.draw(mockLocation));
   renderer.dispose();
 });

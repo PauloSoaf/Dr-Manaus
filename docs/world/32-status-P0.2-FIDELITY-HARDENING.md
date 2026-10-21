@@ -14,15 +14,14 @@
   - Adicionado helper canônico `EarthRiverLayer.getRiverLines(river, useLOD0)` que extrai todos os segmentos independentes (`river.segments` ou `[river.coordinates]`), descartando linhas degeneradas (< 2 pontos).
   - Em `EarthContinentalRiverRenderer.ts`, o método `buildMeshGeometry` agora itera sobre cada segmento de forma isolada, gerando pares de vértices no buffer `LineSegments`. Nunca há costura entre o final de um afluente e o início do próximo.
   - Em `PlanetMap3DRenderer.ts`, tanto a rasterização da textura (`generateEarthTextureCanvas`), a geração dos arcos 3D na esfera (`buildRiverLineSegments`), quanto o render 2D de fallback iteram sobre todos os segmentos independentes com `beginPath()` e traçados individuais.
-- **Validação Automatizada:** Novos testes `T_RIVER_MULTI_SEGMENT_NO_CROSS_CONNECTIONS` (em `tests/earth-orbital-rivers.test.ts`) e `T_PLANET_MAP_MULTI_SEGMENT_RIVERS_PRESERVED` (em `tests/earth-map-3d.test.ts`) validam que todos os afluentes são extraídos e que o comprimento de cada segmento respeita o teto físico de arco geodésico, sem saltos transcontinentais.
-
-### P1.2 — Falha de Inicialização do WebGL com Fallback Funcional Garantido
-- **Defeito Identificado na Auditoria:** O `PlanetMap3DRenderer` definia `mode = 'gpu-3d'` prematuramente ao obter o contexto, antes de confirmar a instanciação com sucesso do `WebGLRenderer`. Se o construtor falhasse (ex: perda de contexto, contexto incompleto em headless, ou exceção), a exceção era engolida em silêncio e o renderer ficava em estado quebrado, sem fallback funcional.
-- **Solução Arquitetural:**
-  - O construtor do `PlanetMap3DRenderer` agora só define `this.mode = 'gpu-3d'` e aloca cena, câmera e meshes após a criação bem-sucedida do `WebGLRenderer`.
-  - Caso o contexto WebGL não exista ou a instanciação lance qualquer exceção, o renderer entra em `this.mode = '2d-fallback'`, define `this.renderer = null`, `this.scene = null`, e adquire com segurança o contexto 2D (`this.fallbackCtx = canvas.getContext('2d')`).
-  - Implementado renderizador 2D completo e esteticamente polido no método `draw()` para o modo fallback: desenha o fundo espacial, o disco da Terra com antialiasing, amostragem continental precisa (`isLandAt`), projeção esférica dos rios com recorte de hemisfério traseiro, marcador dourado de Manaus, marcador do jogador e banner de diagnóstico (`MODO: 2D FALLBACK (WebGL indisponível)`).
-- **Validação Automatizada:** Adicionados testes `T_PLANET_MAP_WEBGL_UNAVAILABLE_FALLBACK_2D` e `T_PLANET_MAP_WEBGL_CONSTRUCTOR_THROW_FALLBACK` em `tests/earth-map-3d.test.ts`.
+- **Validação Automatizada:** Novos testes `T_RIVER_MULTI_SEGMENT_NO_CROSS_CONNECTIONS` (em `tests/earth-orbital-rivers.test.ts`) e `T_PLANET_MAP_MULTI_SEGMENT_RIVERS_PRESERVED` (em `tests/earth-map-3d.test.ts`) validam que todos os afluentes são extraídos e que o comprimento de cada segmento respeita o teto físico de arco ge### P1.2 — Falha de Inicialização do WebGL com Fallback Funcional Garantido
+- **Defeito Identificado na Auditoria:** O `PlanetMap3DRenderer` definia `mode = 'gpu-3d'` prematuramente ao obter o contexto, antes de confirmar a instanciação com sucesso do `WebGLRenderer`. Se o construtor falhasse após a aquisição do contexto WebGL, tentar obter `canvas.getContext('2d')` no mesmo elemento retornaria `null` (restrição estrita da especificação W3C / navegadores que proíbe alternância de tipo de contexto).
+- **Solução Arquitetural (Hotfix P0.2):**
+  - O construtor do `PlanetMap3DRenderer` aloca Three.js com segurança e define `this.mode = 'gpu-3d'` somente após confirmação da criação do `WebGLRenderer`.
+  - Caso o construtor lance exceção após a aquisição do contexto WebGL e `canvas.getContext('2d')` retorne `null`, o renderer detecta a colisão de contexto e substitui o elemento no DOM por um novo elemento `<canvas>` limpo via `canvas.parentElement.replaceChild(replacement, this.canvas)`.
+  - O canvas substituto preserva id, className, width, height e estilos inline do original, re-associa os event listeners de interação (wheel, pointerdown, pointermove, pointerup) e obtém com sucesso `this.fallbackCtx = replacement.getContext('2d')`.
+  - O renderizador 2D completo no método `draw()` opera no modo fallback desenhando o fundo espacial, o disco da Terra com antialiasing, amostragem continental precisa (`isLandAt`), projeção esférica dos rios com recorte de hemisfério traseiro, marcador dourado de Manaus, marcador do jogador e banner de diagnóstico (`MODO: 2D FALLBACK (WebGL indisponível)`).
+- **Validação Automatizada:** Teste `T_PLANET_MAP_WEBGL_CONSTRUCTOR_THROW_FALLBACK` em `tests/earth-map-3d.test.ts` valida a substituição do elemento no DOM parent, a aquisição válida do contexto 2D e o funcionamento do método `draw()`.
 
 ### P2.1 — Interpolação Geodésica por Grandes Círculos (SLERP) e LOD Orbital
 - **Defeito Identificado na Auditoria:** O renderer interpolava pontos de rios linearmente em latitude e longitude, o que corta a curvatura do planeta em segmentos longos em vez de seguir o grande círculo na esfera.
@@ -36,28 +35,20 @@
 - **Solução Arquitetural:**
   - `tests/earth-map-3d.test.ts` foi expandido com mock de WebGL compatível com Three.js WebGLRenderer, além de novos testes:
     - `T_PLANET_MAP_WEBGL_UNAVAILABLE_FALLBACK_2D`: valida fallback quando WebGL é inexistente.
-    - `T_PLANET_MAP_WEBGL_CONSTRUCTOR_THROW_FALLBACK`: valida fallback quando o construtor lança exceção.
+    - `T_PLANET_MAP_WEBGL_CONSTRUCTOR_THROW_FALLBACK`: valida fallback quando o construtor lança exceção com substituição segura de canvas no DOM.
     - `T_PLANET_MAP_MULTI_SEGMENT_RIVERS_PRESERVED`: valida preservação de múltiplos segmentos de rios.
     - `T_PLANET_MAP_RESIZE_HANDLING`: valida atualização do aspect ratio da câmera e redimensionamento do renderer.
     - `T_PLANET_MAP_FOCUS_COORDINATES_CONSISTENCY`: valida alinhamento do yaw/pitch com as coordenadas canônicas de Manaus.
 
-### P2.3 — Teste End-to-End (E2E) do Fluxo Completo de Pouso e Decolagem Solar
-- **Defeito Identificado na Auditoria:** Os testes existentes validavam partes isoladas (intenção de pouso estática ou `handoffTo('sun')` direto), mas não comprovavam que o acionamento real da tecla `KeyF` conduz o personagem por todo o fluxo integrado via controladores reais do jogo.
-- **Solução Arquitetural:**
-  - Atualizado `tests/helpers/celestial-impact.ts` para prover suporte real a consumo de teclas (`input.consume`), vinculação de física de superfície (`bindSurfacePhysics`), e avanço de loop (`gameStep`).
-  - Criado o teste de integração E2E `T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE` em `tests/sun-approach.test.ts`:
-    1. **Voo Interplanetário:** O jogador se aproxima do Sol em voo livre espacial (altitude 20.000 km, dentro do limite de captura de 30.000 km).
-    2. **Comando Real do Usuário:** O input `KeyF` é registrado e consumido por `game.updateTravelDomain(dt)`.
-    3. **Intenção Ativa:** `game.requestLanding()` valida o candidato e ativa `landingIntent` com alvo `'sun'` em fase `'capture'`.
-    4. **Aproximação e Portão de Retorno:** A descida atinge altitude de captura $\le 7.000$ m, disparando a transição `returned` no `TravelDomain`.
-    5. **Handoff e Superfície da Fotosfera:** `finishSurfaceReturn('sun')` e `bindSurfacePhysics()` executam a passagem de bastão real:
-       - Referencial do jogador: `sun/local-enu`
-       - Domínio de física: `sun`
-       - Distrito: `FOTOSFERA`
-       - Gravidade do jogador: `PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2` (9,80665 m/s², empuxo de gameplay)
-       - Coordenadas de superfície finitas e sem colapso.
-    6. **Movimentação Local:** O personagem caminha no plano da fotosfera (+100m Leste, +50m Sul), permanecendo no referencial local da estrela.
-    7. **Decolagem e Retorno ao Espaço:** Subida vertical em alta velocidade (> 2.000 m/s, altitude > 7.000 m), disparando a transição `departed` e restaurando o domínio `interplanetary`.
+### P2.3 — Teste End-to-End (E2E) do Fluxo Completo de Pouso e Decolagem Solar sem Atalhos
+- **Defeito Identificado na Auditoria:** O teste anterior utilizava atalhos: `f.place(5_000, 20)` durante a descida, mutação direta em `player.position` na superfície, e chamadas manuais a `travelDomain.update()` durante a decolagem, em vez de exercitar o ciclo de gameplay exclusivamente pelos controladores.
+- **Solução Arquitetural (Hotfix P0.2):**
+  - Removido completamente qualquer uso de `f.place()` durante a descida. A aproximação e pouso ocorrem a partir de 20.000 km através de `KeyF` acionando `PlanetaryLandingIntent`, `CosmicCruiseController` e `Game.updateTravelDomain(dt)` até a travessia natural do portão de retorno a 7.000 m.
+  - Em `BodyNavigation.ts`, ajustado o envelope terminal de captura (`captureRadiusM`) com teto de 1.000 m (`Math.min(margin, 1000)`), permitindo que a desaceleração de pouso atinja a altitude de retorno de 7.000 m sem colisão espúria na fronteira de CCD orbital (100 km).
+  - Em `Game.ts`, corrigido `surfaceClearanceM('sun')` para calcular a distância esférica sobre a fotosfera.
+  - Locomoção na fotosfera conduzida puramente através do comando `KeyW` e `PlayerController.update(dt)`.
+  - Decolagem conduzida pelos comandos reais: `KeyF` para sustentação de hover, toque duplo `KeyV` para armar voo interplanetário, e propulsão de subida com `Space` + `KeyB` (boost). Corrigida em `Game.ts` a ordem de consumo do boost (`!this.travelDomain.localPhysicsActive && this.input.consume('KeyB')`), permitindo aceleração na física local. A transição `departed` ocorre naturalmente via `Game.updateTravelDomain(dt)` sem bypass.
+- **Validação Automatizada:** Teste `T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE` em `tests/sun-approach.test.ts` comprova todo o fluxo sem atalhos.
 
 ---
 
@@ -71,11 +62,11 @@ Todos os comandos foram executados localmente no ambiente real do repositório:
 | **Testes de Regressão** | `npm run test:regression` | **PASS (635/635)** | Todos os 635 testes de regressão aprovados |
 | **Fidelidade de Crateras** | `npm run check:impact-fidelity` | **PASS (24/24)** | 24 configurações medidas, erro de profundidade < 0.22m (tolerância: 4.0m) |
 | **Suíte Completa de Testes** | `npm test` | **PASS (1.424/1.424)** | **1.424 testes executados, 1.424 aprovados, 0 falhas** |
-| **Build de Produção** | `npm run build` | **PASS** | Bundle de produção gerado via Vite em 2.26s |
+| **Build de Produção** | `npm run build` | **PASS** | Bundle de produção gerado via Vite em 2.15s |
 
 ---
 
-## 3. Arquivos Modificados no P0.2
+## 3. Arquivos Modificados no P0.2 e Hotfix
 
 1. [`src/world/planet/EarthRiverLayer.ts`](file:///c:/Projetos/Dr-Manaus/src/world/planet/EarthRiverLayer.ts):
    - Adicionada função canônica `getRiverLines` para extrair todos os segmentos e afluentes sem misturar cursos de água.
@@ -85,17 +76,23 @@ Todos os comandos foram executados localmente no ambiente real do repositório:
    - Ajuste de contraste e cores por tier orbital (LOD0: `#59d1ff`, LOD1: `#38bdf8`, LOD2: `#2eaee6`).
 3. [`src/ui/map/PlanetMap3DRenderer.ts`](file:///c:/Projetos/Dr-Manaus/src/ui/map/PlanetMap3DRenderer.ts):
    - Inicialização estrita: `mode = 'gpu-3d'` somente após `WebGLRenderer` instanciado com sucesso.
-   - Fallback 2D utilizável e robusto em caso de falha de contexto WebGL com diagnóstico visual.
+   - Hotfix: substituição segura de canvas no DOM ao detectar impossibilidade de contexto 2D após aquisição WebGL, re-associando listeners e garantindo fallback 2D funcional com diagnóstico visual.
    - Renderização de todos os segmentos independentes na textura equiretangular e nas linhas 3D.
-4. [`tests/earth-map-3d.test.ts`](file:///c:/Projetos/Dr-Manaus/tests/earth-map-3d.test.ts):
-   - Adicionados testes para falhas de WebGL, fallback 2D, rios multisegmentados, resize de canvas e orientação canônica de Manaus.
-5. [`tests/earth-orbital-rivers.test.ts`](file:///c:/Projetos/Dr-Manaus/tests/earth-orbital-rivers.test.ts):
-   - Adicionado teste `T_RIVER_MULTI_SEGMENT_NO_CROSS_CONNECTIONS` para verificar continuidade e ausência de ligações espúrias.
-6. [`tests/helpers/celestial-impact.ts`](file:///c:/Projetos/Dr-Manaus/tests/helpers/celestial-impact.ts):
-   - Atualizado `impactFixture` com consumo de teclas real, vinculações completas de física de superfície e método `gameStep`.
-7. [`tests/sun-approach.test.ts`](file:///c:/Projetos/Dr-Manaus/tests/sun-approach.test.ts):
-   - Atualizado `T_SUN_EXPLICIT_F_LANDING_INTENT` para exercitar comando real `'KeyF'`.
-   - Adicionado teste de integração completo `T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE`.
+4. [`src/game/Game.ts`](file:///c:/Projetos/Dr-Manaus/src/game/Game.ts):
+   - Hotfix: cálculo de folga esférica na fotosfera solar (`surfaceClearanceM`) e correção da ordem de consumo do `KeyB` preservando o boost em física local.
+5. [`src/world/travel/BodyNavigation.ts`](file:///c:/Projetos/Dr-Manaus/src/world/travel/BodyNavigation.ts):
+   - Hotfix: clamp de `captureMargin` terminal para 1.000 m no envelope de exclusão, permitindo pouso lento atravessar o portão de 7.000 m.
+6. [`src/player/PlayerController.ts`](file:///c:/Projetos/Dr-Manaus/src/player/PlayerController.ts):
+   - Hotfix: getter de compatibilidade `gravity` mapeado para `bodyGravityMps2`.
+7. [`tests/earth-map-3d.test.ts`](file:///c:/Projetos/Dr-Manaus/tests/earth-map-3d.test.ts):
+   - Mock atualizado com exclusividade de contexto e suporte a `replaceChild`/`createElement`.
+   - `T_PLANET_MAP_WEBGL_CONSTRUCTOR_THROW_FALLBACK` atualizado para verificar substituição no DOM e execução do `draw()`.
+8. [`tests/earth-orbital-rivers.test.ts`](file:///c:/Projetos/Dr-Manaus/tests/earth-orbital-rivers.test.ts):
+   - Teste `T_RIVER_MULTI_SEGMENT_NO_CROSS_CONNECTIONS` para verificar continuidade e ausência de ligações espúrias.
+9. [`tests/helpers/celestial-impact.ts`](file:///c:/Projetos/Dr-Manaus/tests/helpers/celestial-impact.ts):
+   - Hotfix: instância real de `PlayerController` com suporte a `gameStep` completo (passo de universo, física do jogador e transições de partida/chegada).
+10. [`tests/sun-approach.test.ts`](file:///c:/Projetos/Dr-Manaus/tests/sun-approach.test.ts):
+    - `T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE` reescrito sem qualquer atalho (`f.place`, `player.position +=`, ou chamada direta a `travelDomain.update`). Todo o ciclo é operado via controladores e inputs reais.
 
 ---
 
@@ -103,4 +100,5 @@ Todos os comandos foram executados localmente no ambiente real do repositório:
 
 - Conforme diretriz do projeto: **U4 (galáxias procedurais) e BH0–BH2 continuam estritamente bloqueados**.
 - Nenhuma validação visual automatizada no navegador foi inventada; as avaliações no navegador permanecem sob prerrogativa exclusiva do operador humano.
-- O checkpoint P0.2 está **concluído com sucesso**.
+- O hotfix P0.2 está **concluído e validado com sucesso**.
+

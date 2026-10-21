@@ -1,6 +1,18 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — P0.1 Final Hardening: Geographic Fidelity & 3D Earth Presentation (2026-10-15)
+## Current checkpoint — P0.2 Fidelity Hardening & Robustness Hotfix (2026-10-21)
+
+Baseline at `4c05785df32eade281a2bd4f1a4361ef33fcc299`. Resolved all 5 fidelity and robustness issues, including audit hotfix:
+multi-segment continental and globe river rendering without spurious connections (`EarthRiverLayer.getRiverLines`),
+spherical geodetic SLERP interpolation with orbital LOD contrast tiers (`EarthContinentalRiverRenderer.ts`),
+resilient WebGL initialization with DOM canvas replacement fallback preventing browser context clashes (`PlanetMap3DRenderer.ts`),
+photosphere spherical clearance and terminal landing envelope clamp (`BodyNavigation.ts`, `Game.ts`),
+and autonomous end-to-end solar landing, surface locomotion and takeoff test cycle without shortcuts driven purely by player controllers (`sun-approach.test.ts`).
+Permanent regression gate at 635/635 PASS; full unit test suite at 1,424/1,424 PASS; impact-fidelity 24/24 PASS; build clean.
+Evidence: [32-status-P0.2-FIDELITY-HARDENING.md](32-status-P0.2-FIDELITY-HARDENING.md).
+STOP after P0.2; U4/BH0 remain strictly blocked pending manual gameplay evaluation.
+
+## Previous checkpoint — P0.1 Final Hardening: Geographic Fidelity & 3D Earth Presentation (2026-10-15)
 
 P0 baseline at `68af476eb02380a86abeb43c9d314dd6d2162757`. Resolved all 8 fidelity and hardening issues:
 reproducible offline Natural Earth river geodata pipeline (`build-earth-rivers.mjs`), body-fixed continental

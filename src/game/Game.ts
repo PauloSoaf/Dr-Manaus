@@ -1104,7 +1104,7 @@ export class Game {
      * without being seen. Four taps reached warp 2.
      */
     if (!this.travelDomain.localPhysicsActive && this.input.consume('KeyF')) this.requestLanding();
-    if (this.input.consume('KeyB') && !this.travelDomain.localPhysicsActive) {
+    if (!this.travelDomain.localPhysicsActive && this.input.consume('KeyB')) {
       // Warp belongs to free flight. During a landing capture the controller owns the velocity.
       if (this.landingIntent.active) this.hud.notify('Pouso em andamento · F cancela');
       else {
@@ -1148,8 +1148,16 @@ export class Game {
   private surfaceClearanceM(bodyId:string):number|undefined {
     const provider=this.surfaceProvider(bodyId);
     const body=this.universe.activeSystem.bodies.find(candidate=>candidate.id===bodyId);
-    const surface=provider?.surface??(body?surfaceForBody(body):undefined);
-    if(!surface||!body)return undefined;
+    if(!body)return undefined;
+    const profile=bodyProfile(body);
+    if(profile.landingMode==='photosphere'||bodyId==='sun'){
+      const centre=this.universe.activeSystem.positionOf(bodyId);
+      if(!centre)return undefined;
+      const position=this.universe.playerSystemPositionM();
+      return Math.hypot(position[0]-centre[0],position[1]-centre[1],position[2]-centre[2])-body.equatorialRadiusM;
+    }
+    const surface=provider?.surface??surfaceForBody(body);
+    if(!surface)return undefined;
     const fixed=this.universe.frames.convertPosition(this.universe.activeSystem.systemFrameId,body.frameId,this.universe.playerSystemPositionM());
     const radius=Math.hypot(...fixed);
     if(!(radius>0))return -planetSurfaceRadius(surface,[1,0,0]);

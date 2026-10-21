@@ -105,56 +105,66 @@ test('T_SUN_EXPLICIT_F_LANDING_INTENT', () => {
 test('T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE', () => {
   const f = impactFixture('sun', 200);
   try {
-    // 1. Interplanetary cruise approaching Sun at 20,000 km altitude (within 30,000 km capture limit)
-    f.place(20_000_000, 200);
+    // 1. Interplanetary cruise approaching Sun at 7,500m altitude (outside 7,000m return gate, within 30,000 km capture limit)
+    f.place(R + 7_500, 60);
     assert.equal(f.travelDomain.kind, 'interplanetary');
     assert.equal(f.universe.telemetry.dominantBody, 'sun');
+    assert.ok(Math.abs(f.universe.telemetry.altitudeM - 7_500) < 5);
 
-    // 2. Real user key press: KeyF
+    // 2. Real user key press: KeyF engages landing intent
     f.held.add('KeyF');
     f.gameStep(1 / 60);
+    f.held.delete('KeyF');
 
     assert.equal(f.game.landingIntent.active, true, 'KeyF must trigger active landing intent');
     assert.equal(f.game.landingIntent.bodyId, 'sun', 'Target must be Sun');
     assert.equal(f.game.landingIntent.phase, 'capture');
 
-    // 3. Autonomous descent down through capture envelope to return gate (<= 7000m)
-    f.place(5_000, 20);
-    f.gameStep(1 / 60);
+    // 3. Autonomous descent guided purely by CosmicCruiseController & LandingIntent through the 7,000m return gate (no f.place shortcuts!)
+    for (let step = 0; step < 240 && f.travelDomain.kind === 'interplanetary'; step++) {
+      f.gameStep(1 / 60);
+    }
 
     // 4. Photosphere arrival and handoff
+    assert.equal(f.travelDomain.kind, 'local', 'Handoff to local simulation completed');
     assert.equal(f.universe.player.frame, 'sun/local-enu', 'Player handed off to Sun local ENU frame');
     assert.equal(f.game.physicsDomain, 'sun', 'Physics domain is bound to sun');
     assert.equal(f.game.district, 'FOTOSFERA', 'District identifier set to FOTOSFERA');
     assert.equal(f.game.player.gravity, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2, 'Buoyancy gravity applied');
     assert.ok(f.game.player.position.toArray().every(Number.isFinite), 'Photosphere position coordinates are finite');
 
-    // 5. Player local movement on photospheric surface
-    f.game.player.position.x += 100;
-    f.game.player.position.z += 50;
-    f.universe.update(
-      [f.game.player.position.x, f.game.player.position.y, f.game.player.position.z],
-      [0, 0, 0],
-      1 / 60
-    );
+    // 5. Player local movement on photospheric surface driven purely by character locomotion input (no manual position mutation!)
+    f.held.add('KeyW');
+    for (let i = 0; i < 20; i++) f.gameStep(1 / 60);
+    f.held.delete('KeyW');
+    assert.ok(f.game.player.position.length() > 0, 'Player displaced across surface plane via movement input');
     assert.equal(f.universe.player.frame, 'sun/local-enu', 'Remains on sun/local-enu during surface walk');
 
-    // 6. Vertical ascent & Takeoff back to space
-    const sunCentre = f.universe.activeSystem.positionOf('sun')!;
-    const departureAltitudeM = 10_000;
-    const takeoffVelocityMps: [number, number, number] = [0, 2500, 0];
-    const trans = f.travelDomain.update({
-      altitudeM: departureAltitudeM,
-      speedMps: 2500,
-      requested: true,
-      nearestColliderM: Infinity,
-      bodyRadiusM: R,
-      entryPositionM: [sunCentre[0], sunCentre[1] + R + departureAltitudeM, sunCentre[2]],
-      entryVelocityMps: takeoffVelocityMps,
-    }, 1 / 60);
+    // 6. Player takeoff using genuine player flight controls (no direct travelDomain.update calls!):
+    // a) KeyF to engage hover/flight mode
+    f.held.add('KeyF');
+    f.gameStep(1 / 60);
+    f.held.delete('KeyF');
+    assert.ok(f.game.player.state === 'Hover' || f.game.player.state === 'Flight', 'Player enters flight state');
 
-    assert.equal(trans.kind, 'departed', 'Takeoff successfully departs from photospheric surface');
-    assert.equal(f.travelDomain.kind, 'interplanetary', 'Travel domain restores interplanetary state');
+    // b) Double-tap KeyV to arm interplanetary flight tier
+    f.held.add('KeyV'); f.gameStep(0.05); f.held.delete('KeyV');
+    f.held.add('KeyV'); f.gameStep(0.05); f.held.delete('KeyV');
+    assert.equal(f.game.player.armed, 'interplanetary', 'Interplanetary tier armed');
+    assert.equal(f.game.player.interplanetaryMode, true, 'Interplanetary flight mode active');
+
+    // c) Hold Space (vertical climb) + KeyB (boost) to accelerate past departure gate (>= 9,000m)
+    f.held.add('Space');
+    f.held.add('KeyB');
+    for (let i = 0; i < 240 && f.travelDomain.kind === 'local'; i++) {
+      f.gameStep(1 / 60);
+    }
+    f.held.delete('Space');
+    f.held.delete('KeyB');
+
+    assert.equal(f.travelDomain.kind, 'interplanetary', 'Takeoff successfully departs from photospheric surface to space');
+    assert.ok(f.travelDomain.state, 'Interplanetary state active');
+    assert.equal(f.universe.telemetry.dominantBody, 'sun');
   } finally {
     f.dispose();
   }

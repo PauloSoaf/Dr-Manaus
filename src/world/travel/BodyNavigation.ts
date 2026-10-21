@@ -54,9 +54,10 @@ export function bodyExclusionEnvelopes(system: CelestialSystemRuntime, terminal?
     const centreM = system.positionOf(body.id);
     if (!centreM) continue;
     const margin = bodyArrivalPolicy(body).exclusionMarginM;
+    const captureMargin = Math.min(margin, 1000);
     const measured = terminal?.bodyId === body.id && bodyProfile(body).canLand && Number.isFinite(terminal.clearanceM)
       ? Math.hypot(terminal.observerM[0]-centreM[0],terminal.observerM[1]-centreM[1],terminal.observerM[2]-centreM[2])
-        - terminal.clearanceM! + margin : undefined;
+        - terminal.clearanceM! + captureMargin : undefined;
     envelopes.push({ bodyId: body.id, centreM, velocityMps: system.stateOf(body.id)?.velocityMps,
       radiusM: body.equatorialRadiusM + maximumSurfaceReliefM(body) + margin,
       captureRadiusM: measured !== undefined && Number.isFinite(measured) && measured > 0 ? measured : undefined });
