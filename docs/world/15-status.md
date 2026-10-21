@@ -1106,3 +1106,16 @@ Known gap: `tsconfig.json` includes only `src`, so `npm run typecheck` does not 
 A test in this checkpoint called `RoadNetwork.update(Vector3, 0)` against a `(x, z, speed)`
 signature and failed at runtime instead of compile time. Including `tests` currently surfaces 314
 pre-existing errors, mostly a missing `node` entry in `compilerOptions.types`.
+
+---
+
+## Checkpoint P0.2: Fidelity Hardening, River Segments, WebGL Robustness & Sun E2E
+
+- **Baseline**: `22e765d5b86d92c5a9acd9d434348cfe7c11b10f`, `feat/universe-map`.
+- **Rios Continentais Independentes**: Corrigida omissão de afluentes secundários em `EarthContinentalRiverRenderer` e `PlanetMap3DRenderer`. Extração de todos os segmentos independentes com `EarthRiverLayer.getRiverLines` e renderização de linhas sem conexões artificiais entre bacias.
+- **Interpolação Geodésica por SLERP**: Substituída interpolação linear ingênua por SLERP geodésico na esfera unitária, prevenindo que rios cortem por dentro do planeta.
+- **Robustez de WebGL & Fallback 2D**: `PlanetMap3DRenderer` agora só ativa `mode = 'gpu-3d'` se a criação do `WebGLRenderer` for bem-sucedida. Falhas ou indisponibilidade de contexto ativam automaticamente `mode = '2d-fallback'` com render 2D completo (globo, continentes, rios e marcadores de Manaus/jogador).
+- **Cobertura de Testes do Mapa 3D**: Expandido `tests/earth-map-3d.test.ts` com testes de fallback sem WebGL, fallback em exceção do construtor, rios multisegmentados, redimensionamento de canvas e orientação canônica de Manaus.
+- **Pouso Solar End-to-End**: Criado teste de integração `T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE` em `tests/sun-approach.test.ts` cobrindo o ciclo completo: acionamento real de `KeyF` -> ativação da intenção -> aproximação -> handoff para fotosfera (`sun/local-enu`, gravidade 9.8 m/s², distrito FOTOSFERA) -> caminhada local na superfície -> decolagem vertical com retorno a voo interplanetário.
+- **Gates**: `npm run typecheck` (0 erros), `npm run test:regression` (635/635 pass), `npm run check:impact-fidelity` (24/24 pass), `npm test` (1.424/1.424 pass), `npm run build` (sucesso).
+- **Bloqueio**: U4 e BH0–BH2 continuam estritamente bloqueados.

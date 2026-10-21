@@ -77,29 +77,29 @@ export class PlanetMap3DRenderer {
     this.canvas = canvas;
 
     let gl: WebGLRenderingContext | WebGL2RenderingContext | null = null;
+    let webglRenderer: WebGLRenderer | null = null;
     try {
       gl = (canvas.getContext('webgl2') || canvas.getContext('webgl')) as any;
-    } catch {
-      gl = null;
-    }
-
-    if (gl) {
-      this.mode = 'gpu-3d';
-      this.scene = new Scene();
-      this.camera = new PerspectiveCamera(45, 1, 0.1, 50);
-      this.camera.position.set(0, 0, 2.6);
-
-      try {
-        this.renderer = new WebGLRenderer({
+      if (gl) {
+        webglRenderer = new WebGLRenderer({
           canvas,
           context: gl,
           alpha: true,
           antialias: true,
         });
-        this.renderer.setPixelRatio(Math.min(2, globalThis.devicePixelRatio || 1));
-      } catch {
-        // Fallback if WebGLRenderer constructor throws
+        webglRenderer.setPixelRatio(Math.min(2, globalThis.devicePixelRatio || 1));
       }
+    } catch {
+      webglRenderer = null;
+      gl = null;
+    }
+
+    if (webglRenderer && gl) {
+      this.mode = 'gpu-3d';
+      this.renderer = webglRenderer;
+      this.scene = new Scene();
+      this.camera = new PerspectiveCamera(45, 1, 0.1, 50);
+      this.camera.position.set(0, 0, 2.6);
 
       this.globeGroup = new Group();
       this.globeGroup.name = 'planet-3d-globe-group';
@@ -153,7 +153,14 @@ export class PlanetMap3DRenderer {
       this.scene.add(sun);
     } else {
       this.mode = '2d-fallback';
-      // In 2D fallback mode (e.g. testing in Node environment), handle gracefully
+      this.renderer = null;
+      this.scene = null;
+      this.camera = null;
+      this.globeGroup = null;
+      this.globeMesh = null;
+      this.manausMarker = null;
+      this.playerMarker = null;
+      this.riverLines = null;
       try {
         this.fallbackCtx = canvas.getContext('2d');
       } catch {
@@ -315,19 +322,67 @@ export class PlanetMap3DRenderer {
     ctx.lineJoin = 'round';
 
     for (const river of EarthRiverLayer.allRivers) {
-      if (river.coordinates.length < 2) continue;
-      ctx.beginPath();
-      for (let i = 0; i < river.coordinates.length; i++) {
-        const [lon, lat] = river.coordinates[i];
-        const px = ((lon + 180) / 360) * width;
-        const py = ((90 - lat) / 180) * height;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
+      const lines = EarthRiverLayer.getRiverLines(river);
+      for (const line of lines) {
+        if (line.length < 2) continue;
+        ctx.beginPath();
+        for (let i = 0; i < line.length; i++) {
+          const [lon, lat] = line[i];
+          const px = ((lon + 180) / 360) * width;
+          const py = ((90 - lat) / 180) * height;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
       }
-      ctx.stroke();
     }
 
     return canvas;
+  }
+
+  /**
+   * Subdivides spherical line segments along great-circle arc on unit sphere using SLERP.
+   */
+  private subdivideGreatCircleSpherical(points: readonly (readonly [number, number])[]): [number, number][] {
+    if (points.length < 2) return points.map(p => [p[0], p[1]]);
+    const result: [number, number][] = [];
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const [lon1, lat1] = points[i];
+      const [lon2, lat2] = points[i + 1];
+      result.push([lon1, lat1]);
+
+      const p1 = this.latLonToSphere(lat1 * DEG_TO_RAD, lon1 * DEG_TO_RAD, 1);
+      const p2 = this.latLonToSphere(lat2 * DEG_TO_RAD, lon2 * DEG_TO_RAD, 1);
+
+      const dot = Math.max(-1, Math.min(1, p1.dot(p2)));
+      const omega = Math.acos(dot);
+      const maxAngle = 0.05; // ~2.8 degrees
+
+      if (omega > maxAngle && omega < Math.PI - 1e-4) {
+        const steps = Math.min(12, Math.ceil(omega / maxAngle));
+        const sinOmega = Math.sin(omega);
+        for (let s = 1; s < steps; s++) {
+          const t = s / steps;
+          const A = Math.sin((1 - t) * omega) / sinOmega;
+          const B = Math.sin(t * omega) / sinOmega;
+          const v = new Vector3()
+            .addScaledVector(p1, A)
+            .addScaledVector(p2, B)
+            .normalize();
+
+          const phi = Math.acos(Math.max(-1, Math.min(1, v.y)));
+          const theta = Math.atan2(v.z, -v.x);
+          const interpLatRad = Math.PI / 2 - phi;
+          const interpLonRad = theta - Math.PI / 2;
+
+          result.push([interpLonRad * RAD_TO_DEG, interpLatRad * RAD_TO_DEG]);
+        }
+      }
+    }
+    const last = points[points.length - 1];
+    result.push([last[0], last[1]]);
+    return result;
   }
 
   /**
@@ -336,16 +391,20 @@ export class PlanetMap3DRenderer {
   private buildRiverLineSegments(radius = 1.002): LineSegments | null {
     const coords: number[] = [];
     for (const river of EarthRiverLayer.allRivers) {
-      if (river.coordinates.length < 2) continue;
-      for (let i = 0; i < river.coordinates.length - 1; i++) {
-        const [lon1, lat1] = river.coordinates[i];
-        const [lon2, lat2] = river.coordinates[i + 1];
+      const lines = EarthRiverLayer.getRiverLines(river);
+      for (const line of lines) {
+        if (line.length < 2) continue;
+        const arc = this.subdivideGreatCircleSpherical(line);
+        for (let i = 0; i < arc.length - 1; i++) {
+          const [lon1, lat1] = arc[i];
+          const [lon2, lat2] = arc[i + 1];
 
-        const p1 = this.latLonToSphere(lat1 * DEG_TO_RAD, lon1 * DEG_TO_RAD, radius);
-        const p2 = this.latLonToSphere(lat2 * DEG_TO_RAD, lon2 * DEG_TO_RAD, radius);
+          const p1 = this.latLonToSphere(lat1 * DEG_TO_RAD, lon1 * DEG_TO_RAD, radius);
+          const p2 = this.latLonToSphere(lat2 * DEG_TO_RAD, lon2 * DEG_TO_RAD, radius);
 
-        coords.push(p1.x, p1.y, p1.z);
-        coords.push(p2.x, p2.y, p2.z);
+          coords.push(p1.x, p1.y, p1.z);
+          coords.push(p2.x, p2.y, p2.z);
+        }
       }
     }
     if (!coords.length) return null;
@@ -443,17 +502,130 @@ export class PlanetMap3DRenderer {
 
       this.renderer.render(this.scene, this.camera);
     } else if (this.mode === '2d-fallback' && this.fallbackCtx) {
-      // Clean labeled 2D fallback when WebGL context is not available
+      // Clean, functional, labeled 2D fallback with landmasses, rivers and markers
       const ctx = this.fallbackCtx;
       const w = this.canvas.width || 800;
       const h = this.canvas.height || 600;
+      const cx = w / 2;
+      const cy = h / 2;
+      const r = Math.min(w, h) * 0.38 * this.zoom;
+
+      ctx.save();
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = '#0f172a';
+
+      // Deep space background
+      ctx.fillStyle = '#080c16';
       ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = '#38bdf8';
+
+      // Earth disk (ocean blue)
+      ctx.fillStyle = '#0c2850';
       ctx.beginPath();
-      ctx.arc(w / 2, h / 2, Math.min(w, h) * 0.35 * this.zoom, 0, Math.PI * 2);
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
+
+      // Atmosphere rim
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Clip to Earth disk for globe features
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(cx, cy, r - 1, 0, Math.PI * 2);
+      ctx.clip();
+
+      // Sample continental land points on front hemisphere
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.45)';
+      const step = 6;
+      for (let lat = -84; lat <= 84; lat += step) {
+        for (let lon = -180; lon < 180; lon += step) {
+          const latR = lat * DEG_TO_RAD;
+          const lonR = lon * DEG_TO_RAD;
+          if (isLandAt(latR, lonR)) {
+            const proj = this.project3D(latR, lonR, r, cx, cy);
+            if (proj.visible) {
+              const spot = Math.max(2, 3.5 * this.zoom);
+              ctx.fillRect(proj.screenX - spot / 2, proj.screenY - spot / 2, spot, spot);
+            }
+          }
+        }
+      }
+
+      // Draw continental rivers on front hemisphere
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = Math.max(1, 1.5 * this.zoom);
+      for (const river of EarthRiverLayer.allRivers) {
+        const lines = EarthRiverLayer.getRiverLines(river);
+        for (const line of lines) {
+          if (line.length < 2) continue;
+          ctx.beginPath();
+          let inPath = false;
+          for (let i = 0; i < line.length; i++) {
+            const [lon, lat] = line[i];
+            const proj = this.project3D(lat * DEG_TO_RAD, lon * DEG_TO_RAD, r, cx, cy);
+            if (proj.visible) {
+              if (!inPath) {
+                ctx.moveTo(proj.screenX, proj.screenY);
+                inPath = true;
+              } else {
+                ctx.lineTo(proj.screenX, proj.screenY);
+              }
+            } else {
+              inPath = false;
+            }
+          }
+          if (inPath) ctx.stroke();
+        }
+      }
+
+      ctx.restore(); // unclip
+
+      // Manaus marker
+      const manausProj = this.project3D(MANAUS_GEODETIC.latRad, MANAUS_GEODETIC.lonRad, r, cx, cy);
+      if (manausProj.visible) {
+        ctx.fillStyle = '#fbbf24';
+        ctx.beginPath();
+        ctx.arc(manausProj.screenX, manausProj.screenY, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.fillStyle = '#fbbf24';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillText('Manaus', manausProj.screenX + 8, manausProj.screenY + 4);
+      }
+
+      // Player marker
+      if (location.surface) {
+        const playerProj = this.project3D(
+          location.surface.latDeg * DEG_TO_RAD,
+          location.surface.lonDeg * DEG_TO_RAD,
+          r,
+          cx,
+          cy
+        );
+        if (playerProj.visible) {
+          ctx.fillStyle = '#ef4444';
+          ctx.beginPath();
+          ctx.arc(playerProj.screenX, playerProj.screenY, 5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+
+          ctx.fillStyle = '#ef4444';
+          ctx.font = 'bold 11px sans-serif';
+          ctx.fillText('Jogador', playerProj.screenX + 8, playerProj.screenY + 4);
+        }
+      }
+
+      // Diagnostic banner
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.85)';
+      ctx.font = '10px monospace';
+      ctx.fillText('MODO: 2D FALLBACK (WebGL indisponível)', 12, 20);
+
+      ctx.restore();
     }
   }
 

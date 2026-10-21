@@ -7,7 +7,7 @@ import {
   LineSegments,
 } from 'three/webgpu';
 import { geodeticToEcef } from '../spatial/ECEF';
-import { DEG_TO_RAD } from '../spatial/units';
+import { DEG_TO_RAD, RAD_TO_DEG } from '../spatial/units';
 import { EarthRiverLayer, type RiverDefinition } from './EarthRiverLayer';
 import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 
@@ -50,9 +50,10 @@ export class EarthContinentalRiverRenderer {
   }
 
   /**
-   * Subdivides long coordinate segments along great-circle arc on ellipsoid.
+   * Subdivides long coordinate segments along great-circle arc on the spherical globe using SLERP.
+   * This preserves exact curvature along ellipsoidal tangents without cutting through the planet.
    */
-  private subdividePoints(points: readonly (readonly [number, number])[]): [number, number][] {
+  private subdivideGreatCircle(points: readonly (readonly [number, number])[]): [number, number][] {
     if (points.length < 2) return points.map(p => [p[0], p[1]]);
     const result: [number, number][] = [];
 
@@ -61,21 +62,41 @@ export class EarthContinentalRiverRenderer {
       const [lon2, lat2] = points[i + 1];
       result.push([lon1, lat1]);
 
-      // Calculate approximate spherical distance in metres
-      const dLat = (lat2 - lat1) * DEG_TO_RAD;
-      const dLon = (lon2 - lon1) * DEG_TO_RAD;
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.sin(dLon / 2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distM = 6_371_000 * c;
+      const lat1Rad = lat1 * DEG_TO_RAD;
+      const lon1Rad = lon1 * DEG_TO_RAD;
+      const lat2Rad = lat2 * DEG_TO_RAD;
+      const lon2Rad = lon2 * DEG_TO_RAD;
 
-      if (distM > MAX_SEGMENT_LENGTH_M) {
-        const steps = Math.min(8, Math.ceil(distM / MAX_SEGMENT_LENGTH_M));
+      // Convert to unit vectors on sphere
+      const x1 = Math.cos(lat1Rad) * Math.cos(lon1Rad);
+      const y1 = Math.cos(lat1Rad) * Math.sin(lon1Rad);
+      const z1 = Math.sin(lat1Rad);
+
+      const x2 = Math.cos(lat2Rad) * Math.cos(lon2Rad);
+      const y2 = Math.cos(lat2Rad) * Math.sin(lon2Rad);
+      const z2 = Math.sin(lat2Rad);
+
+      const dot = Math.max(-1, Math.min(1, x1 * x2 + y1 * y2 + z1 * z2));
+      const omega = Math.acos(dot);
+      const distM = 6_371_000 * omega;
+
+      if (distM > MAX_SEGMENT_LENGTH_M && omega > 1e-5) {
+        const steps = Math.min(16, Math.ceil(distM / MAX_SEGMENT_LENGTH_M));
+        const sinOmega = Math.sin(omega);
         for (let s = 1; s < steps; s++) {
           const t = s / steps;
-          const interpLat = lat1 + (lat2 - lat1) * t;
-          const interpLon = lon1 + (lon2 - lon1) * t;
+          const A = Math.sin((1 - t) * omega) / sinOmega;
+          const B = Math.sin(t * omega) / sinOmega;
+          let ix = A * x1 + B * x2;
+          let iy = A * y1 + B * y2;
+          let iz = A * z1 + B * z2;
+          const len = Math.hypot(ix, iy, iz) || 1;
+          ix /= len;
+          iy /= len;
+          iz /= len;
+
+          const interpLat = Math.asin(Math.max(-1, Math.min(1, iz))) * RAD_TO_DEG;
+          const interpLon = Math.atan2(iy, ix) * RAD_TO_DEG;
           result.push([interpLon, interpLat]);
         }
       }
@@ -87,36 +108,37 @@ export class EarthContinentalRiverRenderer {
 
   /**
    * Builds line segment geometry for a given list of rivers.
+   * Renders all independent segments/tributaries without artificial cross-connections.
    */
   private buildMeshGeometry(rivers: readonly RiverDefinition[], useLOD0 = false): BufferGeometry {
     const coords: number[] = [];
 
     for (const river of rivers) {
-      const linePoints = useLOD0 && river.lod0Coordinates && river.lod0Coordinates.length > 2
-        ? river.lod0Coordinates
-        : river.coordinates;
+      const lines = EarthRiverLayer.getRiverLines(river, useLOD0);
 
-      if (linePoints.length < 2) continue;
-      const arc = this.subdividePoints(linePoints);
+      for (const line of lines) {
+        if (line.length < 2) continue;
+        const arc = this.subdivideGreatCircle(line);
 
-      for (let i = 0; i < arc.length - 1; i++) {
-        const [lon1, lat1] = arc[i];
-        const [lon2, lat2] = arc[i + 1];
+        for (let i = 0; i < arc.length - 1; i++) {
+          const [lon1, lat1] = arc[i];
+          const [lon2, lat2] = arc[i + 1];
 
-        const p1 = geodeticToEcef({
-          latRad: lat1 * DEG_TO_RAD,
-          lonRad: lon1 * DEG_TO_RAD,
-          heightM: RIVER_SURFACE_OFFSET_M,
-        });
+          const p1 = geodeticToEcef({
+            latRad: lat1 * DEG_TO_RAD,
+            lonRad: lon1 * DEG_TO_RAD,
+            heightM: RIVER_SURFACE_OFFSET_M,
+          });
 
-        const p2 = geodeticToEcef({
-          latRad: lat2 * DEG_TO_RAD,
-          lonRad: lon2 * DEG_TO_RAD,
-          heightM: RIVER_SURFACE_OFFSET_M,
-        });
+          const p2 = geodeticToEcef({
+            latRad: lat2 * DEG_TO_RAD,
+            lonRad: lon2 * DEG_TO_RAD,
+            heightM: RIVER_SURFACE_OFFSET_M,
+          });
 
-        coords.push(p1.xM, p1.yM, p1.zM);
-        coords.push(p2.xM, p2.yM, p2.zM);
+          coords.push(p1.xM, p1.yM, p1.zM);
+          coords.push(p2.xM, p2.yM, p2.zM);
+        }
       }
     }
 
@@ -180,13 +202,16 @@ export class EarthContinentalRiverRenderer {
     this.material.opacity = this.masterOpacity * altOpacity;
     this.group.visible = this.material.opacity > 0.01;
 
-    // Select scale-appropriate LOD
+    // Select scale-appropriate LOD and adjust visual contrast across orbital scales
     if (altitudeM > 500_000) {
       this.setLOD('lod0');
+      this.material.color.setRGB(0.35, 0.82, 1.0); // High-contrast cyan for deep orbit
     } else if (altitudeM > 80_000) {
       this.setLOD('lod1');
+      this.material.color.setRGB(0.22, 0.74, 0.97); // #38bdf8 river blue
     } else {
       this.setLOD('lod2');
+      this.material.color.setRGB(0.18, 0.68, 0.92);
     }
   }
 

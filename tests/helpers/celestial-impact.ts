@@ -33,15 +33,61 @@ export function impactFixture(id = 'earth', speed = LIGHT_SPEED_MPS, fps = 60) {
     bodyId: id, bodyRadiusM: body.equatorialRadiusM, entryPositionM: position, entryVelocityMps: velocity }, 0);
   const game = Object.create(Game.prototype) as any;
   const controller = new CosmicCruiseController(), held = new Set<string>();
-  Object.assign(game, { universe, travelDomain, interplanetary: controller, navigation: new NavigationTargetState(),
-    landingIntent: new PlanetaryLandingIntent(), warpStep: speed > 500_000_000 ? 9 : 0,
-    input: { held: (key: string) => held.has(key), consume: () => false },
-    player: { state: 'Flight', velocity: new Vector3(), position: new Vector3() },
-    rendering: { camera: new PerspectiveCamera() }, viewForward: new Vector3(0, -1, 0),
-    planetProviders: new Map(), hud: { notify() {} } });
+  Object.assign(game, {
+    universe,
+    travelDomain,
+    interplanetary: controller,
+    navigation: new NavigationTargetState(),
+    landingIntent: new PlanetaryLandingIntent(),
+    warpStep: speed > 500_000_000 ? 9 : 0,
+    colliders: [],
+    curvedColliders: [],
+    attackBoxes: [],
+    blastBoxes: [],
+    surfaceTerrains: new Map(),
+    planetProviders: new Map(),
+    hud: { notify() {} },
+    input: {
+      held: (key: string) => held.has(key),
+      consume: (key: string) => {
+        const has = held.has(key);
+        held.delete(key);
+        return has;
+      },
+    },
+    player: {
+      state: 'Flight',
+      velocity: new Vector3(),
+      position: new Vector3(),
+      teleport(v: any) { this.position.copy(v); },
+      beginSurfaceApproach() { this.state = 'SurfaceApproach'; },
+      setSurfaceGravity(g: number) { this.gravity = g; },
+      interplanetaryMode: false,
+    },
+    rendering: { camera: new PerspectiveCamera() },
+    viewForward: new Vector3(0, -1, 0),
+    camera: {
+      setLocalView() {},
+      inSpace: true,
+    },
+    renderOriginVec: new Vector3(),
+    actorRoot: { position: new Vector3() },
+    localRoot: { position: new Vector3(), visible: false },
+  });
   game.rockyImpactDestruction=new RockyImpactDestructionService({edits:universe.volume.edits,
     body:id=>system.bodies.find(b=>b.id===id),requestRegion:(id,plan)=>universe.volume.requestImpactRegion(id,plan)});
   const step = (dt = 1 / fps) => game.updateInterplanetaryFlight(dt);
+  const gameStep = (dt = 1 / fps) => {
+    game.updateTravelDomain(dt);
+    const trans = travelDomain.transition;
+    if (trans.kind === 'returned') {
+      game.finishSurfaceReturn(universe.telemetry.dominantBody);
+    }
+    game.bindSurfacePhysics();
+    if (!travelDomain.localPhysicsActive && travelDomain.state) {
+      game.updateInterplanetaryFlight(dt);
+    }
+  };
   const place = (distance: number, inwardSpeed = 0) => {
     const centre = system.positionOf(id)!, v = system.stateOf(id)!.velocityMps;
     const p: Vec3 = [centre[0], centre[1] + distance, centre[2]];
@@ -49,6 +95,6 @@ export function impactFixture(id = 'earth', speed = LIGHT_SPEED_MPS, fps = 60) {
     travelDomain.setState({ systemId: 'sol', positionM: p, velocityMps: velocity });
     universe.updateSystemPose(p, velocity, 0);
   };
-  return { game, universe, controller, travelDomain, envelope, body, held, step, place,
+  return { game, universe, controller, travelDomain, envelope, body, held, step, gameStep, place,
     event: () => game.lastCelestialImpact, dispose: () => universe.dispose() };
 }

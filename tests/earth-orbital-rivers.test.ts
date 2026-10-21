@@ -159,3 +159,41 @@ test('T_RIVER_LAYER_PRESENTATION_ONLY', () => {
     renderer.dispose();
   }
 });
+
+test('T_RIVER_MULTI_SEGMENT_NO_CROSS_CONNECTIONS', () => {
+  // Verify that multi-segment rivers from earth-rivers.json are rendered without cross-stitching
+  const amazon = EarthRiverLayer.getAmazonMainStem();
+  assert.ok(amazon, 'Amazon river definition exists');
+  const lines = EarthRiverLayer.getRiverLines(amazon);
+  assert.ok(lines.length >= 1, 'River contains at least one line');
+
+  const renderer = new EarthContinentalRiverRenderer();
+  try {
+    renderer.setLOD('lod2');
+    const mesh = renderer.group.children[0] as any;
+    const pos = mesh.geometry.getAttribute('position');
+    assert.ok(pos && pos.count > 0, 'BufferGeometry must have vertices');
+    // Lines are rendered as LineSegments (pairs of vertices)
+    assert.equal(pos.count % 2, 0, 'Line segments must come in pairs');
+
+    // Check that every individual line segment has realistic length (no cross-globe artificial connections)
+    for (let i = 0; i < pos.count; i += 2) {
+      const x1 = pos.getX(i);
+      const y1 = pos.getY(i);
+      const z1 = pos.getZ(i);
+
+      const x2 = pos.getX(i + 1);
+      const y2 = pos.getY(i + 1);
+      const z2 = pos.getZ(i + 1);
+
+      const segLenM = Math.hypot(x2 - x1, y2 - y1, z2 - z1);
+      // Subdivided great-circle segments are capped around MAX_SEGMENT_LENGTH_M (250 km)
+      assert.ok(
+        segLenM <= 350_000,
+        `Segment length ${segLenM}m exceeds maximum arc length (cross-connection detected!)`
+      );
+    }
+  } finally {
+    renderer.dispose();
+  }
+});

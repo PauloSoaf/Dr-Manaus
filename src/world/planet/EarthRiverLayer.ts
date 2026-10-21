@@ -84,6 +84,23 @@ export const EarthRiverLayer = {
   },
 
   /**
+   * Retrieves all independent coordinate lines for a river (main stem + tributaries/branches).
+   * Guarantees distinct lines are separated so no artificial cross-connections are rendered.
+   */
+  getRiverLines(river: RiverDefinition, useLOD0 = false): readonly (readonly (readonly [number, number])[])[] {
+    if (useLOD0 && river.lod0Coordinates && river.lod0Coordinates.length >= 2) {
+      return [river.lod0Coordinates];
+    }
+    if (river.segments && river.segments.length > 0) {
+      return river.segments.filter(s => s && s.length >= 2);
+    }
+    if (river.coordinates && river.coordinates.length >= 2) {
+      return [river.coordinates];
+    }
+    return [];
+  },
+
+  /**
    * Converts a [lonDeg, latDeg] point to a 3D point on a sphere of radius R.
    * X = R * cos(lat) * sin(lon)
    * Y = R * sin(lat)
