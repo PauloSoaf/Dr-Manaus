@@ -149,11 +149,18 @@ export async function proceduralSystemCheckpoint(page,options={}) {
     const landed=await snapshot();assert.equal(landed.address.bodyId,body.id);
     const before=landed.position;
     await page.keyboard.down('w');
-    await page.waitForFunction(start=>{
-      const p=window.__DR_MANAUS__.player.position;
-      return Math.hypot(p.x-start[0],p.z-start[2])>1;
-    },before,{timeout:25_000});
-    await page.keyboard.up('w');
+    try {
+      await page.waitForFunction(start => {
+        const p = window.__DR_MANAUS__?.player?.position;
+        if (!p) return false;
+        return Math.hypot(
+          p.x - start[0],
+          p.z - start[2]
+        ) > 1;
+      }, before, { timeout: 25_000 });
+    } finally {
+      await page.keyboard.up('w').catch(() => {});
+    }
     const walked=await snapshot();assert.ok(Math.hypot(walked.position[0]-before[0],walked.position[2]-before[2])>1);
     results[label]={landed,walked};await page.screenshot({path:`artifacts/${prefix}-${label}-surface.png`});
     await page.keyboard.press('f');await page.waitForTimeout(250);
