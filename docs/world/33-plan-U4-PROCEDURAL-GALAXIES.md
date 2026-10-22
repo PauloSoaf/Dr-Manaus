@@ -1,8 +1,8 @@
 # U4 Technical Architecture Plan — Procedural Galaxies & Scalable Cosmic Architecture
 
-> **Documento de Arquitetura e Planejamento Técnico do Checkpoint U4**  
-> **Status:** PLANEJAMENTO TÉCNICO COMPLETO (Implementação estritamente bloqueada aguardando aceite manual do P0.2)  
-> **Baseline Auditado:** `b7f4fda0d5fb7b645fc179235fb2d5a9c01fa2b4` (Branch: `feat/universe-map`)  
+> **Documento de Arquitetura e Planejamento Técnico do Checkpoint U4 (Revisão U4.0.1)**  
+> **Status:** CONTRATOS MATEMÁTICOS E PRECISÃO AUDITADOS (Preparação para U4.1 concluída; implementação de U4.1 aguarda liberação explícita)  
+> **Baseline Auditado:** `10cd5b33fc4e04cb33e962c4440e18a13e4ab5e2` (Branch: `feat/universe-map`)  
 > **Dependências:** U0 (Target Authority), U1 (Procedural Systems), U2 (Galaxy Runtime), U3 (Hypercruise), P0/P0.1/P0.2 (Planetary & Solar Polish)  
 > **Escopo Bloqueado:** **BH0, BH1, BH2 (buracos negros relativísticos e lentes gravitacionais) e U5/U6 permanecem estritamente bloqueados.**
 
@@ -56,7 +56,13 @@ onde:
 - $\psi$: Ângulo de inclinação / abertura (pitch angle, calibrado em $\psi \approx 12.5^\circ$ para galáxias espirais Sb/Sbc).
 - $A_{\text{arm}} \in [0.0, 0.75]$: Amplitude do contraste de densidade estelar inter-braços. Como $A_{\text{arm}} \le 0.75$, a densidade mínima no espaço inter-braço é no mínimo $25\%$ do disco base, prevenindo densidade zero ou negativa.
 - $\sigma_{\text{arm}}$: Largura angular do perfil gaussiano do braço ($\approx 0.18 \text{ rad} \approx 10.3^\circ$).
-- Esporão local de Orion: modelado como sub-braço local secundário gaussiando centrado em $r \approx 26.000 \text{ ly}$, $\theta \approx \theta_{\text{sol}}$.
+- Esporão local de Orion: modelado como sub-braço local secundário gaussiano centrado em $r \approx 26.000 \text{ ly}$, $\theta \approx \theta_{\text{sol}}$.
+
+#### Propriedades e Contratos Matemáticos de $M_{\text{arms}}(r, \theta)$:
+1. **Não Negatividade Estrita:** Como $\exp(-x) \in (0, 1]$ e $A_{\text{arm}} \in [0.0, 0.75]$, temos $M_{\text{arms}}(r, \theta) \ge 1 - A_{\text{arm}} \ge 0.25 > 0$ para todo ponto no domínio. A densidade estelar inter-braço nunca se anula e nunca se torna negativa.
+2. **Periodicidade Angular $2\pi$:** Devido à função $\operatorname{wrap}_{[-\pi, \pi]}$, $M_{\text{arms}}(r, \theta + 2\pi k) = M_{\text{arms}}(r, \theta)$ para qualquer $k \in \mathbb{Z}$.
+3. **Ausência de Cancelamento Destrutivo:** Ao utilizar o operador de envelope máximo $\max_{k}$ em vez de uma interferência senoidal linear $\sum \cos(\dots)$, a função elimina interferências destrutivas e nós de cancelamento entre braços adjacentes.
+4. **Alinhamento de Cristas:** Nos pontos exatos da espiral logarítmica onde $\theta = \theta_k + \frac{\ln(r/r_0)}{\tan(\psi)}$, $\Delta\theta_k = 0$ e a densidade atinge o valor de crista $M_{\text{arms}} = 1.0$.
 
 Com essa formulação, a densidade composta do disco torna-se estritamente positiva para todo $(r, \theta, z)$:
 $$\rho_{\text{disk}}(r, \theta, z) = \rho_0 \cdot \exp\left(-\frac{r}{h_r}\right) \cdot \operatorname{sech}^2\left(\frac{z}{h_z}\right) \cdot M_{\text{arms}}(r, \theta) > 0$$
@@ -97,29 +103,37 @@ Instanciar 100 bilhões de estrelas como nós da cena Three.js provocaria colaps
 
 Para prevenir *thrashing* (alocação e destruição repetitiva de buffers na fronteira de transição) e garantir taxa de quadros estável sem picos de frame time, a transição entre níveis de LOD obedece a **três critérios conjugados**:
 
-1. **Tamanho Angular Projetado na Tela ($\theta_{\text{px}}$):**
-   $$\theta_{\text{px}} = 2 \cdot \arctan\left(\frac{R_{\text{gal}}}{2 \cdot d}\right) \cdot \frac{H_{\text{viewport}}}{2 \cdot \tan(\text{FOV}/2)}$$
-   onde $R_{\text{gal}}$ é o raio físico da galáxia, $d$ é a distância euclidiana da câmera, $H_{\text{viewport}}$ é a altura do viewport em pixels, e $\text{FOV}$ é o campo de visão vertical.
+1. **Tamanho Angular e Diâmetro Projetado em Pixels ($\theta$ e $D_{\text{px}}$):**
+   - **Tamanho angular aparente ($\theta$):**
+     $$\theta = 2 \cdot \arctan\left(\frac{R_{\text{gal}}}{d}\right)$$
+     onde $R_{\text{gal}}$ é o raio físico da galáxia e $d$ é a distância euclidiana da câmera ao centro galáctico.
+   - **Diâmetro projetado no viewport ($D_{\text{px}}$):** Sob projeção perspectiva linear com campo de visão vertical $\text{FOV}_y$ e altura de viewport $H_{\text{viewport}}$:
+     $$D_{\text{px}} = \frac{H_{\text{viewport}}}{\tan(\text{FOV}_y / 2)} \cdot \tan\left(\frac{\theta}{2}\right) = \frac{H_{\text{viewport}}}{\tan(\text{FOV}_y / 2)} \cdot \left(\frac{R_{\text{gal}}}{d}\right)$$
+   - **Validade Geométrica:** Essa expressão representa com exatidão a projeção perspectiva do diâmetro aparente de um corpo esferoidal visto externamente ($d > R_{\text{gal}}$). Para distâncias astronômicas muito grandes ($d \gg R_{\text{gal}}$), vigora a aproximação de pequenos ângulos $\tan(x) \approx x$, de modo que $\theta \approx 2 R_{\text{gal}} / d$ e $D_{\text{px}} \propto 1/d$.
+   - **Tratamento de Observador Interno e Interseção ($d \le R_{\text{gal}}$):**
+     Quando a câmera penetra no envelope físico da galáxia ($d \le R_{\text{gal}}$), a hipótese de visão externa cessa e a razão $R_{\text{gal}} / d \to \infty$ causaria singularidade de divisão por zero se $d \to 0$. O observador passa a estar imerso no campo estelar: o tamanho angular subtende toda a abóbada celeste ($\theta = \pi \text{ rad} = 180^\circ$) e a dimensão projetada satura em $D_{\text{px}} \ge H_{\text{viewport}}$. O pipeline de LOD trata a condição de imersão de forma explícita:
+     $$\text{Se } d \le R_{\text{gal}}: \quad \theta = \pi, \quad D_{\text{px}} = H_{\text{viewport}}$$
+     eliminando divisões por zero e forçando a ativação imediata dos modos de imersão local (LOD 2, LOD 3 ou LOD 4).
 2. **Faixa de Histerese Direcional de 15%:**
-   - **Refinamento (LOD $N \to N+1$):** ativado somente quando $d \le d_{\text{in}}$ (ou $\theta_{\text{px}} \ge \theta_{\text{in}}$).
-   - **Simplificação (LOD $N+1 \to N$):** ativado somente quando $d > 1.15 \cdot d_{\text{in}}$ (ou $\theta_{\text{px}} < 0.85 \cdot \theta_{\text{in}}$).
+   - **Refinamento (LOD $N \to N+1$):** ativado somente quando $d \le d_{\text{in}}$ (ou $D_{\text{px}} \ge D_{\text{in}}$).
+   - **Simplificação (LOD $N+1 \to N$):** ativado somente quando $d > 1.15 \cdot d_{\text{in}}$ (ou $D_{\text{px}} < 0.85 \cdot D_{\text{in}}$).
    - A banda de histerese impede oscilações visuais contínuas quando o jogador navega próximo aos limites de transição.
 3. **Orçamento de Recursos e Throttling:**
    - Limite estrito de no máximo **1 transição de LOD de galáxia por frame** processada na CPU.
    - Buffer pool reciclável para GPU Point Clouds (`TypedArray` pré-alocados sem GC em tempo de execução).
 
-### 3.2 Nível 0: Cosmológico (> 10 Mpc, $\theta_{\text{px}} < 12\text{ px}$)
+### 3.2 Nível 0: Cosmológico (> 10 Mpc, $D_{\text{px}} < 12\text{ px}$)
 - Galáxias distantes aparecem como pontos de magnitude visual aparente com base na lei do inverso do quadrado da distância:
   $$m_v = M_V + 5 \cdot (\log_{10}(d_{\text{pc}}) - 1)$$
 - Impostor pré-rasterizado no `Canvas` da morfologia da galáxia (elíptica ou espiral) para galáxias do Grupo Local e aglomerados próximos.
 
-### 3.3 Nível 1: Galáctico Distante (100 kpc a 10 Mpc, $12\text{ px} \le \theta_{\text{px}} < 300\text{ px}$)
+### 3.3 Nível 1: Galáctico Distante (100 kpc a 10 Mpc, $12\text{ px} \le D_{\text{px}} < 300\text{ px}$)
 - Utilização de `GalaxyMorphologyRenderer`:
   - A galáxia é desenhada em uma única draw call via shader customizado Three.js (`RawShaderMaterial`).
   - O shader calcula analiticamente na GPU a integral da linha de visada através da função de densidade $\rho_{\text{total}}(r, \theta, z)$.
   - Inclui absorção de poeira interestelar escura nos planos médios dos braços espirais (zonas de extinção e avermelhamento avermelhado).
 
-### 3.4 Nível 2: Regional e Braços Espirais (1 kly a 100 kpc, $\theta_{\text{px}} \ge 300\text{ px}$)
+### 3.4 Nível 2: Regional e Braços Espirais (1 kly a 100 kpc, $D_{\text{px}} \ge 300\text{ px}$)
 - Quando a câmera ou nave se aproxima de uma galáxia, ativa-se o `GalaxyPointCloudProvider`:
   - Buffer de vértices instanciado em GPU (`THREE.InstancedBufferGeometry` ou `THREE.Points`).
   - 10.000 a 200.000 partículas ativas (ajustável por qualidade).
@@ -178,13 +192,27 @@ A partir de `galaxySeed` e um gerador pseudo-aleatório `xorshift64`:
 
 ## 5. Integração com Coordenadas Flutuantes e Trânsito Universal
 
-### 5.1 Prevenção de Tremulação de Ponto Flutuante (Floating Origin)
-Ao navegar entre galáxias a distâncias de dezenas a centenas de milhões de anos-luz ($1 \text{ Mly} \approx 9.46 \times 10^{21} \text{ m}$), a precisão de números de ponto flutuante IEEE-754 de 32 bits (`float` padrão em GPU) entra em colapso com erros de até centenas de metros se utilizássemos metros absolutos no motor gráfico.
+### 5.1 Prevenção de Tremulação de Ponto Flutuante (Floating Origin) e Análise Real de Precisão Float32
+Ao navegar entre galáxias a distâncias de milhões de anos-luz ($1 \text{ Mly} \approx 9.46 \times 10^{21} \text{ m}$), a conversão direta de coordenadas cósmicas absolutas para números de ponto flutuante IEEE-754 de 32 bits (`float` padrão em GPU) provocaria perda catastrófica de precisão, com erros superiores a $10^{15} \text{ m}$. Mesmo em Float64 (53 bits de mantissa), uma distância de $2.36 \times 10^{22} \text{ m}$ possui um espaçamento entre representáveis adjacentes de $2.36 \times 10^{22} \times 2^{-52} \approx 5.24 \times 10^6 \text{ m} \approx 5.240 \text{ km}$. Portanto, é numericamente inconsistente prometer resolução milimétrica em distâncias intergalácticas absolutas.
 
-- **Solução Arquitetural:**
-  - A autoridade de posição cósmica em repouso utiliza `UniverseAddress` com `bigint` para setores e `float64` (`number`) para offsets locais.
-  - O espaço de renderização Three.js (`RenderSpaceService.ts` e `FloatingOrigin3D.ts`) atua sempre centralizado na câmera local (`cameraRelativePos = worldPos - cameraOrigin`).
-  - Cada galáxia renderiza suas partículas no referencial próprio da galáxia, multiplicado pela matriz de translação em relação à origem flutuante atual.
+#### Análise Numérica de Resolução Float32 (ULP):
+O padrão IEEE-754 de precisão simples (Float32) possui 24 bits de precisão significativa (23 bits explícitos + 1 bit normalizado implícito). A resolução espacial máxima (espaçamento ULP - *Unit in the Last Place*) varia estritamente com a magnitude do valor:
+$$\text{ULP}(x) = 2^{\lfloor \log_2(|x|) \rfloor - 23}$$
+
+- **Em $x \approx 100.000 \text{ m}$** ($2^{16} \le x < 2^{17}$):
+  $$\text{ULP}(100.000 \text{ m}) = 2^{16 - 23} = 2^{-7} \text{ m} = 0.0078125 \text{ m} = 7.8125 \text{ mm}$$
+- **Limite para resolução submilimétrica ($1 \text{ mm} = 0.001 \text{ m}$):**
+  $$|x| < 2^{23} \times 0.001 \text{ m} = 8.388,608 \text{ m} \approx 8.388 \text{ km}$$
+- **No envelope de rebase local (`FloatingOrigin3D` com limiar padrão de $2.048 \text{ m}$):**
+  $$\text{ULP}(2.048 \text{ m}) = 2^{11 - 23} = 2^{-12} \text{ m} \approx 0.000244 \text{ m} = 0.244 \text{ mm}$$
+  garantindo resolução submilimétrica autêntica na superfície, física de solo e visão de cockpit.
+- **Na escala macro e orbital ($\le 100 \text{ km}$):** O ULP de $7.8125 \text{ mm}$ é mais de cinco ordens de grandeza menor que o tamanho angular de um pixel no viewport (a $100 \text{ km}$, $7.8 \text{ mm}$ subtende $\approx 7.8 \times 10^{-8} \text{ rad}$), garantindo ausência total de jitter visual perceptível, sem falsamente prometer precisão milimétrica onde a matemática não permite.
+
+#### Contrato de Precisão Multiescala do Sistema Espacial:
+1. **Autoridade Lógica de Endereçamento:** Células cosmológicas e setores utilizam coordenadas inteiras exatas `BigInt` (`SectorIndex` em `UniverseAddress`), com erro de truncamento rigorosamente nulo ($0$) em qualquer distância astronômica.
+2. **Offsets Locais com Float64:** Posições intra-setor ($< 100 \text{ ly}$) ou intra-sistema são expressas em `Float64` (`number`), oferecendo precisão nanométrica em escala de sistema planetário.
+3. **Rebaseamento Pré-Conversão:** Subtrações de posição entre objetos e câmera (`cameraRelativePos = worldPos - cameraOrigin`) são sempre resolvidas na CPU em Float64 ou via álgebra de setores `BigInt` antes de qualquer conversão para `Float32` ou envio para atributos de GPU.
+4. **Sem Coordenadas Intergalácticas em Vértices de GPU:** Nenhum buffer de GPU recebe coordenadas universais absolutas; os buffers Three.js recebem estritamente deltas locais relativos à origem flutuante atual.
 
 ### 5.2 Hipercruzeiro U3 em Galáxias Procedurais
 - O sistema de navegação e piloto automático `CosmicCruiseController` e `TravelDomain` de U3 já foi validado para viagens interplanetárias e intergalácticas.
@@ -194,11 +222,15 @@ Ao navegar entre galáxias a distâncias de dezenas a centenas de milhões de an
     - `targetType: 'star'`, `address: galaxy_XXXX/sx,sy,sz/starIdx`.
   - A viagem por hipercruzeiro interestelar e intergaláctico opera suavemente com aceleração contínua, cruzeiro assintótico e desaceleração até o setor de destino, disparando o handoff atômico validado em U3.
 
-### 5.3 Testes Matemáticos de Precisão com Floating Origin
-Para comprovar formalmente a ausência de perda de precisão e cancelamento catastrófico em escalas cósmicas, serão implementados os seguintes testes em `tests/galaxy-floating-origin.test.ts`:
-1. **Teste de Aritmética BigInt vs. Float32:** Comprovar que a separação intergaláctica entre a Terra e Andrômeda ($d \approx 2.36 \times 10^{22} \text{ m}$) calculada via `UniverseAddress.separationM` difere os índices de setor em `bigint` antes de converter para número, preservando resolução submilimétrica ($< 1 \text{ mm}$), enquanto a subtração direta de coordenadas em `float32` perde todos os 24 bits da mantissa gerando erro superior a $10^{15} \text{ m}$.
-2. **Teste de Contenção de Vértices GPU na Origem Flutuante:** Para câmeras situadas em qualquer galáxia procedural a distâncias de até $10 \text{ Gpc}$, comprovar que todos os vértices de partículas transformados pela matriz da câmera para a GPU permanecem contidos no cubo $[-100.000 \text{ m}, +100.000 \text{ m}]$, faixa onde a mantissa float32 possui resolução $\le 0.001 \text{ m}$ (ausência estrita de jittering visual de malhas).
-3. **Teste de Comutatividade e Reversibilidade de Referenciais:** Verificar que `convertPosition(from, to, convertPosition(to, from, P)) === P` com resíduo $\|\Delta \mathbf{P}\| < 10^{-5} \text{ m}$.
+### 5.3 Contratos Matemáticos e Critérios de Precisão
+Para comprovar formalmente a consistência numérica sem pressupostos inviáveis, serão implementados os testes de contrato em `tests/u4-math-contracts.test.ts`:
+1. **Autoridade de Endereçamento BigInt vs. Float32/Float64:** Comprovar que a separação intergaláctica (ex: Terra → Andrômeda, $d \approx 2.36 \times 10^{22} \text{ m}$) calculada via `UniverseAddress.separationM` utiliza diferenças de setores em `BigInt` antes de converter para número, prevenindo cancelamento catastrófico e mantendo precisão relativa estrita ($\Delta d / d < 10^{-14}$), enquanto subtrações diretas em Float32 perderiam toda a informação gerando erros grosseiros.
+2. **Contrato de Precisão de Representação Float32:**
+   - Validar que em distâncias locais $|x| \le 8.388 \text{ km}$, o ULP Float32 é estritamente menor que $1 \text{ mm}$.
+   - Validar que em $|x| = 100.000 \text{ m}$, o espaçamento ULP é exatamente $2^{-7} \text{ m} = 7.8125 \text{ mm}$.
+   - Validar que a conversão relativa para Float32 dentro do volume de renderização local elimina saltos numéricos (*visual mesh jitter*).
+3. **Reversibilidade e Comutatividade de Referenciais:** Verificar que `T^-1(T(P)) \approx P` dentro das tolerâncias físicas de cada referencial ($\|\Delta \mathbf{P}\| \le \epsilon$), sem presumir igualdade exata de ponto flutuante (`===`).
+4. **Determinismo Invariante de Identidade:** Comprovar que o hash FNV-1a de sementes e identificadores de setores (`sectorSeed`, `addressKey`) permanece estritamente determinístico e invariante perante transformações de câmera ou deslocamentos da origem flutuante.
 
 ---
 
@@ -233,21 +265,23 @@ export interface GalaxyDescriptor {
 
 ## 7. Benchmarks Medidos e Metas de Desempenho
 
-### 7.1 Benchmarks Efetivamente Medidos no Baseline Atual (P0.2 / U3)
-Valores empíricos reais coletados nas execuções de testes automatizados e suíte Playwright no commit atual:
+### 7.1 Auditoria de Benchmarks Medidos no Baseline Atual (P0.2 / U3)
+As métricas abaixo foram auditadas quanto à sua procedência no código-fonte e histórico de testes automatizados:
 
-| Métrica Efetivamente Medida | Valor Medido | Contexto de Coleta |
-| :--- | :--- | :--- |
-| **Draw Calls em Mundo Aberto (Manaus + Órbita)** | 186 draw calls | `scripts/manaus-surface-browser.mjs` (LOD local/aéreo) |
-| **Triângulos Renderizados em Solo** | 1.507.879 triângulos | Células próximas + malhas de casca e blocos de horizonte |
-| **Tempo de Execução da Suíte Completa** | 20.3 s (1.424 testes) | `npm test` no ambiente Node.js / tsx |
-| **Tempo de Execução do Portão de Regressão** | 15.0 s (635 testes) | `npm run test:regression` |
-| **Tempo de Build de Produção** | 3.10 s | `npm run build` (tsc + vite build) |
-| **Vazamento de Memória em Trânsito Intergaláctico** | 0 bytes acumulados | 5 viagens completas ida/volta em `hypercruise-browser.mjs` |
-| **Tempo Médio de Hipercruzeiro Terra → Andrômeda** | 21.4 s a 23.7 s | Medido empiricamente na rota de produção U3 |
+| Métrica | Valor Auditado | Unidade | Comando & Script | Commit | Ambiente & Hardware | Método de Coleta & Evidência | Classificação |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Draw Calls (Manaus + Órbita)** | 186 | calls / frame | `node scripts/manaus-surface-browser.mjs` | `17b80ef` | Windows 11 x64, Chromium Headless (SwiftShader / ANGLE) | Leitura de `renderer.info.render.calls` após estabilização de cena em transição aérea de Manaus (1440x900). Evidência: `artifacts/manaus-surface-browser.json`. | **Benchmark Medido** |
+| **Triângulos em Solo** | 1.507.879 | triângulos | `node scripts/manaus-surface-browser.mjs` | `17b80ef` | Windows 11 x64, Chromium Headless | Leitura de `renderer.info.render.triangles` em câmera ao nível do solo em Manaus (solo procedural, malhas e horizonte). | **Benchmark Medido** |
+| **Tempo de Execução dos Testes** | 25.7 s a 27.2 s (1.424 testes) | segundos | `npm test` (`node --import tsx --test tests/*.test.ts`) | `10cd5b3` | Windows 11 x64, Node.js v22.14.0+, CPU x86_64 | Cronometragem nativa do runner `node:test` para 98 suítes completas de unidade e integração. Registro histórico anterior de 20.3 s sob carga térmica baixa. | **Benchmark Medido** |
+| **Tempo Portão de Regressão** | 15.0 s a 16.5 s (635 testes) | segundos | `npm run test:regression` | `10cd5b3` | Windows 11 x64, Node.js v22.14.0+ | Cronometragem do runner nativo sobre `tests/regression/*.test.ts`. | **Benchmark Medido** |
+| **Tempo de Build Produção** | 3.10 s a 3.30 s | segundos | `npm run build` (`tsc --noEmit && vite build`) | `10cd5b3` | Windows 11 x64, Node.js v22.14.0+ | Cronometragem de bundle do Vite v8.3.0 + validação estrita de tipos TypeScript. | **Benchmark Medido** |
+| **Vazamento Memória Hipercruzeiro** | 0 bytes acumulados | bytes delta | `node scripts/hypercruise-browser.mjs` | `17b80ef` | Windows 11 x64, Chromium Headless com V8 expose-gc | Delta de `performance.memory.usedJSHeapSize` antes e após 5 ciclos completos de ida e volta intergaláctica Terra ↔ Andrômeda com GC forçado. Evidência: `artifacts/hypercruise-browser.json`. | **Benchmark Medido** |
+| **Duração Hipercruzeiro Terra → Andrômeda** | 21.4 s a 23.7 s | segundos de simulação | `node scripts/hypercruise-browser.mjs` | `17b80ef` | Windows 11 x64, Chromium Headless | Tempo de simulação decorrido no `CosmicCruiseController.ts` entre início de aceleração e atingimento do raio de desaceleração intergaláctica. | **Observação Calibrada de Rota** (depende de delta de frames e aceleração assintótica) |
 
-### 7.2 Metas de Engenharia e Orçamentos Alvo para o Checkpoint U4
-Requisitos de design para garantir $\ge 60 \text{ FPS}$ sustentados em hardware de consumo (ex: Intel Iris Xe, Apple Silicon M-series, GTX 1060+):
+### 7.2 Metas Futuras de Engenharia e Orçamentos de Projeto para o Checkpoint U4 (Fases U4.1 a U4.4)
+> **Atenção — Não Constituem Benchmarks Medidos:** Os valores da tabela abaixo são **requisitos de projeto e limites orçamentários de especificação técnica** para orientar as futuras implementações do gerador e dos shaders de galáxias procedurais em U4. Nenhuma alegação de conformidade com estas metas deve ser feita até que os componentes das respectivas fases (U4.1 a U4.4) sejam desenvolvidos e submetidos à instrumentação de medição.
+>
+> **Critério de Hardware Alvo:** Manter taxa sustentada $\ge 60 \text{ FPS}$ em hardware de consumo comum (GPUs integradas Intel Iris Xe, Apple Silicon M-series, Nvidia GTX 1060+).
 
 | Métrica Alvo de Engenharia | Perfil Baixo (Low) | Perfil Médio (Medium) | Perfil Alto (High) |
 | :--- | :--- | :--- | :--- |

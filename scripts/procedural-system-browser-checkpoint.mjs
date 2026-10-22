@@ -159,7 +159,13 @@ export async function proceduralSystemCheckpoint(page,options={}) {
         ) > 1;
       }, before, { timeout: 25_000 });
     } finally {
-      await page.keyboard.up('w').catch(() => {});
+      try {
+        await page.keyboard.up('w');
+      } catch (cleanupErr) {
+        if (!page.isClosed()) {
+          console.warn('[checkpoint] Cleanup aviso: falha ao liberar tecla W:', cleanupErr?.message);
+        }
+      }
     }
     const walked=await snapshot();assert.ok(Math.hypot(walked.position[0]-before[0],walked.position[2]-before[2])>1);
     results[label]={landed,walked};await page.screenshot({path:`artifacts/${prefix}-${label}-surface.png`});
