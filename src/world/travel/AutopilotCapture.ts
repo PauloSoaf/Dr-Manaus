@@ -50,9 +50,12 @@ export class AutopilotCapture {
     const a = this.capability;
     this.stoppingDistanceM = stoppingDistanceM(speed, a);
     // 65% braking reserve; gap/1.5 smooths the last metres without overshoot at 30–120Hz.
+    const approachCap = clearance && clearance > 50_000
+      ? Math.min(1_000_000, Math.max(LANDING_SPEED_LIMITS.approachCaptureSpeedMps, clearance / 12))
+      : LANDING_SPEED_LIMITS.approachCaptureSpeedMps;
     this.effectiveSpeedCapMps = Math.min(gearCap || 500_000_000, Math.sqrt(2 * a * gap * .35),
       gap / 1.5, approach ? Math.max(LANDING_SPEED_LIMITS.localHandoffSpeedMps * .8,
-        Math.min(LANDING_SPEED_LIMITS.approachCaptureSpeedMps, ((clearance ?? returnAltitude) - returnAltitude) * .5)) : Infinity);
+        Math.min(approachCap, ((clearance ?? returnAltitude) - returnAltitude) * .5)) : Infinity);
     let commanded = this.effectiveSpeedCapMps;
     const alignment = speed > 1 ? (rx * nx + ry * ny + rz * nz) / speed : 1;
     // Turn only through <=1rad/s. Large deviations brake to rest before a new burn.

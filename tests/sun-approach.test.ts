@@ -170,6 +170,66 @@ test('T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE', () => {
   }
 });
 
+test('T_SUN_FAR_APPROACH_LANDING_AND_TAKEOFF_CYCLE', () => {
+  const f = impactFixture('sun', 200);
+  try {
+    // 1. Start far away at 25,000 km orbital altitude (standoff range > 20,000 km)
+    f.place(R + 25_000_000, 200);
+    assert.equal(f.travelDomain.kind, 'interplanetary');
+    assert.equal(f.universe.telemetry.dominantBody, 'sun');
+    assert.ok(f.universe.telemetry.altitudeM > 24_000_000);
+
+    // 2. Real user command: KeyF initiates landing intent from cosmic standoff distance
+    f.held.add('KeyF');
+    f.gameStep(1 / 60);
+    f.held.delete('KeyF');
+
+    assert.equal(f.game.landingIntent.active, true, 'Landing intent must engage from 25,000 km');
+    assert.equal(f.game.landingIntent.bodyId, 'sun');
+
+    // 3. Autonomous descent guided by CosmicCruiseController & LandingIntent crossing 100 km boundary down to return gate
+    for (let step = 0; step < 700 && f.travelDomain.kind === 'interplanetary'; step++) {
+      f.gameStep(0.2);
+    }
+
+    // 4. Safe handoff to solar local ENU
+    assert.equal(f.travelDomain.kind, 'local', 'Handoff to local simulation completed from far approach');
+    assert.equal(f.universe.player.frame, 'sun/local-enu', 'Player in sun/local-enu');
+    assert.equal(f.game.physicsDomain, 'sun', 'Physics domain is sun');
+    assert.equal(f.game.district, 'FOTOSFERA', 'District is FOTOSFERA');
+    assert.equal(f.game.player.gravity, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2, 'Photospheric buoyancy gravity active');
+    assert.ok(f.game.photosphereGround.group.visible, 'Photosphere surface ground visual is active and visible');
+
+    // 5. Character locomotion on the surface
+    f.held.add('KeyW');
+    for (let i = 0; i < 20; i++) f.gameStep(1 / 60);
+    f.held.delete('KeyW');
+    assert.ok(f.game.player.position.length() > 0, 'Player moves across the photosphere');
+
+    // 6. Character takeoff back to space
+    f.held.add('KeyF');
+    f.gameStep(1 / 60);
+    f.held.delete('KeyF');
+    assert.ok(f.game.player.state === 'Hover' || f.game.player.state === 'Flight', 'Enters flight mode');
+
+    f.held.add('KeyV'); f.gameStep(0.05); f.held.delete('KeyV');
+    f.held.add('KeyV'); f.gameStep(0.05); f.held.delete('KeyV');
+    assert.equal(f.game.player.interplanetaryMode, true, 'Interplanetary flight tier armed');
+
+    f.held.add('Space');
+    f.held.add('KeyB');
+    for (let i = 0; i < 240 && f.travelDomain.kind === 'local'; i++) {
+      f.gameStep(1 / 60);
+    }
+    f.held.delete('Space');
+    f.held.delete('KeyB');
+
+    assert.equal(f.travelDomain.kind, 'interplanetary', 'Takeoff successfully returns to interplanetary space');
+  } finally {
+    f.dispose();
+  }
+});
+
 test('T_SUN_NOT_ROCKY', () => {
   const p = bodyProfile(sun);
   assert.equal(p.hasSolidSurface, false);

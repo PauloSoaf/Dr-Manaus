@@ -69,6 +69,7 @@ export function impactFixture(id = 'earth', speed = LIGHT_SPEED_MPS, fps = 60) {
     renderOriginVec: new Vector3(),
     actorRoot: { position: new Vector3() },
     localRoot: { position: new Vector3(), visible: false },
+    photosphereGround: { group: { visible: false }, update(_dt: number, _pos: any, isPhotosphere: boolean) { this.group.visible = isPhotosphere; }, dispose() {} },
   });
   game.rockyImpactDestruction=new RockyImpactDestructionService({edits:universe.volume.edits,
     body:id=>system.bodies.find(b=>b.id===id),requestRegion:(id,plan)=>universe.volume.requestImpactRegion(id,plan)});
@@ -95,6 +96,7 @@ export function impactFixture(id = 'earth', speed = LIGHT_SPEED_MPS, fps = 60) {
       game.player.velocity.set(0, 0, 0);
     }
     game.bindSurfacePhysics();
+    game.photosphereGround?.update(dt, game.player.position, game.district === 'FOTOSFERA' || game.physicsDomain === 'sun');
     if (travelDomain.localPhysicsActive) {
       game.player.update(dt, game.colliders, 0, 0);
       universe.update(

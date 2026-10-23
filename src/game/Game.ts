@@ -84,6 +84,7 @@ import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../world/travel/Un
 import { UniversalTargetResolver, activeSystemTargetBodyId, intraSystemNavigationTarget, travelCapabilityLabel } from '../world/travel/UniversalTargetResolver';
 import { createUniversalTarget, type UniversalNavigationTarget, type TargetSource } from '../world/travel/UniversalNavigationTarget';
 import { CELESTIAL_LABEL_NAMES } from '../rendering/celestial/CelestialLabelLayer';
+import { PhotosphereGroundVisual } from '../rendering/celestial/PhotosphereGroundVisual';
 import { bodyExclusionEnvelopes, selectBodyDestination, resolveBodyDestination } from '../world/travel/BodyNavigation';
 import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { PlanetTerrainProvider } from '../world/planet/PlanetTerrainProvider';
@@ -331,6 +332,7 @@ export class Game {
   celestialVisuals = new CelestialBodyVisualLayer();
   celestialController = new CelestialPresentationController(this.celestialVisuals);
   readonly celestialLabels: CelestialLabelLayer;
+  readonly photosphereGround = new PhotosphereGroundVisual();
   private readonly surfaceTerrains = new Map<string, PlanetTerrainProvider>();
   private physicsDomain = 'manaus';
   private volumePhysicsGeneration=-1;
@@ -369,6 +371,7 @@ export class Game {
     } else {
       this.rendering.scene.add(this.localWorldRoot);
     }
+    this.planetRoot.add(this.photosphereGround.group);
     this.planetProviders=FEATURES.solarSystem
       ?createPlanetProviders(this.planetRoot,this.universe):new Map();
     this.volumeRenderer=new PlanetVolumeSurfaceRenderer(this.planetRoot,this.universe.frames,this.universe.renderSpace,
@@ -763,7 +766,7 @@ export class Game {
       this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     }
     if(manaus){this.terrain.update(this.player.position,this.renderOriginVec);this.forest.update(this.player.position);}
-    if(!this.universalTravelController?.active){this.bindSurfacePhysics();this.volumeRenderer.update();}
+    if(!this.universalTravelController?.active){this.bindSurfacePhysics();this.volumeRenderer.update();this.photosphereGround.update(dt,this.player.position,this.district==='FOTOSFERA'||this.physicsDomain==='sun');}
     const transit=this.universalTravelController?.state;
     this.planetRoot.visible=!transit;this.celestialVisuals.root.visible=!transit;
     if(this.galaxyMaterializer?.current)this.galaxyMaterializer.current.root.visible=!transit;
@@ -1216,11 +1219,13 @@ export class Game {
       this.landingIntent.request(result.bodyId);
       this.warpStep=0;
       this.interplanetary.autopilot.cancel();
-      this.hud.notify(`Pouso · capturando ${CELESTIAL_LABEL_NAMES[result.bodyId]??result.bodyId}`);
+      const bodyName = CELESTIAL_LABEL_NAMES[result.bodyId] ?? result.bodyId;
+      this.hud.notify(result.bodyId === 'sun' ? 'Pouso · descida para fotosfera do SOL' : 'Pouso · capturando ' + bodyName);
     }else if(result.reason==='not-landable'){
-      this.hud.notify('Pouso indisponível · corpo sem superfície sólida');
+      this.hud.notify('Pouso indisponível · corpo sem superfície');
     }else{
-      this.hud.notify('Pouso indisponível · nenhum corpo ao alcance');
+      const candidateName = result.bodyId ? (CELESTIAL_LABEL_NAMES[result.bodyId] ?? result.bodyId) : 'um corpo';
+      this.hud.notify('Pouso indisponível · aproxime-se mais de ' + candidateName);
     }
   }
 

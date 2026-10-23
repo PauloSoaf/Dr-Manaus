@@ -407,8 +407,9 @@ export class CosmicCruiseController {
       const speed = Math.hypot(velocityMps[0]-orbital[0],velocityMps[1]-orbital[1],velocityMps[2]-orbital[2]);
       // Decide after thrust/warp acceleration. A previously slow player must not shrink
       // the broad envelope on the same frame in which a cosmic gear accelerates them.
-      const radiusM = envelope.captureRadiusM !== undefined && speed <=
-        (context.maxLocalTerrainSweepMps ?? LANDING_SPEED_LIMITS.maxLocalTerrainSweepMps)
+      const isLandingTarget = landing?.bodyId === envelope.bodyId;
+      const radiusM = envelope.captureRadiusM !== undefined && (isLandingTarget || speed <=
+        (context.maxLocalTerrainSweepMps ?? LANDING_SPEED_LIMITS.maxLocalTerrainSweepMps))
         ? envelope.captureRadiusM : envelope.radiusM;
       const obstacle = radiusM === envelope.radiusM ? envelope : { ...envelope, radiusM };
       const relativeStep: [number, number, number] = [step[0] - orbital[0] * dt,
