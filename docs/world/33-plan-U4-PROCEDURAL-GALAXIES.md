@@ -1,8 +1,8 @@
 # U4 Technical Architecture Plan — Procedural Galaxies & Scalable Cosmic Architecture
 
-> **Documento de Arquitetura e Planejamento Técnico do Checkpoint U4 (Revisão U4.0.1)**  
-> **Status:** CONTRATOS MATEMÁTICOS E PRECISÃO AUDITADOS (Preparação para U4.1 concluída; implementação de U4.1 aguarda liberação explícita)  
-> **Baseline Auditado:** `10cd5b33fc4e04cb33e962c4440e18a13e4ab5e2` (Branch: `feat/universe-map`)  
+> **Documento de Arquitetura e Planejamento Técnico do Checkpoint U4 (Revisão U4.0.2)**  
+> **Status:** CONTRATOS MATEMÁTICOS, GEOMÉTRICOS E PRECISÃO AUDITADOS (Preparação para U4.1 concluída; implementação de U4.1 aguarda liberação explícita do operador)  
+> **Baseline Auditado:** `0b3111e7d9ea5ba62f743cc7f6a2eceaab6073da` (Branch: `feat/universe-map`)  
 > **Dependências:** U0 (Target Authority), U1 (Procedural Systems), U2 (Galaxy Runtime), U3 (Hypercruise), P0/P0.1/P0.2 (Planetary & Solar Polish)  
 > **Escopo Bloqueado:** **BH0, BH1, BH2 (buracos negros relativísticos e lentes gravitacionais) e U5/U6 permanecem estritamente bloqueados.**
 
@@ -104,16 +104,23 @@ Instanciar 100 bilhões de estrelas como nós da cena Three.js provocaria colaps
 Para prevenir *thrashing* (alocação e destruição repetitiva de buffers na fronteira de transição) e garantir taxa de quadros estável sem picos de frame time, a transição entre níveis de LOD obedece a **três critérios conjugados**:
 
 1. **Tamanho Angular e Diâmetro Projetado em Pixels ($\theta$ e $D_{\text{px}}$):**
-   - **Tamanho angular aparente ($\theta$):**
-     $$\theta = 2 \cdot \arctan\left(\frac{R_{\text{gal}}}{d}\right)$$
-     onde $R_{\text{gal}}$ é o raio físico da galáxia e $d$ é a distância euclidiana da câmera ao centro galáctico.
-   - **Diâmetro projetado no viewport ($D_{\text{px}}$):** Sob projeção perspectiva linear com campo de visão vertical $\text{FOV}_y$ e altura de viewport $H_{\text{viewport}}$:
-     $$D_{\text{px}} = \frac{H_{\text{viewport}}}{\tan(\text{FOV}_y / 2)} \cdot \tan\left(\frac{\theta}{2}\right) = \frac{H_{\text{viewport}}}{\tan(\text{FOV}_y / 2)} \cdot \left(\frac{R_{\text{gal}}}{d}\right)$$
-   - **Validade Geométrica:** Essa expressão representa com exatidão a projeção perspectiva do diâmetro aparente de um corpo esferoidal visto externamente ($d > R_{\text{gal}}$). Para distâncias astronômicas muito grandes ($d \gg R_{\text{gal}}$), vigora a aproximação de pequenos ângulos $\tan(x) \approx x$, de modo que $\theta \approx 2 R_{\text{gal}} / d$ e $D_{\text{px}} \propto 1/d$.
-   - **Tratamento de Observador Interno e Interseção ($d \le R_{\text{gal}}$):**
-     Quando a câmera penetra no envelope físico da galáxia ($d \le R_{\text{gal}}$), a hipótese de visão externa cessa e a razão $R_{\text{gal}} / d \to \infty$ causaria singularidade de divisão por zero se $d \to 0$. O observador passa a estar imerso no campo estelar: o tamanho angular subtende toda a abóbada celeste ($\theta = \pi \text{ rad} = 180^\circ$) e a dimensão projetada satura em $D_{\text{px}} \ge H_{\text{viewport}}$. O pipeline de LOD trata a condição de imersão de forma explícita:
-     $$\text{Se } d \le R_{\text{gal}}: \quad \theta = \pi, \quad D_{\text{px}} = H_{\text{viewport}}$$
-     eliminando divisões por zero e forçando a ativação imediata dos modos de imersão local (LOD 2, LOD 3 ou LOD 4).
+   - **Distinção Geométrica Rigorosa:**
+     - **Disco Plano Perpendicular à Câmera:**
+       $$\theta_{\text{disk}} = 2 \cdot \arctan\left(\frac{R}{d}\right), \quad D_{\text{px, disk}} = \frac{H_{\text{viewport}}}{\tan(\text{FOV}_y / 2)} \cdot \left(\frac{R}{d}\right)$$
+       onde $R$ é o raio do disco e $d$ é a distância perpendicular ao centro.
+     - **Contorno Aparente de uma Esfera Observada Externamente ($d > R$):**
+       Raios visuais partindo do olho da câmera tangenciam a superfície esférica formando um triângulo retângulo onde a hipotenusa é $d$, o cateto oposto é $R$, e a distância ao plano circular tangente do contorno aparente é $d_{\text{tangent}} = \sqrt{d^2 - R^2}$. Logo:
+       $$\sin\left(\frac{\theta_{\text{sphere}}}{2}\right) = \frac{R}{d} \implies \theta_{\text{sphere}} = 2 \cdot \arcsin\left(\frac{R}{d}\right), \quad \text{para } d > R$$
+       Como $\tan(\theta_{\text{sphere}} / 2) = \frac{R}{\sqrt{d^2 - R^2}} = \frac{R}{d_{\text{tangent}}}$, o diâmetro projetado em pixels sob projeção perspectiva linear pinhole é dado por:
+       $$D_{\text{px, sphere}} = \frac{H_{\text{viewport}} \cdot R}{\sqrt{d^2 - R^2} \cdot \tan(\text{FOV}_y / 2)} = \frac{H_{\text{viewport}} \cdot R}{d_{\text{tangent}} \cdot \tan(\text{FOV}_y / 2)}$$
+     - **Geometrias Galácticas Elipsoidais:**
+       Galáxias reais (elípticas E0–E7, lenticulares S0 e espirais Sa–Sc) possuem distribuição volumétrica tridimensional descrita por semi-eixos $(a, b, c)$. Para seleção e transição de LOD (streaming), adota-se um **limite projetado conservador (bounding sphere)** de raio $R_{\text{bound}} = \max(a, b, c)$, garantindo que o refinamento de LOD ocorra antes que qualquer feição de braço espiral ou halo estelar seja cortada. Na renderização definitiva em LOD 1/LOD 2, o shader volumétrico integra analiticamente ao longo da elipse real orientada.
+   - **Convergência Assintótica a Grandes Distâncias ($d \gg R$):**
+     Para distâncias cosmológicas muito superiores ao raio da galáxia ($d \gg R$), $d_{\text{tangent}} = \sqrt{d^2 - R^2} \approx d$, de modo que $\arcsin(R/d) \approx \arctan(R/d) \approx R/d$ e a formulação da esfera converge suavemente para a expressão do disco.
+   - **Tratamento de Observador Interno e Imersão ($d \le R$):**
+     Quando a câmera penetra no envelope físico do corpo ($d \le R$), a hipótese de visão externa cessa e $d_{\text{tangent}}$ se anula ou deixa de ser real. O observador está imerso no campo estelar: o tamanho angular subtende todo o hemisfério visual ($\theta = \pi \text{ rad} = 180^\circ$) e a dimensão projetada satura em $D_{\text{px}} = H_{\text{viewport}}$. A função de projeção trata essa condição analiticamente:
+     $$\text{Se } d \le R: \quad \theta = \pi, \quad D_{\text{px}} = H_{\text{viewport}}$$
+     eliminando divisões por zero e forçando a ativação imediata dos modos de imersão local (LOD 2 - Point Cloud Regional, LOD 3 - Setor Estelar Canônico ou LOD 4 - Sistema Ativo), sem descontinuidades numéricas.
 2. **Faixa de Histerese Direcional de 15%:**
    - **Refinamento (LOD $N \to N+1$):** ativado somente quando $d \le d_{\text{in}}$ (ou $D_{\text{px}} \ge D_{\text{in}}$).
    - **Simplificação (LOD $N+1 \to N$):** ativado somente quando $d > 1.15 \cdot d_{\text{in}}$ (ou $D_{\text{px}} < 0.85 \cdot D_{\text{in}}$).
@@ -210,7 +217,11 @@ $$\text{ULP}(x) = 2^{\lfloor \log_2(|x|) \rfloor - 23}$$
 
 #### Contrato de Precisão Multiescala do Sistema Espacial:
 1. **Autoridade Lógica de Endereçamento:** Células cosmológicas e setores utilizam coordenadas inteiras exatas `BigInt` (`SectorIndex` em `UniverseAddress`), com erro de truncamento rigorosamente nulo ($0$) em qualquer distância astronômica.
-2. **Offsets Locais com Float64:** Posições intra-setor ($< 100 \text{ ly}$) ou intra-sistema são expressas em `Float64` (`number`), oferecendo precisão nanométrica em escala de sistema planetário.
+2. **Offsets Locais com Float64 e Resolução por Escala:**
+   O formato IEEE-754 Float64 possui 53 bits de significando ($\epsilon_{\text{mach}} \approx 2.22 \times 10^{-16}$). A resolução varia estritamente em função da magnitude dos operandos:
+   - **Escala de Superfície e Corpo Celeste ($r \le 10^7 \text{ m}$):** ULP $\approx 10^7 \times 2^{-52} \approx 2.2 \times 10^{-9} \text{ m} = 2.2 \text{ nm}$ (resolução nanométrica real).
+   - **Escala de Sistema Estelar ($50 \text{ AU} \approx 7.5 \times 10^{12} \text{ m}$):** ULP $\approx 7.5 \times 10^{12} \times 2^{-52} \approx 1.66 \text{ mm}$ (resolução milimétrica).
+   - **Escala de Setor Cósmico Completo ($100 \text{ ly} \approx 9.46 \times 10^{17} \text{ m}$):** ULP $\approx 9.46 \times 10^{17} \times 2^{-52} \approx 128 \text{ m}$. Portanto, a precisão Float64 não é nanométrica em todo o setor de 100 ly, mas preserva erro relativo estrito $\Delta d / d < 10^{-15}$ sem cancelamento catastrófico.
 3. **Rebaseamento Pré-Conversão:** Subtrações de posição entre objetos e câmera (`cameraRelativePos = worldPos - cameraOrigin`) são sempre resolvidas na CPU em Float64 ou via álgebra de setores `BigInt` antes de qualquer conversão para `Float32` ou envio para atributos de GPU.
 4. **Sem Coordenadas Intergalácticas em Vértices de GPU:** Nenhum buffer de GPU recebe coordenadas universais absolutas; os buffers Three.js recebem estritamente deltas locais relativos à origem flutuante atual.
 
@@ -223,13 +234,15 @@ $$\text{ULP}(x) = 2^{\lfloor \log_2(|x|) \rfloor - 23}$$
   - A viagem por hipercruzeiro interestelar e intergaláctico opera suavemente com aceleração contínua, cruzeiro assintótico e desaceleração até o setor de destino, disparando o handoff atômico validado em U3.
 
 ### 5.3 Contratos Matemáticos e Critérios de Precisão
-Para comprovar formalmente a consistência numérica sem pressupostos inviáveis, serão implementados os testes de contrato em `tests/u4-math-contracts.test.ts`:
+Para comprovar formalmente a consistência numérica sem pressupostos inviáveis, são implementados os testes de contrato em `tests/u4-math-contracts.test.ts`:
 1. **Autoridade de Endereçamento BigInt vs. Float32/Float64:** Comprovar que a separação intergaláctica (ex: Terra → Andrômeda, $d \approx 2.36 \times 10^{22} \text{ m}$) calculada via `UniverseAddress.separationM` utiliza diferenças de setores em `BigInt` antes de converter para número, prevenindo cancelamento catastrófico e mantendo precisão relativa estrita ($\Delta d / d < 10^{-14}$), enquanto subtrações diretas em Float32 perderiam toda a informação gerando erros grosseiros.
 2. **Contrato de Precisão de Representação Float32:**
    - Validar que em distâncias locais $|x| \le 8.388 \text{ km}$, o ULP Float32 é estritamente menor que $1 \text{ mm}$.
    - Validar que em $|x| = 100.000 \text{ m}$, o espaçamento ULP é exatamente $2^{-7} \text{ m} = 7.8125 \text{ mm}$.
-   - Validar que a conversão relativa para Float32 dentro do volume de renderização local elimina saltos numéricos (*visual mesh jitter*).
-3. **Reversibilidade e Comutatividade de Referenciais:** Verificar que `T^-1(T(P)) \approx P` dentro das tolerâncias físicas de cada referencial ($\|\Delta \mathbf{P}\| \le \epsilon$), sem presumir igualdade exata de ponto flutuante (`===`).
+   - Validar a perda de precisão por conversão Float32 antecipada versus preservação via subtração relativa pré-conversão para deslocamentos de 1 mm, 3 mm, 10 mm, 12,5 cm e 1 m em magnitudes de 2.048 m, 10.000 m, 100.000 m e distâncias astronômicas.
+3. **Reversibilidade, Composição e Consistência de Referenciais:**
+   - Transformações afins tridimensionais (rotações e translações de referenciais espaciais) **não são comutativas** ($T_1 \circ T_2 \neq T_2 \circ T_1$).
+   - O contrato formal exige **reversibilidade estrita** ($T^{-1}(T(P)) \approx P$ com resíduo delimitado pelas tolerâncias físicas da escala, $\|\Delta \mathbf{P}\| \le \epsilon$), consistência associativa de composição de cadeias e invariância de identidade, sem presumir comutatividade nem igualdade exata de ponto flutuante (`===`).
 4. **Determinismo Invariante de Identidade:** Comprovar que o hash FNV-1a de sementes e identificadores de setores (`sectorSeed`, `addressKey`) permanece estritamente determinístico e invariante perante transformações de câmera ou deslocamentos da origem flutuante.
 
 ---

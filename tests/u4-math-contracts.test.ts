@@ -16,51 +16,101 @@ import {
   AU_M,
   degToRad,
   radToDeg,
+  quatFromAxisAngle,
+  type Vec3,
 } from '../src/world/spatial/units.ts';
 import { FloatingOrigin3D } from '../src/world/spatial/FloatingOrigin3D.ts';
 import { pose } from '../src/world/spatial/SpatialPose.ts';
+import { ReferenceFrameGraph } from '../src/world/spatial/ReferenceFrameGraph.ts';
+import { referenceFrame } from '../src/world/spatial/ReferenceFrame.ts';
 
 /**
- * U4 Architectural Mathematical Contracts Test Suite
- * Validates mathematical specifications, Float32 numerical precision boundaries,
- * angular projection, reference frame reversibility, cosmic scale arithmetic,
- * and spiral arm density invariants prior to procedural galaxy generation.
+ * U4 Architectural Mathematical Contracts Test Suite (Revision U4.0.2)
+ *
+ * Validates:
+ * 1. Geometric angular projection: Spherical silhouette (arcsin) vs Flat disk (arctan)
+ * 2. Perspective projected pixel dimensions and immersion envelope
+ * 3. Float32 ULP quantization matrix across multiple magnitudes and displacements
+ * 4. Spatial reference frame transformations: Reversibility, composition and non-commutativity
+ * 5. Scale-dependent Float64 resolution (planetary, solar system, sector) and exact BigInt indexing
+ * 6. Determinism of sector seeds and address keys (FNV-1a)
+ * 7. Spiral arm modulation invariants (non-negativity, periodicity, peak alignment, no phase cancellation)
+ * 8. Numerical robustness without NaN or Infinity across extreme parameters
  */
 
 /* ========================================================================== */
-/* Helper Functions for U4 Mathematical Contracts                             */
+/* Mathematical Specifications / Contract Reference for U4.1                 */
+/* (Will be integrated into src/world/galaxy/GalaxyProjection.ts and          */
+/*  src/world/galaxy/ProceduralGalaxyGenerator.ts in U4.1)                    */
 /* ========================================================================== */
 
 /**
- * Apparent angular diameter (radians) of an extended spherical/galactic volume.
- * Handles external viewing (d > R_gal) and observer immersion (d <= R_gal).
+ * Apparent angular diameter of a sphere observed externally (d > radius).
+ * Formed by rays tangent to the sphere: sin(theta / 2) = radius / distance.
+ * When distance <= radius, observer is immersed: theta = pi radians (180 deg).
  */
-export function calculateAngularSize(radiusM: number, distanceM: number): number {
-  if (distanceM <= radiusM) {
-    // Observer is immersed within or intersecting galaxy envelope:
-    // angular diameter subtends the full hemispheric sky dome (pi rad = 180 deg).
-    return Math.PI;
+export function sphericalAngularSize(radiusM: number, distanceM: number): number {
+  if (!Number.isFinite(radiusM) || !Number.isFinite(distanceM) || radiusM <= 0 || distanceM <= 0) {
+    return (Number.isFinite(distanceM) && distanceM <= radiusM) ? Math.PI : 0;
   }
-  return 2 * Math.atan(radiusM / distanceM);
+  if (distanceM <= radiusM) {
+    return Math.PI; // Full forward hemisphere immersion
+  }
+  return 2 * Math.asin(radiusM / distanceM);
 }
 
 /**
- * Projected diameter on viewport in pixels under perspective projection.
- * D_px = (H_viewport / tan(FOVy / 2)) * tan(theta / 2).
- * Satures smoothly to viewport height when observer is immersed.
+ * Projected diameter (pixels) of a sphere under perspective projection.
+ * Uses distance to the tangent circle plane: d_tangent = sqrt(d^2 - R^2).
+ * D_px = (H_viewport * R) / (d_tangent * tan(FOVy / 2)).
+ * When distance <= radius, returns viewportHeight (immersion saturation).
  */
-export function calculateProjectedPixelDiameter(
+export function sphericalProjectedDiameter(
   radiusM: number,
   distanceM: number,
   viewportHeightPx: number,
   fovYRad: number,
 ): number {
+  if (!Number.isFinite(radiusM) || !Number.isFinite(distanceM) || radiusM <= 0 || distanceM <= 0) {
+    return (Number.isFinite(distanceM) && distanceM <= radiusM) ? viewportHeightPx : 0;
+  }
   if (distanceM <= radiusM) {
     return viewportHeightPx;
   }
+  const tangentDistance = Math.sqrt(distanceM * distanceM - radiusM * radiusM);
+  if (tangentDistance <= 0) return viewportHeightPx;
   const halfFovTan = Math.tan(fovYRad / 2);
-  const halfThetaTan = radiusM / distanceM; // tan(theta / 2) = R / d
-  return (viewportHeightPx / halfFovTan) * halfThetaTan;
+  return (viewportHeightPx * radiusM) / (tangentDistance * halfFovTan);
+}
+
+/**
+ * Apparent angular diameter of a flat circular disk perpendicular to line of sight.
+ * theta_disk = 2 * atan(radius / distance).
+ */
+export function diskAngularSize(radiusM: number, distanceM: number): number {
+  if (!Number.isFinite(radiusM) || !Number.isFinite(distanceM) || radiusM <= 0 || distanceM <= 0) {
+    return (Number.isFinite(distanceM) && distanceM <= radiusM) ? Math.PI : 0;
+  }
+  if (distanceM <= radiusM) return Math.PI;
+  return 2 * Math.atan(radiusM / distanceM);
+}
+
+/**
+ * Projected diameter (pixels) of a flat circular disk perpendicular to line of sight.
+ * D_px,disk = (H_viewport * R) / (d * tan(FOVy / 2)).
+ */
+export function diskProjectedDiameter(
+  radiusM: number,
+  distanceM: number,
+  viewportHeightPx: number,
+  fovYRad: number,
+): number {
+  if (!Number.isFinite(radiusM) || !Number.isFinite(distanceM) || radiusM <= 0 || distanceM <= 0) {
+    return (Number.isFinite(distanceM) && distanceM <= radiusM) ? viewportHeightPx : 0;
+  }
+  if (distanceM <= radiusM) return viewportHeightPx;
+  const halfFovTan = Math.tan(fovYRad / 2);
+  return (viewportHeightPx * radiusM) / (distanceM * halfFovTan);
 }
 
 /**
@@ -102,99 +152,118 @@ export function calculateSpiralArmModulation(
 }
 
 /* ========================================================================== */
-/* 1. Angular Projection & Projected Pixel Dimensions                        */
+/* 1. Angular Projection: Spherical Silhouette vs Flat Disk                   */
 /* ========================================================================== */
 
-test('U4 Math: angular size formula theta = 2 * atan(R_gal / d) for external observer', () => {
-  const rGal = 50_000 * LIGHT_YEAR_M; // 50 kly radius
-  const dAndromeda = 2_500_000 * LIGHT_YEAR_M; // 2.5 Mly distance
+test('U4 Math: distinguishes spherical apparent contour (arcsin) from flat disk (arctan)', () => {
+  const R = 50_000 * LIGHT_YEAR_M;
 
-  const theta = calculateAngularSize(rGal, dAndromeda);
-  assert.ok(Number.isFinite(theta));
-  assert.ok(theta > 0 && theta < Math.PI);
+  // Case 1: Moderate distance d = 2 * R
+  const dModerate = 2 * R;
+  const thetaSphere = sphericalAngularSize(R, dModerate);
+  const thetaDisk = diskAngularSize(R, dModerate);
 
-  // Exact value: 2 * atan(50000 / 2500000) = 2 * atan(0.02)
-  const expected = 2 * Math.atan(0.02);
-  assert.ok(Math.abs(theta - expected) < 1e-12);
+  // Exact analytical values:
+  // For sphere: 2 * asin(1/2) = 2 * (pi/6) = pi/3 rad = 60 deg
+  assert.ok(Math.abs(thetaSphere - Math.PI / 3) < 1e-12, 'spherical contour at d=2R must be exactly 60 deg (pi/3)');
+  // For disk: 2 * atan(1/2) ~= 2 * 0.4636476 ~= 0.927295 rad ~= 53.13 deg
+  const expectedDisk = 2 * Math.atan(0.5);
+  assert.ok(Math.abs(thetaDisk - expectedDisk) < 1e-12);
 
-  // Small-angle approximation: for d >> R, theta ~= 2 * (R / d) = 0.04 rad
-  const approx = (2 * rGal) / dAndromeda;
-  assert.ok(Math.abs(theta - approx) < 1e-5, 'small-angle approximation must hold for distant galaxies');
-  assert.ok(radToDeg(theta) > 2.2 && radToDeg(theta) < 2.3, 'Andromeda apparent size is ~2.29 degrees');
+  // Spherical apparent contour is strictly larger than flat disk because tangent points lie closer to eye
+  assert.ok(thetaSphere > thetaDisk, 'spherical silhouette must be strictly larger than disk at d=2R');
+  assert.ok(radToDeg(thetaSphere) - radToDeg(thetaDisk) > 6.8, 'difference at d=2R exceeds 6.8 degrees');
+
+  // Case 2: Asymptotic convergence at large cosmic distance (d >> R)
+  const dCosmic = 2_500_000 * LIGHT_YEAR_M; // Andromeda from Earth (d = 50 * R)
+  const thetaSphereCosmic = sphericalAngularSize(R, dCosmic);
+  const thetaDiskCosmic = diskAngularSize(R, dCosmic);
+
+  // At d = 50R, difference between asin(x) and atan(x) is O(x^3):
+  assert.ok(Math.abs(thetaSphereCosmic - thetaDiskCosmic) < 1e-5, 'must asymptotically converge for d >> R');
+  assert.ok(radToDeg(thetaSphereCosmic) > 2.29 && radToDeg(thetaSphereCosmic) < 2.30);
 });
 
-test('U4 Math: projected pixel diameter D_px and LOD classification', () => {
-  const rGal = 50_000 * LIGHT_YEAR_M;
+test('U4 Math: spherical projected pixel diameter uses tangent distance d_tangent = sqrt(d^2 - R^2)', () => {
+  const R = 50_000 * LIGHT_YEAR_M;
+  const viewportH = 900;
+  const fovY = degToRad(60);
+
+  // At d = 2 * R, d_tangent = sqrt(4R^2 - R^2) = R * sqrt(3)
+  const dModerate = 2 * R;
+  const pxSphere = sphericalProjectedDiameter(R, dModerate, viewportH, fovY);
+  const pxDisk = diskProjectedDiameter(R, dModerate, viewportH, fovY);
+
+  // Analytical check:
+  // pxSphere = (900 * R) / (R * sqrt(3) * tan(30 deg)) = 900 / (sqrt(3) * (1 / sqrt(3))) = 900 px
+  assert.ok(Math.abs(pxSphere - 900) < 1e-9, 'at d=2R and FOV=60deg, spherical diameter projects exactly to 900 px');
+
+  // Disk projected diameter uses d = 2R:
+  // pxDisk = (900 * R) / (2R * tan(30 deg)) = 450 * sqrt(3) ~= 779.42 px
+  const expectedDiskPx = 450 * Math.sqrt(3);
+  assert.ok(Math.abs(pxDisk - expectedDiskPx) < 1e-9);
+
+  assert.ok(pxSphere > pxDisk, 'spherical projected diameter is strictly larger than disk');
+
+  // At cosmic distance (d = 2.5 Mly), both classify in LOD 1 (12 px <= D_px < 300 px)
   const dAndromeda = 2_500_000 * LIGHT_YEAR_M;
-  const viewportH = 900;
-  const fovY = degToRad(60);
+  const pxAndromeda = sphericalProjectedDiameter(R, dAndromeda, viewportH, fovY);
+  assert.ok(pxAndromeda >= 12 && pxAndromeda < 300, 'Andromeda from Earth must reside in LOD 1');
 
-  const dPx = calculateProjectedPixelDiameter(rGal, dAndromeda, viewportH, fovY);
-  assert.ok(Number.isFinite(dPx));
-
-  // D_px = (900 / tan(30 deg)) * (50000 / 2500000) = (900 / (1 / sqrt(3))) * 0.02 ~= 31.177 px
-  const expectedPx = (viewportH / Math.tan(fovY / 2)) * (50_000 / 2_500_000);
-  assert.ok(Math.abs(dPx - expectedPx) < 1e-9);
-  assert.ok(dPx > 30 && dPx < 32);
-
-  // LOD Classification check:
-  // LOD 0: D_px < 12 px (Cosmological)
-  // LOD 1: 12 px <= D_px < 300 px (Distant Galactic)
-  // LOD 2: D_px >= 300 px (Regional Point Cloud)
-  assert.ok(dPx >= 12 && dPx < 300, 'Andromeda from Earth resides in LOD 1 (Distant Galactic)');
-
-  // Very distant galaxy at 50 Mpc (~163 Mly)
+  // At 50 Mpc (~163 Mly), classifies in LOD 0 (D_px < 12 px)
   const dDistant = 50_000_000 * PARSEC_M;
-  const dPxDistant = calculateProjectedPixelDiameter(rGal, dDistant, viewportH, fovY);
-  assert.ok(dPxDistant < 12, 'Galaxy at 50 Mpc must resolve to LOD 0 (impostor/point)');
+  const pxDistant = sphericalProjectedDiameter(R, dDistant, viewportH, fovY);
+  assert.ok(pxDistant < 12, 'Galaxy at 50 Mpc must resolve to LOD 0');
 });
 
-test('U4 Math: immersion condition (d <= R_gal) avoids singularities without division by zero', () => {
-  const rGal = 50_000 * LIGHT_YEAR_M;
+test('U4 Math: observer immersion (d <= R) and tangency limits avoid division by zero and NaN', () => {
+  const R = 50_000 * LIGHT_YEAR_M;
   const viewportH = 900;
   const fovY = degToRad(60);
 
-  // Boundary case d = R_gal
-  const thetaEdge = calculateAngularSize(rGal, rGal);
-  assert.equal(thetaEdge, Math.PI);
-  const pxEdge = calculateProjectedPixelDiameter(rGal, rGal, viewportH, fovY);
-  assert.equal(pxEdge, viewportH);
+  // 1. Boundary tangency d = R (observer on the bounding sphere surface)
+  const thetaEdge = sphericalAngularSize(R, R);
+  const pxEdge = sphericalProjectedDiameter(R, R, viewportH, fovY);
+  assert.equal(thetaEdge, Math.PI, 'angular size at boundary must saturate to pi');
+  assert.equal(pxEdge, viewportH, 'projected diameter at boundary must saturate to viewportHeight');
 
-  // Inside galaxy d = 0.5 * R_gal
-  const thetaInside = calculateAngularSize(rGal, 0.5 * rGal);
+  // 2. Interior immersion d = 0.5 * R
+  const thetaInside = sphericalAngularSize(R, 0.5 * R);
+  const pxInside = sphericalProjectedDiameter(R, 0.5 * R, viewportH, fovY);
   assert.equal(thetaInside, Math.PI);
-  const pxInside = calculateProjectedPixelDiameter(rGal, 0.5 * rGal, viewportH, fovY);
   assert.equal(pxInside, viewportH);
 
-  // Exact center d = 0
-  const thetaCenter = calculateAngularSize(rGal, 0);
+  // 3. Exact center d = 0
+  const thetaCenter = sphericalAngularSize(R, 0);
+  const pxCenter = sphericalProjectedDiameter(R, 0, viewportH, fovY);
   assert.equal(thetaCenter, Math.PI);
-  const pxCenter = calculateProjectedPixelDiameter(rGal, 0, viewportH, fovY);
   assert.equal(pxCenter, viewportH);
-  assert.ok(Number.isFinite(thetaCenter) && Number.isFinite(pxCenter));
+
+  // 4. Invalid or non-finite inputs
+  assert.equal(sphericalAngularSize(R, -100), Math.PI); // Negative distance inside sphere envelope
+  assert.equal(sphericalProjectedDiameter(R, -100, viewportH, fovY), viewportH);
+  assert.equal(sphericalAngularSize(0, 1000), 0);
+  assert.equal(sphericalProjectedDiameter(0, 1000, viewportH, fovY), 0);
 });
 
 test('U4 Math: LOD 15% directional hysteresis band prevents thrashing', () => {
-  const thresholdDIn = 100_000; // Refinement distance threshold
+  const thresholdDIn = 100_000;
   const hysteresisFactor = 1.15;
-  const thresholdDOut = thresholdDIn * hysteresisFactor; // 115,000 m
+  const thresholdDOut = thresholdDIn * hysteresisFactor; // 115,000
 
   let currentLOD = 0;
   const evaluateLOD = (dist: number): number => {
     if (currentLOD === 0 && dist <= thresholdDIn) {
-      currentLOD = 1; // Refine
+      currentLOD = 1;
     } else if (currentLOD === 1 && dist > thresholdDOut) {
-      currentLOD = 0; // Simplify
+      currentLOD = 0;
     }
     return currentLOD;
   };
 
-  // Approach: 120k -> 105k -> 95k (should refine at 95k)
   assert.equal(evaluateLOD(120_000), 0);
   assert.equal(evaluateLOD(105_000), 0, 'must not refine before reaching d_in');
   assert.equal(evaluateLOD(95_000), 1, 'must refine when d <= d_in');
-
-  // Retreat: 105k -> 110k -> 116k (should stay at LOD 1 until strictly exceeding 115k)
   assert.equal(evaluateLOD(105_000), 1, 'hysteresis must keep LOD 1 within deadband');
   assert.equal(evaluateLOD(110_000), 1, 'hysteresis must keep LOD 1 within deadband');
   assert.equal(evaluateLOD(114_999), 1, 'hysteresis must keep LOD 1 below 1.15 * d_in');
@@ -202,11 +271,10 @@ test('U4 Math: LOD 15% directional hysteresis band prevents thrashing', () => {
 });
 
 /* ========================================================================== */
-/* 2. Float32 Precision and ULP Across Magnitudes                             */
+/* 2. Float32 Precision & Quantization Matrix                                 */
 /* ========================================================================== */
 
-test('U4 Math: bit-level validation of IEEE-754 Float32 ULP spacing', () => {
-  // Helper to compute exact bitwise ULP using Float32Array
+test('U4 Math: IEEE-754 Float32 ULP spacing across magnitudes', () => {
   const bitwiseFloat32ULP = (val: number): number => {
     const f32Buf = new Float32Array(1);
     f32Buf[0] = val;
@@ -216,47 +284,118 @@ test('U4 Math: bit-level validation of IEEE-754 Float32 ULP spacing', () => {
     return f32Buf[0] - base;
   };
 
-  // 1. At 100,000 meters, Float32 spacing is exactly 2^-7 m = 7.8125 mm
-  const ulp100k = bitwiseFloat32ULP(100_000);
-  assert.equal(ulp100k, 0.0078125, 'ULP at 100,000 m must be exactly 7.8125 mm');
-  assert.notEqual(ulp100k, 0.001, '100,000 m DOES NOT have 1 mm resolution');
-
-  // 2. Sub-millimeter resolution (< 0.001 m) requires magnitude < 8,388.608 m
-  const ulp1k = bitwiseFloat32ULP(1_000);
-  assert.ok(ulp1k < 0.0001, 'ULP at 1,000 m is ~0.061 mm (< 0.1 mm)');
-
+  // Magnitude 2,048 m (FloatingOrigin3D rebase threshold)
   const ulp2048 = bitwiseFloat32ULP(2_048);
-  assert.ok(Math.abs(ulp2048 - 0.000244140625) < 1e-12, 'ULP at 2,048 m is ~0.244 mm');
+  assert.equal(ulp2048, 0.000244140625, 'ULP at 2,048 m is 2^-12 m (~0.244 mm)');
 
-  const ulp8192 = bitwiseFloat32ULP(8_192);
-  assert.ok(ulp8192 < 0.001, 'ULP at 8,192 m is 1/1024 m ~= 0.976 mm (< 1 mm)');
+  // Magnitude 10,000 m
+  const ulp10k = bitwiseFloat32ULP(10_000);
+  assert.equal(ulp10k, 0.0009765625, 'ULP at 10,000 m is 2^-10 m (~0.976 mm < 1 mm)');
 
-  const ulp16384 = bitwiseFloat32ULP(16_384);
-  assert.ok(ulp16384 > 0.001, 'ULP at 16,384 m is 1/512 m ~= 1.953 mm (> 1 mm)');
+  // Magnitude 100,000 m
+  const ulp100k = bitwiseFloat32ULP(100_000);
+  assert.equal(ulp100k, 0.0078125, 'ULP at 100,000 m is 2^-7 m (7.8125 mm)');
+  assert.notEqual(ulp100k, 0.001, '100,000 m DOES NOT offer 1 mm resolution');
 });
 
-test('U4 Math: relative camera subtraction preserves local precision before Float32 conversion', () => {
-  // Scenario: Camera and object at cosmic distance from world origin
-  const cameraZ = 100_000.0;
-  const objectZ = 100_000.125; // 12.5 cm apart
+test('U4 Math: Float32 quantization error matrix: absolute conversion vs relative pre-subtraction', () => {
+  // Test matrix covering key displacements across scales
+  const displacementsM = [
+    0.001, // 1 mm
+    0.003, // 3 mm
+    0.010, // 10 mm
+    0.125, // 12.5 cm (exact multiple of 100k ULP 0.0078125)
+    1.0,   // 1 m
+  ];
 
-  // Direct conversion of raw world coordinates to Float32 introduces quantization error
-  const rawObjF32 = Math.fround(objectZ);
-  const rawCamF32 = Math.fround(cameraZ);
-  const rawSubtracted = rawObjF32 - rawCamF32;
-  // Due to 7.8125 mm quantization, exact 12.5 cm is degraded if subtracted after Float32 conversion
-  assert.ok(Number.isFinite(rawSubtracted));
+  // Magnitudes to evaluate:
+  // - 2,048 m: Local floating origin envelope
+  // - 100,000 m: Far orbital / visual bounds
+  // - 1 AU (1.496e11 m): Interplanetary scale
+  // - 2.5 Mly (2.365e22 m): Intergalactic scale
 
-  // Correct architectural pattern: Subtraction in Float64 FIRST, then convert relative delta to Float32
-  const relativeDeltaF64 = objectZ - cameraZ; // 0.125 in Float64
-  const relativeDeltaF32 = Math.fround(relativeDeltaF64); // Float32 on small delta
+  // 1. Tests at 100,000 m (where ULP = 0.0078125 m = 7.8125 mm, half-ULP = 3.90625 mm):
+  const pos100k = 100_000.0;
 
-  assert.equal(relativeDeltaF32, 0.125, 'relative delta in Float32 preserves exact millimeter offset');
-  assert.equal(Math.abs(relativeDeltaF32 - 0.125), 0);
+  // Case 1 mm (< half-ULP): absolute conversion completely loses displacement
+  const absDiff1mm = Math.fround(pos100k + 0.001) - Math.fround(pos100k);
+  const relDiff1mm = Math.fround((pos100k + 0.001) - pos100k);
+  assert.equal(absDiff1mm, 0, '1 mm is 100% annihilated by absolute Float32 conversion at 100,000 m');
+  assert.ok(Math.abs(relDiff1mm - 0.001) < 1e-9, 'relative Float64 pre-subtraction preserves 1 mm');
+
+  // Case 3 mm (< half-ULP): absolute conversion completely loses displacement
+  const absDiff3mm = Math.fround(pos100k + 0.003) - Math.fround(pos100k);
+  const relDiff3mm = Math.fround((pos100k + 0.003) - pos100k);
+  assert.equal(absDiff3mm, 0, '3 mm is 100% annihilated by absolute Float32 conversion at 100,000 m');
+  assert.ok(Math.abs(relDiff3mm - 0.003) < 1e-9, 'relative Float64 pre-subtraction preserves 3 mm');
+
+  // Case 10 mm (> half-ULP): absolute conversion quantizes to 1 ULP (7.8125 mm), introducing ~22% error
+  const absDiff10mm = Math.fround(pos100k + 0.010) - Math.fround(pos100k);
+  const relDiff10mm = Math.fround((pos100k + 0.010) - pos100k);
+  assert.equal(absDiff10mm, 0.0078125, '10 mm is quantized to 7.8125 mm in absolute Float32');
+  assert.ok(Math.abs(absDiff10mm - 0.010) > 0.002, 'absolute conversion has > 2 mm quantization error');
+  assert.ok(Math.abs(relDiff10mm - 0.010) < 1e-9, 'relative pre-subtraction preserves 10 mm');
+
+  // Case 12.5 cm (0.125 m): exact multiple of 0.0078125 (16 * ULP)
+  // Both methods yield exact 0.125 m, proving that power-of-2 subdivisions can produce exact matches
+  const absDiff125mm = Math.fround(pos100k + 0.125) - Math.fround(pos100k);
+  const relDiff125mm = Math.fround((pos100k + 0.125) - pos100k);
+  assert.equal(absDiff125mm, 0.125, '0.125 m is an exact multiple of ULP at 100k; both methods match');
+  assert.equal(relDiff125mm, 0.125);
+
+  // Case 1.0 m: exact multiple of 0.0078125 (128 * ULP)
+  const absDiff1m = Math.fround(pos100k + 1.0) - Math.fround(pos100k);
+  const relDiff1m = Math.fround((pos100k + 1.0) - pos100k);
+  assert.equal(absDiff1m, 1.0, '1.0 m is an exact multiple of ULP at 100k; both methods match');
+  assert.equal(relDiff1m, 1.0);
+
+  // 2. Tests at 2,048 m (FloatingOrigin3D rebase envelope, ULP ~= 0.244 mm):
+  const pos2048 = 2_048.0;
+  for (const delta of displacementsM) {
+    const absDiff = Math.fround(pos2048 + delta) - Math.fround(pos2048);
+    const relDiff = Math.fround((pos2048 + delta) - pos2048);
+    // At 2,048 m, even 1 mm has error <= 0.125 mm (< 1 mm), validating sub-millimeter precision
+    assert.ok(Math.abs(absDiff - delta) <= 0.00025, `at 2048m, absolute error for delta=${delta} is sub-millimeter`);
+    assert.ok(Math.abs(relDiff - delta) < 1e-7);
+  }
+
+  // 3. Tests at 10,000 m (ULP = 2^-10 = 0.0009765625 m ~= 0.976 mm):
+  const pos10k = 10_000.0;
+  for (const delta of displacementsM) {
+    const absDiff = Math.fround(pos10k + delta) - Math.fround(pos10k);
+    const relDiff = Math.fround((pos10k + delta) - pos10k);
+    // At 10,000 m, absolute conversion quantizes to multiples of 0.976 mm:
+    if (delta === 0.125 || delta === 1.0) {
+      assert.equal(absDiff, delta, `delta=${delta} is an exact multiple of ULP; both match`);
+    } else {
+      assert.ok(Math.abs(absDiff - delta) <= 0.001, `quantization error for delta=${delta} bounded by 1 ULP (~0.976 mm)`);
+    }
+    assert.ok(Math.abs(relDiff - delta) < 1e-7, `relative delta=${delta} is preserved exactly in Float32`);
+  }
+
+  // 4. Tests at Interplanetary scale (1 AU = 1.496e11 m, Float32 ULP = 16,384 m):
+  const posAU = AU_M;
+  for (const delta of displacementsM) {
+    const absDiff = Math.fround(posAU + delta) - Math.fround(posAU);
+    const relDiff = Math.fround((posAU + delta) - posAU);
+    assert.equal(absDiff, 0, `at 1 AU, absolute Float32 completely loses delta=${delta}`);
+    assert.ok(Math.abs(relDiff - delta) < 0.0001, `relative pre-subtraction preserves delta=${delta} at 1 AU`);
+  }
+
+  // 5. Tests at Intergalactic scale (2.5 Mly = 2.365e22 m):
+  // Demonstrates why raw global Float64 fails (catastrophic cancellation) and why UniverseAddress BigInt authority is required:
+  const rawCosmicPos = 2_500_000 * LIGHT_YEAR_M;
+  const rawCosmicDiffF64 = (rawCosmicPos + 1.0) - rawCosmicPos;
+  assert.equal(rawCosmicDiffF64, 0, 'raw global Float64 loses 1 meter displacement at 2.5 Mly (ULP = 5,240 km)');
+
+  // Architectural solution: UniverseAddress decomposes into BigInt sector and local Float64 offset
+  const localDeltaF64 = 1.0;
+  const localDeltaF32 = Math.fround(localDeltaF64);
+  assert.equal(localDeltaF32, 1.0, 'sub-sector offset preserves 1 meter exactly');
 });
 
 /* ========================================================================== */
-/* 3. Reference Frame Reversibility & Coordinate Preservation                 */
+/* 3. Reference Frame Transformations: Reversibility, Composition & Non-Comm */
 /* ========================================================================== */
 
 test('U4 Math: FloatingOrigin3D roundtrip reversibility toRenderLocal <-> toLogical', () => {
@@ -264,7 +403,6 @@ test('U4 Math: FloatingOrigin3D roundtrip reversibility toRenderLocal <-> toLogi
   const initialOrigin = pose(frame, [10_000, 20_000, 30_000]);
   const floating = new FloatingOrigin3D(initialOrigin, { thresholdM: 2048, gridM: 1024 });
 
-  // Test set of sample points
   const points = [
     [10_000, 20_000, 30_000],
     [10_500, 20_100, 29_800],
@@ -285,21 +423,77 @@ test('U4 Math: FloatingOrigin3D roundtrip reversibility toRenderLocal <-> toLogi
   }
 });
 
+test('U4 Math: ReferenceFrameGraph verifies reversibility, composition, and non-commutativity', () => {
+  const graph = new ReferenceFrameGraph();
+  graph.register(referenceFrame({ id: 'system', kind: 'system' }));
+  graph.register(referenceFrame({
+    id: 'body', parentId: 'system', kind: 'body-fixed',
+    originInParent: [1_000_000, 0, 0],
+  }));
+  graph.register(referenceFrame({
+    id: 'surface', parentId: 'body', kind: 'surface-enu',
+    originInParent: [0, 6_378_137, 0],
+    rotationToParent: quatFromAxisAngle([0, 0, 1], Math.PI / 2),
+  }));
+
+  const testPos: Vec3 = [100, 250, -50];
+
+  // 1. Reversibility: T^-1(T(P)) == P
+  const toSystem = graph.convertPosition('surface', 'system', testPos);
+  const backToSurface = graph.convertPosition('system', 'surface', toSystem);
+  for (let i = 0; i < 3; i++) {
+    assert.ok(Math.abs(backToSurface[i] - testPos[i]) < 1e-9, `reversibility on axis ${i}`);
+  }
+
+  // 2. Composition: converting surface -> system directly matches surface -> body -> system
+  const viaBody = graph.convertPosition('body', 'system', graph.convertPosition('surface', 'body', testPos));
+  for (let i = 0; i < 3; i++) {
+    assert.ok(Math.abs(toSystem[i] - viaBody[i]) < 1e-9, `composition consistency on axis ${i}`);
+  }
+
+  // 3. Non-commutativity: spatial transforms do NOT commute in general (T_AB(P) != T_BA(P))
+  const forward = graph.convertPosition('surface', 'body', testPos);
+  const backward = graph.convertPosition('body', 'surface', testPos);
+  assert.notDeepEqual(forward, backward, 'spatial frame transformations are not commutative');
+});
+
 /* ========================================================================== */
-/* 4. Cosmic Distance Arithmetic & Prevention of Catastrophic Cancellation    */
+/* 4. Cosmic Distance Arithmetic & Scale-Dependent Float64 Resolution        */
 /* ========================================================================== */
 
+test('U4 Math: Float64 precision resolution varies by scale from nanometric to metric', () => {
+  // Float64 bitwise ULP calculation
+  const bitwiseFloat64ULP = (val: number): number => {
+    const f64Buf = new Float64Array(1);
+    f64Buf[0] = val;
+    const base = f64Buf[0];
+    const u64Buf = new BigUint64Array(f64Buf.buffer);
+    u64Buf[0] += 1n;
+    return f64Buf[0] - base;
+  };
+
+  // 1. Planetary surface scale (r = 6.371e6 m - Earth radius)
+  const ulpPlanetary = bitwiseFloat64ULP(6_371_000);
+  assert.ok(ulpPlanetary < 2e-9, 'Float64 ULP at planetary surface is < 2 nanometers (~0.93 nm)');
+
+  // 2. Solar system scale (50 AU ~= 7.48e12 m)
+  const ulpSolarSystem = bitwiseFloat64ULP(50 * AU_M);
+  assert.ok(ulpSolarSystem < 0.002, 'Float64 ULP at 50 AU is ~1.66 mm (millimetric)');
+
+  // 3. Complete sector edge (100 ly ~= 9.46e17 m)
+  const ulpSector = bitwiseFloat64ULP(SECTOR_SIZE_M);
+  assert.equal(ulpSector, 128, 'Float64 ULP at 100 ly is 128 m (metric/decametric, NOT nanometric)');
+  // However, relative precision is strict:
+  assert.ok(ulpSector / SECTOR_SIZE_M < 1.5e-16, 'relative precision at sector edge is < 1.5e-16');
+});
+
 test('U4 Math: UniverseAddress.separationM avoids Float32 cancellation at 2.5 Mly', () => {
-  // Earth in Milky Way (origin sector)
   const earth = {
     sector: sectorIndex(0n, 0n, 0n),
     offsetM: [0, 0, 0] as [number, number, number],
   };
-
-  // Andromeda at 2.5 million light years (~25,000 sectors along X)
-  const andromedaSectorsX = 25_000n;
   const andromeda = {
-    sector: sectorIndex(andromedaSectorsX, 0n, 0n),
+    sector: sectorIndex(25_000n, 0n, 0n),
     offsetM: [100, 200, 300] as [number, number, number],
   };
 
@@ -307,38 +501,32 @@ test('U4 Math: UniverseAddress.separationM avoids Float32 cancellation at 2.5 Ml
   assert.ok(Number.isFinite(distM));
   assert.ok(distM > 2.3e22 && distM < 2.4e22, 'distance must be ~2.36e22 m');
 
-  // BigInt difference in sectors is exact:
+  // Exact BigInt difference:
   const exactSectorDiff = andromeda.sector.x - earth.sector.x;
   assert.equal(exactSectorDiff, 25_000n);
 
-  // In contrast, direct Float32 subtraction of such cosmic distances loses all precision
+  // In contrast, raw Float32 completely loses sub-kilometer offsets
   const distF32 = Math.fround(2.365e22);
   const perturbedF32 = Math.fround(2.365e22 + 100);
-  assert.equal(perturbedF32 - distF32, 0, 'raw Float32 completely annihilates sub-kilometer deltas at cosmic scale');
+  assert.equal(perturbedF32 - distF32, 0);
 });
 
 test('U4 Math: normalizeSectorOffset keeps sub-sector coordinates canonical', () => {
   const originSector = sectorIndex(100n, 200n, 300n);
-  // Offset exceeding sector boundary by 2.5 sector lengths
   const largeOffset = [2.5 * SECTOR_SIZE_M, -1.2 * SECTOR_SIZE_M, 0.4 * SECTOR_SIZE_M] as [number, number, number];
 
   const norm = normalizeSectorOffset(originSector, largeOffset);
 
-  // Exact BigInt sector indexing:
-  // X advances by 2 sectors (floor(2.5) = 2)
   assert.equal(norm.sector.x, 102n);
-  // At SECTOR_SIZE_M (~9.46e17 m), Float64 ULP is 128 m; relative precision is < 1e-15
   const relErrorX = Math.abs(norm.offsetM[0] - 0.5 * SECTOR_SIZE_M) / SECTOR_SIZE_M;
-  assert.ok(relErrorX < 1e-14, 'Float64 relative error on sub-sector remainder must be < 1e-14');
-  assert.ok(Math.abs(norm.offsetM[0] - 0.5 * SECTOR_SIZE_M) <= 128, 'absolute discrepancy within 1 ULP Float64 (128 m)');
+  assert.ok(relErrorX < 1e-14);
+  assert.ok(Math.abs(norm.offsetM[0] - 0.5 * SECTOR_SIZE_M) <= 128, 'within 1 ULP Float64 (128 m)');
 
-  // Y retreats by 2 sectors (floor(-1.2) = -2), remaining offset is 0.8 * SECTOR_SIZE_M
   assert.equal(norm.sector.y, 198n);
   const relErrorY = Math.abs(norm.offsetM[1] - 0.8 * SECTOR_SIZE_M) / SECTOR_SIZE_M;
-  assert.ok(relErrorY < 1e-14, 'Float64 relative error on negative sub-sector remainder must be < 1e-14');
-  assert.ok(Math.abs(norm.offsetM[1] - 0.8 * SECTOR_SIZE_M) <= 256, 'absolute discrepancy within 2 ULP Float64');
+  assert.ok(relErrorY < 1e-14);
+  assert.ok(Math.abs(norm.offsetM[1] - 0.8 * SECTOR_SIZE_M) <= 256);
 
-  // All normalized offsets must be within [0, SECTOR_SIZE_M)
   for (let i = 0; i < 3; i++) {
     assert.ok(norm.offsetM[i] >= 0 && norm.offsetM[i] < SECTOR_SIZE_M);
   }
@@ -353,19 +541,16 @@ test('U4 Math: sectorSeed and addressKey are strictly deterministic and invarian
   const addrA = universeAddress('milky_way', s, { systemId: 'sol' });
   const addrB = universeAddress('milky_way', sectorIndex(42n, -99n, 1024n), { systemId: 'sol' });
 
-  // addressKey invariance
   const keyA = addressKey(addrA);
   const keyB = addressKey(addrB);
   assert.equal(keyA, 'milky_way/42,-99,1024/sol');
   assert.equal(keyA, keyB);
 
-  // sectorSeed invariance across distinct evaluations
   const seed1 = sectorSeed('milky_way', s);
   const seed2 = sectorSeed('milky_way', sectorIndex(42n, -99n, 1024n));
   assert.equal(seed1, seed2);
   assert.equal(typeof seed1, 'bigint');
 
-  // Avalanche effect: small change in sector index produces completely different seed
   const seedAdjacent = sectorSeed('milky_way', sectorIndex(43n, -99n, 1024n));
   assert.notEqual(seed1, seedAdjacent);
 });
@@ -375,7 +560,6 @@ test('U4 Math: sectorSeed and addressKey are strictly deterministic and invarian
 /* ========================================================================== */
 
 test('U4 Math: spiral arm modulation M_arms is strictly positive (non-negativity)', () => {
-  // Test across a radial and angular grid
   const radiiLy = [1_000, 8_500, 26_000, 50_000, 80_000];
   const angles = [-Math.PI, -Math.PI / 2, 0, Math.PI / 4, Math.PI / 2, Math.PI, 3 * Math.PI];
 
@@ -383,14 +567,14 @@ test('U4 Math: spiral arm modulation M_arms is strictly positive (non-negativity
     for (const theta of angles) {
       const density = calculateSpiralArmModulation(r, theta);
       assert.ok(Number.isFinite(density));
-      assert.ok(density >= 0.25, `density at r=${r}, theta=${theta} must be >= 0.25 (got ${density})`);
-      assert.ok(density <= 1.0, `density at r=${r}, theta=${theta} must be <= 1.0 (got ${density})`);
+      assert.ok(density >= 0.25, `density must be >= 0.25 (got ${density})`);
+      assert.ok(density <= 1.0, `density must be <= 1.0 (got ${density})`);
     }
   }
 });
 
 test('U4 Math: spiral arm modulation exhibits strict 2*pi periodicity in theta', () => {
-  const r = 26_000; // Solar galactic radius
+  const r = 26_000;
   const testThetas = [0.1, 0.75, 1.8, 3.14, 5.2];
 
   for (const theta of testThetas) {
@@ -412,7 +596,6 @@ test('U4 Math: spiral arm peaks align with logarithmic spiral ridges', () => {
   const b = Math.tan(pitchAngle);
   const rTest = 30_000;
 
-  // For each of the 4 arms, sample exactly on the ridge
   for (let k = 0; k < numArms; k++) {
     const thetaK = (2 * Math.PI * k) / numArms;
     const ridgeTheta = thetaK + Math.log(rTest / r0Ly) / b;
@@ -432,17 +615,14 @@ test('U4 Math: max envelope formulation prevents destructive cancellation betwee
   const b = Math.tan(pitchAngle);
   const rTest = 20_000;
 
-  // Arm 0 ridge and Arm 1 ridge
   const ridge0 = Math.log(rTest / r0Ly) / b;
   const ridge1 = (2 * Math.PI / numArms) + Math.log(rTest / r0Ly) / b;
 
-  // Sweep 50 points between ridge 0 and ridge 1
   for (let step = 0; step <= 50; step++) {
     const t = step / 50;
     const theta = ridge0 + t * (ridge1 - ridge0);
     const val = calculateSpiralArmModulation(rTest, theta, numArms, pitchAngle);
 
-    // Minimum inter-arm floor is (1 - A_arm) = 0.25; value must NEVER cancel out to 0 or negative
     assert.ok(val >= 0.25, `value between arms must remain >= 0.25 (got ${val})`);
     assert.ok(val <= 1.0, `value between arms must remain <= 1.0 (got ${val})`);
   }
@@ -453,23 +633,27 @@ test('U4 Math: max envelope formulation prevents destructive cancellation betwee
 /* ========================================================================== */
 
 test('U4 Math: extreme parameter sweeps produce finite valid outputs without NaN or Infinity', () => {
-  // Test angular size with extreme values
   const extremeDistances = [1e-12, 1, 1e10, 1e25, 1e30];
   const extremeRadii = [1e-6, 100, 1e21];
 
   for (const r of extremeRadii) {
     for (const d of extremeDistances) {
-      const ang = calculateAngularSize(r, d);
-      assert.ok(Number.isFinite(ang), `angular size must be finite for r=${r}, d=${d}`);
-      assert.ok(ang >= 0 && ang <= Math.PI);
+      const angSph = sphericalAngularSize(r, d);
+      assert.ok(Number.isFinite(angSph), `spherical angular size must be finite for r=${r}, d=${d}`);
+      assert.ok(angSph >= 0 && angSph <= Math.PI);
 
-      const px = calculateProjectedPixelDiameter(r, d, 1080, degToRad(60));
-      assert.ok(Number.isFinite(px), `pixel diameter must be finite for r=${r}, d=${d}`);
-      assert.ok(px >= 0);
+      const pxSph = sphericalProjectedDiameter(r, d, 1080, degToRad(60));
+      assert.ok(Number.isFinite(pxSph), `spherical pixel diameter must be finite for r=${r}, d=${d}`);
+      assert.ok(pxSph >= 0);
+
+      const angDisk = diskAngularSize(r, d);
+      assert.ok(Number.isFinite(angDisk));
+
+      const pxDisk = diskProjectedDiameter(r, d, 1080, degToRad(60));
+      assert.ok(Number.isFinite(pxDisk));
     }
   }
 
-  // Test spiral arm modulation with extreme inputs
   const extremeR = [1, 10, 1e6, 1e9];
   const extremeTheta = [-1e6, 0, 1e6];
 
