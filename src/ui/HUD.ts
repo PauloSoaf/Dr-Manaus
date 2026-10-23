@@ -67,6 +67,9 @@ export interface HUDFlightTelemetry {
   /** The engaged warp step and its label, for a readout that says which gear is in. */
   readonly warpStep?: number;
   readonly warpLabel?: string;
+  readonly cosmicTier?: string;
+  readonly proximityGatingActive?: boolean;
+  readonly gatedBodyId?: string;
 }
 
 export interface HUDPresentation {
@@ -170,7 +173,7 @@ const CONTROLS: readonly (readonly [string,string])[]=[
   ['Z (solo)','Rolamento de esquiva'],['Z (no ar)','Dash aéreo'],
   ['Clique olhando para baixo (no ar)','Soco meteoro: cratera e destruição em massa'],
   ['W A S D','Mover'],['Mouse','Olhar ao redor'],['F (planeta)','Voar / pousar'],['Espaço','Subir'],
-  ['Ctrl','Descer'],['Shift (planeta)','Voo rápido'],['V (planeta)','Armar Mega / Interplanetário (duplo toque) · depois B'],['F (espaço)','Pousar no corpo próximo: captura e desce sozinho'],['Shift (espaço)','Boost cósmico'],['B (espaço)','Warp · cada toque dobra (1c, 2c, 4c…)'],['X (espaço)','Freio · desengata o warp'],['Mouse','Direção de voo'],
+  ['Ctrl','Descer'],['Shift (planeta)','Voo rápido'],['V (planeta)','Armar Mega / Interplanetário (duplo toque) · depois B'],['F (espaço)','Pousar no corpo próximo: captura e desce sozinho'],['Shift (espaço)','Boost cósmico'],['C (espaço)','Alternar Modo Cósmico (Convencional / Interestelar / Intergaláctico)'],['B (espaço)','Warp · aumenta marcha (1c, 2c, 4c… 1.5T c)'],['Shift+B (espaço)','Warp · reduz marcha'],['X (espaço)','Freio · desengata o warp'],['Mouse','Direção de voo'],
   ['L','Ligar / desligar laser continuo'],['Clique / 1','Emitir energia'],['E','Teleportar à mira'],['Q','Onda de choque'],['R','Reconstruir matéria'],
   ['G','Alternar tamanho até 1 km'],['C','Criar ecos temporários'],['T','Percepção temporal'],
   ['Tab / Shift+Tab (espaço)','Travar alvo / próximo / anterior'],['P (espaço)','Piloto automático: ligar / desligar'],['Backspace (espaço)','Liberar alvo e cancelar piloto'],['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
@@ -334,6 +337,9 @@ export class HUD {
     align: 'ALINHE-SE AO DESTINO',
     acceleration: 'ACELERANDO',
     cruise: 'COSMIC CRUISE',
+    'cosmic-cruise': 'VOO CÓSMICO LIVRE',
+    'interstellar': 'VOO INTERESTELAR',
+    'intergalactic': 'VOO INTERGALÁCTICO',
     braking: 'FRENAGEM',
     approach: 'APROXIMAÇÃO',
     'landing-capture': 'POUSO · CAPTURA', 'landing-hold': 'POUSO · AGUARDANDO SUPERFÍCIE',
@@ -361,6 +367,8 @@ export class HUD {
     block.innerHTML=`<b>${HUD.CRUISE_PHASES[flight.phase]??flight.phase}</b>`
       +`<span>GALÁXIA ATUAL<i>${formatGalaxyName(state.location?.address.galaxyId)}</i></span><span>SISTEMA ATUAL<i>${this.lastSystemBodies.find(b=>!b.parentId)?.name??state.location?.address.systemId??'—'}</i></span><span>SETOR<i>${state.location?Object.values(state.location.address.sector).join(','):'—'}</i></span><span>LOCK<i>${flight.lockActive?'ATIVO':'—'}</i></span><span>PILOTO<i>${flight.autopilotActive?'ATIVO':'MANUAL'}</i></span>`
       +(flight.warpLabel?`<span>WARP<i class="warp">${flight.warpLabel}</i></span>`:'')
+      +(flight.cosmicTier&&flight.cosmicTier!=='conventional'?`<span>MODO CÓSMICO<i>${flight.cosmicTier.toUpperCase()}</i></span>`:'')
+      +(flight.proximityGatingActive?`<span style="color:#f59e0b">FREIO PROXIMIDADE<i>${flight.gatedBodyId?flight.gatedBodyId.toUpperCase():'ATIVO'}</i></span>`:'')
       +`<span>DESTINO<i>${flight.targetName??flight.targetBodyId??'—'}</i></span>`
       +(flight.universalTarget?`<span>TIPO<i>${flight.universalTarget.target.kind.replaceAll('-',' ').toUpperCase()}</i></span><span>GALÁXIA DO ALVO<i>${formatGalaxyName(flight.universalTarget.target.galaxyId)}</i></span><span>VIAGEM<i>${travelCapabilityLabel(flight.universalTarget.travelCapability)}</i></span>`:'')
       +`<span>${flight.photosphereClearanceM===undefined?'DISTÂNCIA':'FOTOSFERA'}<i>${flight.distanceToTargetM===undefined?'—':formatDistance(flight.photosphereClearanceM??flight.distanceToTargetM)}</i></span>`

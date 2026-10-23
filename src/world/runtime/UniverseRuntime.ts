@@ -288,9 +288,55 @@ export class UniverseRuntime {
   private syncNavigationAddress(): void {
     const { bodyId: previousBody, childFrame: previousFrame, ...systemAddress } = this.address;
     const bodyId = this.bodyIdForFrame(this.playerPose.frame);
-    this.address = this.playerPose.frame === this.activeSystem.systemFrameId
-      ? systemAddress
-      : { ...systemAddress, bodyId, childFrame: this.playerPose.frame };
+    if (this.playerPose.frame !== this.activeSystem.systemFrameId) {
+      this.address = { ...systemAddress, bodyId, childFrame: this.playerPose.frame };
+      return;
+    }
+
+    // Space addressing: dynamically update sector and galaxy based on cosmic coordinates
+    const p = this.playerPose.position;
+    const ANDROMEDA_Y_M = 2.365e22;
+    const distToAndromeda = Math.hypot(p[0], p[1] - ANDROMEDA_Y_M, p[2]);
+    const distToMilkyWay = Math.hypot(p[0], p[1], p[2]);
+
+    if (this.activeSystem === this.solarSystem) {
+      if (distToMilkyWay < 1e16) {
+        this.address = systemAddress;
+        return;
+      }
+    } else {
+      // Inside an installed procedural system, preserve system identity when close to its star
+      const relStar = Math.hypot(...p);
+      if (relStar < 1e16) {
+        this.address = systemAddress;
+        return;
+      }
+    }
+
+    const halfSector = 0.5 * SECTOR_SIZE_M;
+    if (distToAndromeda < distToMilkyWay) {
+      const andromedaRuntime = knownGalaxyRuntime('andromeda');
+      if (andromedaRuntime) this.activeGalaxy = andromedaRuntime;
+      const sx = BigInt(Math.floor((p[0] + halfSector) / SECTOR_SIZE_M));
+      const sy = BigInt(Math.floor((p[1] - ANDROMEDA_Y_M + halfSector) / SECTOR_SIZE_M));
+      const sz = BigInt(Math.floor((p[2] + halfSector) / SECTOR_SIZE_M));
+      this.address = {
+        galaxyId: 'andromeda',
+        sector: sectorIndex(sx, sy, sz),
+        systemId: distToAndromeda < 1e16 ? 'andromeda-core' : 'andromeda-space',
+      };
+    } else {
+      const mwRuntime = knownGalaxyRuntime('milky_way');
+      if (mwRuntime) this.activeGalaxy = mwRuntime;
+      const sx = BigInt(Math.floor((p[0] + halfSector) / SECTOR_SIZE_M));
+      const sy = BigInt(Math.floor((p[1] + halfSector) / SECTOR_SIZE_M));
+      const sz = BigInt(Math.floor((p[2] + halfSector) / SECTOR_SIZE_M));
+      this.address = {
+        galaxyId: 'milky_way',
+        sector: sectorIndex(sx, sy, sz),
+        systemId: distToMilkyWay < 1e16 ? 'sol' : 'milky-way-space',
+      };
+    }
   }
 
   private surfaceCoordinates(bodyId: string | undefined) {

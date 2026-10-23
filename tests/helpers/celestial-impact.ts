@@ -51,6 +51,7 @@ export function impactFixture(id = 'earth', speed = LIGHT_SPEED_MPS, fps = 60) {
     navigation: new NavigationTargetState(),
     landingIntent: new PlanetaryLandingIntent(),
     warpStep: speed > 500_000_000 ? 9 : 0,
+    cosmicTier: 'conventional',
     colliders: [],
     curvedColliders: [],
     attackBoxes: [],

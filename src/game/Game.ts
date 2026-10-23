@@ -99,7 +99,7 @@ import { WGS84 } from '../world/spatial/WGS84';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import {
   BASE_BRAKE_ACCEL, CosmicCruiseController, type FlightTelemetry, type NavigationTarget,
-  WARP_STEPS_C, warpLabel,
+  WARP_STEPS_C, COSMIC_WARP_STEPS_C, type CosmicFlightTier, cosmicTierForStep, warpLabel,
 } from '../world/travel/CosmicFlight';
 
 /** Below this forward speed, S stops braking and starts reversing. */
@@ -329,6 +329,7 @@ export class Game {
   readonly earthTransition = new EarthTransitionController();
   readonly manausAerial?:ManausAerialPresentation;
   private presentationDomain:HUDPresentationDomain='local';
+  private cosmicTier: CosmicFlightTier = 'conventional';
   celestialVisuals = new CelestialBodyVisualLayer();
   celestialController = new CelestialPresentationController(this.celestialVisuals);
   readonly celestialLabels: CelestialLabelLayer;
@@ -771,8 +772,29 @@ export class Game {
     this.planetRoot.visible=!transit;this.celestialVisuals.root.visible=!transit;
     if(this.galaxyMaterializer?.current)this.galaxyMaterializer.current.root.visible=!transit;
     this.actorRoot.visible=!transit;
-    if(transit)this.localRoot.visible=false;
-    this.hyperPresentation?.update(transit,this.rendering.camera,rawDt);
+    if (this.universalTravelController?.active) {
+      this.hyperPresentation?.update(transit, this.rendering.camera, rawDt);
+    } else if (this.flightTelemetry && this.flightTelemetry.speedMps > 10 * 299_792_458) {
+      this.hyperPresentation ??= new HypercruisePresentation(this.celestialRoot);
+      const { forward: camFwd } = cameraFlightAxes(this.rendering.camera);
+      this.hyperPresentation.setDirection([camFwd.x, camFwd.y, camFwd.z]);
+      const fakeState: any = {
+        effectiveSpeedMps: this.flightTelemetry.speedMps,
+        phase: 'cruise',
+        plan: {
+          domain: this.universe.address.galaxyId === 'andromeda' ? 'intergalactic' : 'interstellar',
+          destination: { address: { galaxyId: 'andromeda' } },
+          logicalDistanceM: 2.365e22,
+          durationS: 30,
+        },
+        progress: 0.5,
+        distanceRemainingM: 1e22,
+        distanceTravelledM: 1e22,
+      };
+      this.hyperPresentation.update(fakeState, this.rendering.camera, rawDt);
+    } else {
+      this.hyperPresentation?.update(undefined, this.rendering.camera, rawDt);
+    }
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
@@ -1047,6 +1069,8 @@ export class Game {
       // Cosmic cruise assistance needs real forward intent, not merely the modifier.
       inputBoost: boostHeld && forwardIntent,
       warpStep: this.warpStep,
+      cosmicTier: this.cosmicTier ?? 'conventional',
+      cosmicMode: this.cosmicTier === 'interstellar' || this.cosmicTier === 'intergalactic',
       inputBrake,
       target,
       targetCanLand:targetBody ? (supportsLanding(bodyProfile(targetBody)) !== 'none') : false,
@@ -1107,12 +1131,42 @@ export class Game {
      * without being seen. Four taps reached warp 2.
      */
     if (!this.travelDomain.localPhysicsActive && this.input.consume('KeyF')) this.requestLanding();
+    if (!this.travelDomain.localPhysicsActive && this.input.consume('KeyC')) {
+      if (this.cosmicTier === 'conventional') {
+        this.cosmicTier = 'interstellar';
+        this.warpStep = 13; // 1,000,000c
+        this.hud.notify(`Modo Cósmico · INTERESTELAR (${warpLabel(this.warpStep, true)})`);
+      } else if (this.cosmicTier === 'interstellar') {
+        this.cosmicTier = 'intergalactic';
+        this.warpStep = 18; // 100,000,000,000c
+        this.hud.notify(`Modo Cósmico · INTERGALÁCTICO (${warpLabel(this.warpStep, true)})`);
+      } else {
+        this.cosmicTier = 'conventional';
+        this.warpStep = 9; // 256c
+        this.hud.notify(`Modo Cósmico · CONVENCIONAL (${warpLabel(this.warpStep)} máx)`);
+      }
+    }
     if (!this.travelDomain.localPhysicsActive && this.input.consume('KeyB')) {
       // Warp belongs to free flight. During a landing capture the controller owns the velocity.
       if (this.landingIntent.active) this.hud.notify('Pouso em andamento · F cancela');
       else {
-        this.warpStep = Math.min(WARP_STEPS_C.length, this.warpStep + 1);
-        this.hud.notify(`Warp ${warpLabel(this.warpStep)}`);
+        const shiftHeld = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+        if (shiftHeld) {
+          this.warpStep = Math.max(0, this.warpStep - 1);
+        } else {
+          const maxStep = this.cosmicTier === 'intergalactic'
+            ? COSMIC_WARP_STEPS_C.length
+            : this.cosmicTier === 'interstellar'
+              ? 14
+              : WARP_STEPS_C.length;
+          this.warpStep = Math.min(maxStep, this.warpStep + 1);
+        }
+        const isCosmic = this.cosmicTier !== 'conventional' || this.warpStep > WARP_STEPS_C.length;
+        if (this.warpStep === 9 && this.cosmicTier === 'conventional') {
+          this.hud.notify(`Warp ${warpLabel(this.warpStep)} · [C] para Modo Cósmico Livre`);
+        } else {
+          this.hud.notify(`Warp ${warpLabel(this.warpStep, isCosmic)}`);
+        }
       }
     }
     if (this.travelDomain.localPhysicsActive) { this.warpStep = 0; this.landingIntent.cancel(); }
@@ -1487,7 +1541,10 @@ export class Game {
       relativeSpeedMps:Math.hypot(...relative),
       targetName:name??resolved?.target.displayName,
       warpStep:telemetry.warpStep,
-      warpLabel:warpLabel(telemetry.warpStep),
+      warpLabel:warpLabel(telemetry.warpStep, this.cosmicTier !== 'conventional' || telemetry.warpStep > WARP_STEPS_C.length),
+      cosmicTier:telemetry.cosmicTier,
+      proximityGatingActive:telemetry.proximityGatingActive,
+      gatedBodyId:telemetry.gatedBodyId,
       distanceToTargetM:target ? distance : resolved?.distanceM,
       photosphereClearanceM:target?.bodyId==='sun' ? distance-target.radiusM : undefined,
       angularDiameterDeg:target?.bodyId==='sun' ? solarDiagnostics(target.radiusM,distance,

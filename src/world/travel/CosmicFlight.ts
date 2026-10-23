@@ -47,14 +47,19 @@ export interface ResolvedTarget {
 
 export interface FlightTelemetry {
   speedMps: number;
+  effectiveSpeedC?: number;
   accelerationMps2: number;
   distanceToTargetM?: number;
   timeToTargetS?: number;
   targetBodyId?: string;
   /** The engaged warp step, counting from 1; zero is off. */
   warpStep: number;
+  warpLabel?: string;
+  cosmicTier?: CosmicFlightTier;
+  proximityGatingActive?: boolean;
+  gatedBodyId?: string;
   phase: 'idle' | 'align' | 'acceleration' | 'cruise' | 'braking' | 'capture' | 'approach' | 'arrived'
-    | 'landing-capture' | 'landing-hold';
+    | 'landing-capture' | 'landing-hold' | 'cosmic-cruise';
   autopilotActive?: boolean;
   relativeSpeedMps?: number;
   closingSpeedMps?: number;
@@ -97,6 +102,8 @@ export interface CosmicCruiseContext extends TravelContext {
    * go and the assistance's job becomes pointing them at the target, not rationing the throttle.
    */
   warpStep?: number;
+  cosmicMode?: boolean;
+  cosmicTier?: CosmicFlightTier;
 }
 
 function finite(value: number | undefined, fallback = 0): number {
@@ -115,22 +122,55 @@ function finite(value: number | undefined, fallback = 0): number {
  * travel domain exists, and putting a warp factor into the local flight config would undo it.
  */
 export const WARP_STEPS_C = [1, 2, 4, 8, 16, 32, 64, 128, 256] as const;
+
+/**
+ * Cosmic Flight Gears: Extends conventional warp into interstellar and intergalactic scales.
+ *
+ * Tier 'conventional' (steps 1..9): 1c .. 256c
+ * Tier 'interstellar' (steps 10..14): 1,000c .. 10,000,000c (~0.32 ly/s)
+ * Tier 'intergalactic' (steps 15..19): 100,000,000c (~3.17 ly/s) .. 1,500,000,000,000c (~47,500 ly/s)
+ */
+export const COSMIC_WARP_STEPS_C = [
+  ...WARP_STEPS_C,
+  1_000, 10_000, 100_000, 1_000_000, 10_000_000,
+  100_000_000, 1_000_000_000, 10_000_000_000, 100_000_000_000, 1_500_000_000_000,
+] as const;
+
+export type CosmicFlightTier = 'conventional' | 'interstellar' | 'intergalactic';
+
+export function cosmicTierForStep(step: number): CosmicFlightTier {
+  if (step <= 9) return 'conventional';
+  if (step <= 14) return 'interstellar';
+  return 'intergalactic';
+}
+
 /** How long the warp takes to reach its set speed. Short, because waiting to go fast is not fun. */
 export const WARP_SPOOL_S = 1.2;
 
 /** The speed a warp step means, metres per second. Step 0 is off. */
-export function warpSpeedMps(step: number): number {
+export function warpSpeedMps(step: number, allowCosmic = false): number {
   if (!Number.isFinite(step) || step <= 0) return 0;
-  const index = Math.min(WARP_STEPS_C.length, Math.round(step)) - 1;
-  return WARP_STEPS_C[index] * LIGHT_SPEED_MPS;
+  const list = allowCosmic ? COSMIC_WARP_STEPS_C : WARP_STEPS_C;
+  const index = Math.min(list.length, Math.round(step)) - 1;
+  return list[index] * LIGHT_SPEED_MPS;
 }
 
-/** The label the HUD shows for a step: `2c`, `64c`, or nothing when the gear is off. */
-export function warpLabel(step: number): string {
-  const speed = warpSpeedMps(step);
+export function cosmicWarpSpeedMps(step: number): number {
+  return warpSpeedMps(step, true);
+}
+
+/** The label the HUD shows for a step: `2c`, `64c`, `10.000c`, `100B c`, or nothing when the gear is off. */
+export function warpLabel(step: number, allowCosmic = false): string {
+  const speed = warpSpeedMps(step, allowCosmic);
   if (!(speed > 0)) return '';
-  const index = Math.min(WARP_STEPS_C.length, Math.round(step)) - 1;
-  return `${WARP_STEPS_C[index]}c`;
+  const list = allowCosmic ? COSMIC_WARP_STEPS_C : WARP_STEPS_C;
+  const index = Math.min(list.length, Math.round(step)) - 1;
+  const c = list[index];
+  if (c >= 1_000_000_000_000) return `${(c / 1e12).toFixed(1)}T c`;
+  if (c >= 1_000_000_000) return `${(c / 1e9).toFixed(0)}B c`;
+  if (c >= 1_000_000) return `${(c / 1e6).toFixed(0)}M c`;
+  if (c >= 1_000) return `${Math.round(c).toLocaleString('pt-BR')}c`;
+  return `${c}c`;
 }
 
 /** Manual thrust outside the cruise assistance, metres per second squared. */
@@ -275,7 +315,11 @@ export class CosmicCruiseController {
     let phase: FlightTelemetry['phase'] = 'idle';
     const margin = finite(context.envelopeMarginM, 1000);
 
-    const warpSpeed = warpSpeedMps(finite(context.warpStep));
+    const isCosmic = !!context.cosmicMode
+      || context.cosmicTier === 'interstellar'
+      || context.cosmicTier === 'intergalactic'
+      || (context.warpStep !== undefined && context.warpStep > WARP_STEPS_C.length);
+    const warpSpeed = warpSpeedMps(finite(context.warpStep), isCosmic);
     const toTarget: [number, number, number] = target
       ? [
         finite(target.positionM[0]) - positionM[0],
@@ -351,7 +395,7 @@ export class CosmicCruiseController {
         }
       }
     } else if (thrustDirectionBary.lengthSq() > 0.01) {
-      phase = 'acceleration';
+      phase = isCosmic && warpSpeed > 256 * LIGHT_SPEED_MPS ? 'cosmic-cruise' : 'acceleration';
       // Warp sets the throttle; without it, the manual thrust is what it has always been.
       acceleration = warpSpeed > 0 ? warpSpeed / WARP_SPOOL_S : BASE_THRUST_ACCEL;
       relVel[0] += finite(thrustDirectionBary.x) * acceleration * dt;
@@ -359,30 +403,28 @@ export class CosmicCruiseController {
       relVel[2] += finite(thrustDirectionBary.z) * acceleration * dt;
     }
 
-    // The gear the player selected is the ceiling, not the default half-million.
-    const maxRelative = warpSpeed > 0
-      ? warpSpeed
-      : Math.max(0, finite(context.maxRelativeSpeedMps, 500_000_000));
-    const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
-    if (!assisted && relSpeed > maxRelative && relSpeed > 0) {
-      const scale = maxRelative / relSpeed;
-      relVel[0] *= scale; relVel[1] *= scale; relVel[2] *= scale;
+    // Camera directional steering: smoothly orient existing velocity towards camera forward direction
+    const currentRelSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    if (context.cameraForwardBary.lengthSq() > 0.01 && currentRelSpeed > 100_000 && (thrustDirectionBary.lengthSq() > 0.01 || context.inputBoost)) {
+      const steerRate = Math.min(1, dt * 6.0);
+      const cam = context.cameraForwardBary;
+      const curDir = [relVel[0] / currentRelSpeed, relVel[1] / currentRelSpeed, relVel[2] / currentRelSpeed];
+      const blended = [
+        curDir[0] + (cam.x - curDir[0]) * steerRate,
+        curDir[1] + (cam.y - curDir[1]) * steerRate,
+        curDir[2] + (cam.z - curDir[2]) * steerRate,
+      ];
+      const blen = Math.hypot(...blended);
+      if (blen > 1e-6) {
+        relVel[0] = (blended[0] / blen) * currentRelSpeed;
+        relVel[1] = (blended[1] / blen) * currentRelSpeed;
+        relVel[2] = (blended[2] / blen) * currentRelSpeed;
+      }
     }
 
-    velocityMps[0] = bodyVel[0] + relVel[0];
-    velocityMps[1] = bodyVel[1] + relVel[1];
-    velocityMps[2] = bodyVel[2] + relVel[2];
-
-    const step: [number, number, number] = [
-      velocityMps[0] * dt, velocityMps[1] * dt, velocityMps[2] * dt,
-    ];
-
     /**
+     * Obstacles and Proximity Speed Gating.
      * Everything solid the step could pass through.
-     *
-     * Both the body the player is near *and* the one they are flying at. Testing only the
-     * dominant body is what let a flight from Earth to the Moon cross the Moon entirely between
-     * two frames: while Earth is still dominant, the Moon is not in the list at all.
      */
     const obstacles: Obstacle[] = [...(context.exclusionEnvelopes ?? [])];
     if (context.bodyPositionM && !obstacles.some(obstacle => obstacle.bodyId === context.bodyId)) {
@@ -400,6 +442,57 @@ export class CosmicCruiseController {
       obstacles.push({ bodyId: landing.bodyId, velocityMps: landing.velocityMps,
         centreM: landing.centreM, radiusM: landing.radiusM + margin });
     }
+
+    let maxRelative = warpSpeed > 0
+      ? warpSpeed
+      : Math.max(0, finite(context.maxRelativeSpeedMps, 500_000_000));
+
+    // Proximity Speed Gating:
+    // Scale maximum allowed speed down when approaching celestial bodies at cosmic velocities
+    let proximityCapMps = Number.POSITIVE_INFINITY;
+    let proximityGatingActive = false;
+    let gatedBodyId: string | undefined;
+
+    if (isCosmic || currentRelSpeed > 256 * LIGHT_SPEED_MPS) {
+      for (const obstacle of obstacles) {
+        const orbital = obstacle.velocityMps ?? (obstacle.bodyId === context.bodyId ? bodyVel : [0, 0, 0]);
+        const relMotion = [relVel[0], relVel[1], relVel[2]];
+        const offset = [positionM[0] - obstacle.centreM[0], positionM[1] - obstacle.centreM[1], positionM[2] - obstacle.centreM[2]];
+        const dist = Math.hypot(...offset) - obstacle.radiusM;
+        const inward = offset[0] * relMotion[0] + offset[1] * relMotion[1] + offset[2] * relMotion[2] < 0;
+        if (inward && dist > 0) {
+          let cap = Number.POSITIVE_INFINITY;
+          if (dist < 1_000_000) cap = Math.min(cap, 20_000);
+          else if (dist < 100_000_000) cap = Math.min(cap, 500_000_000);
+          else if (dist < 1_000_000_000) cap = Math.min(cap, 16 * LIGHT_SPEED_MPS);
+          else if (dist < 100_000_000_000) cap = Math.min(cap, 256 * LIGHT_SPEED_MPS);
+
+          if (cap < proximityCapMps) {
+            proximityCapMps = cap;
+            gatedBodyId = obstacle.bodyId;
+          }
+        }
+      }
+
+      if (proximityCapMps < maxRelative) {
+        maxRelative = proximityCapMps;
+        proximityGatingActive = true;
+      }
+    }
+
+    const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    if (!assisted && relSpeed > maxRelative && relSpeed > 0) {
+      const scale = maxRelative / relSpeed;
+      relVel[0] *= scale; relVel[1] *= scale; relVel[2] *= scale;
+    }
+
+    velocityMps[0] = bodyVel[0] + relVel[0];
+    velocityMps[1] = bodyVel[1] + relVel[1];
+    velocityMps[2] = bodyVel[2] + relVel[2];
+
+    const step: [number, number, number] = [
+      velocityMps[0] * dt, velocityMps[1] * dt, velocityMps[2] * dt,
+    ];
 
     let earliest: { fraction: number; obstacle: Obstacle } | undefined;
     for (const envelope of obstacles) {
@@ -512,9 +605,14 @@ export class CosmicCruiseController {
     this.telemetry.arrivalRadiusM = this.autopilot.arrivalRadiusM;
     this.telemetry.effectiveSpeedCapMps = this.autopilot.effectiveSpeedCapMps;
     this.telemetry.speedMps = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    this.telemetry.effectiveSpeedC = this.telemetry.speedMps / LIGHT_SPEED_MPS;
     this.telemetry.accelerationMps2 = acceleration;
     this.telemetry.phase = phase;
     this.telemetry.warpStep = Math.max(0, Math.round(finite(context.warpStep)));
+    this.telemetry.warpLabel = warpLabel(this.telemetry.warpStep, isCosmic);
+    this.telemetry.cosmicTier = cosmicTierForStep(this.telemetry.warpStep);
+    this.telemetry.proximityGatingActive = proximityGatingActive;
+    this.telemetry.gatedBodyId = gatedBodyId;
 
     return {
       systemId: state.systemId,
