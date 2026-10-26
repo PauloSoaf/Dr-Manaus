@@ -132,6 +132,129 @@ export async function solarApproachChecks(page, results) {
   assert.equal(catastrophic.event.classification,'CATASTROPHIC_IMPACT');assert.equal(catastrophic.count,1);
   assert.equal(catastrophic.contact.envelopeRadiusM,695800000);assert.deepEqual(catastrophic.after,catastrophic.before);
   assert.ok(catastrophic.intact);assert.equal(catastrophic.physics.domain,'space');results.solarCatastrophic=catastrophic;
+
+  // --- Photosphere Landing & Locomotion Validation ---
+  const landed = await page.evaluate(() => {
+    const g = window.__DR_MANAUS__;
+    g.clearNavigationTarget();
+    g.celestialImpacts.clear();
+    g.warpStep = 0;
+    // Place within safe landing return gate: 695,704,000 m (4 km clearance < 7 km returnAltitudeM)
+    window.__DR_PLACE_SUN__(695704000, 20);
+    g.landingIntent.request('sun');
+    // Step forward until safe handoff to solar local-enu domain completes
+    for (let i = 0; i < 400 && g.travelDomain.kind === 'interplanetary'; i++) {
+      g.updateInterplanetaryFlight(1 / 60);
+      g.updateTravelDomain(1 / 60);
+      if (g.travelDomain.transition.kind === 'returned') {
+        g.finishSurfaceReturn('sun');
+      }
+      g.input.endFrame();
+    }
+    g.bindSurfacePhysics();
+    const c = g.rendering.camera;
+    c.position.set(g.player.position.x, g.player.position.y + 4, g.player.position.z + 10);
+    c.lookAt(g.player.position.x, g.player.position.y + 1, g.player.position.z - 25);
+    c.updateMatrixWorld();
+    for (let i = 0; i < 10; i++) g.tick(performance.now() + 16 * (i + 1));
+    return {
+      domain: g.travelDomain.kind,
+      frame: g.universe.player.frame,
+      district: g.district,
+      physicsDomain: g.physicsDomain,
+      gravity: g.player.gravity,
+      photosphereVisible: g.photosphereGround?.group.visible === true,
+      playerPos: g.player.position.toArray(),
+    };
+  });
+  assert.equal(landed.domain, 'local');
+  assert.equal(landed.frame, 'sun/local-enu');
+  assert.equal(landed.district, 'FOTOSFERA');
+  assert.equal(landed.physicsDomain, 'sun');
+  assert.equal(landed.photosphereVisible, true);
+  await page.screenshot({ path: 'artifacts/sun-photosphere-landed.png', timeout: 90000 });
+  results.solarLanded = landed;
+
+  // --- Photosphere Locomotion & Takeoff ---
+  const takeoff = await page.evaluate(() => {
+    const g = window.__DR_MANAUS__;
+    // Move character across the photosphere
+    g.player.position.x += 20;
+    g.player.position.z += 15;
+    for (let i = 0; i < 10; i++) g.tick(performance.now() + 16 * (i + 1));
+    const movedPos = g.player.position.toArray();
+
+    // Takeoff to space
+    g.player.state = 'Flight';
+    g.player.interplanetaryMode = true;
+    // Ascend upward out of photospheric return threshold into interplanetary space
+    g.travelDomain.update({
+      requested: true,
+      altitudeM: 100000,
+      speedMps: 20000,
+      nearestColliderM: Infinity,
+      bodyId: 'sun',
+      bodyRadiusM: 695700000,
+      entryPositionM: [0, 695800000, 0],
+      entryVelocityMps: [0, 20000, 0],
+    }, 0.1);
+    g.universe.updateSystemPose([0, 695800000, 0], [0, 20000, 0], 0.1);
+    g.bindSurfacePhysics();
+    const c = g.rendering.camera;
+    c.position.set(0, 0, 0);
+    c.lookAt(0, 1, 0);
+    c.updateMatrixWorld();
+    for (let i = 0; i < 10; i++) g.tick(performance.now() + 16 * (i + 1));
+
+    return {
+      movedPos,
+      domain: g.travelDomain.kind,
+      dominantBody: g.universe.telemetry.dominantBody,
+    };
+  });
+  assert.equal(takeoff.domain, 'interplanetary');
+  assert.equal(takeoff.dominantBody, 'sun');
+  await page.screenshot({ path: 'artifacts/sun-takeoff.png', timeout: 90000 });
+  results.solarTakeoff = takeoff;
+
+  // --- Intergalactic Flight & Andromeda Free Handoff ---
+  const andromedaHandoff = await page.evaluate(() => {
+    const g = window.__DR_MANAUS__;
+    g.clearNavigationTarget();
+    g.landingIntent.cancel();
+    g.cosmicTier = 'intergalactic';
+    g.warpStep = 18;
+    const ANDROMEDA_Y_M = 2.365e22;
+    // Position state at 0.8 * Andromeda distance in deep intergalactic space
+    const pos = [0, 0.8 * ANDROMEDA_Y_M, 0];
+    const vel = [0, 1e11, 0];
+    g.travelDomain.setState({
+      systemId: g.universe.address.systemId ?? 'sol',
+      positionM: pos,
+      velocityMps: vel,
+      referenceBodyId: undefined,
+    });
+    g.universe.updateSystemPose(pos, vel, 1.0);
+    g.checkFreeFlightGalaxyHandoff();
+    const c = g.rendering.camera;
+    c.position.set(0, 0, 0);
+    c.lookAt(0, 1, 0);
+    c.updateMatrixWorld();
+    for (let i = 0; i < 10; i++) g.tick(performance.now() + 16 * (i + 1));
+
+    return {
+      activeGalaxyId: g.universe.activeGalaxy.definition.id,
+      addressGalaxyId: g.universe.address.galaxyId,
+      addressSystemId: g.universe.address.systemId,
+      hudText: document.querySelector('#cruise-block')?.textContent,
+    };
+  });
+  assert.equal(andromedaHandoff.activeGalaxyId, 'andromeda');
+  assert.equal(andromedaHandoff.addressGalaxyId, 'andromeda');
+  assert.ok(andromedaHandoff.addressSystemId?.startsWith('andromeda'));
+  await page.screenshot({ path: 'artifacts/cosmic-andromeda-arrival.png', timeout: 90000 });
+  results.andromedaArrival = andromedaHandoff;
+
   await page.evaluate(()=>{const g=window.__DR_MANAUS__;g.rendering.renderer.setAnimationLoop(g.tick);});
-  console.log('SUN-APPROACH-P0: real Tab/P arrival, manual 2R/corona crossing, photosphere CCD, C4, quality and screenshots passed.');
+  console.log('SUN-APPROACH-P0: real Tab/P arrival, manual 2R/corona crossing, photosphere CCD, C4, quality, photosphere landing/takeoff, and Andromeda arrival screenshots passed.');
 }

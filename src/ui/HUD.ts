@@ -70,6 +70,8 @@ export interface HUDFlightTelemetry {
   readonly cosmicTier?: string;
   readonly proximityGatingActive?: boolean;
   readonly gatedBodyId?: string;
+  readonly landingIntentActive?: boolean;
+  readonly landingBlockedReason?: string;
 }
 
 export interface HUDPresentation {
@@ -357,8 +359,8 @@ export class HUD {
     const block=$('#cruise-block');
     if(state.location.transit){block.hidden=false;block.innerHTML=hypercruiseTelemetry(state.location.transit,state.flight?.universalTarget?.target.displayName);return;}
     const flight=state.flight;
-    // Shown for a target *or* an engaged warp: the gear matters even with nowhere chosen.
-    if(!flight||(!flight.universalTarget&&!flight.targetBodyId&&!flight.warpStep)){block.hidden=true;return;}
+    // Shown for a target, an engaged warp, or in space / cosmic tier: the gear matters even with nowhere chosen.
+    if(!flight||(!flight.universalTarget&&!flight.targetBodyId&&!flight.warpStep&&state.presentationDomain!=='orbital'&&(!flight.cosmicTier||flight.cosmicTier==='conventional'))){block.hidden=true;return;}
     block.hidden=false;
     const speed=formatSpeed(flight.speedMps);
     const accel=Math.abs(flight.accelerationMps2)>=1000
@@ -369,6 +371,7 @@ export class HUD {
       +(flight.warpLabel?`<span>WARP<i class="warp">${flight.warpLabel}</i></span>`:'')
       +(flight.cosmicTier&&flight.cosmicTier!=='conventional'?`<span>MODO CÓSMICO<i>${flight.cosmicTier.toUpperCase()}</i></span>`:'')
       +(flight.proximityGatingActive?`<span style="color:#f59e0b">FREIO PROXIMIDADE<i>${flight.gatedBodyId?flight.gatedBodyId.toUpperCase():'ATIVO'}</i></span>`:'')
+      +(flight.landingIntentActive?`<span style="color:${flight.landingBlockedReason==='ready'||flight.landingBlockedReason==='CAPTURA'?'#a7f3d0':'#f59e0b'}">POUSO (F)<i>${flight.landingBlockedReason?flight.landingBlockedReason.toUpperCase():'ATIVO'}</i></span>`:'')
       +`<span>DESTINO<i>${flight.targetName??flight.targetBodyId??'—'}</i></span>`
       +(flight.universalTarget?`<span>TIPO<i>${flight.universalTarget.target.kind.replaceAll('-',' ').toUpperCase()}</i></span><span>GALÁXIA DO ALVO<i>${formatGalaxyName(flight.universalTarget.target.galaxyId)}</i></span><span>VIAGEM<i>${travelCapabilityLabel(flight.universalTarget.travelCapability)}</i></span>`:'')
       +`<span>${flight.photosphereClearanceM===undefined?'DISTÂNCIA':'FOTOSFERA'}<i>${flight.distanceToTargetM===undefined?'—':formatDistance(flight.photosphereClearanceM??flight.distanceToTargetM)}</i></span>`
@@ -428,7 +431,23 @@ export class HUD {
     $('#coordinates').textContent=presentation.coordinates;
     $('#mission-title').textContent=state.title;$('#mission-objective').textContent=state.objective;$('#mission-type').textContent=state.stage>=4?'EXPLORAÇÃO LIVRE':'CAPÍTULO 01';
     const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':(!localMissionActive?'(Fora do alcance de Manaus)':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`);
-    $('#control-hint').textContent=state.hint;
+    const hintEl = $('#control-hint');
+    if (presentation.domain === 'orbital') {
+      const flight = state.flight;
+      if (flight?.proximityGatingActive) {
+        hintEl.innerHTML = `<span style="color:#f59e0b"><kbd>Freio Proximidade</kbd> Reduza a marcha ou afaste-se do corpo</span>`;
+      } else if (flight?.landingIntentActive) {
+        hintEl.innerHTML = `<kbd>F</kbd> Cancelar pouso <i></i><span>${flight.landingBlockedReason ? 'Bloqueio: ' + flight.landingBlockedReason : 'Descendo para o solo'}</span>`;
+      } else if (state.nearbyBody?.id === 'sun' || flight?.targetBodyId === 'sun') {
+        hintEl.innerHTML = `<kbd>F</kbd> Pousar/Decolar Fotosfera <i></i><kbd>C</kbd> Modo Cósmico <i></i><kbd>B</kbd>/<kbd>Shift+B</kbd> Warp <i></i><kbd>P</kbd> Piloto`;
+      } else {
+        hintEl.innerHTML = `<kbd>C</kbd> Modo Cósmico <i></i><kbd>B</kbd>/<kbd>Shift+B</kbd> Warp <i></i><kbd>X</kbd> Freio <i></i><kbd>F</kbd> Pousar <i></i><kbd>P</kbd> Piloto <i></i><kbd>Tab</kbd> Alvo`;
+      }
+    } else if (state.district === 'FOTOSFERA') {
+      hintEl.innerHTML = `<kbd>F</kbd> Decolar <i></i><kbd>W A S D</kbd> Mover na Fotosfera <i></i><kbd>Espaço</kbd> Subir`;
+    } else {
+      hintEl.textContent = state.hint;
+    }
     const tierLabel=$('#flight-tier-label');tierLabel.textContent=state.flightLabel??'';tierLabel.hidden=!state.flightLabel;
     for(const badge of document.querySelectorAll<HTMLElement>('#flight-modes b')){const mode=badge.dataset.mode!;badge.classList.toggle('on',mode===state.speedMode);badge.classList.toggle('armed',(mode==='mega'&&state.megaMode&&state.speedMode!=='mega')||(mode==='interplanetary'&&state.interplanetaryMode&&state.speedMode!=='interplanetary'));}
     // The orbital band only appears once the atmosphere has actually started to thin.
