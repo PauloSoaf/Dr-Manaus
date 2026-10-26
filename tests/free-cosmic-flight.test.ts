@@ -20,6 +20,8 @@ import { bodyArrivalPolicy, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2 } from '../src/wor
 import { PlayerController } from '../src/player/PlayerController.ts';
 import { RockyImpactDestructionService } from '../src/world/destruction/RockyImpactDestructionService.ts';
 import { SECTOR_SIZE_M } from '../src/world/spatial/UniverseAddress.ts';
+import { GalaxyMaterializer } from '../src/world/galaxy/GalaxyMaterializer.ts';
+import { CelestialBodyVisualLayer } from '../src/rendering/celestial/CelestialBodyVisualLayer.ts';
 
 function flightFixture(startPos: [number, number, number] = [0, 1.5e11, 0]) {
   const universe = new UniverseRuntime({ epochS: 0 });
@@ -65,7 +67,8 @@ function flightFixture(startPos: [number, number, number] = [0, 1.5e11, 0]) {
     hud: { notify() {} },
     input,
     player,
-    rendering: { camera },
+    rendering: { camera, preset: 'High' },
+    celestialVisuals: new CelestialBodyVisualLayer(undefined, system.bodies),
     viewForward: new Vector3(0, -1, 0),
     camera: {
       setLocalView() {},
@@ -76,6 +79,8 @@ function flightFixture(startPos: [number, number, number] = [0, 1.5e11, 0]) {
     renderOriginVec: new Vector3(),
     actorRoot: { position: new Vector3() },
     localRoot: { position: new Vector3(), visible: false },
+    celestialRoot: new Group(),
+    planetRoot: new Group(),
     photosphereGround: {
       group: { visible: false },
       update(_dt: number, _pos: any, isPhotosphere: boolean) {
@@ -84,6 +89,8 @@ function flightFixture(startPos: [number, number, number] = [0, 1.5e11, 0]) {
       dispose() {},
     },
   });
+
+  game.galaxyMaterializer = new GalaxyMaterializer(universe, game.celestialRoot);
 
   game.rockyImpactDestruction = new RockyImpactDestructionService({
     edits: universe.volume.edits,
@@ -309,9 +316,9 @@ test('T_P0B_MILKY_WAY_TO_ANDROMEDA_FREE_COSMIC_FLIGHT', () => {
     // Simulate high-speed progress across 2.5 million light years
     const pos = f.travelDomain.state!.positionM;
     pos[1] = 0.8 * ANDROMEDA_Y_M; // Past mid-way point closer to Andromeda
-    f.universe.updateSystemPose(pos, [0, 1e15, 0], 1.0);
+    f.step(1.0);
 
-    // Dynamic galaxy and sector resolution
+    // Dynamic galaxy and sector resolution with atomic materialization
     assert.equal(f.universe.activeGalaxy.definition.id, 'andromeda', 'Dynamic galaxy switches to Andromeda');
     assert.equal(f.universe.address.galaxyId, 'andromeda');
     assert.ok(f.universe.address.systemId?.startsWith('andromeda'), 'Address system resolves to Andromeda domain');
@@ -327,6 +334,9 @@ test('T_P0B_ANDROMEDA_APPROACH_AND_DECELERATION', () => {
   const ANDROMEDA_Y_M = 2.365e22;
   const f = flightFixture([0, ANDROMEDA_Y_M - 1e16, 0]); // Approaching Andromeda core
   try {
+    f.step(1 / 60); // Executes atomic handoff to Andromeda
+    assert.equal(f.universe.activeGalaxy.id, 'andromeda', 'Materializes Andromeda entry system');
+
     f.game.cosmicTier = 'intergalactic';
     f.game.warpStep = 18;
     f.held.add('KeyW');

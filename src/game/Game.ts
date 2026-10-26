@@ -82,6 +82,7 @@ import { bodyProfile, bodyArrivalPolicy, supportsLanding, PHOTOSPHERE_GAMEPLAY_G
 import { NavigationTargetState, celestialLockCandidates, cycleNavigationTarget, type NavigationLock } from '../world/travel/NavigationLock';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../world/travel/UniversalTargetCatalog';
 import { UniversalTargetResolver, activeSystemTargetBodyId, intraSystemNavigationTarget, travelCapabilityLabel } from '../world/travel/UniversalTargetResolver';
+import { GalaxyEntryResolver } from '../world/travel/GalaxyEntryResolver';
 import { createUniversalTarget, type UniversalNavigationTarget, type TargetSource } from '../world/travel/UniversalNavigationTarget';
 import { CELESTIAL_LABEL_NAMES } from '../rendering/celestial/CelestialLabelLayer';
 import { PhotosphereGroundVisual } from '../rendering/celestial/PhotosphereGroundVisual';
@@ -240,7 +241,7 @@ export class Game {
         this.travelDomain.enterSystem({systemId:this.universe.address.systemId!,positionM:[...position],velocityMps:[0,0,0]});
         this.player.position.set(0,0,0);this.camera.inSpace=true;
       }else {this.travelDomain.reset();this.player.teleport(new Vector3(...position));this.camera.inSpace=false;}
-      this.camera.skipIntro();this.bindSurfacePhysics();
+      this.camera.skipIntro?.();this.bindSurfacePhysics();
     };
     const solarResources:SystemResources={install:()=>{},activate:()=>activate(solarProviders,solarVisuals),dispose:()=>{}};
     this.materializer=new ProceduralSystemMaterializer(this.universe,this.universalTargetCatalog,solarResources,runtime=>{
@@ -1107,6 +1108,62 @@ export class Game {
     this.travelDomain.setState(newState);
 
     this.universe.updateSystemPose(newState.positionM, newState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
+    this.checkFreeFlightGalaxyHandoff();
+  }
+
+  performFreeFlightGalaxyHandoff(targetGalaxyId: string): boolean {
+    if (this.universe.activeGalaxy.id === targetGalaxyId) return false;
+    try {
+      if (targetGalaxyId === 'andromeda') {
+        const target = this.universalTargetCatalog.target('andromeda');
+        if (!target) return false;
+        const entryTarget = new GalaxyEntryResolver(this.universalTargetCatalog).resolve(target);
+        const destination = this.systemMaterializer.prepareTravel(entryTarget);
+        destination.commit();
+        this.travelDomain.enterSystem({
+          systemId: this.universe.address.systemId!,
+          positionM: this.universe.playerSystemPositionM(),
+          velocityMps: this.universe.localVelocityMps,
+        });
+        this.hud.notify('Travessia Intergaláctica · Andrômeda materializada');
+        return true;
+      } else if (targetGalaxyId === 'milky_way') {
+        const target = this.universalTargetCatalog.target('sol');
+        if (!target) return false;
+        const destination = this.systemMaterializer.prepareTravel(target);
+        destination.commit();
+        this.travelDomain.enterSystem({
+          systemId: 'sol',
+          positionM: this.universe.playerSystemPositionM(),
+          velocityMps: this.universe.localVelocityMps,
+        });
+        this.hud.notify('Travessia Intergaláctica · Retorno à Via Láctea materializado');
+        return true;
+      }
+    } catch (err) {
+      console.warn('Free flight galaxy handoff failed:', err);
+    }
+    return false;
+  }
+
+  private checkFreeFlightGalaxyHandoff(): void {
+    if (this.universalTravelController?.active) return;
+    const pos = this.travelDomain.state?.positionM;
+    if (!pos) return;
+
+    const ANDROMEDA_Y_M = 2.365e22;
+    if (this.universe.activeGalaxy.id === 'milky_way') {
+      const distToMilkyWay = Math.hypot(pos[0], pos[1], pos[2]);
+      const distToAndromeda = Math.hypot(pos[0], pos[1] - ANDROMEDA_Y_M, pos[2]);
+      if (distToAndromeda < distToMilkyWay && pos[1] > 0.5 * ANDROMEDA_Y_M) {
+        this.performFreeFlightGalaxyHandoff('andromeda');
+      }
+    } else if (this.universe.activeGalaxy.id === 'andromeda') {
+      // In Andromeda, if player flies back towards the Milky Way along -Y
+      if (pos[1] < -0.5 * ANDROMEDA_Y_M || (pos[1] < -1e17 && Math.hypot(...pos) > 1e22)) {
+        this.performFreeFlightGalaxyHandoff('milky_way');
+      }
+    }
   }
 
   private updateTravelDomain(dt:number){
@@ -1545,6 +1602,8 @@ export class Game {
       cosmicTier:telemetry.cosmicTier,
       proximityGatingActive:telemetry.proximityGatingActive,
       gatedBodyId:telemetry.gatedBodyId,
+      landingIntentActive:this.landingIntent?.active,
+      landingBlockedReason:this.landingIntent?.active ? (this.travelDomain?.landingGate?.blockedReason === 'ready' ? 'CAPTURA' : this.travelDomain?.landingGate?.blockedReason) : undefined,
       distanceToTargetM:target ? distance : resolved?.distanceM,
       photosphereClearanceM:target?.bodyId==='sun' ? distance-target.radiusM : undefined,
       angularDiameterDeg:target?.bodyId==='sun' ? solarDiagnostics(target.radiusM,distance,

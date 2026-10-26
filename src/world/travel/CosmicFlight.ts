@@ -271,6 +271,37 @@ export function sweepSegmentSphere(
   return t >= 0 && t <= 1 ? t : undefined;
 }
 
+/**
+ * Continuous proximity speed cap based on distance to the celestial envelope.
+ * Smoothly scales from local landing speeds (~20 km/s) up to planetary (16c),
+ * intra-system (256c), and cosmic scales without discrete cliff jumps.
+ */
+export function proximitySpeedCapMps(distM: number): number {
+  if (distM <= 0) return 20_000;
+  if (distM < 1_000_000) {
+    // 0 -> 1,000 km: 20 km/s -> 120 km/s
+    return 20_000 + (distM / 1_000_000) * 100_000;
+  }
+  if (distM < 100_000_000) {
+    // 1,000 km -> 100,000 km: 120 km/s -> 500,000 km/s (~1.67c)
+    const t = (distM - 1_000_000) / 99_000_000;
+    return 120_000 + t * (500_000_000 - 120_000);
+  }
+  if (distM < 1_000_000_000) {
+    // 100,000 km -> 1,000,000 km: 500,000 km/s -> 16c
+    const t = (distM - 100_000_000) / 900_000_000;
+    return 500_000_000 + t * (16 * LIGHT_SPEED_MPS - 500_000_000);
+  }
+  if (distM < 100_000_000_000) {
+    // 1,000,000 km -> 100,000,000 km (~0.67 AU): 16c -> 256c
+    const t = (distM - 1_000_000_000) / 99_000_000_000;
+    return 16 * LIGHT_SPEED_MPS + t * (256 * LIGHT_SPEED_MPS - 16 * LIGHT_SPEED_MPS);
+  }
+  // Above 100M km, allow superluminal scaling with distance
+  const distAU = distM / 1.496e11;
+  return 256 * LIGHT_SPEED_MPS * Math.max(1, distAU * distAU * 10);
+}
+
 export class CosmicCruiseController {
   readonly autopilot = new AutopilotCapture();
   private lastContact?: CelestialContact;
@@ -448,25 +479,21 @@ export class CosmicCruiseController {
       : Math.max(0, finite(context.maxRelativeSpeedMps, 500_000_000));
 
     // Proximity Speed Gating:
-    // Scale maximum allowed speed down when approaching celestial bodies at cosmic velocities
+    // Scale maximum allowed speed down smoothly when approaching celestial bodies at cosmic velocities
     let proximityCapMps = Number.POSITIVE_INFINITY;
     let proximityGatingActive = false;
     let gatedBodyId: string | undefined;
 
     if (isCosmic || currentRelSpeed > 256 * LIGHT_SPEED_MPS) {
       for (const obstacle of obstacles) {
-        const orbital = obstacle.velocityMps ?? (obstacle.bodyId === context.bodyId ? bodyVel : [0, 0, 0]);
-        const relMotion = [relVel[0], relVel[1], relVel[2]];
         const offset = [positionM[0] - obstacle.centreM[0], positionM[1] - obstacle.centreM[1], positionM[2] - obstacle.centreM[2]];
-        const dist = Math.hypot(...offset) - obstacle.radiusM;
-        const inward = offset[0] * relMotion[0] + offset[1] * relMotion[1] + offset[2] * relMotion[2] < 0;
-        if (inward && dist > 0) {
-          let cap = Number.POSITIVE_INFINITY;
-          if (dist < 1_000_000) cap = Math.min(cap, 20_000);
-          else if (dist < 100_000_000) cap = Math.min(cap, 500_000_000);
-          else if (dist < 1_000_000_000) cap = Math.min(cap, 16 * LIGHT_SPEED_MPS);
-          else if (dist < 100_000_000_000) cap = Math.min(cap, 256 * LIGHT_SPEED_MPS);
-
+        const distCenter = Math.hypot(...offset);
+        const dist = distCenter - obstacle.radiusM;
+        // Direction of movement: inward closing speed towards obstacle
+        const inwardClosing = distCenter > 0 ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / distCenter : 0;
+        // Only throttle if actively moving towards the body; outward flight is never throttled
+        if (inwardClosing > 0 && dist > 0) {
+          const cap = proximitySpeedCapMps(dist);
           if (cap < proximityCapMps) {
             proximityCapMps = cap;
             gatedBodyId = obstacle.bodyId;

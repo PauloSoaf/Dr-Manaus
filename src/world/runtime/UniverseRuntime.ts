@@ -293,48 +293,51 @@ export class UniverseRuntime {
       return;
     }
 
-    // Space addressing: dynamically update sector and galaxy based on cosmic coordinates
+    // Space addressing: dynamically update sector based on cosmic coordinates within active galaxy
     const p = this.playerPose.position;
-    const ANDROMEDA_Y_M = 2.365e22;
-    const distToAndromeda = Math.hypot(p[0], p[1] - ANDROMEDA_Y_M, p[2]);
-    const distToMilkyWay = Math.hypot(p[0], p[1], p[2]);
+    const halfSector = 0.5 * SECTOR_SIZE_M;
 
     if (this.activeSystem === this.solarSystem) {
-      if (distToMilkyWay < 1e16) {
-        this.address = systemAddress;
+      const distToSol = Math.hypot(p[0], p[1], p[2]);
+      if (distToSol < 1e16) {
+        this.address = {
+          galaxyId: 'milky_way',
+          sector: sectorIndex(0n, 0n, 0n),
+          systemId: 'sol',
+        };
         return;
       }
-    } else {
-      // Inside an installed procedural system, preserve system identity when close to its star
-      const relStar = Math.hypot(...p);
-      if (relStar < 1e16) {
-        this.address = systemAddress;
-        return;
-      }
-    }
-
-    const halfSector = 0.5 * SECTOR_SIZE_M;
-    if (distToAndromeda < distToMilkyWay) {
-      const andromedaRuntime = knownGalaxyRuntime('andromeda');
-      if (andromedaRuntime) this.activeGalaxy = andromedaRuntime;
-      const sx = BigInt(Math.floor((p[0] + halfSector) / SECTOR_SIZE_M));
-      const sy = BigInt(Math.floor((p[1] - ANDROMEDA_Y_M + halfSector) / SECTOR_SIZE_M));
-      const sz = BigInt(Math.floor((p[2] + halfSector) / SECTOR_SIZE_M));
-      this.address = {
-        galaxyId: 'andromeda',
-        sector: sectorIndex(sx, sy, sz),
-        systemId: distToAndromeda < 1e16 ? 'andromeda-core' : 'andromeda-space',
-      };
-    } else {
-      const mwRuntime = knownGalaxyRuntime('milky_way');
-      if (mwRuntime) this.activeGalaxy = mwRuntime;
+      // In interstellar space beyond Sol: determine sector deterministically in Milky Way coordinates
       const sx = BigInt(Math.floor((p[0] + halfSector) / SECTOR_SIZE_M));
       const sy = BigInt(Math.floor((p[1] + halfSector) / SECTOR_SIZE_M));
       const sz = BigInt(Math.floor((p[2] + halfSector) / SECTOR_SIZE_M));
       this.address = {
-        galaxyId: 'milky_way',
+        galaxyId: this.activeGalaxy.id,
         sector: sectorIndex(sx, sy, sz),
-        systemId: distToMilkyWay < 1e16 ? 'sol' : 'milky-way-space',
+        // Outside the stellar envelope, systemId is undefined (interstellar space)
+        systemId: undefined,
+      };
+    } else {
+      // Inside an installed procedural system: preserve system identity within 1e16m of host star
+      const relStar = Math.hypot(...p);
+      const hostStarId = systemAddress.systemId ?? this.activeSystem.systemFrameId.replace('system/', '');
+      if (relStar < 1e16) {
+        this.address = {
+          ...systemAddress,
+          galaxyId: this.activeGalaxy.id,
+          systemId: hostStarId,
+        };
+        return;
+      }
+      // Beyond procedural star: compute offset sectors from host system sector
+      const baseSec = systemAddress.sector ?? sectorIndex(0n, 0n, 0n);
+      const dsx = BigInt(Math.floor((p[0] + halfSector) / SECTOR_SIZE_M));
+      const dsy = BigInt(Math.floor((p[1] + halfSector) / SECTOR_SIZE_M));
+      const dsz = BigInt(Math.floor((p[2] + halfSector) / SECTOR_SIZE_M));
+      this.address = {
+        galaxyId: this.activeGalaxy.id,
+        sector: sectorIndex(baseSec.x + dsx, baseSec.y + dsy, baseSec.z + dsz),
+        systemId: undefined,
       };
     }
   }
