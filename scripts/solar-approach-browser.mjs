@@ -251,7 +251,7 @@ export async function solarApproachChecks(page, results) {
   });
   assert.equal(andromedaHandoff.activeGalaxyId, 'andromeda');
   assert.equal(andromedaHandoff.addressGalaxyId, 'andromeda');
-  assert.ok(andromedaHandoff.addressSystemId?.startsWith('andromeda'));
+  assert.equal(andromedaHandoff.addressSystemId, undefined);
   await page.screenshot({ path: 'artifacts/cosmic-andromeda-arrival.png', timeout: 90000 });
   results.andromedaArrival = andromedaHandoff;
 

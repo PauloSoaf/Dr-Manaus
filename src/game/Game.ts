@@ -7,7 +7,8 @@ import { u2TestControlsEnabled } from '../world/runtime/U1TestControls';
 import { ProceduralSystemMaterializer, systemDomainLimitM, type SystemResources } from '../world/runtime/ProceduralSystemMaterializer';
 import { u1TestControlsEnabled } from '../world/runtime/U1TestControls';
 import { generateStarSector } from '../world/celestial/StarSector';
-import { sectorIndex } from '../world/spatial/UniverseAddress';
+import { sectorIndex, SECTOR_SIZE_M } from '../world/spatial/UniverseAddress';
+import { knownGalaxyRuntime } from '../world/galaxy/GalaxyRuntime';
 import { Group as SystemResourceGroup } from 'three/webgpu';
 import { universalTargetDiagnostics } from '../ui/UniversalTargetDiagnostics';
 import { ForestBackdrop } from '../world/ForestBackdrop';
@@ -755,6 +756,16 @@ export class Game {
     const altitudeNow = manaus ? this.player.position.y : this.universe.telemetry.altitudeM;
     const skyAltitude=!this.universalTravelController?.active&&this.universe.telemetry.dominantBody==='earth'?altitudeNow:1_000_000;
     this.atmosphere.setAltitude(skyAltitude);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(skyAltitude,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=manaus?this.weather.update(worldDt,this.player.position,this.atmosphere.weather):0;if(flash)this.atmosphere.sun.intensity+=flash;
+    if (this.district === 'FOTOSFERA' || this.physicsDomain === 'sun' || this.universe.telemetry.dominantBody !== 'earth') {
+      this.atmosphere.sky.visible = false;
+      this.atmosphere.clouds.visible = false;
+      this.atmosphere.planetaryView = true;
+      this.space.planetaryView = true;
+      if (this.district === 'FOTOSFERA' || this.physicsDomain === 'sun') {
+        const fog = this.rendering.scene.fog as any;
+        if (fog) { fog.near = 1e8; fog.far = 1e9; }
+      }
+    }
     this.galaxyMaterializer?.update([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z],altitudeNow);
     const audioBody=this.universe.telemetry.dominantBody;
     this.audio.update({
@@ -1113,31 +1124,87 @@ export class Game {
 
   performFreeFlightGalaxyHandoff(targetGalaxyId: string): boolean {
     if (this.universe.activeGalaxy.id === targetGalaxyId) return false;
+    const pos = this.travelDomain.state?.positionM;
+    const vel = this.travelDomain.state?.velocityMps ?? [0, 0, 0];
+    if (!pos) return false;
+
+    const ANDROMEDA_Y_M = 2.365e22;
     try {
       if (targetGalaxyId === 'andromeda') {
-        const target = this.universalTargetCatalog.target('andromeda');
-        if (!target) return false;
-        const entryTarget = new GalaxyEntryResolver(this.universalTargetCatalog).resolve(target);
-        const destination = this.systemMaterializer.prepareTravel(entryTarget);
-        destination.commit();
-        this.travelDomain.enterSystem({
-          systemId: this.universe.address.systemId!,
-          positionM: this.universe.playerSystemPositionM(),
-          velocityMps: this.universe.localVelocityMps,
+        // Continuous coordinate transition into Andromeda galactic frame (origin at Andromeda core)
+        const newPos: [number, number, number] = [pos[0], pos[1] - ANDROMEDA_Y_M, pos[2]];
+        const newVel: [number, number, number] = [...vel];
+        this.universe.activeGalaxy = knownGalaxyRuntime('andromeda')!;
+
+        const halfSector = 0.5 * SECTOR_SIZE_M;
+        const sx = BigInt(Math.floor((newPos[0] + halfSector) / SECTOR_SIZE_M));
+        const sy = BigInt(Math.floor((newPos[1] + halfSector) / SECTOR_SIZE_M));
+        const sz = BigInt(Math.floor((newPos[2] + halfSector) / SECTOR_SIZE_M));
+
+        this.universe.address = {
+          galaxyId: 'andromeda',
+          sector: sectorIndex(sx, sy, sz),
+          systemId: undefined,
+        };
+
+        if (this.galaxyMaterializer) {
+          try {
+            const res = this.galaxyMaterializer.prepare('andromeda');
+            res.install();
+            res.activate();
+            res.complete?.();
+          } catch (e) {
+            console.warn('Galaxy presentation switch deferred:', e);
+          }
+        }
+
+        this.travelDomain.setState({
+          systemId: this.universe.address.systemId ?? 'andromeda',
+          positionM: newPos,
+          velocityMps: newVel,
+          referenceBodyId: undefined,
         });
-        this.hud.notify('Travessia Intergaláctica · Andrômeda materializada');
+        this.universe.updateSystemPose(newPos, newVel, 0);
+
+        this.hud.notify('Travessia Intergaláctica · Envelope de Andrômeda');
         return true;
       } else if (targetGalaxyId === 'milky_way') {
-        const target = this.universalTargetCatalog.target('sol');
-        if (!target) return false;
-        const destination = this.systemMaterializer.prepareTravel(target);
-        destination.commit();
-        this.travelDomain.enterSystem({
-          systemId: 'sol',
-          positionM: this.universe.playerSystemPositionM(),
-          velocityMps: this.universe.localVelocityMps,
+        // Continuous coordinate transition returning to Milky Way frame
+        const newPos: [number, number, number] = [pos[0], pos[1] + ANDROMEDA_Y_M, pos[2]];
+        const newVel: [number, number, number] = [...vel];
+        this.universe.activeGalaxy = knownGalaxyRuntime('milky_way')!;
+
+        const halfSector = 0.5 * SECTOR_SIZE_M;
+        const sx = BigInt(Math.floor((newPos[0] + halfSector) / SECTOR_SIZE_M));
+        const sy = BigInt(Math.floor((newPos[1] + halfSector) / SECTOR_SIZE_M));
+        const sz = BigInt(Math.floor((newPos[2] + halfSector) / SECTOR_SIZE_M));
+
+        this.universe.address = {
+          galaxyId: 'milky_way',
+          sector: sectorIndex(sx, sy, sz),
+          systemId: undefined,
+        };
+
+        if (this.galaxyMaterializer) {
+          try {
+            const res = this.galaxyMaterializer.prepare('milky_way');
+            res.install();
+            res.activate();
+            res.complete?.();
+          } catch (e) {
+            console.warn('Galaxy presentation switch deferred:', e);
+          }
+        }
+
+        this.travelDomain.setState({
+          systemId: this.universe.address.systemId ?? 'milky_way',
+          positionM: newPos,
+          velocityMps: newVel,
+          referenceBodyId: undefined,
         });
-        this.hud.notify('Travessia Intergaláctica · Retorno à Via Láctea materializado');
+        this.universe.updateSystemPose(newPos, newVel, 0);
+
+        this.hud.notify('Travessia Intergaláctica · Envelope da Via Láctea');
         return true;
       }
     } catch (err) {
@@ -1160,8 +1227,35 @@ export class Game {
       }
     } else if (this.universe.activeGalaxy.id === 'andromeda') {
       // In Andromeda, if player flies back towards the Milky Way along -Y
-      if (pos[1] < -0.5 * ANDROMEDA_Y_M || (pos[1] < -1e17 && Math.hypot(...pos) > 1e22)) {
+      const distToAndromeda = Math.hypot(pos[0], pos[1], pos[2]);
+      const distToMilkyWay = Math.hypot(pos[0], pos[1] + ANDROMEDA_Y_M, pos[2]);
+      if (distToMilkyWay < distToAndromeda && pos[1] < -0.5 * ANDROMEDA_Y_M) {
         this.performFreeFlightGalaxyHandoff('milky_way');
+      }
+    }
+
+    // Stellar system approach (< 1e16 m from a star) and local system materialization:
+    if (this.universe.activeGalaxy.id === 'andromeda' && this.universe.address.systemId === undefined) {
+      const target = this.universalNavigationTarget;
+      if (target && target.galaxyId === 'andromeda' && target.kind === 'star') {
+        const targetResolved = this.universalTargetCatalog.resolve(target);
+        if (targetResolved?.descriptor) {
+          const distToStar = Math.hypot(pos[0], pos[1], pos[2]);
+          if (distToStar < 1e16) {
+            try {
+              const destination = this.systemMaterializer.prepareTravel(target);
+              destination.commit();
+              this.travelDomain.enterSystem({
+                systemId: this.universe.address.systemId!,
+                positionM: this.universe.playerSystemPositionM(),
+                velocityMps: this.universe.localVelocityMps,
+              });
+              this.hud.notify(`Aproximação Estelar · ${targetResolved.descriptor.displayName} materializado`);
+            } catch (e) {
+              console.warn('System materialization deferred:', e);
+            }
+          }
+        }
       }
     }
   }
@@ -1407,9 +1501,16 @@ export class Game {
       const landingView=this.universe.frames.convertDirection(previousViewFrame,this.universe.player.frame,[this.viewForward.x,this.viewForward.y,this.viewForward.z]);
       this.camera.setLocalView(landingView);
       this.bindSurfacePhysics();
-      this.player.teleport(new Vector3(...newLocalPos));
-      this.player.velocity.set(...this.universe.localVelocityMps);
-      this.player.beginSurfaceApproach();
+      if (targetBody === 'sun') {
+        // Firm touchdown on flat photosphere tangent plane (y = 0.1)
+        this.player.teleport(new Vector3(newLocalPos[0], 0.1, newLocalPos[2]));
+        this.player.velocity.set(0, 0, 0);
+        this.player.state = 'Grounded';
+      } else {
+        this.player.teleport(new Vector3(...newLocalPos));
+        this.player.velocity.set(...this.universe.localVelocityMps);
+        this.player.beginSurfaceApproach();
+      }
       this.surfaceReturnTrace={bodyId:targetBody,transition:'returned',frameBefore,
         frameAfter:this.universe.player.frame,physicsDomain:this.physicsDomain,
         surfaceReady:this.surfaceReadyForLanding(targetBody),

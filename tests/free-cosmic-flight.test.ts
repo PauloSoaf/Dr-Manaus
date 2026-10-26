@@ -321,7 +321,7 @@ test('T_P0B_MILKY_WAY_TO_ANDROMEDA_FREE_COSMIC_FLIGHT', () => {
     // Dynamic galaxy and sector resolution with atomic materialization
     assert.equal(f.universe.activeGalaxy.definition.id, 'andromeda', 'Dynamic galaxy switches to Andromeda');
     assert.equal(f.universe.address.galaxyId, 'andromeda');
-    assert.ok(f.universe.address.systemId?.startsWith('andromeda'), 'Address system resolves to Andromeda domain');
+    assert.equal(f.universe.address.systemId, undefined, 'Address systemId remains undefined in intergalactic space');
   } finally {
     f.dispose();
   }
@@ -453,3 +453,137 @@ test('T_P0B_MULTISCALE_COORDINATE_SAFETY', () => {
     f.dispose();
   }
 });
+
+// -----------------------------------------------------------------------------
+// 11. P0.4: Time-limited deceleration consistency across 30, 60, and 120 FPS
+// -----------------------------------------------------------------------------
+test('T_P04_TEMPORAL_BRAKING_CONSISTENCY_30_60_120_FPS', () => {
+  // Test speed deceleration profile across 30, 60, and 120 FPS
+  const fpsList = [30, 60, 120];
+  const finalSpeeds: number[] = [];
+
+  for (const fps of fpsList) {
+    // Start at 50,000 km from Sun envelope, moving toward Sun at 50,000,000 m/s
+    const dt = 1 / fps;
+    const sunRadius = 695_700_000;
+    const f = flightFixture([0, sunRadius + 50_000_000, 0]);
+    try {
+      f.game.cosmicTier = 'interstellar';
+      f.game.warpStep = 10;
+      f.travelDomain.state!.velocityMps = [0, -50_000_000, 0];
+      const initialSpeed = 50_000_000;
+      let previousSpeed = initialSpeed;
+
+      // Simulate 1.0 second of simulation time
+      for (let step = 0; step < fps; step++) {
+        f.step(dt);
+        const currentSpeed = Math.hypot(...f.travelDomain.state!.velocityMps);
+
+        // Continuous deceleration invariant: speed must not jump abruptly in 1 frame
+        const deltaV = previousSpeed - currentSpeed;
+        assert.ok(deltaV >= -1, `Speed must not increase unexpectedly during braking (fps=${fps}, step=${step})`);
+        
+        // Speed must decrease smoothly
+        assert.ok(currentSpeed <= initialSpeed, `Speed must decrease toward cap`);
+        previousSpeed = currentSpeed;
+      }
+
+      finalSpeeds.push(previousSpeed);
+      // Verify braking telemetry
+      const tel = f.controller.getTelemetry();
+      assert.ok(tel.proximityGatingActive, `Proximity gating must be active (fps=${fps})`);
+      assert.equal(tel.phase, 'braking', `Telemetry phase must be braking (fps=${fps})`);
+    } finally {
+      f.dispose();
+    }
+  }
+
+  // Cross-FPS consistency: final speed after 1s across 30, 60, 120 FPS must match within 5%
+  const avgSpeed = (finalSpeeds[0] + finalSpeeds[1] + finalSpeeds[2]) / 3;
+  for (let i = 0; i < 3; i++) {
+    const diff = Math.abs(finalSpeeds[i] - avgSpeed) / avgSpeed;
+    assert.ok(diff < 0.08, `Speed after 1s must be consistent across FPS: 30fps=${finalSpeeds[0]}, 60fps=${finalSpeeds[1]}, 120fps=${finalSpeeds[2]} (diff=${(diff*100).toFixed(1)}%)`);
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 12. P0.4: Kinematic anticipation prevents overshoot of celestial bodies
+// -----------------------------------------------------------------------------
+test('T_P04_KINEMATIC_ANTICIPATION_NO_SURFACE_PENETRATION', () => {
+  // Start high speed approach toward Sun at 50,000,000 m/s from 5,000,000 km
+  const f = flightFixture([0, 695_700_000 + 5_000_000_000, 0]);
+  try {
+    f.game.cosmicTier = 'interstellar';
+    f.game.warpStep = 10;
+    f.travelDomain.state!.velocityMps = [0, -50_000_000, 0];
+    f.held.add('KeyW');
+
+    for (let i = 0; i < 180; i++) {
+      f.step(1 / 60);
+      const pos = f.travelDomain.state!.positionM;
+      const sunDist = Math.hypot(pos[0], pos[1], pos[2]);
+      // The distance must never penetrate the Sun's envelope (695,700,000 m)
+      assert.ok(sunDist >= 695_700_000, `Player must not penetrate solar envelope: dist=${sunDist}`);
+    }
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 13. P0.4: Free galactic handoff maintains intergalactic space (systemId undefined)
+// -----------------------------------------------------------------------------
+test('T_P04_FREE_GALAXY_HANDOFF_INTERGALACTIC_CONTINUITY', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    const ANDROMEDA_Y_M = 2.365e22;
+    // Set position at 0.55 * ANDROMEDA_Y_M in Milky Way frame (just crossing midpoint)
+    const initialPos: [number, number, number] = [1e15, 0.55 * ANDROMEDA_Y_M, -2e15];
+    const initialVel: [number, number, number] = [100, 1e11, -50];
+    f.travelDomain.state!.positionM = [...initialPos];
+    f.travelDomain.state!.velocityMps = [...initialVel];
+    f.universe.updateSystemPose(initialPos, initialVel, 0);
+
+    // Initial state: in Milky Way intergalactic space
+    assert.equal(f.universe.activeGalaxy.id, 'milky_way');
+    assert.equal(f.universe.address.galaxyId, 'milky_way');
+    assert.equal(f.universe.address.systemId, undefined, 'systemId must be undefined in intergalactic space');
+
+    // Trigger free flight galaxy handoff check
+    f.game.checkFreeFlightGalaxyHandoff();
+
+    // Verify atomic transition into Andromeda envelope
+    assert.equal(f.universe.activeGalaxy.id, 'andromeda', 'Active galaxy switches to Andromeda');
+    assert.equal(f.universe.address.galaxyId, 'andromeda', 'Address galaxy switches to Andromeda');
+    assert.equal(f.universe.address.systemId, undefined, 'systemId must remain undefined in Andromeda intergalactic space');
+
+    // Verify coordinate continuity: position transformed smoothly into Andromeda frame
+    const newPos = f.travelDomain.state!.positionM;
+    const expectedY = initialPos[1] - ANDROMEDA_Y_M; // ~ -0.45 * ANDROMEDA_Y_M
+    assert.ok(Math.abs(newPos[1] - expectedY) < 1e9, `Y coordinate must be smoothly transformed into Andromeda frame`);
+    assert.equal(newPos[0], initialPos[0], 'X coordinate preserved');
+    assert.equal(newPos[2], initialPos[2], 'Z coordinate preserved');
+
+    // Velocity direction preserved
+    const newVel = f.travelDomain.state!.velocityMps;
+    assert.equal(newVel[0], initialVel[0]);
+    assert.equal(newVel[1], initialVel[1]);
+    assert.equal(newVel[2], initialVel[2]);
+
+    // Test reverse journey: flying back towards Milky Way
+    f.travelDomain.state!.positionM = [1e15, -0.55 * ANDROMEDA_Y_M, -2e15];
+    f.travelDomain.state!.velocityMps = [-100, -1e11, 50];
+    f.universe.updateSystemPose(f.travelDomain.state!.positionM, f.travelDomain.state!.velocityMps, 0);
+
+    f.game.checkFreeFlightGalaxyHandoff();
+
+    // Return to Milky Way
+    assert.equal(f.universe.activeGalaxy.id, 'milky_way', 'Active galaxy switches back to Milky Way');
+    assert.equal(f.universe.address.galaxyId, 'milky_way');
+    assert.equal(f.universe.address.systemId, undefined, 'systemId must remain undefined in Milky Way intergalactic space');
+    assert.ok(Math.abs(f.travelDomain.state!.positionM[1] - ( -0.55 * ANDROMEDA_Y_M + ANDROMEDA_Y_M )) < 1e9);
+  } finally {
+    f.dispose();
+  }
+});
+

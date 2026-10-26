@@ -483,6 +483,7 @@ export class CosmicCruiseController {
     let proximityCapMps = Number.POSITIVE_INFINITY;
     let proximityGatingActive = false;
     let gatedBodyId: string | undefined;
+    let requiredDecelMps2 = 0;
 
     if (isCosmic || currentRelSpeed > 256 * LIGHT_SPEED_MPS) {
       for (const obstacle of obstacles) {
@@ -498,6 +499,13 @@ export class CosmicCruiseController {
             proximityCapMps = cap;
             gatedBodyId = obstacle.bodyId;
           }
+          // Kinematic anticipation: calculate required constant deceleration to reach cap by distance dist
+          if (inwardClosing > cap) {
+            const aReq = (inwardClosing * inwardClosing - cap * cap) / (2 * Math.max(10, dist * 0.85));
+            if (aReq > requiredDecelMps2) {
+              requiredDecelMps2 = aReq;
+            }
+          }
         }
       }
 
@@ -509,8 +517,41 @@ export class CosmicCruiseController {
 
     const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
     if (!assisted && relSpeed > maxRelative && relSpeed > 0) {
-      const scale = maxRelative / relSpeed;
+      // Time-limited deceleration: bound speed shed per unit time (dt)
+      // decelRate blends base braking, warp spool down time, and distance anticipation
+      const spoolDecel = relSpeed / WARP_SPOOL_S;
+      const decelRate = Math.max(BASE_BRAKE_ACCEL, spoolDecel, requiredDecelMps2);
+      const maxDeltaV = decelRate * dt;
+      let newSpeed = Math.max(maxRelative, relSpeed - maxDeltaV);
+
+      // Extreme speed / critical distance guard:
+      // If continuing at newSpeed would cross into the obstacle envelope during this single frame,
+      // clamp closing speed to preserve continuous collision safety margin
+      for (const obstacle of obstacles) {
+        const offset = [positionM[0] - obstacle.centreM[0], positionM[1] - obstacle.centreM[1], positionM[2] - obstacle.centreM[2]];
+        const distCenter = Math.hypot(...offset);
+        const dist = distCenter - obstacle.radiusM;
+        const inwardRatio = distCenter > 0 ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / (distCenter * relSpeed) : 0;
+        if (inwardRatio > 0 && dist > 0) {
+          const projectedClosing = newSpeed * inwardRatio;
+          if (projectedClosing * dt >= dist * 0.85) {
+            newSpeed = Math.min(newSpeed, maxRelative);
+            break;
+          }
+        } else if (dist <= 0) {
+          newSpeed = Math.min(newSpeed, maxRelative);
+          break;
+        }
+      }
+
+      const appliedDecel = (relSpeed - newSpeed) / Math.max(1e-6, dt);
+      const scale = newSpeed / relSpeed;
       relVel[0] *= scale; relVel[1] *= scale; relVel[2] *= scale;
+
+      if (proximityGatingActive && appliedDecel > 1) {
+        phase = 'braking';
+        acceleration = -appliedDecel;
+      }
     }
 
     velocityMps[0] = bodyVel[0] + relVel[0];

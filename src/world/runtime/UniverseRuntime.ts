@@ -299,7 +299,7 @@ export class UniverseRuntime {
 
     if (this.activeSystem === this.solarSystem) {
       const distToSol = Math.hypot(p[0], p[1], p[2]);
-      if (distToSol < 1e16) {
+      if (distToSol < 1e16 && this.activeGalaxy.id === 'milky_way') {
         this.address = {
           galaxyId: 'milky_way',
           sector: sectorIndex(0n, 0n, 0n),
