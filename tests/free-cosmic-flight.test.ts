@@ -587,3 +587,194 @@ test('T_P04_FREE_GALAXY_HANDOFF_INTERGALACTIC_CONTINUITY', () => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// 14. P0.5: Outward flight from celestial envelope is NOT throttled by proximity gating
+// -----------------------------------------------------------------------------
+test('T_P05_OUTWARD_FLIGHT_NO_PROXIMITY_BRAKING', () => {
+  // Position player close to the Sun (1.5 solar radii), moving radially OUTWARD (+Y)
+  const sunRadius = 695_700_000;
+  const f = flightFixture([0, 1.5 * sunRadius, 0]);
+  try {
+    f.game.cosmicTier = 'interstellar';
+    f.game.warpStep = 10; // 1,000c
+    // Velocity pointing outward away from Sun (+Y)
+    f.travelDomain.state!.velocityMps = [0, 50_000_000, 0];
+    f.held.add('KeyW');
+    // Align camera outward (+Y)
+    f.game.camera.yaw = 0;
+    f.game.camera.pitch = Math.PI / 2;
+
+    const initialSpeed = 50_000_000;
+    f.step(1 / 60);
+
+    const newSpeed = Math.hypot(...f.travelDomain.state!.velocityMps);
+    // Because movement is outward (inwardClosing <= 0), proximity gating must NOT throttle speed
+    assert.ok(newSpeed >= initialSpeed, `Outward flight must accelerate freely without proximity throttling: new=${newSpeed}, init=${initialSpeed}`);
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 15. P0.5: Velocity continuity across proximity threshold boundaries (no discrete jumps)
+// -----------------------------------------------------------------------------
+test('T_P05_VELOCITY_CONTINUITY_ACROSS_PROXIMITY_THRESHOLDS', () => {
+  // Start high speed inward approach towards Sun from outside proximity threshold
+  const sunRadius = 695_700_000;
+  const f = flightFixture([0, 10 * sunRadius, 0]);
+  try {
+    f.game.cosmicTier = 'interstellar';
+    f.game.warpStep = 10;
+    f.travelDomain.state!.velocityMps = [0, -100_000_000, 0];
+    f.held.add('KeyW');
+
+    let previousSpeed = 100_000_000;
+    const dt = 1 / 60;
+
+    for (let i = 0; i < 120; i++) {
+      f.step(dt);
+      const currentSpeed = Math.hypot(...f.travelDomain.state!.velocityMps);
+      const deltaV = Math.abs(currentSpeed - previousSpeed);
+
+      // Verify speed continuity: speed drop per frame must never be an instantaneous step jump.
+      // Maximum deltaV bounded by kinematic deceleration + warp spool
+      const maxAllowedDeltaV = (100_000_000 / 1.2 + 500_000) * dt * 3.0; // Bounded by time-limited deceleration
+      assert.ok(deltaV < maxAllowedDeltaV, `Speed drop must be continuous across frames (deltaV=${deltaV}, max=${maxAllowedDeltaV} at step ${i})`);
+      previousSpeed = currentSpeed;
+    }
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 16. P0.5: Emergency stopping deceleration guard vs continuous kinematic limits
+// -----------------------------------------------------------------------------
+test('T_P05_EMERGENCY_STOPPING_GUARD_VS_KINEMATIC_LIMITS', () => {
+  // Player placed just outside exclusion margin at extreme closing speed (200,000,000 m/s)
+  const sunRadius = 695_700_000;
+  const f = flightFixture([0, sunRadius + 50_000, 0]); // only 50km above surface!
+  try {
+    f.game.cosmicTier = 'interstellar';
+    f.game.warpStep = 10;
+    f.travelDomain.state!.velocityMps = [0, -200_000_000, 0]; // plunging straight down
+
+    f.step(1 / 60);
+
+    const posAfter = f.travelDomain.state!.positionM;
+    const speedAfter = Math.hypot(...f.travelDomain.state!.velocityMps);
+
+    // Emergency guard must prevent envelope penetration while bringing speed down to safe limit
+    assert.ok(posAfter[1] >= sunRadius, `Emergency guard must prevent surface penetration: y=${posAfter[1]}`);
+    assert.ok(speedAfter < 50_000_000, `Speed must be drastically reduced by emergency stopping guard: speed=${speedAfter}`);
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 17. P0.5: Galactic handoff coordinate & velocity preservation in full 3D
+// -----------------------------------------------------------------------------
+test('T_P05_GALACTIC_HANDOFF_FULL_3D_AND_SECTOR_TRANSLATION', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    const ANDROMEDA_Y_M = 2.365e22;
+    // Full non-trivial 3D position crossing midpoint
+    const initialPos: [number, number, number] = [4.5e16, 0.52 * ANDROMEDA_Y_M, -8.2e16];
+    const initialVel: [number, number, number] = [1.2e8, 3.4e10, -5.6e8];
+
+    f.travelDomain.state!.positionM = [...initialPos];
+    f.travelDomain.state!.velocityMps = [...initialVel];
+    f.universe.updateSystemPose(initialPos, initialVel, 0);
+
+    // Initial galaxy: Milky Way
+    assert.equal(f.universe.activeGalaxy.id, 'milky_way');
+
+    // Trigger handoff
+    f.game.checkFreeFlightGalaxyHandoff();
+
+    // Verify Andromeda galaxy transition
+    assert.equal(f.universe.activeGalaxy.id, 'andromeda');
+    assert.equal(f.universe.address.galaxyId, 'andromeda');
+
+    // Check 3D coordinate preservation
+    const posInAndromeda = f.travelDomain.state!.positionM;
+    assert.equal(posInAndromeda[0], initialPos[0], 'X coordinate preserved in full 3D');
+    assert.ok(Math.abs(posInAndromeda[1] - (initialPos[1] - ANDROMEDA_Y_M)) < 1e9, 'Y coordinate transformed');
+    assert.equal(posInAndromeda[2], initialPos[2], 'Z coordinate preserved in full 3D');
+
+    // Velocity 3D vector strictly preserved
+    const velInAndromeda = f.travelDomain.state!.velocityMps;
+    assert.equal(velInAndromeda[0], initialVel[0]);
+    assert.equal(velInAndromeda[1], initialVel[1]);
+    assert.equal(velInAndromeda[2], initialVel[2]);
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 18. P0.5: Materialization resilience: fallback and rollback if materializer throws
+// -----------------------------------------------------------------------------
+test('T_P05_MATERIALIZATION_FAILURE_ROLLBACK_RESILIENCE', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    const ANDROMEDA_Y_M = 2.365e22;
+    const initialPos: [number, number, number] = [0, 0.6 * ANDROMEDA_Y_M, 0];
+    const initialVel: [number, number, number] = [0, 1e10, 0];
+
+    f.travelDomain.state!.positionM = [...initialPos];
+    f.travelDomain.state!.velocityMps = [...initialVel];
+    f.universe.updateSystemPose(initialPos, initialVel, 0);
+
+    // Mock galaxyMaterializer.prepareTravel to throw an error
+    f.game.systemMaterializer = {
+      prepareTravel() {
+        throw new Error('Simulated network / procedural generation error');
+      },
+    };
+
+    // Trigger handoff check with star target
+    f.game.universalTargetCatalog = {
+      resolve: () => ({ descriptor: { displayName: 'Andromeda Core' } }),
+    };
+
+    // The handoff and flight check must survive gracefully without crashing
+    assert.doesNotThrow(() => {
+      f.game.checkFreeFlightGalaxyHandoff();
+    });
+
+    // Address and position remain robust
+    assert.ok(f.travelDomain.state!.positionM.every(Number.isFinite));
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 19. P0.5: Automatic U3 hypercruise independence from free flight handoff
+// -----------------------------------------------------------------------------
+test('T_P05_AUTOMATIC_U3_HYPERCRUISE_INDEPENDENCE', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    const ANDROMEDA_Y_M = 2.365e22;
+    const initialPos: [number, number, number] = [0, 0.6 * ANDROMEDA_Y_M, 0];
+    f.travelDomain.state!.positionM = [...initialPos];
+
+    // Mock universalTravelController as active (automated U3 hypercruise)
+    f.game.universalTravelController = {
+      active: true,
+      update() {},
+      cancel() {},
+    };
+
+    // Free flight handoff check must bail out when U3 hypercruise is active
+    f.game.checkFreeFlightGalaxyHandoff();
+
+    // Active galaxy stays Milky Way because U3 autopilot owns the journey
+    assert.equal(f.universe.activeGalaxy.id, 'milky_way', 'Free flight handoff must not preempt active U3 hypercruise controller');
+  } finally {
+    f.dispose();
+  }
+});
+
