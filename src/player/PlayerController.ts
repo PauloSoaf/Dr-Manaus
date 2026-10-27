@@ -123,7 +123,10 @@ export class PlayerController {
   /** True for either armed tier. Interplanetary is mega and then some. */
   get megaMode(): boolean { return this.armedTier !== 'none'; }
   set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
-  get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
+  get isFlying(): boolean { return this.state === 'Hover' || this.state === 'Flight'; }
+  get interplanetaryMode(): boolean {
+    return this.armedTier === 'interplanetary' || (this.isFlying && this.position.y >= FLIGHT.interplanetaryFloorM);
+  }
   get lastTerrainContact() { return this.physics.lastTerrainContact; }
   get lastVolumeContact() { return this.physics.lastVolumeContact; }
   /** True while an armed tier waits for the boost key to be let go and pressed again. */
@@ -156,7 +159,11 @@ export class PlayerController {
   private localTier(flying: boolean, boosting: boolean, sprinting: boolean): FlightSpeedMode {
     if (!flying) return 'ground';
     if (!boosting) return sprinting ? 'fast' : 'normal';
-    if (this.armedTier === 'none' || this.megaNeedsBoostRelease) return 'super';
+    if (this.armedTier === 'none' || this.megaNeedsBoostRelease) {
+      if (this.position.y >= FLIGHT.interplanetaryFloorM) return 'interplanetary';
+      if (this.position.y >= 1000) return 'mega';
+      return 'super';
+    }
     return this.armedTier === 'interplanetary' && this.position.y >= FLIGHT.interplanetaryFloorM
       ? 'interplanetary' : 'mega';
   }
@@ -165,7 +172,9 @@ export class PlayerController {
     dt = Math.min(0.06, dt);
     this.armClockS += dt;
     if (this.input.consume('KeyV')) this.tapArm();
-    if (!this.input.held('KeyB')) this.megaNeedsBoostRelease = false;
+    const isShift = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+    const isB = this.input.held('KeyB');
+    if (!isB && !isShift) this.megaNeedsBoostRelease = false;
     if (this.input.consume('KeyF')) {
       this.state = this.state === 'Grounded' || this.state === 'Falling' ? 'Hover' : 'Falling';
       if (this.state === 'Hover') {
@@ -173,10 +182,10 @@ export class PlayerController {
         this.position.y += 0.18;
       }
     }
-    const flying = this.state === 'Hover' || this.state === 'Flight';
+    const flying = this.isFlying;
     
-    const boosting = this.input.held('KeyB');
-    const sprinting = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+    const boosting = isB || (flying && isShift);
+    const sprinting = isShift;
     const movementX = Number(this.input.held('KeyD')) - Number(this.input.held('KeyA'));
     const movementZ = Number(this.input.held('KeyS')) - Number(this.input.held('KeyW'));
     const ascent = Number(this.input.held('Space')) - Number(this.input.held('ControlLeft') || this.input.held('ControlRight'));

@@ -169,15 +169,15 @@ const choice=(id:string,label:string,options:readonly (readonly [string,string])
   `<label>${label}<select id="${id}">${options.map(([value,text])=>`<option value="${value}">${text}</option>`).join('')}</select></label>`;
 const PAUSE_TABS=[['audio','Áudio'],['video','Vídeo'],['world','Mundo'],['controls','Controles'],['progress','Progresso']] as const;
 const CONTROLS: readonly (readonly [string,string])[]=[
-  ['F5','Câmera: atrás / ombro / primeira pessoa / frente / olhar para trás'],['X','Alternar energia / combate'],
+  ['F5','Câmera: atrás / ombro / primeira pessoa / frente / olhar para trás'],['X','Alternar energia / combate (solo) · Freio de emergência (espaço)'],
   ['Clique (combate)','Sequência: jab / direto / uppercut'],['Botão direito (combate)','Sequência: chute frontal / lateral / circular'],
   ['Espaço (solo)','Pulo duplo / parkour'],['Shift (solo)','Correr'],['B (solo)','Impulso / Super — em voo local'],
   ['Z (solo)','Rolamento de esquiva'],['Z (no ar)','Dash aéreo'],
   ['Clique olhando para baixo (no ar)','Soco meteoro: cratera e destruição em massa'],
-  ['W A S D','Mover'],['Mouse','Olhar ao redor'],['F (planeta)','Voar / pousar'],['Espaço','Subir'],
-  ['Ctrl','Descer'],['Shift (planeta)','Voo rápido'],['V (planeta)','Armar Mega / Interplanetário (duplo toque) · depois B'],['F (espaço)','Pousar no corpo próximo: captura e desce sozinho'],['Shift (espaço)','Boost cósmico'],['C (espaço)','Alternar Modo Cósmico (Convencional / Interestelar / Intergaláctico)'],['B (espaço)','Warp · aumenta marcha (1c, 2c, 4c… 1.5T c)'],['Shift+B (espaço)','Warp · reduz marcha'],['X (espaço)','Freio · desengata o warp'],['Mouse','Direção de voo'],
-  ['L','Ligar / desligar laser continuo'],['Clique / 1','Emitir energia'],['E','Teleportar à mira'],['Q','Onda de choque'],['R','Reconstruir matéria'],
-  ['G','Alternar tamanho até 1 km'],['C','Criar ecos temporários'],['T','Percepção temporal'],
+  ['W A S D','Mover'],['Mouse','Olhar ao redor / Direção de voo'],['F (planeta)','Voar / alternar levitação'],['Espaço','Subir'],
+  ['Ctrl','Descer'],['Shift (voo)','Acelerar voo (Mega / Interplanetário ao subir)'],['Espaço + Shift (voo)','Decolar para o espaço (sem necessidade de duplo V)'],['V (planeta)','Armar Mega / Interplanetário manual (opcional)'],['F (espaço)','Pousar no corpo próximo: captura e desce sozinho'],['Shift (espaço)','Boost / propulsão cósmica'],['Roda do Mouse (espaço)','Aumentar / reduzir marcha de warp'],['C (espaço)','Alternar Modo Cósmico (Convencional / Interestelar / Intergaláctico)'],['Q (espaço)','Freio progressivo cósmico'],['X (espaço)','Freio de emergência cósmico (corta warp)'],['B (espaço)','Warp · aumenta marcha (ou Shift+B para reduzir)'],
+  ['L','Ligar / desligar laser continuo'],['Clique / 1','Emitir energia'],['E','Teleportar à mira'],['Q (solo)','Onda de choque'],['R','Reconstruir matéria'],
+  ['G','Alternar tamanho até 1 km'],['C (solo)','Criar ecos temporários'],['T','Percepção temporal'],
   ['Tab / Shift+Tab (espaço)','Travar alvo / próximo / anterior'],['P (espaço)','Piloto automático: ligar / desligar'],['Backspace (espaço)','Liberar alvo e cancelar piloto'],['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
 ];
 export class HUD {
@@ -439,12 +439,12 @@ export class HUD {
       } else if (flight?.landingIntentActive) {
         hintEl.innerHTML = `<kbd>F</kbd> Cancelar pouso <i></i><span>${flight.landingBlockedReason ? 'Bloqueio: ' + flight.landingBlockedReason : 'Descendo para o solo'}</span>`;
       } else if (state.nearbyBody?.id === 'sun' || flight?.targetBodyId === 'sun') {
-        hintEl.innerHTML = `<kbd>F</kbd> Pousar/Decolar Fotosfera <i></i><kbd>C</kbd> Modo Cósmico <i></i><kbd>B</kbd>/<kbd>Shift+B</kbd> Warp <i></i><kbd>P</kbd> Piloto`;
+        hintEl.innerHTML = `<kbd>F</kbd> Pousar/Decolar Fotosfera <i></i><kbd>C</kbd> Escala Cósmica <i></i><kbd>Scroll</kbd>/<kbd>B</kbd> Warp <i></i><kbd>Q</kbd>/<kbd>X</kbd> Freio <i></i><kbd>P</kbd> Piloto`;
       } else {
-        hintEl.innerHTML = `<kbd>C</kbd> Modo Cósmico <i></i><kbd>B</kbd>/<kbd>Shift+B</kbd> Warp <i></i><kbd>X</kbd> Freio <i></i><kbd>F</kbd> Pousar <i></i><kbd>P</kbd> Piloto <i></i><kbd>Tab</kbd> Alvo`;
+        hintEl.innerHTML = `<kbd>C</kbd> Escala Cósmica <i></i><kbd>Scroll</kbd>/<kbd>B</kbd> Warp <i></i><kbd>Q</kbd> Freio <i></i><kbd>X</kbd> Freio Emergência <i></i><kbd>F</kbd> Pousar <i></i><kbd>P</kbd> Piloto`;
       }
     } else if (state.district === 'FOTOSFERA') {
-      hintEl.innerHTML = `<kbd>F</kbd> Decolar <i></i><kbd>W A S D</kbd> Mover na Fotosfera <i></i><kbd>Espaço</kbd> Subir`;
+      hintEl.innerHTML = `<kbd>F</kbd> Levitar <i></i><kbd>Espaço + Shift</kbd> Decolar p/ Espaço <i></i><kbd>W A S D</kbd> Mover`;
     } else {
       hintEl.textContent = state.hint;
     }

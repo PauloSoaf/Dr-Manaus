@@ -268,6 +268,9 @@ export class Game {
       }};
     },undefined,this.galaxyMaterializer);return this.materializer;
   }
+  set systemMaterializer(materializer: ProceduralSystemMaterializer) {
+    this.materializer = materializer;
+  }
   /** QA only: selecting a canonical fixture does not move the observer. */
   selectU1TestSystem():UniversalNavigationTarget|undefined {
     if(!u1TestControlsEnabled())return;
@@ -968,7 +971,7 @@ export class Game {
   }
   /** Space Shift owns boost, animation and reverse target cycling. Local B stays local. */
   private get cosmicBoostHeld(): boolean {
-    return this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+    return this.input.held('ShiftLeft') || this.input.held('ShiftRight') || this.input.held('KeyB');
   }
 
   /** The production space input/controller step, independent of rendering and city simulation. */
@@ -981,9 +984,11 @@ export class Game {
     const { forward: camFwd, right: camRight, up: camUp } = cameraFlightAxes(this.rendering.camera);
 
     const boostHeld = this.cosmicBoostHeld;
-    const inputBrake = this.input.held('KeyX');
+    const inputEmergencyBrake = this.input.held('KeyX');
+    const inputProgressiveBrake = this.input.held('KeyQ');
+    const inputBrake = inputEmergencyBrake || inputProgressiveBrake;
 
-    if (inputBrake && this.warpStep > 0) this.warpStep = 0;
+    if (inputEmergencyBrake && this.warpStep > 0) this.warpStep = 0;
 
     const forwardHeld = this.input.held('KeyW');
     const backHeld = this.input.held('KeyS');
@@ -1271,7 +1276,8 @@ export class Game {
     const t=this.universe.telemetry;
     const bodyVelocity=this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps??[0,0,0];
     const bodyPos=this.universe.activeSystem.positionOf(t.dominantBody)??[0,0,0];
-    const requested=this.player.interplanetaryMode&&this.input.held('KeyB');
+    const requested=(this.player.interplanetaryMode||(this.player.isFlying&&this.player.position.y>=9000))&&
+      (this.input.held('KeyB')||this.input.held('ShiftLeft')||this.input.held('ShiftRight')||this.input.held('Space'));
     const motion=this.landingMotion(t.dominantBody);
 
     /**
@@ -1297,26 +1303,40 @@ export class Game {
         this.hud.notify(`Modo Cósmico · CONVENCIONAL (${warpLabel(this.warpStep)} máx)`);
       }
     }
-    if (!this.travelDomain.localPhysicsActive && this.input.consume('KeyB')) {
-      // Warp belongs to free flight. During a landing capture the controller owns the velocity.
-      if (this.landingIntent.active) this.hud.notify('Pouso em andamento · F cancela');
-      else {
+    if (!this.travelDomain.localPhysicsActive) {
+      const wheelDelta = (this.input as any).consumeWheelDelta ? (this.input as any).consumeWheelDelta() : 0;
+      let warpDelta = 0;
+      if (wheelDelta < -20) {
+        warpDelta = 1;
+      } else if (wheelDelta > 20) {
+        warpDelta = -1;
+      }
+
+      if (this.input.consume('KeyB')) {
         const shiftHeld = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
-        if (shiftHeld) {
-          this.warpStep = Math.max(0, this.warpStep - 1);
-        } else {
-          const maxStep = this.cosmicTier === 'intergalactic'
-            ? COSMIC_WARP_STEPS_C.length
-            : this.cosmicTier === 'interstellar'
-              ? 14
-              : WARP_STEPS_C.length;
-          this.warpStep = Math.min(maxStep, this.warpStep + 1);
-        }
-        const isCosmic = this.cosmicTier !== 'conventional' || this.warpStep > WARP_STEPS_C.length;
-        if (this.warpStep === 9 && this.cosmicTier === 'conventional') {
-          this.hud.notify(`Warp ${warpLabel(this.warpStep)} · [C] para Modo Cósmico Livre`);
-        } else {
-          this.hud.notify(`Warp ${warpLabel(this.warpStep, isCosmic)}`);
+        warpDelta = shiftHeld ? -1 : 1;
+      }
+
+      if (warpDelta !== 0) {
+        // Warp belongs to free flight. During a landing capture the controller owns the velocity.
+        if (this.landingIntent.active) this.hud.notify('Pouso em andamento · F cancela');
+        else {
+          if (warpDelta < 0) {
+            this.warpStep = Math.max(0, this.warpStep - 1);
+          } else {
+            const maxStep = this.cosmicTier === 'intergalactic'
+              ? COSMIC_WARP_STEPS_C.length
+              : this.cosmicTier === 'interstellar'
+                ? 14
+                : WARP_STEPS_C.length;
+            this.warpStep = Math.min(maxStep, this.warpStep + 1);
+          }
+          const isCosmic = this.cosmicTier !== 'conventional' || this.warpStep > WARP_STEPS_C.length;
+          if (this.warpStep === 9 && this.cosmicTier === 'conventional') {
+            this.hud.notify(`Warp ${warpLabel(this.warpStep)} · [C] para Modo Cósmico Livre`);
+          } else {
+            this.hud.notify(`Warp ${warpLabel(this.warpStep, isCosmic)}`);
+          }
         }
       }
     }

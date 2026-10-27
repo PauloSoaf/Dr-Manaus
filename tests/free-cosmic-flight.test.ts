@@ -36,6 +36,7 @@ function flightFixture(startPos: [number, number, number] = [0, 1.5e11, 0]) {
   const controller = new CosmicCruiseController();
   const held = new Set<string>();
   const edges = new Set<string>();
+  let wheelDelta = 0;
 
   const input = {
     enabled: true,
@@ -44,6 +45,11 @@ function flightFixture(startPos: [number, number, number] = [0, 1.5e11, 0]) {
       const has = edges.has(key);
       edges.delete(key);
       return has;
+    },
+    consumeWheelDelta: () => {
+      const d = wheelDelta;
+      wheelDelta = 0;
+      return d;
     },
   };
 
@@ -143,9 +149,11 @@ function flightFixture(startPos: [number, number, number] = [0, 1.5e11, 0]) {
     universe,
     controller,
     travelDomain,
+    player,
     held,
     edges,
     camera,
+    setWheelDelta: (d: number) => { wheelDelta = d; },
     step,
     dispose: () => universe.dispose(),
   };
@@ -619,14 +627,14 @@ test('T_P05_OUTWARD_FLIGHT_NO_PROXIMITY_BRAKING', () => {
 // 15. P0.5: Velocity continuity across proximity threshold boundaries (no discrete jumps)
 // -----------------------------------------------------------------------------
 test('T_P05_VELOCITY_CONTINUITY_ACROSS_PROXIMITY_THRESHOLDS', () => {
-  // Start high speed inward approach towards Sun from outside proximity threshold
+  // Start high speed inward approach towards Sun across proximity threshold boundary
   const sunRadius = 695_700_000;
-  const f = flightFixture([0, 10 * sunRadius, 0]);
+  // Position player 20,000 km above Sun, where proximity gating smoothly throttles speed
+  const f = flightFixture([0, sunRadius + 20_000_000, 0]);
   try {
     f.game.cosmicTier = 'interstellar';
-    f.game.warpStep = 10;
+    // Approach inward (-Y) at 100,000,000 m/s without applying forward warp thrust
     f.travelDomain.state!.velocityMps = [0, -100_000_000, 0];
-    f.held.add('KeyW');
 
     let previousSpeed = 100_000_000;
     const dt = 1 / 60;
@@ -640,6 +648,7 @@ test('T_P05_VELOCITY_CONTINUITY_ACROSS_PROXIMITY_THRESHOLDS', () => {
       // Maximum deltaV bounded by kinematic deceleration + warp spool
       const maxAllowedDeltaV = (100_000_000 / 1.2 + 500_000) * dt * 3.0; // Bounded by time-limited deceleration
       assert.ok(deltaV < maxAllowedDeltaV, `Speed drop must be continuous across frames (deltaV=${deltaV}, max=${maxAllowedDeltaV} at step ${i})`);
+      assert.ok(currentSpeed <= previousSpeed + 1e-3, `Speed must not increase without thrust during proximity gating at step ${i}`);
       previousSpeed = currentSpeed;
     }
   } finally {
@@ -727,12 +736,12 @@ test('T_P05_MATERIALIZATION_FAILURE_ROLLBACK_RESILIENCE', () => {
     f.travelDomain.state!.velocityMps = [...initialVel];
     f.universe.updateSystemPose(initialPos, initialVel, 0);
 
-    // Mock galaxyMaterializer.prepareTravel to throw an error
+    // Mock systemMaterializer.prepareTravel to throw an error via dependency seam
     f.game.systemMaterializer = {
       prepareTravel() {
         throw new Error('Simulated network / procedural generation error');
       },
-    };
+    } as any;
 
     // Trigger handoff check with star target
     f.game.universalTargetCatalog = {
@@ -777,4 +786,142 @@ test('T_P05_AUTOMATIC_U3_HYPERCRUISE_INDEPENDENCE', () => {
     f.dispose();
   }
 });
+
+// -----------------------------------------------------------------------------
+// 20. P0.5.1: Takeoff ergonomics without double-tap V (F + Space + Shift)
+// -----------------------------------------------------------------------------
+test('T_P051_TAKEOFF_ERGONOMICS_WITHOUT_DOUBLE_V', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    f.travelDomain.reset(); // starts in local domain
+    f.player.state = 'Grounded';
+    f.player.position.set(0, 0, 0);
+
+    // 1. Press F: activates Hover
+    f.edges.add('KeyF');
+    f.player.update(1 / 60, f.game.colliders, 0, 0);
+    assert.equal(f.player.state, 'Hover', 'F activates hover flight');
+    assert.ok(f.player.isFlying, 'isFlying is true');
+
+    // 2. Ascend with Space + Shift (without touching KeyV)
+    f.held.add('Space');
+    f.held.add('ShiftLeft');
+
+    // Low altitude (< 1000m): super speed mode
+    f.player.position.y = 500;
+    f.player.update(1 / 60, f.game.colliders, 0, 0);
+    assert.equal(f.player.speedMode, 'super', 'Climb at low altitude provides super flight');
+
+    // Mid altitude (>= 1000m): mega speed mode automatically unlocked
+    f.player.position.y = 2000;
+    f.player.update(1 / 60, f.game.colliders, 0, 0);
+    assert.equal(f.player.speedMode, 'mega', 'Climb above 1000m automatically promotes to mega');
+
+    // High altitude (>= 9000m = interplanetaryFloorM): interplanetary tier automatically unlocked
+    f.player.position.y = 9500;
+    f.player.update(1 / 60, f.game.colliders, 0, 0);
+    assert.equal(f.player.speedMode, 'interplanetary', 'Climb above 9000m automatically promotes to interplanetary');
+    assert.ok(f.player.interplanetaryMode, 'interplanetaryMode is active without any KeyV presses');
+
+    // Step game travel domain update: requested flag transitions to departed into space
+    f.step(1 / 60);
+    assert.equal(f.travelDomain.kind, 'interplanetary', 'Smooth departure from local atmosphere into space');
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 21. P0.5.1: Mouse wheel warp gear adjustment in free space flight
+// -----------------------------------------------------------------------------
+test('T_P051_MOUSE_WHEEL_WARP_CONTROL', () => {
+  const f = flightFixture([0, 1.5e11, 0]);
+  try {
+    assert.equal(f.travelDomain.kind, 'interplanetary');
+    assert.equal(f.game.warpStep, 0);
+
+    // Mouse wheel scroll up (negative deltaY): step up warp
+    f.setWheelDelta(-50);
+    f.step(1 / 60);
+    assert.equal(f.game.warpStep, 1, 'Mouse wheel up steps warp from 0 to 1');
+
+    f.setWheelDelta(-100);
+    f.step(1 / 60);
+    assert.equal(f.game.warpStep, 2, 'Mouse wheel up steps warp from 1 to 2');
+
+    // Mouse wheel scroll down (positive deltaY): step down warp
+    f.setWheelDelta(50);
+    f.step(1 / 60);
+    assert.equal(f.game.warpStep, 1, 'Mouse wheel down steps warp from 2 to 1');
+
+    // Secondary B / Shift+B shortcuts remain functional
+    f.edges.add('KeyB');
+    f.step(1 / 60);
+    assert.equal(f.game.warpStep, 2, 'KeyB steps warp from 1 to 2');
+
+    f.held.add('ShiftLeft');
+    f.edges.add('KeyB');
+    f.step(1 / 60);
+    f.held.delete('ShiftLeft');
+    assert.equal(f.game.warpStep, 1, 'Shift+B steps warp down from 2 to 1');
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 22. P0.5.1: Space braking ergonomics: Q progressive vs X emergency
+// -----------------------------------------------------------------------------
+test('T_P051_PROGRESSIVE_VS_EMERGENCY_BRAKE', () => {
+  const f = flightFixture([0, 1.5e11, 0]);
+  try {
+    f.game.warpStep = 5;
+    f.travelDomain.state!.velocityMps = [0, 50_000_000, 0];
+
+    // Hold Q: Progressive brake does NOT reset warpStep to 0
+    f.held.add('KeyQ');
+    f.step(1 / 60);
+    assert.equal(f.game.warpStep, 5, 'KeyQ progressive brake preserves warpStep throttle setting');
+    assert.equal(f.game.flightTelemetry?.phase, 'braking', 'Telemetry phase indicates braking');
+    f.held.delete('KeyQ');
+
+    // Hold X: Emergency brake cuts warpStep immediately to 0
+    f.held.add('KeyX');
+    f.step(1 / 60);
+    assert.equal(f.game.warpStep, 0, 'KeyX emergency brake cuts warpStep to 0');
+    assert.equal(f.game.flightTelemetry?.phase, 'braking', 'Telemetry phase indicates braking');
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 23. P0.5.1: Local context preservation (walking, powers, and wheel isolation)
+// -----------------------------------------------------------------------------
+test('T_P051_LOCAL_CONTEXT_PRESERVATION', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    f.travelDomain.reset(); // Local city mode
+    f.player.state = 'Grounded';
+    f.player.position.set(0, 0, 0);
+
+    // Walking on ground: Shift provides sprint, not cosmic boost
+    f.held.add('ShiftLeft');
+    f.player.update(1 / 60, f.game.colliders, 0, 0);
+    assert.equal(f.player.speedMode, 'ground');
+
+    // Wheel in local mode does not affect warp
+    f.setWheelDelta(-100);
+    f.step(1 / 60);
+    assert.equal(f.game.warpStep, 0, 'Mouse wheel in local physics does not change warpStep');
+
+    // Holding KeyQ in local physics does not activate space brake
+    f.held.add('KeyQ');
+    f.step(1 / 60);
+    assert.equal(f.game.flightTelemetry, undefined, 'Space flight telemetry inactive in local domain');
+  } finally {
+    f.dispose();
+  }
+});
+
 
