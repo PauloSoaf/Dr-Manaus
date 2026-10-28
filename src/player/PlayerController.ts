@@ -124,9 +124,7 @@ export class PlayerController {
   get megaMode(): boolean { return this.armedTier !== 'none'; }
   set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
   get isFlying(): boolean { return this.state === 'Hover' || this.state === 'Flight'; }
-  get interplanetaryMode(): boolean {
-    return this.armedTier === 'interplanetary' || (this.isFlying && this.position.y >= FLIGHT.interplanetaryFloorM);
-  }
+  get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
   get lastTerrainContact() { return this.physics.lastTerrainContact; }
   get lastVolumeContact() { return this.physics.lastVolumeContact; }
   /** True while an armed tier waits for the boost key to be let go and pressed again. */
@@ -159,11 +157,7 @@ export class PlayerController {
   private localTier(flying: boolean, boosting: boolean, sprinting: boolean): FlightSpeedMode {
     if (!flying) return 'ground';
     if (!boosting) return sprinting ? 'fast' : 'normal';
-    if (this.armedTier === 'none' || this.megaNeedsBoostRelease) {
-      if (this.position.y >= FLIGHT.interplanetaryFloorM) return 'interplanetary';
-      if (this.position.y >= 1000) return 'mega';
-      return 'super';
-    }
+    if (this.armedTier === 'none' || this.megaNeedsBoostRelease) return 'super';
     return this.armedTier === 'interplanetary' && this.position.y >= FLIGHT.interplanetaryFloorM
       ? 'interplanetary' : 'mega';
   }
@@ -174,7 +168,7 @@ export class PlayerController {
     if (this.input.consume('KeyV')) this.tapArm();
     const isShift = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
     const isB = this.input.held('KeyB');
-    if (!isB && !isShift) this.megaNeedsBoostRelease = false;
+    if (!isB) this.megaNeedsBoostRelease = false;
     if (this.input.consume('KeyF')) {
       this.state = this.state === 'Grounded' || this.state === 'Falling' ? 'Hover' : 'Falling';
       if (this.state === 'Hover') {
@@ -184,7 +178,7 @@ export class PlayerController {
     }
     const flying = this.isFlying;
     
-    const boosting = isB || (flying && isShift);
+    const boosting = isB;
     const sprinting = isShift;
     const movementX = Number(this.input.held('KeyD')) - Number(this.input.held('KeyA'));
     const movementZ = Number(this.input.held('KeyS')) - Number(this.input.held('KeyW'));

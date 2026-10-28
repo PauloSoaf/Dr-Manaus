@@ -788,7 +788,7 @@ test('T_P05_AUTOMATIC_U3_HYPERCRUISE_INDEPENDENCE', () => {
 });
 
 // -----------------------------------------------------------------------------
-// 20. P0.5.1: Takeoff ergonomics without double-tap V (F + Space + Shift)
+// 20. P0.5.1 / P0.5.2: Takeoff ergonomics without double-tap V (F + Space + Shift)
 // -----------------------------------------------------------------------------
 test('T_P051_TAKEOFF_ERGONOMICS_WITHOUT_DOUBLE_V', () => {
   const f = flightFixture([0, 0, 0]);
@@ -807,23 +807,18 @@ test('T_P051_TAKEOFF_ERGONOMICS_WITHOUT_DOUBLE_V', () => {
     f.held.add('Space');
     f.held.add('ShiftLeft');
 
-    // Low altitude (< 1000m): super speed mode
+    // Flight with Shift sprint provides fast flight (500 m/s)
     f.player.position.y = 500;
     f.player.update(1 / 60, f.game.colliders, 0, 0);
-    assert.equal(f.player.speedMode, 'super', 'Climb at low altitude provides super flight');
+    assert.equal(f.player.speedMode, 'fast', 'Flight with Shift sprint provides fast flight');
 
-    // Mid altitude (>= 1000m): mega speed mode automatically unlocked
-    f.player.position.y = 2000;
-    f.player.update(1 / 60, f.game.colliders, 0, 0);
-    assert.equal(f.player.speedMode, 'mega', 'Climb above 1000m automatically promotes to mega');
-
-    // High altitude (>= 9000m = interplanetaryFloorM): interplanetary tier automatically unlocked
+    // Ascend to edge of atmosphere (9500m) while holding Space + Shift
     f.player.position.y = 9500;
     f.player.update(1 / 60, f.game.colliders, 0, 0);
-    assert.equal(f.player.speedMode, 'interplanetary', 'Climb above 9000m automatically promotes to interplanetary');
-    assert.ok(f.player.interplanetaryMode, 'interplanetaryMode is active without any KeyV presses');
+    assert.equal(f.player.speedMode, 'fast', 'Player speedMode remains fast without unrequested tier jump');
+    assert.equal(f.player.interplanetaryMode, false, 'interplanetaryMode is not prematurely forced');
 
-    // Step game travel domain update: requested flag transitions to departed into space
+    // 3. Step game travel domain update: space departure state machine activates and departs to space
     f.step(1 / 60);
     assert.equal(f.travelDomain.kind, 'interplanetary', 'Smooth departure from local atmosphere into space');
   } finally {
@@ -919,6 +914,70 @@ test('T_P051_LOCAL_CONTEXT_PRESERVATION', () => {
     f.held.add('KeyQ');
     f.step(1 / 60);
     assert.equal(f.game.flightTelemetry, undefined, 'Space flight telemetry inactive in local domain');
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 24. P0.5.2: Modal panel and menu isolation from mouse wheel warp control
+// -----------------------------------------------------------------------------
+test('T_P052_MODAL_PANEL_WHEEL_ISOLATION', () => {
+  const f = flightFixture([0, 1.5e11, 0]);
+  try {
+    assert.equal(f.travelDomain.kind, 'interplanetary');
+    assert.equal(f.game.warpStep, 0);
+
+    // Open map or pause panel in HUD
+    f.game.hud.panelOpen = true;
+
+    // Wheel scroll while menu is open must be ignored
+    f.setWheelDelta(-100);
+    f.step(1 / 60);
+    assert.equal(f.game.warpStep, 0, 'Mouse wheel while UI panel is open must not alter warpStep');
+
+    // Close panel
+    f.game.hud.panelOpen = false;
+    f.setWheelDelta(-100);
+    f.step(1 / 60);
+    assert.equal(f.game.warpStep, 1, 'Mouse wheel resumes warp control once UI panel is closed');
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 25. P0.5.2: All local flight tiers contract verification
+// -----------------------------------------------------------------------------
+test('T_P052_ALL_LOCAL_TIERS_CONTRACT_PRESERVATION', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    f.travelDomain.reset();
+    f.player.state = 'Hover';
+
+    // 1. Shift alone: fast
+    f.held.add('ShiftLeft');
+    f.player.update(1 / 60, [], 0, 0);
+    assert.equal(f.player.speedMode, 'fast');
+    f.held.delete('ShiftLeft');
+
+    // 2. KeyB alone without arming: super
+    f.held.add('KeyB');
+    f.player.update(1 / 60, [], 0, 0);
+    assert.equal(f.player.speedMode, 'super');
+
+    // Releasing KeyB: resets to normal
+    f.held.delete('KeyB');
+    f.player.update(1 / 60, [], 0, 0);
+    assert.equal(f.player.speedMode, 'normal');
+
+    // 3. Arming Mega with single tap V + KeyB
+    f.edges.add('KeyV');
+    f.player.update(1 / 60, [], 0, 0);
+    assert.equal(f.player.armed, 'mega');
+    f.held.add('KeyB');
+    f.player.update(1 / 60, [], 0, 0);
+    assert.equal(f.player.speedMode, 'mega');
   } finally {
     f.dispose();
   }

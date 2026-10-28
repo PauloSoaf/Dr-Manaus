@@ -971,7 +971,7 @@ export class Game {
   }
   /** Space Shift owns boost, animation and reverse target cycling. Local B stays local. */
   private get cosmicBoostHeld(): boolean {
-    return this.input.held('ShiftLeft') || this.input.held('ShiftRight') || this.input.held('KeyB');
+    return this.input.held('ShiftLeft') || this.input.held('ShiftRight');
   }
 
   /** The production space input/controller step, independent of rendering and city simulation. */
@@ -1276,8 +1276,20 @@ export class Game {
     const t=this.universe.telemetry;
     const bodyVelocity=this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps??[0,0,0];
     const bodyPos=this.universe.activeSystem.positionOf(t.dominantBody)??[0,0,0];
-    const requested=(this.player.interplanetaryMode||(this.player.isFlying&&this.player.position.y>=9000))&&
-      (this.input.held('KeyB')||this.input.held('ShiftLeft')||this.input.held('ShiftRight')||this.input.held('Space'));
+    const altitude = this.surfaceClearanceM(t.dominantBody) ?? t.altitudeM;
+    const isFlying = this.player.isFlying || this.player.state === 'Hover' || this.player.state === 'Flight';
+    const shiftHeld = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+    const spaceHeld = this.input.held('Space');
+    const bHeld = this.input.held('KeyB');
+
+    // Legacy departure: player explicitly armed interplanetary tier (via double-V) and holds B
+    const legacyDeparture = this.player.interplanetaryMode && bHeld;
+
+    // Intuitive departure state machine:
+    // Requires flight state, safe altitude above atmosphere (>= 9000m), and active climb/departure intent (Space or Space+Shift)
+    const intuitiveDeparture = isFlying && altitude >= 9000 && (spaceHeld || (shiftHeld && this.player.velocity.y > 0));
+
+    const requested = legacyDeparture || intuitiveDeparture;
     const motion=this.landingMotion(t.dominantBody);
 
     /**
@@ -1303,7 +1315,7 @@ export class Game {
         this.hud.notify(`Modo Cósmico · CONVENCIONAL (${warpLabel(this.warpStep)} máx)`);
       }
     }
-    if (!this.travelDomain.localPhysicsActive) {
+    if (!this.travelDomain.localPhysicsActive && !this.hud?.panelOpen && this.input.enabled) {
       const wheelDelta = (this.input as any).consumeWheelDelta ? (this.input as any).consumeWheelDelta() : 0;
       let warpDelta = 0;
       if (wheelDelta < -20) {
