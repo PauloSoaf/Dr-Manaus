@@ -59,7 +59,8 @@ export interface FlightTelemetry {
   proximityGatingActive?: boolean;
   gatedBodyId?: string;
   phase: 'idle' | 'align' | 'acceleration' | 'cruise' | 'braking' | 'capture' | 'approach' | 'arrived'
-    | 'landing-capture' | 'landing-hold' | 'cosmic-cruise';
+    | 'landing-capture' | 'landing-hold' | 'cosmic-cruise' | 'emergency-stop';
+  emergencyStopActive?: boolean;
   autopilotActive?: boolean;
   relativeSpeedMps?: number;
   closingSpeedMps?: number;
@@ -344,6 +345,7 @@ export class CosmicCruiseController {
 
     let acceleration = 0;
     let phase: FlightTelemetry['phase'] = 'idle';
+    let emergencyStopActive = false;
     const margin = finite(context.envelopeMarginM, 1000);
 
     const isCosmic = !!context.cosmicMode
@@ -539,10 +541,14 @@ export class CosmicCruiseController {
           const projectedClosing = newSpeed * inwardRatio;
           if (projectedClosing * dt >= dist * 0.85) {
             newSpeed = Math.min(newSpeed, maxRelative);
+            emergencyStopActive = true;
+            phase = 'emergency-stop';
             break;
           }
         } else if (dist <= 0) {
           newSpeed = Math.min(newSpeed, maxRelative);
+          emergencyStopActive = true;
+          phase = 'emergency-stop';
           break;
         }
       }
@@ -552,7 +558,9 @@ export class CosmicCruiseController {
       relVel[0] *= scale; relVel[1] *= scale; relVel[2] *= scale;
 
       if (proximityGatingActive && appliedDecel > 1) {
-        phase = 'braking';
+        if (phase !== 'emergency-stop') {
+          phase = 'braking';
+        }
         acceleration = -appliedDecel;
       }
     }
@@ -637,7 +645,7 @@ export class CosmicCruiseController {
         velocityMps[i] = orbital[i] + contactRelative[i];
         relVel[i] = velocityMps[i] - bodyVel[i];
       }
-      if (phase !== 'braking') phase = 'approach';
+      if (phase !== 'braking' && phase !== 'emergency-stop') phase = 'approach';
     } else {
       positionM[0] += step[0];
       positionM[1] += step[1];
@@ -679,6 +687,7 @@ export class CosmicCruiseController {
     this.telemetry.effectiveSpeedC = this.telemetry.speedMps / LIGHT_SPEED_MPS;
     this.telemetry.accelerationMps2 = acceleration;
     this.telemetry.phase = phase;
+    this.telemetry.emergencyStopActive = emergencyStopActive;
     this.telemetry.warpStep = Math.max(0, Math.round(finite(context.warpStep)));
     this.telemetry.warpLabel = warpLabel(this.telemetry.warpStep, isCosmic);
     this.telemetry.cosmicTier = cosmicTierForStep(this.telemetry.warpStep);

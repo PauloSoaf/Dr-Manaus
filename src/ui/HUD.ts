@@ -344,6 +344,7 @@ export class HUD {
     'intergalactic': 'VOO INTERGALÁCTICO',
     braking: 'FRENAGEM',
     approach: 'APROXIMAÇÃO',
+    'emergency-stop': 'PARADA DE EMERGÊNCIA',
     'landing-capture': 'POUSO · CAPTURA', 'landing-hold': 'POUSO · AGUARDANDO SUPERFÍCIE',
   };
 

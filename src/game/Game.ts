@@ -1175,13 +1175,7 @@ export class Game {
       this.universe.activeGalaxy = targetRuntime;
       this.universe.address = newAddress;
 
-      // 3. Activate visual resources
-      if (preparedResources) {
-        preparedResources.activate();
-        preparedResources.complete?.();
-      }
-
-      // 4. Update coordinates and domain state
+      // 3. Commit coordinates and domain spatial state
       this.travelDomain.setState({
         systemId: this.universe.address.systemId ?? targetGalaxyId,
         positionM: newPos,
@@ -1189,6 +1183,16 @@ export class Game {
         referenceBodyId: undefined,
       });
       this.universe.updateSystemPose(newPos, newVel, 0);
+
+      // 4. Activate visual resources
+      if (preparedResources) {
+        preparedResources.activate();
+      }
+
+      // 5. Complete transition and discard previous visual resources only after all state commits succeed
+      if (preparedResources) {
+        preparedResources.complete?.();
+      }
 
       this.hud.notify(isAndromeda
         ? 'Travessia Intergaláctica · Envelope de Andrômeda'

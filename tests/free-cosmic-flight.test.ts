@@ -625,13 +625,16 @@ test('T_P05_OUTWARD_FLIGHT_NO_PROXIMITY_BRAKING', () => {
 });
 
 // -----------------------------------------------------------------------------
-// 15. P0.5: Velocity continuity across proximity threshold boundaries (no discrete jumps)
+// 15. P0.5: Velocity continuity across proximity threshold boundaries (Contract A: normal braking)
 // -----------------------------------------------------------------------------
 test('T_P05_VELOCITY_CONTINUITY_ACROSS_PROXIMITY_THRESHOLDS', () => {
-  // Start high speed inward approach towards Sun across proximity threshold boundary
+  // Contract A: Continuous kinematic braking when approaching celestial body with sufficient stopping distance.
+  // Initial altitude: 150,000 km above solar surface (Sun radius: 695,700 km).
+  // Stopping distance at 100,000,000 m/s under warp spool (1.2s) is ~120,000 km,
+  // providing a clean margin where normal continuous predictive/spool braking handles the approach.
   const sunRadius = 695_700_000;
-  // Position player 20,000 km above Sun, where proximity gating smoothly throttles speed
-  const f = flightFixture([0, sunRadius + 20_000_000, 0]);
+  const initialAltitude = 150_000_000; // 150,000 km buffer
+  const f = flightFixture([0, sunRadius + initialAltitude, 0]);
   try {
     f.game.cosmicTier = 'interstellar';
     // Approach inward (-Y) at 100,000,000 m/s without applying forward warp thrust
@@ -650,11 +653,106 @@ test('T_P05_VELOCITY_CONTINUITY_ACROSS_PROXIMITY_THRESHOLDS', () => {
       const maxAllowedDeltaV = (100_000_000 / 1.2 + 500_000) * dt * 3.0; // Bounded by time-limited deceleration
       assert.ok(deltaV < maxAllowedDeltaV, `Speed drop must be continuous across frames (deltaV=${deltaV}, max=${maxAllowedDeltaV} at step ${i})`);
       assert.ok(currentSpeed <= previousSpeed + 1e-3, `Speed must not increase without thrust during proximity gating at step ${i}`);
+
+      const telemetry = f.game.flightTelemetry;
+      assert.notEqual(telemetry?.phase, 'emergency-stop', `Emergency stop must not trigger in normal braking at step ${i}`);
+      assert.notEqual(telemetry?.emergencyStopActive, true, `emergencyStopActive must remain false at step ${i}`);
+
       previousSpeed = currentSpeed;
     }
+
+    assert.ok(f.travelDomain.state!.positionM[1] > sunRadius, 'Player must remain safely above solar surface');
   } finally {
     f.dispose();
   }
+});
+
+// -----------------------------------------------------------------------------
+// 15B. P0.5: Emergency stopping intervention on insufficient stopping distance (Contract B)
+// -----------------------------------------------------------------------------
+test('T_P05_EMERGENCY_INTERVENTION_ON_INSUFFICIENT_STOPPING_DISTANCE', () => {
+  // Contract B: Emergency intervention when starting within critical stopping distance.
+  // At 20,000 km above solar surface and 100,000,000 m/s (0.33c), impact would occur in ~0.2s without intervention.
+  // The emergency stopping guard intervenes to prevent surface penetration and signals via telemetry.
+  const sunRadius = 695_700_000;
+  const f = flightFixture([0, sunRadius + 20_000_000, 0]);
+  try {
+    f.game.cosmicTier = 'interstellar';
+    f.travelDomain.state!.velocityMps = [0, -100_000_000, 0];
+
+    let emergencyIntervened = false;
+    const dt = 1 / 60;
+
+    for (let i = 0; i < 30; i++) {
+      f.step(dt);
+      const telemetry = f.game.flightTelemetry;
+      if (telemetry?.emergencyStopActive === true || telemetry?.phase === 'emergency-stop') {
+        emergencyIntervened = true;
+      }
+    }
+
+    // Safety requirements:
+    assert.ok(emergencyIntervened, 'Emergency guard must intervene when available stopping distance is physically insufficient');
+    const posAfter = f.travelDomain.state!.positionM;
+    const velAfter = f.travelDomain.state!.velocityMps;
+
+    assert.ok(posAfter[1] >= sunRadius, `Player must not penetrate solar photosphere: y=${posAfter[1]}`);
+    assert.ok(posAfter.every(Number.isFinite), 'Player coordinates must remain finite after emergency intervention');
+    assert.ok(velAfter.every(Number.isFinite), 'Player velocities must remain finite after emergency intervention');
+
+    // Gameplay continuity: verify simulation steps cleanly without NaN or exceptions after intervention
+    assert.doesNotThrow(() => {
+      for (let j = 0; j < 30; j++) f.step(dt);
+    }, 'Gameplay must continue seamlessly after emergency stopping intervention');
+    assert.ok(f.travelDomain.state!.positionM[1] >= sunRadius, 'Player continues flying safely without crossing surface');
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 15C. P0.5: Deceleration framerate independence across 30, 60, and 120 FPS
+// -----------------------------------------------------------------------------
+test('T_P05_DECELERATION_FRAMERATE_INDEPENDENCE_30_60_120_FPS', () => {
+  // Verify that normal continuous proximity braking behaves consistently across 30, 60, and 120 FPS
+  const sunRadius = 695_700_000;
+  const initialAltitude = 150_000_000; // 150,000 km buffer
+
+  const runSimulation = (fps: number) => {
+    const f = flightFixture([0, sunRadius + initialAltitude, 0]);
+    try {
+      f.game.cosmicTier = 'interstellar';
+      f.travelDomain.state!.velocityMps = [0, -100_000_000, 0];
+      const dt = 1 / fps;
+      const steps = fps; // 1.0 second of simulation time
+      for (let i = 0; i < steps; i++) {
+        f.step(dt);
+      }
+      const finalSpeed = Math.hypot(...f.travelDomain.state!.velocityMps);
+      const emergency = f.game.flightTelemetry?.emergencyStopActive === true;
+      return { finalSpeed, emergency };
+    } finally {
+      f.dispose();
+    }
+  };
+
+  const res30 = runSimulation(30);
+  const res60 = runSimulation(60);
+  const res120 = runSimulation(120);
+
+  assert.equal(res30.emergency, false, 'No emergency stop at 30 FPS');
+  assert.equal(res60.emergency, false, 'No emergency stop at 60 FPS');
+  assert.equal(res120.emergency, false, 'No emergency stop at 120 FPS');
+
+  // Both should have shed significant speed (from 100M down to ~40-50M m/s)
+  assert.ok(res60.finalSpeed < 60_000_000, `Speed must decelerate substantially in 1.0s: ${res60.finalSpeed}`);
+  assert.ok(res60.finalSpeed > 30_000_000, `Deceleration is time-limited: ${res60.finalSpeed}`);
+
+  // Speeds across 30, 60, and 120 FPS should agree within numerical integration margin (~15%)
+  const relDiff30 = Math.abs(res30.finalSpeed - res60.finalSpeed) / res60.finalSpeed;
+  const relDiff120 = Math.abs(res120.finalSpeed - res60.finalSpeed) / res60.finalSpeed;
+  assert.ok(relDiff30 < 0.15, `30 FPS vs 60 FPS relative difference must be < 15% (got ${relDiff30})`);
+  assert.ok(relDiff120 < 0.10, `120 FPS vs 60 FPS relative difference must be < 10% (got ${relDiff120})`);
 });
 
 // -----------------------------------------------------------------------------
@@ -677,6 +775,8 @@ test('T_P05_EMERGENCY_STOPPING_GUARD_VS_KINEMATIC_LIMITS', () => {
     // Emergency guard must prevent envelope penetration while bringing speed down to safe limit
     assert.ok(posAfter[1] >= sunRadius, `Emergency guard must prevent surface penetration: y=${posAfter[1]}`);
     assert.ok(speedAfter < 50_000_000, `Speed must be drastically reduced by emergency stopping guard: speed=${speedAfter}`);
+    const telemetry = f.game.flightTelemetry;
+    assert.ok(telemetry?.emergencyStopActive === true || telemetry?.phase === 'emergency-stop', 'Emergency stop telemetry active');
   } finally {
     f.dispose();
   }
@@ -788,6 +888,100 @@ test('T_P05_GALAXY_ACTIVATION_FAILURE_ROLLBACK', () => {
     assert.equal(f.universe.activeGalaxy.id, 'milky_way', 'Rollback preserves active galaxy on activation failure');
     assert.equal(f.universe.address.galaxyId, 'milky_way', 'Rollback preserves address on activation failure');
     assert.deepEqual(f.travelDomain.state!.positionM, initialPos, 'Rollback preserves travel position on activation failure');
+  } finally {
+    f.dispose();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// 18B. P0.5.6: Handoff complete() deferred until after state and pose commit
+// -----------------------------------------------------------------------------
+test('T_P056_HANDOFF_COMPLETE_DEFERRED_UNTIL_AFTER_STATE_COMMIT', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    const ANDROMEDA_Y_M = 2.365e22;
+    const initialPos: [number, number, number] = [0, 0.6 * ANDROMEDA_Y_M, 0];
+    const initialVel: [number, number, number] = [0, 1e10, 0];
+
+    f.travelDomain.state!.positionM = [...initialPos];
+    f.travelDomain.state!.velocityMps = [...initialVel];
+    f.universe.updateSystemPose(initialPos, initialVel, 0);
+
+    const callOrder: string[] = [];
+    let completeCalled = false;
+
+    f.game.galaxyMaterializer = {
+      prepare() {
+        return {
+          install() {
+            callOrder.push('install');
+          },
+          activate() {
+            // Verify that spatial domain and universe address are already committed before activation
+            if (f.universe.activeGalaxy.id === 'andromeda' && f.travelDomain.state!.positionM[1] < initialPos[1]) {
+              callOrder.push('state_committed_before_activate');
+            }
+            callOrder.push('activate');
+          },
+          complete() {
+            completeCalled = true;
+            callOrder.push('complete');
+          },
+          dispose() {
+            callOrder.push('dispose');
+          },
+        };
+      },
+    } as any;
+
+    const result = f.game.performFreeFlightGalaxyHandoff('andromeda');
+    assert.equal(result, true, 'Handoff succeeds');
+    assert.equal(completeCalled, true, 'complete() is called on successful commit');
+    assert.deepEqual(callOrder, ['install', 'state_committed_before_activate', 'activate', 'complete'],
+      'Transactional order must be install -> state commit -> activate -> complete');
+  } finally {
+    f.dispose();
+  }
+});
+
+test('T_P056_HANDOFF_ACTIVATION_FAILURE_NEVER_CALLS_COMPLETE', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    const ANDROMEDA_Y_M = 2.365e22;
+    const initialPos: [number, number, number] = [0, 0.6 * ANDROMEDA_Y_M, 0];
+    const initialVel: [number, number, number] = [0, 1e10, 0];
+
+    f.travelDomain.state!.positionM = [...initialPos];
+    f.travelDomain.state!.velocityMps = [...initialVel];
+    f.universe.updateSystemPose(initialPos, initialVel, 0);
+
+    let completeCalled = false;
+    let disposedCalled = false;
+
+    f.game.galaxyMaterializer = {
+      prepare() {
+        return {
+          install() {},
+          activate() {
+            throw new Error('Simulated activation exception');
+          },
+          complete() {
+            completeCalled = true;
+          },
+          dispose() {
+            disposedCalled = true;
+          },
+        };
+      },
+    } as any;
+
+    const result = f.game.performFreeFlightGalaxyHandoff('andromeda');
+    assert.equal(result, false, 'Handoff returns false when activate throws');
+    assert.equal(completeCalled, false, 'complete() must NEVER be called if activation fails (previous visual session preserved)');
+    assert.equal(disposedCalled, true, 'dispose() must be called to cleanup staging resources on failure');
+    assert.equal(f.universe.activeGalaxy.id, 'milky_way', 'Rollback preserves active galaxy');
+    assert.deepEqual(f.travelDomain.state!.positionM, initialPos, 'Rollback preserves travel position');
+    assert.deepEqual(f.travelDomain.state!.velocityMps, initialVel, 'Rollback preserves travel velocity');
   } finally {
     f.dispose();
   }
