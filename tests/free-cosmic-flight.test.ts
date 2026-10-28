@@ -22,6 +22,7 @@ import { RockyImpactDestructionService } from '../src/world/destruction/RockyImp
 import { SECTOR_SIZE_M } from '../src/world/spatial/UniverseAddress.ts';
 import { GalaxyMaterializer } from '../src/world/galaxy/GalaxyMaterializer.ts';
 import { CelestialBodyVisualLayer } from '../src/rendering/celestial/CelestialBodyVisualLayer.ts';
+import { MANAUS_FRAME_ID } from '../src/world/spatial/ManausFrameAdapter.ts';
 
 function flightFixture(startPos: [number, number, number] = [0, 1.5e11, 0]) {
   const universe = new UniverseRuntime({ epochS: 0 });
@@ -736,25 +737,57 @@ test('T_P05_MATERIALIZATION_FAILURE_ROLLBACK_RESILIENCE', () => {
     f.travelDomain.state!.velocityMps = [...initialVel];
     f.universe.updateSystemPose(initialPos, initialVel, 0);
 
-    // Mock systemMaterializer.prepareTravel to throw an error via dependency seam
-    f.game.systemMaterializer = {
-      prepareTravel() {
+    // Mock galaxyMaterializer.prepare to throw an error during free flight galaxy handoff
+    f.game.galaxyMaterializer = {
+      prepare() {
         throw new Error('Simulated network / procedural generation error');
       },
     } as any;
-
-    // Trigger handoff check with star target
-    f.game.universalTargetCatalog = {
-      resolve: () => ({ descriptor: { displayName: 'Andromeda Core' } }),
-    };
 
     // The handoff and flight check must survive gracefully without crashing
     assert.doesNotThrow(() => {
       f.game.checkFreeFlightGalaxyHandoff();
     });
 
-    // Address and position remain robust
+    // Address and position remain robust and preserved in Milky Way
+    assert.equal(f.universe.activeGalaxy.id, 'milky_way', 'Rollback preserves active galaxy on failure');
+    assert.equal(f.universe.address.galaxyId, 'milky_way', 'Rollback preserves address galaxyId on failure');
+    assert.deepEqual(f.travelDomain.state!.positionM, initialPos, 'Rollback preserves travel position on failure');
+    assert.deepEqual(f.travelDomain.state!.velocityMps, initialVel, 'Rollback preserves travel velocity on failure');
     assert.ok(f.travelDomain.state!.positionM.every(Number.isFinite));
+  } finally {
+    f.dispose();
+  }
+});
+
+test('T_P05_GALAXY_ACTIVATION_FAILURE_ROLLBACK', () => {
+  const f = flightFixture([0, 0, 0]);
+  try {
+    const ANDROMEDA_Y_M = 2.365e22;
+    const initialPos: [number, number, number] = [0, 0.6 * ANDROMEDA_Y_M, 0];
+    const initialVel: [number, number, number] = [0, 1e10, 0];
+
+    f.travelDomain.state!.positionM = [...initialPos];
+    f.travelDomain.state!.velocityMps = [...initialVel];
+    f.universe.updateSystemPose(initialPos, initialVel, 0);
+
+    f.game.galaxyMaterializer = {
+      prepare() {
+        return {
+          install() {},
+          activate() {
+            throw new Error('Simulated visual activation failure');
+          },
+          dispose() {},
+        };
+      },
+    } as any;
+
+    const result = f.game.performFreeFlightGalaxyHandoff('andromeda');
+    assert.equal(result, false, 'Handoff returns false when activation fails');
+    assert.equal(f.universe.activeGalaxy.id, 'milky_way', 'Rollback preserves active galaxy on activation failure');
+    assert.equal(f.universe.address.galaxyId, 'milky_way', 'Rollback preserves address on activation failure');
+    assert.deepEqual(f.travelDomain.state!.positionM, initialPos, 'Rollback preserves travel position on activation failure');
   } finally {
     f.dispose();
   }
@@ -793,9 +826,11 @@ test('T_P05_AUTOMATIC_U3_HYPERCRUISE_INDEPENDENCE', () => {
 test('T_P051_TAKEOFF_ERGONOMICS_WITHOUT_DOUBLE_V', () => {
   const f = flightFixture([0, 0, 0]);
   try {
+    f.universe.setPlayerPose(MANAUS_FRAME_ID, [0, 0, 0]);
     f.travelDomain.reset(); // starts in local domain
     f.player.state = 'Grounded';
     f.player.position.set(0, 0, 0);
+    f.player.velocity.set(0, 0, 0);
 
     // 1. Press F: activates Hover
     f.edges.add('KeyF');
@@ -808,12 +843,16 @@ test('T_P051_TAKEOFF_ERGONOMICS_WITHOUT_DOUBLE_V', () => {
     f.held.add('ShiftLeft');
 
     // Flight with Shift sprint provides fast flight (500 m/s)
+    f.player.velocity.y = 500;
     f.player.position.y = 500;
+    f.universe.update([f.player.position.x, f.player.position.y, f.player.position.z], [f.player.velocity.x, f.player.velocity.y, f.player.velocity.z], 1 / 60, [0, 0, -1]);
     f.player.update(1 / 60, f.game.colliders, 0, 0);
     assert.equal(f.player.speedMode, 'fast', 'Flight with Shift sprint provides fast flight');
 
     // Ascend to edge of atmosphere (9500m) while holding Space + Shift
+    f.player.velocity.y = 500;
     f.player.position.y = 9500;
+    f.universe.update([f.player.position.x, f.player.position.y, f.player.position.z], [f.player.velocity.x, f.player.velocity.y, f.player.velocity.z], 1 / 60, [0, 0, -1]);
     f.player.update(1 / 60, f.game.colliders, 0, 0);
     assert.equal(f.player.speedMode, 'fast', 'Player speedMode remains fast without unrequested tier jump');
     assert.equal(f.player.interplanetaryMode, false, 'interplanetaryMode is not prematurely forced');
@@ -821,6 +860,8 @@ test('T_P051_TAKEOFF_ERGONOMICS_WITHOUT_DOUBLE_V', () => {
     // 3. Step game travel domain update: space departure state machine activates and departs to space
     f.step(1 / 60);
     assert.equal(f.travelDomain.kind, 'interplanetary', 'Smooth departure from local atmosphere into space');
+    assert.ok(f.travelDomain.state, 'Travel domain state initialized');
+    assert.ok(f.travelDomain.state.positionM.every(Number.isFinite), 'Barycentric departure position is finite');
   } finally {
     f.dispose();
   }

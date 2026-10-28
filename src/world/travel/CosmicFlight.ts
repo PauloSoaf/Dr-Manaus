@@ -520,7 +520,10 @@ export class CosmicCruiseController {
       // Time-limited deceleration: bound speed shed per unit time (dt)
       // decelRate blends base braking, warp spool down time, and distance anticipation
       const spoolDecel = relSpeed / WARP_SPOOL_S;
-      const decelRate = Math.max(BASE_BRAKE_ACCEL, spoolDecel, requiredDecelMps2);
+      // Contractual separation: normal predictive deceleration is bounded to preserve kinematic continuity across threshold boundaries
+      const maxPredictiveDecel = (relSpeed / WARP_SPOOL_S + BASE_BRAKE_ACCEL) * 2.5;
+      const predictiveDecel = Math.min(requiredDecelMps2, maxPredictiveDecel);
+      const decelRate = Math.max(BASE_BRAKE_ACCEL, spoolDecel, predictiveDecel);
       const maxDeltaV = decelRate * dt;
       let newSpeed = Math.max(maxRelative, relSpeed - maxDeltaV);
 
