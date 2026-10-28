@@ -1139,7 +1139,6 @@ export class Game {
     const previousPose = {
       frame: this.universe.player.frame,
       position: [...this.universe.player.position] as [number, number, number],
-      velocity: [...this.universe.player.velocity] as [number, number, number],
     };
 
     let preparedResources: SystemResources | undefined;
@@ -1203,6 +1202,7 @@ export class Game {
       this.universe.address = previousAddress;
       if (previousTravelState) {
         this.travelDomain.setState(previousTravelState);
+        this.universe.updateSystemPose(previousTravelState.positionM, previousTravelState.velocityMps, 0);
       }
       this.universe.setPlayerPose(previousPose.frame, previousPose.position);
       return false;
