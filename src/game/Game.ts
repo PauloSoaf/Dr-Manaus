@@ -1315,7 +1315,7 @@ export class Game {
         this.hud.notify(`Modo Cósmico · CONVENCIONAL (${warpLabel(this.warpStep)} máx)`);
       }
     }
-    if (!this.travelDomain.localPhysicsActive && !this.hud?.panelOpen && this.input.enabled) {
+    if (!this.travelDomain.localPhysicsActive && !this.hud?.panelOpen && this.input.enabled !== false) {
       const wheelDelta = (this.input as any).consumeWheelDelta ? (this.input as any).consumeWheelDelta() : 0;
       let warpDelta = 0;
       if (wheelDelta < -20) {
