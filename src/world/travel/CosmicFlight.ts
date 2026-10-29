@@ -61,6 +61,7 @@ export interface FlightTelemetry {
   phase: 'idle' | 'align' | 'acceleration' | 'cruise' | 'braking' | 'capture' | 'approach' | 'arrived'
     | 'landing-capture' | 'landing-hold' | 'cosmic-cruise' | 'emergency-stop';
   emergencyStopActive?: boolean;
+  emergencyStopReason?: 'speed-guard' | 'ccd-contact';
   autopilotActive?: boolean;
   relativeSpeedMps?: number;
   closingSpeedMps?: number;
@@ -284,19 +285,19 @@ export function proximitySpeedCapMps(distM: number): number {
     return 20_000 + (distM / 1_000_000) * 100_000;
   }
   if (distM < 100_000_000) {
-    // 1,000 km -> 100,000 km: 120 km/s -> 500,000 km/s (~1.67c)
+    // 1,000 km -> 100,000 km: 120 km/s -> 50,000 km/s (~0.167c)
     const t = (distM - 1_000_000) / 99_000_000;
-    return 120_000 + t * (500_000_000 - 120_000);
+    return 120_000 + t * (50_000_000 - 120_000);
   }
   if (distM < 1_000_000_000) {
-    // 100,000 km -> 1,000,000 km: 500,000 km/s -> 16c
+    // 100,000 km -> 1,000,000 km: 50,000 km/s -> 1c (299,792 km/s)
     const t = (distM - 100_000_000) / 900_000_000;
-    return 500_000_000 + t * (16 * LIGHT_SPEED_MPS - 500_000_000);
+    return 50_000_000 + t * (LIGHT_SPEED_MPS - 50_000_000);
   }
   if (distM < 100_000_000_000) {
-    // 1,000,000 km -> 100,000,000 km (~0.67 AU): 16c -> 256c
+    // 1,000,000 km -> 100,000,000 km (~0.67 AU): 1c -> 256c
     const t = (distM - 1_000_000_000) / 99_000_000_000;
-    return 16 * LIGHT_SPEED_MPS + t * (256 * LIGHT_SPEED_MPS - 16 * LIGHT_SPEED_MPS);
+    return LIGHT_SPEED_MPS + t * (256 * LIGHT_SPEED_MPS - LIGHT_SPEED_MPS);
   }
   // Above 100M km, allow superluminal scaling with distance
   const distAU = distM / 1.496e11;
@@ -346,6 +347,7 @@ export class CosmicCruiseController {
     let acceleration = 0;
     let phase: FlightTelemetry['phase'] = 'idle';
     let emergencyStopActive = false;
+    let emergencyStopReason: FlightTelemetry['emergencyStopReason'];
     const margin = finite(context.envelopeMarginM, 1000);
 
     const isCosmic = !!context.cosmicMode
@@ -480,30 +482,54 @@ export class CosmicCruiseController {
       ? warpSpeed
       : Math.max(0, finite(context.maxRelativeSpeedMps, 500_000_000));
 
-    // Proximity Speed Gating:
-    // Scale maximum allowed speed down smoothly when approaching celestial bodies at cosmic velocities
+    // Proximity Speed Gating & Kinematic Deceleration Anticipation:
+    // Scale maximum allowed speed down smoothly when approaching celestial bodies at cosmic velocities.
+    // Calculate stopping distance and preventive kinematic buffer to initiate continuous braking before
+    // entering inevitable collision trajectories.
     let proximityCapMps = Number.POSITIVE_INFINITY;
     let proximityGatingActive = false;
     let gatedBodyId: string | undefined;
     let requiredDecelMps2 = 0;
 
-    if (isCosmic || currentRelSpeed > 256 * LIGHT_SPEED_MPS) {
+    const arrivalSpeed = 20_000;
+    const safetyBufferRatio = 1.25; // 25% safety reserve over stopping distance
+    const effectiveSpoolS = WARP_SPOOL_S * safetyBufferRatio; // 1.5s anticipatory braking horizon
+
+    if (isCosmic || warpSpeed > 0 || currentRelSpeed > arrivalSpeed) {
       for (const obstacle of obstacles) {
-        const offset = [positionM[0] - obstacle.centreM[0], positionM[1] - obstacle.centreM[1], positionM[2] - obstacle.centreM[2]];
+        const offset = [
+          positionM[0] - obstacle.centreM[0],
+          positionM[1] - obstacle.centreM[1],
+          positionM[2] - obstacle.centreM[2],
+        ];
         const distCenter = Math.hypot(...offset);
         const dist = distCenter - obstacle.radiusM;
-        // Direction of movement: inward closing speed towards obstacle
-        const inwardClosing = distCenter > 0 ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / distCenter : 0;
+        // Direction of movement: inward radial closing speed towards obstacle
+        const inwardClosing = distCenter > 0
+          ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / distCenter
+          : 0;
+
         // Only throttle if actively moving towards the body; outward flight is never throttled
-        if (inwardClosing > 0 && dist > 0) {
-          const cap = proximitySpeedCapMps(dist);
+        if (inwardClosing > 0) {
+          // 1. Static distance-based speed cap from proximity curve
+          const staticCap = proximitySpeedCapMps(Math.max(0, dist));
+
+          // 2. Kinematic stopping anticipation:
+          // Maximum safe closing speed allowing continuous spool-down to arrival speed within available distance:
+          // d_stopping = effectiveSpoolS * (v_inward - arrivalSpeed) <= dist
+          // => v_safe = arrivalSpeed + max(0, dist) / effectiveSpoolS
+          const kinematicCap = arrivalSpeed + Math.max(0, dist) / effectiveSpoolS;
+
+          const cap = Math.min(staticCap, kinematicCap);
           if (cap < proximityCapMps) {
             proximityCapMps = cap;
             gatedBodyId = obstacle.bodyId;
           }
-          // Kinematic anticipation: calculate required constant deceleration to reach cap by distance dist
+
+          // 3. Kinematic anticipation: calculate required constant deceleration to reach cap across useful distance
           if (inwardClosing > cap) {
-            const aReq = (inwardClosing * inwardClosing - cap * cap) / (2 * Math.max(10, dist * 0.85));
+            const usefulDist = Math.max(10, dist * 0.85);
+            const aReq = (inwardClosing * inwardClosing - cap * cap) / (2 * usefulDist);
             if (aReq > requiredDecelMps2) {
               requiredDecelMps2 = aReq;
             }
@@ -518,6 +544,8 @@ export class CosmicCruiseController {
     }
 
     const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    let newSpeed = relSpeed;
+
     if (!assisted && relSpeed > maxRelative && relSpeed > 0) {
       // Time-limited deceleration: bound speed shed per unit time (dt)
       // decelRate blends base braking, warp spool down time, and distance anticipation
@@ -527,42 +555,56 @@ export class CosmicCruiseController {
       const predictiveDecel = Math.min(requiredDecelMps2, maxPredictiveDecel);
       const decelRate = Math.max(BASE_BRAKE_ACCEL, spoolDecel, predictiveDecel);
       const maxDeltaV = decelRate * dt;
-      let newSpeed = Math.max(maxRelative, relSpeed - maxDeltaV);
+      newSpeed = Math.max(maxRelative, relSpeed - maxDeltaV);
 
-      // Extreme speed / critical distance guard:
-      // If continuing at newSpeed would cross into the obstacle envelope during this single frame,
-      // clamp closing speed to preserve continuous collision safety margin
-      for (const obstacle of obstacles) {
-        const offset = [positionM[0] - obstacle.centreM[0], positionM[1] - obstacle.centreM[1], positionM[2] - obstacle.centreM[2]];
-        const distCenter = Math.hypot(...offset);
-        const dist = distCenter - obstacle.radiusM;
-        const inwardRatio = distCenter > 0 ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / (distCenter * relSpeed) : 0;
-        if (inwardRatio > 0 && dist > 0) {
+      if (proximityGatingActive) {
+        phase = 'braking';
+      }
+    }
+
+    // Critical proximity & collision avoidance guard:
+    // If continuing at newSpeed would cross into the obstacle envelope during this single frame,
+    // or if already inside the exclusion margin with inward trajectory, clamp closing speed
+    // and flag emergency intervention
+    for (const obstacle of obstacles) {
+      if (landing?.bodyId === obstacle.bodyId) continue;
+      const offset = [
+        positionM[0] - obstacle.centreM[0],
+        positionM[1] - obstacle.centreM[1],
+        positionM[2] - obstacle.centreM[2],
+      ];
+      const distCenter = Math.hypot(...offset);
+      const dist = distCenter - obstacle.radiusM;
+      const inwardRatio = distCenter > 0 && relSpeed > 0
+        ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / (distCenter * relSpeed)
+        : 0;
+
+      if (inwardRatio > 0) {
+        if (dist > 0) {
           const projectedClosing = newSpeed * inwardRatio;
           if (projectedClosing * dt >= dist * 0.85) {
-            newSpeed = Math.min(newSpeed, maxRelative);
+            newSpeed = Math.min(newSpeed, proximitySpeedCapMps(0));
             emergencyStopActive = true;
             phase = 'emergency-stop';
+            emergencyStopReason = 'speed-guard';
             break;
           }
-        } else if (dist <= 0) {
-          newSpeed = Math.min(newSpeed, maxRelative);
+        } else {
+          // Inside exclusion margin and plunging inward
+          newSpeed = Math.min(newSpeed, proximitySpeedCapMps(0));
           emergencyStopActive = true;
           phase = 'emergency-stop';
+          emergencyStopReason = 'speed-guard';
           break;
         }
       }
+    }
 
+    if (newSpeed < relSpeed && relSpeed > 0) {
       const appliedDecel = (relSpeed - newSpeed) / Math.max(1e-6, dt);
       const scale = newSpeed / relSpeed;
       relVel[0] *= scale; relVel[1] *= scale; relVel[2] *= scale;
-
-      if (proximityGatingActive && appliedDecel > 1) {
-        if (phase !== 'emergency-stop') {
-          phase = 'braking';
-        }
-        acceleration = -appliedDecel;
-      }
+      acceleration = -appliedDecel;
     }
 
     velocityMps[0] = bodyVel[0] + relVel[0];
@@ -645,7 +687,14 @@ export class CosmicCruiseController {
         velocityMps[i] = orbital[i] + contactRelative[i];
         relVel[i] = velocityMps[i] - bodyVel[i];
       }
-      if (phase !== 'braking' && phase !== 'emergency-stop') phase = 'approach';
+      if (responseMode === 'landing-capture') {
+        phase = 'landing-capture';
+      } else {
+        // Unassisted contact intercepted by continuous collision detection (CCD) is an emergency collision stop
+        emergencyStopActive = true;
+        phase = 'emergency-stop';
+        emergencyStopReason = emergencyStopReason ?? 'ccd-contact';
+      }
     } else {
       positionM[0] += step[0];
       positionM[1] += step[1];
@@ -688,6 +737,7 @@ export class CosmicCruiseController {
     this.telemetry.accelerationMps2 = acceleration;
     this.telemetry.phase = phase;
     this.telemetry.emergencyStopActive = emergencyStopActive;
+    this.telemetry.emergencyStopReason = emergencyStopActive ? emergencyStopReason : undefined;
     this.telemetry.warpStep = Math.max(0, Math.round(finite(context.warpStep)));
     this.telemetry.warpLabel = warpLabel(this.telemetry.warpStep, isCosmic);
     this.telemetry.cosmicTier = cosmicTierForStep(this.telemetry.warpStep);

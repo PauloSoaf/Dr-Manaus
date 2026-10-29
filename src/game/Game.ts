@@ -1717,8 +1717,10 @@ export class Game {
     const resolved=universal?this.universalTargetResolver.resolve(universal):undefined;
     return {
       universalTarget:resolved,
-      phase:local ? target?.bodyId===this.universe.telemetry.dominantBody ? 'arrived' : 'idle'
-        :this.interplanetary.autopilot.phase==='arrived' ? 'arrived' : telemetry.targetBodyId===target?.bodyId ? telemetry.phase : 'idle',
+      phase:local ? (target?.bodyId===this.universe.telemetry.dominantBody ? 'arrived' : 'idle')
+        : (this.interplanetary.autopilot.phase==='arrived' ? 'arrived'
+          : (telemetry.phase === 'emergency-stop' || telemetry.phase === 'braking' || telemetry.targetBodyId===target?.bodyId
+            ? telemetry.phase : 'idle')),
       speedMps:telemetry.speedMps,
       accelerationMps2:telemetry.accelerationMps2,
       targetBodyId:target?.bodyId,
@@ -1733,6 +1735,8 @@ export class Game {
       cosmicTier:telemetry.cosmicTier,
       proximityGatingActive:telemetry.proximityGatingActive,
       gatedBodyId:telemetry.gatedBodyId,
+      emergencyStopActive:telemetry.emergencyStopActive,
+      emergencyStopReason:telemetry.emergencyStopReason,
       landingIntentActive:this.landingIntent?.active,
       landingBlockedReason:this.landingIntent?.active ? (this.travelDomain?.landingGate?.blockedReason === 'ready' ? 'CAPTURA' : this.travelDomain?.landingGate?.blockedReason) : undefined,
       distanceToTargetM:target ? distance : resolved?.distanceM,

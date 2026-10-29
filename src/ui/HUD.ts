@@ -72,6 +72,8 @@ export interface HUDFlightTelemetry {
   readonly gatedBodyId?: string;
   readonly landingIntentActive?: boolean;
   readonly landingBlockedReason?: string;
+  readonly emergencyStopActive?: boolean;
+  readonly emergencyStopReason?: 'speed-guard' | 'ccd-contact';
 }
 
 export interface HUDPresentation {

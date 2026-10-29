@@ -661,6 +661,10 @@ test('T_P05_VELOCITY_CONTINUITY_ACROSS_PROXIMITY_THRESHOLDS', () => {
       previousSpeed = currentSpeed;
     }
 
+    // Proactive braking must have actively shed speed smoothly over 120 frames
+    const finalSpeed = Math.hypot(...f.travelDomain.state!.velocityMps);
+    assert.ok(finalSpeed < 50_000_000, `Predictive braking must smoothly reduce speed across approach: final=${finalSpeed}`);
+    assert.ok(finalSpeed > 10_000_000, `Speed reduction remains time-limited: final=${finalSpeed}`);
     assert.ok(f.travelDomain.state!.positionM[1] > sunRadius, 'Player must remain safely above solar surface');
   } finally {
     f.dispose();
@@ -730,7 +734,8 @@ test('T_P05_DECELERATION_FRAMERATE_INDEPENDENCE_30_60_120_FPS', () => {
       }
       const finalSpeed = Math.hypot(...f.travelDomain.state!.velocityMps);
       const emergency = f.game.flightTelemetry?.emergencyStopActive === true;
-      return { finalSpeed, emergency };
+      const pos = [...f.travelDomain.state!.positionM];
+      return { finalSpeed, emergency, pos };
     } finally {
       f.dispose();
     }
@@ -744,9 +749,11 @@ test('T_P05_DECELERATION_FRAMERATE_INDEPENDENCE_30_60_120_FPS', () => {
   assert.equal(res60.emergency, false, 'No emergency stop at 60 FPS');
   assert.equal(res120.emergency, false, 'No emergency stop at 120 FPS');
 
-  // Both should have shed significant speed (from 100M down to ~40-50M m/s)
-  assert.ok(res60.finalSpeed < 60_000_000, `Speed must decelerate substantially in 1.0s: ${res60.finalSpeed}`);
+  // All framerates should have proactively shed significant speed in 1.0s (from 100M down to ~40-60M m/s)
+  assert.ok(res60.finalSpeed < 65_000_000, `Speed must decelerate substantially in 1.0s: ${res60.finalSpeed}`);
   assert.ok(res60.finalSpeed > 30_000_000, `Deceleration is time-limited: ${res60.finalSpeed}`);
+  assert.ok(res30.finalSpeed < 70_000_000, `30 FPS must also decelerate: ${res30.finalSpeed}`);
+  assert.ok(res120.finalSpeed < 65_000_000, `120 FPS must also decelerate: ${res120.finalSpeed}`);
 
   // Speeds across 30, 60, and 120 FPS should agree within numerical integration margin (~15%)
   const relDiff30 = Math.abs(res30.finalSpeed - res60.finalSpeed) / res60.finalSpeed;
@@ -775,8 +782,20 @@ test('T_P05_EMERGENCY_STOPPING_GUARD_VS_KINEMATIC_LIMITS', () => {
     // Emergency guard must prevent envelope penetration while bringing speed down to safe limit
     assert.ok(posAfter[1] >= sunRadius, `Emergency guard must prevent surface penetration: y=${posAfter[1]}`);
     assert.ok(speedAfter < 50_000_000, `Speed must be drastically reduced by emergency stopping guard: speed=${speedAfter}`);
+    assert.ok(posAfter.every(Number.isFinite), 'Coordinates must be finite');
+    assert.ok(f.travelDomain.state!.velocityMps.every(Number.isFinite), 'Velocities must be finite');
+
     const telemetry = f.game.flightTelemetry;
-    assert.ok(telemetry?.emergencyStopActive === true || telemetry?.phase === 'emergency-stop', 'Emergency stop telemetry active');
+    assert.ok(telemetry?.emergencyStopActive === true, 'Emergency stop flag must be active');
+    assert.equal(telemetry?.phase, 'emergency-stop', 'Telemetry phase must be emergency-stop');
+    assert.ok(telemetry?.emergencyStopReason === 'speed-guard' || telemetry?.emergencyStopReason === 'ccd-contact',
+      `Emergency stop reason must be speed-guard or ccd-contact (got ${telemetry?.emergencyStopReason})`);
+
+    // Gameplay continuity: continuing flight after emergency intervention
+    assert.doesNotThrow(() => {
+      for (let j = 0; j < 30; j++) f.step(1 / 60);
+    }, 'Gameplay must continue seamlessly after emergency stopping intervention');
+    assert.ok(f.travelDomain.state!.positionM[1] >= sunRadius, 'Player continues flying safely without crossing surface');
   } finally {
     f.dispose();
   }
