@@ -1131,3 +1131,14 @@ pre-existing errors, mostly a missing `node` entry in `compilerOptions.types`.
 - **Pouso Solar End-to-End**: Criado teste de integração `T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE` em `tests/sun-approach.test.ts` cobrindo o ciclo completo: acionamento real de `KeyF` -> ativação da intenção -> aproximação -> handoff para fotosfera (`sun/local-enu`, gravidade 9.8 m/s², distrito FOTOSFERA) -> caminhada local na superfície -> decolagem vertical com retorno a voo interplanetário.
 - **Gates**: `npm run typecheck` (0 erros), `npm run test:regression` (635/635 pass), `npm run check:impact-fidelity` (24/24 pass), `npm test` (1.424/1.424 pass), `npm run build` (sucesso).
 - **Bloqueio**: U4 e BH0–BH2 continuam estritamente bloqueados.
+
+---
+
+## Checkpoint P0.5.8: CCD Physical Collision Restoration & Flight Assistance Decoupling
+
+- **Baseline**: `22296770dcc266b8668c5f7da6751f1b179a6803`, `feat/universe-map`.
+- **Causa Raiz Corrigida**: Removido clamp prematuro pré-CCD (`newSpeed = Math.min(newSpeed, proximitySpeedCapMps(0))`) em `CosmicFlight.ts` que truncava o raio de sweep de colisão contínua para 20 km/s antes da detecção física, suprimindo o contato no Sol e nos planetas e degradando a energia de impactos catastróficos.
+- **Desacoplamento de Voo Cósmico**: Gating de velocidade por proximidade restrito estritamente a voos cósmicos superluminais (`isCosmic || currentRelSpeed > 256 * LIGHT_SPEED_MPS`), permitindo testes e voos manuais com velocidades físicas completas.
+- **Detecção Contínua Pura (CCD)**: Restabelecido o cálculo do vetor de trajetória real para `sweepSegmentSphere`, garantindo emissão correta de `CelestialContact` com velocidade pré-impacto real, absorção inelástica sem ricochete na fotosfera, ausência de tunelamento e acionamento de `emergencyStopActive = true` com razão `'ccd-contact'`.
+- **Documentação de Engenharia**: Elaborado documento [docs/world/34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md](file:///c:/Projetos/Dr-Manaus/docs/world/34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md) com análise detalhada, fluxo de dados, fórmulas matemáticas e matriz de testes.
+

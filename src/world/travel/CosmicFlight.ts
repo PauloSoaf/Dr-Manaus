@@ -495,7 +495,9 @@ export class CosmicCruiseController {
     const safetyBufferRatio = 1.25; // 25% safety reserve over stopping distance
     const effectiveSpoolS = WARP_SPOOL_S * safetyBufferRatio; // 1.5s anticipatory braking horizon
 
-    if (isCosmic || warpSpeed > 0 || currentRelSpeed > arrivalSpeed) {
+    const cosmicSpeedActive = isCosmic || currentRelSpeed > 256 * LIGHT_SPEED_MPS;
+
+    if (cosmicSpeedActive) {
       for (const obstacle of obstacles) {
         const offset = [
           positionM[0] - obstacle.centreM[0],
@@ -559,44 +561,6 @@ export class CosmicCruiseController {
 
       if (proximityGatingActive) {
         phase = 'braking';
-      }
-    }
-
-    // Critical proximity & collision avoidance guard:
-    // If continuing at newSpeed would cross into the obstacle envelope during this single frame,
-    // or if already inside the exclusion margin with inward trajectory, clamp closing speed
-    // and flag emergency intervention
-    for (const obstacle of obstacles) {
-      if (landing?.bodyId === obstacle.bodyId) continue;
-      const offset = [
-        positionM[0] - obstacle.centreM[0],
-        positionM[1] - obstacle.centreM[1],
-        positionM[2] - obstacle.centreM[2],
-      ];
-      const distCenter = Math.hypot(...offset);
-      const dist = distCenter - obstacle.radiusM;
-      const inwardRatio = distCenter > 0 && relSpeed > 0
-        ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / (distCenter * relSpeed)
-        : 0;
-
-      if (inwardRatio > 0) {
-        if (dist > 0) {
-          const projectedClosing = newSpeed * inwardRatio;
-          if (projectedClosing * dt >= dist * 0.85) {
-            newSpeed = Math.min(newSpeed, proximitySpeedCapMps(0));
-            emergencyStopActive = true;
-            phase = 'emergency-stop';
-            emergencyStopReason = 'speed-guard';
-            break;
-          }
-        } else {
-          // Inside exclusion margin and plunging inward
-          newSpeed = Math.min(newSpeed, proximitySpeedCapMps(0));
-          emergencyStopActive = true;
-          phase = 'emergency-stop';
-          emergencyStopReason = 'speed-guard';
-          break;
-        }
       }
     }
 
