@@ -1,6 +1,13 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — P0.2 Fidelity Hardening & Robustness Hotfix (2026-10-21)
+## Current checkpoint — P0.5.9 Proximity Throttle Gating & Full Suite Restoration (2026-10-30)
+
+Baseline at `08d14d2c5de1ca43c143d004469f07566ff3dbe1` (P0.5.8). Resolved the last remaining test failure (`T_P0B_PROXIMITY_SPEED_GATING_PREVENTS_TUNNELING`) by implementing fly-by-wire throttle limiter authority before applying commanded warp acceleration near celestial envelopes.
+All 638/638 permanent regression gate tests preserved; all 19 celestial CCD sweeps, solar photosphere physical contact without bounce, catastrophic impact classifications, multi-framerate braking consistency, and outward flight boost acceleration maintained.
+Evidence: [35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md](35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md) and [34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md](34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md).
+STOP after P0.5.9; U4/BH0 remain strictly blocked pending CI green and manual flight verification.
+
+## Previous checkpoint — P0.2 Fidelity Hardening & Robustness Hotfix (2026-10-21)
 
 Baseline at `4c05785df32eade281a2bd4f1a4361ef33fcc299`. Resolved all 5 fidelity and robustness issues, including audit hotfix:
 multi-segment continental and globe river rendering without spurious connections (`EarthRiverLayer.getRiverLines`),

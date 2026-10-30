@@ -384,10 +384,114 @@ export class CosmicCruiseController {
       acceleration = step.accelerationMps2;
       phase = step.phase === 'hold' ? 'landing-hold' : 'landing-capture';
     } else if (context.inputBrake && assisted) this.autopilot.cancel();
+
+    /**
+     * Obstacles and Proximity Speed Gating.
+     * Everything solid the step could pass through.
+     */
+    const obstacles: Obstacle[] = [...(context.exclusionEnvelopes ?? [])];
+    if (context.bodyPositionM && !obstacles.some(obstacle => obstacle.bodyId === context.bodyId)) {
+      obstacles.push({
+        bodyId: context.bodyId, velocityMps: context.bodyVelocityMps,
+        centreM: context.bodyPositionM,
+        radiusM: finite(context.bodyRadiusM) + margin,
+      });
+    }
+    if (target && target.bodyId !== context.bodyId && !obstacles.some(obstacle => obstacle.bodyId === target.bodyId)) {
+      obstacles.push({ bodyId: target.bodyId, velocityMps: target.velocityMps,
+        centreM: target.positionM, radiusM: target.radiusM + (target.exclusionMarginM ?? target.arrivalMarginM) });
+    }
+    if (landing && !obstacles.some(obstacle => obstacle.bodyId === landing.bodyId)) {
+      obstacles.push({ bodyId: landing.bodyId, velocityMps: landing.velocityMps,
+        centreM: landing.centreM, radiusM: landing.radiusM + margin });
+    }
+
+    // Proximity Speed Gating & Fly-By-Wire Throttle Authorization:
+    // When operating in proximity to celestial bodies, limit commanded warp acceleration
+    // before applying thrust, preventing single-frame multi-c acceleration towards bodies.
+    // Outward thrust is never throttled.
+    let authorizedWarpSpeed = warpSpeed;
+    let proximityCapMps = Number.POSITIVE_INFINITY;
+    let proximityGatingActive = false;
+    let gatedBodyId: string | undefined;
+    let requiredDecelMps2 = 0;
+
+    const arrivalSpeed = 20_000;
+    const safetyBufferRatio = 1.25; // 25% safety reserve over stopping distance
+    const effectiveSpoolS = WARP_SPOOL_S * safetyBufferRatio; // 1.5s anticipatory braking horizon
+
+    const initialRelSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    const cosmicSpeedActive = isCosmic || warpSpeed > 0 || initialRelSpeed > 256 * LIGHT_SPEED_MPS;
+
+    if (cosmicSpeedActive) {
+      for (const obstacle of obstacles) {
+        const offset = [
+          positionM[0] - obstacle.centreM[0],
+          positionM[1] - obstacle.centreM[1],
+          positionM[2] - obstacle.centreM[2],
+        ];
+        const distCenter = Math.hypot(...offset);
+        const dist = distCenter - obstacle.radiusM;
+
+        // 1. Static distance-based speed cap from proximity curve
+        const staticCap = proximitySpeedCapMps(Math.max(0, dist));
+
+        // 2. Kinematic stopping anticipation:
+        // Maximum safe closing speed allowing continuous spool-down to arrival speed within available distance:
+        // d_stopping = effectiveSpoolS * (v_inward - arrivalSpeed) <= dist
+        // => v_safe = arrivalSpeed + max(0, dist) / effectiveSpoolS
+        const kinematicCap = arrivalSpeed + Math.max(0, dist) / effectiveSpoolS;
+        const cap = Math.min(staticCap, kinematicCap);
+
+        // Fly-by-wire throttle limiter:
+        // When commanding forward warp thrust toward an obstacle, limit the engine throttle target
+        // to prevent injecting multi-c velocities within proximity exclusion zones.
+        // Outward thrust is never throttled.
+        if (thrustDirectionBary.lengthSq() > 0.01 && distCenter > 0) {
+          const thrustLen = thrustDirectionBary.length();
+          const thrustInward = -(offset[0] * thrustDirectionBary.x + offset[1] * thrustDirectionBary.y + offset[2] * thrustDirectionBary.z) / (distCenter * thrustLen);
+          if (thrustInward > 0) {
+            const allowedWarp = Math.min(warpSpeed, cap / thrustInward);
+            if (allowedWarp < authorizedWarpSpeed) {
+              authorizedWarpSpeed = allowedWarp;
+              gatedBodyId = obstacle.bodyId;
+              proximityGatingActive = true;
+            }
+          }
+        }
+
+        // Direction of existing movement: inward radial closing speed towards obstacle
+        const inwardClosing = distCenter > 0
+          ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / distCenter
+          : 0;
+
+        // Only throttle if actively moving towards the body; outward flight is never throttled
+        if (inwardClosing > 0) {
+          if (cap < proximityCapMps) {
+            proximityCapMps = cap;
+            gatedBodyId = obstacle.bodyId;
+          }
+
+          // Kinematic anticipation: calculate required constant deceleration to reach cap across useful distance
+          if (inwardClosing > cap) {
+            const usefulDist = Math.max(10, dist * 0.85);
+            const aReq = (inwardClosing * inwardClosing - cap * cap) / (2 * usefulDist);
+            if (aReq > requiredDecelMps2) {
+              requiredDecelMps2 = aReq;
+            }
+          }
+        }
+      }
+
+      if (proximityCapMps < authorizedWarpSpeed) {
+        proximityGatingActive = true;
+      }
+    }
+
     if (landing) {
       // Handled above.
     } else if (assisted && !context.inputBrake) {
-      acceleration = this.autopilot.update(positionM, velocityMps, dt, context, warpSpeed);
+      acceleration = this.autopilot.update(positionM, velocityMps, dt, context, authorizedWarpSpeed);
       for (let i=0;i<3;i++) relVel[i] = velocityMps[i] - bodyVel[i];
       phase = this.autopilot.phase;
     } else if (context.inputBrake) {
@@ -406,8 +510,8 @@ export class CosmicCruiseController {
         const tripSeconds = cruiseSecondsFor(remainingDistance);
         // With warp engaged the player has already said how fast they want to go, so the trip
         // plan stops rationing the throttle and only decides when to start braking.
-        const cruiseAccel = warpSpeed > 0
-          ? warpSpeed / WARP_SPOOL_S
+        const cruiseAccel = authorizedWarpSpeed > 0
+          ? authorizedWarpSpeed / WARP_SPOOL_S
           : cruiseAccelerationMps2(remainingDistance, tripSeconds);
         // Closing speed, not total speed: a sideways drift must not be mistaken for progress.
         const closingSpeed = radialApproachSpeed(toTarget, relVel);
@@ -430,9 +534,9 @@ export class CosmicCruiseController {
         }
       }
     } else if (thrustDirectionBary.lengthSq() > 0.01) {
-      phase = isCosmic && warpSpeed > 256 * LIGHT_SPEED_MPS ? 'cosmic-cruise' : 'acceleration';
+      phase = isCosmic && authorizedWarpSpeed > 256 * LIGHT_SPEED_MPS ? 'cosmic-cruise' : 'acceleration';
       // Warp sets the throttle; without it, the manual thrust is what it has always been.
-      acceleration = warpSpeed > 0 ? warpSpeed / WARP_SPOOL_S : BASE_THRUST_ACCEL;
+      acceleration = authorizedWarpSpeed > 0 ? authorizedWarpSpeed / WARP_SPOOL_S : BASE_THRUST_ACCEL;
       relVel[0] += finite(thrustDirectionBary.x) * acceleration * dt;
       relVel[1] += finite(thrustDirectionBary.y) * acceleration * dt;
       relVel[2] += finite(thrustDirectionBary.z) * acceleration * dt;
@@ -457,92 +561,13 @@ export class CosmicCruiseController {
       }
     }
 
-    /**
-     * Obstacles and Proximity Speed Gating.
-     * Everything solid the step could pass through.
-     */
-    const obstacles: Obstacle[] = [...(context.exclusionEnvelopes ?? [])];
-    if (context.bodyPositionM && !obstacles.some(obstacle => obstacle.bodyId === context.bodyId)) {
-      obstacles.push({
-        bodyId: context.bodyId, velocityMps: context.bodyVelocityMps,
-        centreM: context.bodyPositionM,
-        radiusM: finite(context.bodyRadiusM) + margin,
-      });
-    }
-    if (target && target.bodyId !== context.bodyId && !obstacles.some(obstacle => obstacle.bodyId === target.bodyId)) {
-      obstacles.push({ bodyId: target.bodyId, velocityMps: target.velocityMps,
-        centreM: target.positionM, radiusM: target.radiusM + (target.exclusionMarginM ?? target.arrivalMarginM) });
-    }
-    if (landing && !obstacles.some(obstacle => obstacle.bodyId === landing.bodyId)) {
-      obstacles.push({ bodyId: landing.bodyId, velocityMps: landing.velocityMps,
-        centreM: landing.centreM, radiusM: landing.radiusM + margin });
-    }
-
-    let maxRelative = warpSpeed > 0
-      ? warpSpeed
+    let maxRelative = authorizedWarpSpeed > 0
+      ? authorizedWarpSpeed
       : Math.max(0, finite(context.maxRelativeSpeedMps, 500_000_000));
 
-    // Proximity Speed Gating & Kinematic Deceleration Anticipation:
-    // Scale maximum allowed speed down smoothly when approaching celestial bodies at cosmic velocities.
-    // Calculate stopping distance and preventive kinematic buffer to initiate continuous braking before
-    // entering inevitable collision trajectories.
-    let proximityCapMps = Number.POSITIVE_INFINITY;
-    let proximityGatingActive = false;
-    let gatedBodyId: string | undefined;
-    let requiredDecelMps2 = 0;
-
-    const arrivalSpeed = 20_000;
-    const safetyBufferRatio = 1.25; // 25% safety reserve over stopping distance
-    const effectiveSpoolS = WARP_SPOOL_S * safetyBufferRatio; // 1.5s anticipatory braking horizon
-
-    const cosmicSpeedActive = isCosmic || currentRelSpeed > 256 * LIGHT_SPEED_MPS;
-
-    if (cosmicSpeedActive) {
-      for (const obstacle of obstacles) {
-        const offset = [
-          positionM[0] - obstacle.centreM[0],
-          positionM[1] - obstacle.centreM[1],
-          positionM[2] - obstacle.centreM[2],
-        ];
-        const distCenter = Math.hypot(...offset);
-        const dist = distCenter - obstacle.radiusM;
-        // Direction of movement: inward radial closing speed towards obstacle
-        const inwardClosing = distCenter > 0
-          ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / distCenter
-          : 0;
-
-        // Only throttle if actively moving towards the body; outward flight is never throttled
-        if (inwardClosing > 0) {
-          // 1. Static distance-based speed cap from proximity curve
-          const staticCap = proximitySpeedCapMps(Math.max(0, dist));
-
-          // 2. Kinematic stopping anticipation:
-          // Maximum safe closing speed allowing continuous spool-down to arrival speed within available distance:
-          // d_stopping = effectiveSpoolS * (v_inward - arrivalSpeed) <= dist
-          // => v_safe = arrivalSpeed + max(0, dist) / effectiveSpoolS
-          const kinematicCap = arrivalSpeed + Math.max(0, dist) / effectiveSpoolS;
-
-          const cap = Math.min(staticCap, kinematicCap);
-          if (cap < proximityCapMps) {
-            proximityCapMps = cap;
-            gatedBodyId = obstacle.bodyId;
-          }
-
-          // 3. Kinematic anticipation: calculate required constant deceleration to reach cap across useful distance
-          if (inwardClosing > cap) {
-            const usefulDist = Math.max(10, dist * 0.85);
-            const aReq = (inwardClosing * inwardClosing - cap * cap) / (2 * usefulDist);
-            if (aReq > requiredDecelMps2) {
-              requiredDecelMps2 = aReq;
-            }
-          }
-        }
-      }
-
-      if (proximityCapMps < maxRelative) {
-        maxRelative = proximityCapMps;
-        proximityGatingActive = true;
-      }
+    if (proximityCapMps < maxRelative) {
+      maxRelative = proximityCapMps;
+      proximityGatingActive = true;
     }
 
     const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
