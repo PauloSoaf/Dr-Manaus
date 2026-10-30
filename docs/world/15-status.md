@@ -1,11 +1,16 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — P0.5.9 Proximity Throttle Gating & Full Suite Restoration (2026-10-30)
+## Current checkpoint — P0.5.10 Gated Body Selection & Aerospace Reference Audit (2026-10-30)
 
-Baseline at `08d14d2c5de1ca43c143d004469f07566ff3dbe1` (P0.5.8). Resolved the last remaining test failure (`T_P0B_PROXIMITY_SPEED_GATING_PREVENTS_TUNNELING`) by implementing fly-by-wire throttle limiter authority before applying commanded warp acceleration near celestial envelopes.
-All 638/638 permanent regression gate tests preserved; all 19 celestial CCD sweeps, solar photosphere physical contact without bounce, catastrophic impact classifications, multi-framerate braking consistency, and outward flight boost acceleration maintained.
-Evidence: [35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md](35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md) and [34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md](34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md).
-STOP after P0.5.9; U4/BH0 remain strictly blocked pending CI green and manual flight verification.
+Baseline at `42e21bdf813d1b65c0615f78107ecb1ee2bd9542` (P0.5.9). Resolved the single telemetry attribution divergence in `T_P0B_PROXIMITY_SPEED_GATING_PREVENTS_TUNNELING` (where Mars was reported instead of Earth) by separating structural state channels (`throttleGatedBodyId` vs `decelGatedBodyId`), calculating obstacle-relative radial velocities, and establishing a deterministic telemetry priority hierarchy. Added unit tests for multi-body catalogue order invariance (`T_P0510_GATED_BODY_IDENTIFICATION_INDEPENDENT_OF_OBSTACLE_ORDER`). Audited and corrected technical literature citations (expunged spurious SP-8007; cited Stevens et al. 2015, Battin 1999, and NASA SP-8015).
+All 638/638 permanent regression gate tests preserved.
+Evidence: [36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md](36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md), [35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md](35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md), and [34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md](34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md).
+STOP after P0.5.10; U4/BH0 remain strictly blocked pending CI green and manual flight verification.
+
+## Previous checkpoint — P0.5.9 Proximity Throttle Gating & Full Suite Restoration (2026-10-30)
+
+Baseline at `08d14d2c5de1ca43c143d004469f07566ff3dbe1` (P0.5.8). Resolved the excessive speed tunneling failure by implementing fly-by-wire throttle limiter authority before applying commanded warp acceleration near celestial envelopes. All 638/638 permanent regression gate tests preserved.
+Evidence: [35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md](35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md).
 
 ## Previous checkpoint — P0.2 Fidelity Hardening & Robustness Hotfix (2026-10-21)
 

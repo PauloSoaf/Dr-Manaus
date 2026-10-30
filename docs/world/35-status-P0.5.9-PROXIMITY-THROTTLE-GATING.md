@@ -118,3 +118,20 @@ $$v_{radial} = v_{allowed} \cdot \tau_{inward} \le \left(\frac{v_{cap}}{\tau_{in
    - Atualização com evidências oficiais do CI P0.5.8 (Run 40899972453) e distinção entre testes permanentes e suíte geral.
 3. [docs/world/35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md](file:///c:/Projetos/Dr-Manaus/docs/world/35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md):
    - Documento canônico do Patch P0.5.9 detalhando a formulação matemática e o traçado frame a frame.
+
+---
+
+## 6. Resultado da Auditoria no CI (GitHub Actions Run 41119879842)
+
+O commit `42e21bdf813d1b65c0615f78107ecb1ee2bd9542` foi publicado na branch `feat/universe-map` e auditado no CI:
+- **TypeScript**: Aprovado
+- **Permanent regression gate**: 638/638 Aprovados (100%)
+- **Suíte geral**: 1.473/1.474 Aprovados (99.93%)
+- **Resultado do teste `T_P0B_PROXIMITY_SPEED_GATING_PREVENTS_TUNNELING`**:
+  - `cappedSpeed <= 16 * LIGHT_SPEED_MPS`: **PASSOU** (limitação de throttle fly-by-wire funcionou perfeitamente).
+  - `telemetry.proximityGatingActive === true`: **PASSOU**.
+  - `telemetry.gatedBodyId === 'earth'`: **FALHOU** (Esperado: `earth`, Obtido: `mars`).
+
+### Conclusão e Próximo Passo
+A causa do desvio de telemetria foi o compartilhamento da variável `gatedBodyId` entre a limitação de aceleração (throttle gating) e a desaceleração preditiva de cruzeiro, onde a componente orbital de Marte sobrescrevia a atribuição da Terra. Essa separação estrutural e a priorização determinística de telemetria foram endereçadas no **Patch P0.5.10** ([36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md](36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md)).
+

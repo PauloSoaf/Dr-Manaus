@@ -256,7 +256,7 @@ onde $v_{cap} = \min(staticCap(dist), kinematicCap(dist))$.
 Para $\tau_{inward} = 1.0$ (proa direta ao corpo), $v_{allowed} = v_{cap} \approx 24.8 \times 10^6\text{ m/s} \approx 0.083c \ll 16c$.
 A aceleração é integrada como $a = v_{allowed} / \text{WARP\_SPOOL\_S}$, garantindo que em $\Delta t = 1/60\text{ s}$ o acréscimo de velocidade seja $\approx 344\text{ km/s}$, estritamente abaixo do limite de $16c$, mantendo telemetria ativa (`proximityGatingActive = true`, `gatedBodyId = 'earth'`) sem tunelamento nem degradação da física balística.
 
-### 11.4 Referências Técnicas Verificáveis
-1. **Fly-By-Wire Flight Envelope Protection**: Conway, R. & Biezad, D., *Aircraft Control and Simulation* (Flight envelope limiting & thrust-vector authority limiting).
-2. **Space Flight Navigation & Proximity Guidance**: Battin, R. H., *An Introduction to the Mathematics and Methods of Astrodynamics*, AIAA Education Series.
-3. **NASA SP-8007**: *Space Vehicle Design Criteria — Acceleration and Speed Control Systems in Planetary Proximity Envelopes*.
+### 11.4 Referências Técnicas Verificadas
+1. **Fly-By-Wire Flight Envelope Protection & Command Limiting**: Stevens, B. L., Lewis, F. L., & Johnson, E. N. (2015). *Aircraft Control and Simulation: Dynamics, Controls Design, and Autonomous Systems* (3rd ed.). John Wiley & Sons. (Seções sobre proteção de envelope de voo, limitação de autoridade de comando e leis de controle fly-by-wire).
+2. **Spacecraft Proximity Guidance & Astrodynamic Navigation**: Battin, R. H. (1999). *An Introduction to the Mathematics and Methods of Astrodynamics*. AIAA Education Series, Reston, VA. (Princípios de manobras orbitais, movimento relativo e aproximação guiada).
+3. **NASA Guidance and Navigation Criteria**: NASA SP-8015 (1968). *Guidance and Navigation for Entry Vehicles*. NASA Space Vehicle Design Criteria, National Aeronautics and Space Administration. (Critérios para restrições cinemáticas e corredores seguros de aproximação planetária).

@@ -1237,4 +1237,95 @@ test('T_P052_ALL_LOCAL_TIERS_CONTRACT_PRESERVATION', () => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// 26. P0.5.10: Multi-obstacle catalogue order independence and telemetry resolution
+// -----------------------------------------------------------------------------
+test('T_P0510_GATED_BODY_IDENTIFICATION_INDEPENDENT_OF_OBSTACLE_ORDER', () => {
+  const earth = SOLAR_SYSTEM_BODIES.find(b => b.id === 'earth')!;
+  const R = earth.equatorialRadiusM;
+  const u = new UniverseRuntime({ epochS: 0 });
+  const earthPos = u.activeSystem.positionOf('earth')!;
+  u.dispose();
+  const startPos: [number, number, number] = [earthPos[0], earthPos[1] + R + 50_000_000, earthPos[2]];
+  const f = flightFixture(startPos);
+  try {
+    f.game.cosmicTier = 'interstellar';
+    f.game.warpStep = 14; // 10,000,000c
+    // Flying towards Earth
+    f.camera.lookAt(earthPos[0], earthPos[1], earthPos[2]);
+    f.camera.updateMatrixWorld();
+    f.held.add('KeyW');
+
+    // Step 1: verifies Earth is identified as gated body when throttle gating dominates
+    f.step(1 / 60);
+    const telemetry = f.controller.getTelemetry();
+    assert.equal(telemetry.proximityGatingActive, true, 'Proximity speed gating activates near body');
+    assert.equal(telemetry.gatedBodyId, 'earth', 'Earth identified as governing gated body');
+
+    // Verify speed was throttled safely below 16c
+    const speed = Math.hypot(...f.travelDomain.state!.velocityMps);
+    assert.ok(speed <= 16 * LIGHT_SPEED_MPS, 'Velocity throttled safely near Earth');
+  } finally {
+    f.dispose();
+  }
+
+  // Catalogue order invariance: test direct controller update with reversed envelopes
+  const controllerA = new CosmicCruiseController();
+  const controllerB = new CosmicCruiseController();
+
+  const earthObstacle = {
+    bodyId: 'earth',
+    centreM: [0, 0, 0] as const,
+    radiusM: 6_371_000,
+    velocityMps: [0, 0, 0] as const,
+  };
+  const marsObstacle = {
+    bodyId: 'mars',
+    centreM: [2.2e11, 0, 0] as const,
+    radiusM: 3_389_500,
+    velocityMps: [24_000, 0, 0] as const,
+  };
+
+  const stateA = {
+    systemId: 'sol',
+    positionM: [0, 6_371_000 + 50_000_000, 0] as [number, number, number],
+    velocityMps: [1_000, 0, 0] as [number, number, number],
+  };
+  const stateB = {
+    systemId: 'sol',
+    positionM: [0, 6_371_000 + 50_000_000, 0] as [number, number, number],
+    velocityMps: [1_000, 0, 0] as [number, number, number],
+  };
+
+  const contextA = {
+    cameraForwardBary: new Vector3(0, -1, 0),
+    inputBoost: false,
+    inputBrake: false,
+    warpStep: 14,
+    cosmicTier: 'interstellar' as const,
+    exclusionEnvelopes: [earthObstacle, marsObstacle],
+  };
+
+  const contextB = {
+    cameraForwardBary: new Vector3(0, -1, 0),
+    inputBoost: false,
+    inputBrake: false,
+    warpStep: 14,
+    cosmicTier: 'interstellar' as const,
+    exclusionEnvelopes: [marsObstacle, earthObstacle],
+  };
+
+  controllerA.update(stateA, 1 / 60, new Vector3(0, -1, 0), contextA);
+  controllerB.update(stateB, 1 / 60, new Vector3(0, -1, 0), contextB);
+
+  const telA = controllerA.getTelemetry();
+  const telB = controllerB.getTelemetry();
+
+  assert.equal(telA.proximityGatingActive, true, 'Controller A proximity gating active');
+  assert.equal(telB.proximityGatingActive, true, 'Controller B proximity gating active');
+  assert.equal(telA.gatedBodyId, 'earth', 'Controller A identifies Earth');
+  assert.equal(telB.gatedBodyId, 'earth', 'Controller B identifies Earth regardless of envelope ordering');
+});
+
+
 

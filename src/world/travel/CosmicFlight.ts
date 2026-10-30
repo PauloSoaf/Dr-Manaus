@@ -411,9 +411,11 @@ export class CosmicCruiseController {
     // before applying thrust, preventing single-frame multi-c acceleration towards bodies.
     // Outward thrust is never throttled.
     let authorizedWarpSpeed = warpSpeed;
+    let throttleGatedActive = false;
+    let throttleGatedBodyId: string | undefined;
+
     let proximityCapMps = Number.POSITIVE_INFINITY;
-    let proximityGatingActive = false;
-    let gatedBodyId: string | undefined;
+    let decelGatedBodyId: string | undefined;
     let requiredDecelMps2 = 0;
 
     const arrivalSpeed = 20_000;
@@ -454,22 +456,24 @@ export class CosmicCruiseController {
             const allowedWarp = Math.min(warpSpeed, cap / thrustInward);
             if (allowedWarp < authorizedWarpSpeed) {
               authorizedWarpSpeed = allowedWarp;
-              gatedBodyId = obstacle.bodyId;
-              proximityGatingActive = true;
+              throttleGatedBodyId = obstacle.bodyId;
+              throttleGatedActive = true;
             }
           }
         }
 
         // Direction of existing movement: inward radial closing speed towards obstacle
+        const obstacleVel = obstacle.velocityMps ?? (obstacle.bodyId === context.bodyId ? bodyVel : [0, 0, 0]);
+        const vRelObs = [velocityMps[0] - obstacleVel[0], velocityMps[1] - obstacleVel[1], velocityMps[2] - obstacleVel[2]];
         const inwardClosing = distCenter > 0
-          ? -(offset[0] * relVel[0] + offset[1] * relVel[1] + offset[2] * relVel[2]) / distCenter
+          ? -(offset[0] * vRelObs[0] + offset[1] * vRelObs[1] + offset[2] * vRelObs[2]) / distCenter
           : 0;
 
-        // Only throttle if actively moving towards the body; outward flight is never throttled
+        // Only track for deceleration if actively closing towards the body
         if (inwardClosing > 0) {
           if (cap < proximityCapMps) {
             proximityCapMps = cap;
-            gatedBodyId = obstacle.bodyId;
+            decelGatedBodyId = obstacle.bodyId;
           }
 
           // Kinematic anticipation: calculate required constant deceleration to reach cap across useful distance
@@ -481,10 +485,6 @@ export class CosmicCruiseController {
             }
           }
         }
-      }
-
-      if (proximityCapMps < authorizedWarpSpeed) {
-        proximityGatingActive = true;
       }
     }
 
@@ -565,13 +565,15 @@ export class CosmicCruiseController {
       ? authorizedWarpSpeed
       : Math.max(0, finite(context.maxRelativeSpeedMps, 500_000_000));
 
+    let decelGatingActive = false;
     if (proximityCapMps < maxRelative) {
       maxRelative = proximityCapMps;
-      proximityGatingActive = true;
+      decelGatingActive = true;
     }
 
     const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
     let newSpeed = relSpeed;
+    let decelerationApplied = false;
 
     if (!assisted && relSpeed > maxRelative && relSpeed > 0) {
       // Time-limited deceleration: bound speed shed per unit time (dt)
@@ -583,10 +585,8 @@ export class CosmicCruiseController {
       const decelRate = Math.max(BASE_BRAKE_ACCEL, spoolDecel, predictiveDecel);
       const maxDeltaV = decelRate * dt;
       newSpeed = Math.max(maxRelative, relSpeed - maxDeltaV);
-
-      if (proximityGatingActive) {
-        phase = 'braking';
-      }
+      decelerationApplied = true;
+      phase = 'braking';
     }
 
     if (newSpeed < relSpeed && relSpeed > 0) {
@@ -594,6 +594,26 @@ export class CosmicCruiseController {
       const scale = newSpeed / relSpeed;
       relVel[0] *= scale; relVel[1] *= scale; relVel[2] *= scale;
       acceleration = -appliedDecel;
+    }
+
+    // Telemetry Gating Resolution:
+    // Determine which gating constraint actively governed this frame:
+    // 1. If active deceleration was applied due to proximity cap: decelGatedBodyId governed.
+    // 2. Otherwise, if engine warp throttle was limited by proximity: throttleGatedBodyId governed.
+    // 3. Otherwise, if cruise speed is actively capped below requested warp: decelGatedBodyId governed.
+    // 4. If no restriction was active: proximityGatingActive is false, gatedBodyId is undefined.
+    let proximityGatingActive = false;
+    let gatedBodyId: string | undefined;
+
+    if (decelerationApplied && decelGatedBodyId) {
+      proximityGatingActive = true;
+      gatedBodyId = decelGatedBodyId;
+    } else if (throttleGatedActive && throttleGatedBodyId) {
+      proximityGatingActive = true;
+      gatedBodyId = throttleGatedBodyId;
+    } else if (decelGatingActive && decelGatedBodyId && relSpeed > 0) {
+      proximityGatingActive = true;
+      gatedBodyId = decelGatedBodyId;
     }
 
     velocityMps[0] = bodyVel[0] + relVel[0];
