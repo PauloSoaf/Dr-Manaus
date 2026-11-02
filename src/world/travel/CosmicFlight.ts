@@ -573,7 +573,7 @@ export class CosmicCruiseController {
 
     const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
     let newSpeed = relSpeed;
-    let decelerationApplied = false;
+    let proximityDecelApplied = false;
 
     if (!assisted && relSpeed > maxRelative && relSpeed > 0) {
       // Time-limited deceleration: bound speed shed per unit time (dt)
@@ -585,27 +585,37 @@ export class CosmicCruiseController {
       const decelRate = Math.max(BASE_BRAKE_ACCEL, spoolDecel, predictiveDecel);
       const maxDeltaV = decelRate * dt;
       newSpeed = Math.max(maxRelative, relSpeed - maxDeltaV);
-      decelerationApplied = true;
-      phase = 'braking';
+
+      if (decelGatingActive) {
+        proximityDecelApplied = true;
+        phase = 'braking';
+      }
     }
 
     if (newSpeed < relSpeed && relSpeed > 0) {
       const appliedDecel = (relSpeed - newSpeed) / Math.max(1e-6, dt);
       const scale = newSpeed / relSpeed;
       relVel[0] *= scale; relVel[1] *= scale; relVel[2] *= scale;
-      acceleration = -appliedDecel;
+      if (proximityDecelApplied || context.inputBrake || phase === 'braking' || phase === 'emergency-stop') {
+        acceleration = -appliedDecel;
+      } else if (thrustDirectionBary.lengthSq() > 0.01 && Math.abs(newSpeed - authorizedWarpSpeed) < 1e-3 * Math.max(1, authorizedWarpSpeed)) {
+        // Cruise speed governor at steady state: net acceleration across frame is zero
+        acceleration = 0;
+      } else {
+        acceleration = -appliedDecel;
+      }
     }
 
     // Telemetry Gating Resolution:
     // Determine which gating constraint actively governed this frame:
-    // 1. If active deceleration was applied due to proximity cap: decelGatedBodyId governed.
+    // 1. If active proximity deceleration was applied due to proximity cap: decelGatedBodyId governed.
     // 2. Otherwise, if engine warp throttle was limited by proximity: throttleGatedBodyId governed.
     // 3. Otherwise, if cruise speed is actively capped below requested warp: decelGatedBodyId governed.
     // 4. If no restriction was active: proximityGatingActive is false, gatedBodyId is undefined.
     let proximityGatingActive = false;
     let gatedBodyId: string | undefined;
 
-    if (decelerationApplied && decelGatedBodyId) {
+    if (proximityDecelApplied && decelGatedBodyId) {
       proximityGatingActive = true;
       gatedBodyId = decelGatedBodyId;
     } else if (throttleGatedActive && throttleGatedBodyId) {

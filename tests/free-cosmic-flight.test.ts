@@ -1327,5 +1327,70 @@ test('T_P0510_GATED_BODY_IDENTIFICATION_INDEPENDENT_OF_OBSTACLE_ORDER', () => {
   assert.equal(telB.gatedBodyId, 'earth', 'Controller B identifies Earth regardless of envelope ordering');
 });
 
+// -----------------------------------------------------------------------------
+// 27. P0.5.11: Separation of cruise speed governor from proximity and manual braking
+// -----------------------------------------------------------------------------
+test('T_P0511_INTERSTELLAR_CRUISE_PHASE_AND_SPEED_GOVERNOR_SEMANTICS', () => {
+  // 1. Deep space cruise speed governor: maintaining max warp speed is NOT braking
+  const fDeep = flightFixture([0, 1e15, 0]); // 10,000 AU out
+  try {
+    fDeep.game.cosmicTier = 'interstellar';
+    fDeep.game.warpStep = 10; // 1,000c
+    fDeep.camera.lookAt(0, 1e15, 1e16);
+    fDeep.camera.updateMatrixWorld();
+    fDeep.held.add('KeyW');
+
+    // Accelerate to 1,000c (12 steps of 0.1s reach warp spool, 30 steps run deep into steady-state cruise)
+    for (let i = 0; i < 30; i++) fDeep.step(0.1);
+
+    const telDeep = fDeep.controller.getTelemetry();
+    const speed = Math.hypot(...fDeep.travelDomain.state!.velocityMps);
+
+    assert.ok(speed >= 1000 * LIGHT_SPEED_MPS, 'Reaches commanded warp speed (1,000c)');
+    assert.equal(telDeep.phase, 'cosmic-cruise', 'Cruise speed governor must preserve cosmic-cruise phase');
+    assert.equal(telDeep.proximityGatingActive, false, 'Proximity gating must remain inactive in deep space');
+    assert.equal(telDeep.gatedBodyId, undefined, 'No celestial body should be identified as gated body in deep space');
+    assert.equal(telDeep.accelerationMps2, 0, 'Net acceleration across steady-state cruise frame must be zero');
+  } finally {
+    fDeep.dispose();
+  }
+
+  // 2. Proximity-induced deceleration: entering celestial envelope actively engages proximity braking
+  const sunRadius = 695_700_000;
+  const fNear = flightFixture([0, sunRadius + 50_000_000, 0]); // 50,000 km from Sun
+  try {
+    fNear.game.cosmicTier = 'interstellar';
+    fNear.game.warpStep = 10;
+    // Moving inward toward Sun at 50,000,000 m/s (above the ~24.8M m/s cap)
+    fNear.travelDomain.state!.velocityMps = [0, -50_000_000, 0];
+    fNear.step(1 / 60);
+
+    const telNear = fNear.controller.getTelemetry();
+    assert.equal(telNear.phase, 'braking', 'Proximity speed gating actively engages braking phase');
+    assert.equal(telNear.proximityGatingActive, true, 'Proximity gating active near body');
+    assert.equal(telNear.gatedBodyId, 'sun', 'Identifies Sun as gated body during proximity braking');
+    assert.ok(telNear.accelerationMps2 < 0, 'Acceleration is negative during proximity braking');
+  } finally {
+    fNear.dispose();
+  }
+
+  // 3. Manual player braking in deep space: KeyQ produces braking phase without proximity gating
+  const fBrake = flightFixture([0, 1e15, 0]);
+  try {
+    fBrake.game.cosmicTier = 'interstellar';
+    fBrake.game.warpStep = 10;
+    fBrake.travelDomain.state!.velocityMps = [0, 0, 100_000_000];
+    fBrake.held.add('KeyQ');
+    fBrake.step(1 / 60);
+
+    const telBrake = fBrake.controller.getTelemetry();
+    assert.equal(telBrake.phase, 'braking', 'Manual brake command produces braking phase');
+    assert.equal(telBrake.proximityGatingActive, false, 'Manual brake in deep space is not proximity gating');
+  } finally {
+    fBrake.dispose();
+  }
+});
+
+
 
 

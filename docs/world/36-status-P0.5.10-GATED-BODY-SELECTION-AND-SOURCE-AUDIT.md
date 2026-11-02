@@ -121,7 +121,7 @@ Durante a auditoria deste patch, foi identificado e corrigido um erro de citaç�
 2. **Battin, R. H. (1999)**. *An Introduction to the Mathematics and Methods of Astrodynamics*. AIAA Education Series, Reston, VA.
    - Obra de referência em mecânica celeste aplicada, aproximação orbital relativa (*relative motion guidance*) e vetores de fechamento radial.
 3. **NASA SP-8015 (1968)**. *Guidance and Navigation for Entry Vehicles*. NASA Space Vehicle Design Criteria, National Aeronautics and Space Administration.
-   - Critério de engenharia aeroespacial sobre corredores seguros de velocidade de aproximação em envelopes planetários.
+   - Monografia clássica sobre corredores de guiamento e limites de velocidade em aproximações planetárias. *Nota de escopo:* O documento trata estritamente de reentrada atmosférica e limites dinâmicos de aproximação suborbital/orbital, servindo apenas como precedente histórico de corredores delimitados de velocidade por distância em engenharia aeroespacial, sem qualquer relação direta com a mecânica fictícia de propulsão FTL/warp do jogo.
 
 ---
 
@@ -152,3 +152,22 @@ O teste valida:
    - Este documento canônico do Patch P0.5.10.
 6. [docs/world/15-status.md](file:///c:/Projetos/Dr-Manaus/docs/world/15-status.md):
    - Atualização do log cronológico e estado das metas do P0.5.
+
+---
+
+## 7. Resultado da Auditoria no CI (GitHub Actions Run 41139310901)
+
+O commit `97d96a1606cd6e08cf3521acd48f1b53a53c2062` foi auditado no GitHub Actions:
+- **TypeScript**: Aprovado (0 erros)
+- **Permanent regression gate**: 638/638 Aprovados (100%)
+- **Suíte geral**: 1.474/1.475 Aprovados (99.93%)
+- **Única falha restante**:
+  ```text
+  T_P0B_SOLAR_SYSTEM_TO_INTERSTELLAR_SPACE_WASD
+  Esperado: cosmic-cruise
+  Obtido: braking
+  tests/free-cosmic-flight.test.ts:273
+  ```
+
+### Diagnóstico e Transição para o P0.5.11
+O teste revelou que a atribuição incondicional `decelerationApplied = true; phase = 'braking'` dentro do bloco de limite de velocidade afetava o cruzeiro interestelar livre, rotulando a ação do regulador de velocidade máxima (*speed governor*) em espaço profundo como se fosse frenagem de aproximação planetária. Essa semântica foi retificada no **Patch P0.5.11** ([37-status-P0.5.11-CRUISE-PHASE-AND-BRAKING-SEMANTICS.md](37-status-P0.5.11-CRUISE-PHASE-AND-BRAKING-SEMANTICS.md)).

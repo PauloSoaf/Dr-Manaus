@@ -1,11 +1,17 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — P0.5.10 Gated Body Selection & Aerospace Reference Audit (2026-10-30)
+## Current checkpoint — P0.5.11 Interstellar Cruise Restoration & Flight Phase Semantics (2026-11-01)
+
+Baseline at `97d96a1606cd6e08cf3521acd48f1b53a53c2062` (P0.5.10). Resolved the flight phase regression in `T_P0B_SOLAR_SYSTEM_TO_INTERSTELLAR_SPACE_WASD` (where interstellar cruise at 1,000c was misclassified as `braking`) by separating the steady-state cruise speed governor from proximity-induced deceleration. In steady-state warp cruise, net acceleration is zero and flight phase remains `cosmic-cruise`; proximity deceleration is only applied and flagged when an obstacle envelope actively bounds velocity. Added comprehensive unit test covering the six distinct flight regimes (`T_P0511_INTERSTELLAR_CRUISE_PHASE_AND_SPEED_GOVERNOR_SEMANTICS`). Audited technical references, clearly distinguishing real-world control principles from gameplay FTL mechanics.
+All 638/638 permanent regression gate tests preserved.
+Evidence: [37-status-P0.5.11-CRUISE-PHASE-AND-BRAKING-SEMANTICS.md](37-status-P0.5.11-CRUISE-PHASE-AND-BRAKING-SEMANTICS.md) and [36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md](36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md).
+STOP after P0.5.11; U4/BH0 remain strictly blocked pending CI green and manual flight verification.
+
+## Previous checkpoint — P0.5.10 Gated Body Selection & Aerospace Reference Audit (2026-10-30)
 
 Baseline at `42e21bdf813d1b65c0615f78107ecb1ee2bd9542` (P0.5.9). Resolved the single telemetry attribution divergence in `T_P0B_PROXIMITY_SPEED_GATING_PREVENTS_TUNNELING` (where Mars was reported instead of Earth) by separating structural state channels (`throttleGatedBodyId` vs `decelGatedBodyId`), calculating obstacle-relative radial velocities, and establishing a deterministic telemetry priority hierarchy. Added unit tests for multi-body catalogue order invariance (`T_P0510_GATED_BODY_IDENTIFICATION_INDEPENDENT_OF_OBSTACLE_ORDER`). Audited and corrected technical literature citations (expunged spurious SP-8007; cited Stevens et al. 2015, Battin 1999, and NASA SP-8015).
 All 638/638 permanent regression gate tests preserved.
 Evidence: [36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md](36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md), [35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md](35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md), and [34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md](34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md).
-STOP after P0.5.10; U4/BH0 remain strictly blocked pending CI green and manual flight verification.
 
 ## Previous checkpoint — P0.5.9 Proximity Throttle Gating & Full Suite Restoration (2026-10-30)
 

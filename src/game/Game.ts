@@ -1719,7 +1719,7 @@ export class Game {
       universalTarget:resolved,
       phase:local ? (target?.bodyId===this.universe.telemetry.dominantBody ? 'arrived' : 'idle')
         : (this.interplanetary.autopilot.phase==='arrived' ? 'arrived'
-          : (telemetry.phase === 'emergency-stop' || telemetry.phase === 'braking' || telemetry.targetBodyId===target?.bodyId
+          : (telemetry.phase === 'emergency-stop' || telemetry.phase === 'braking' || telemetry.phase === 'cosmic-cruise' || telemetry.targetBodyId===target?.bodyId
             ? telemetry.phase : 'idle')),
       speedMps:telemetry.speedMps,
       accelerationMps2:telemetry.accelerationMps2,
