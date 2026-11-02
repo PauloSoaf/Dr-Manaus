@@ -1,11 +1,15 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — P0.5.11 Interstellar Cruise Restoration & Flight Phase Semantics (2026-11-01)
+## Current checkpoint — U4.1 Deterministic Procedural Galaxy Generator (2026-11-02)
+
+Baseline at `22ba21ead896e1049999e94b43922f5d7c59767f` (P0.5.11). Implemented `ProceduralGalaxyGenerator.ts` providing deterministic mathematical generation of galactic descriptors across cosmological cell grids (`BigInt3`, 2.0 Mpc cells) using 64-bit integer FNV-1a hashing and 64-bit xorshift PRNG without `Math.random` or global state. Models complete Hubble sequence morphology (E0-E7, S0, Sa-Sc, SBa-SBc, Irr) with 3D analytic stellar density functions: soft-core Hernquist/de Vaucouleurs bulge (strictly non-singular at r=0), triaxial central bar, double exponential thin/thick disk, logarithmic spiral arms with envelope maximum (strictly M_arms >= 0.25 > 0), and diffuse stellar halo. Preserves canonical Local Group entities (`milky_way`, `andromeda`, `triangulum`, `lmc`, `smc`) and provides backward-compatible adapter `toGalaxyDefinition()`. Architectural metadata slot for central SMBH via Magorrian relation. Added 10 formal contract unit tests in `tests/procedural-galaxy-generator.test.ts`. U4.1 is implemented and ready for pipeline verification (not registered as approved prior to CI). U4.2 (GPU shaders/particles), U4.3 (map/gameplay integration), and BH0-BH2 remain strictly deferred.
+Evidence: [38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md](38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md).
+
+## Previous checkpoint — P0.5.11 Interstellar Cruise Restoration & Flight Phase Semantics (2026-11-01)
 
 Baseline at `97d96a1606cd6e08cf3521acd48f1b53a53c2062` (P0.5.10). Resolved the flight phase regression in `T_P0B_SOLAR_SYSTEM_TO_INTERSTELLAR_SPACE_WASD` (where interstellar cruise at 1,000c was misclassified as `braking`) by separating the steady-state cruise speed governor from proximity-induced deceleration. In steady-state warp cruise, net acceleration is zero and flight phase remains `cosmic-cruise`; proximity deceleration is only applied and flagged when an obstacle envelope actively bounds velocity. Added comprehensive unit test covering the six distinct flight regimes (`T_P0511_INTERSTELLAR_CRUISE_PHASE_AND_SPEED_GOVERNOR_SEMANTICS`). Audited technical references, clearly distinguishing real-world control principles from gameplay FTL mechanics.
-All 638/638 permanent regression gate tests preserved.
+Officially verified in GitHub Actions Run 41385860673: Typecheck SUCCESS; permanent regression gate 638/638 PASS; general unit tests 1,476/1,476 PASS; Vite production build SUCCESS. Published at commit `22ba21ead896e1049999e94b43922f5d7c59767f`.
 Evidence: [37-status-P0.5.11-CRUISE-PHASE-AND-BRAKING-SEMANTICS.md](37-status-P0.5.11-CRUISE-PHASE-AND-BRAKING-SEMANTICS.md) and [36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md](36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md).
-STOP after P0.5.11; U4/BH0 remain strictly blocked pending CI green and manual flight verification.
 
 ## Previous checkpoint — P0.5.10 Gated Body Selection & Aerospace Reference Audit (2026-10-30)
 
