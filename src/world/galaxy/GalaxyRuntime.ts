@@ -3,6 +3,7 @@ import { generateStarSector, milkyWayDensity, andromedaDensity } from '../celest
 import type { SectorIndex } from '../spatial/UniverseAddress';
 import type { Vec3 } from '../spatial/units';
 import { galaxyDefinition, galaxyLocalPositionM } from './GalaxyCoordinates';
+import { evaluateProceduralDensity } from './ProceduralGalaxyGenerator';
 
 /** Small immutable runtime catalogue. UniverseAddress remains the player's sole location authority. */
 export class GalaxyRuntime {
@@ -15,6 +16,9 @@ export class GalaxyRuntime {
   get centralBlackHole(){return this.definition.centralBlackHole;}
   galaxyLocalPosition(sector:SectorIndex,offsetM:Vec3=[0,0,0]):Vec3{return galaxyLocalPositionM(this.definition,sector,offsetM);}
   densityAtLocal(positionM:Vec3):number {
+    if (this.definition.proceduralMorphology) {
+      return evaluateProceduralDensity(this.definition.proceduralMorphology, positionM);
+    }
     return (this.definition.densityProfile==='andromeda'?andromedaDensity:milkyWayDensity)(positionM)*(this.definition.densityScale??1);
   }
   generateSector(sector:SectorIndex,options:{densityScale?:number;maxStars?:number}={}){return generateStarSector(this.id,sector,options);}

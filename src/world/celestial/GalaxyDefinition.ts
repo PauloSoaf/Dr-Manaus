@@ -1,10 +1,11 @@
 import type { BlackHoleDefinition } from '../providers/BlackHoleProvider';
 import { LIGHT_YEAR_M, type Vec3 } from '../spatial/units';
+import type { ProceduralGalaxyDescriptor } from '../galaxy/ProceduralGalaxyGenerator';
 
 /** Existing StarSector convention: the Solar-relative sector grid puts the MW centre on +X. */
 export const GALACTIC_CENTRE_FROM_SOL_M:Vec3 = [26_000 * LIGHT_YEAR_M,0,0];
 
-export type GalaxyDensityProfile = 'milky-way' | 'andromeda' | 'elliptical' | 'irregular';
+export type GalaxyDensityProfile = 'milky-way' | 'andromeda' | 'elliptical' | 'irregular' | 'procedural';
 
 export interface GalaxyDefinition {
   id: string;
@@ -21,6 +22,8 @@ export interface GalaxyDefinition {
   densityProfile: GalaxyDensityProfile;
   densityScale?: number;
   centralBlackHole?: BlackHoleDefinition;
+  /** Attached for procedural galaxies so GalaxyRuntime evaluates their specific morphology. */
+  proceduralMorphology?: ProceduralGalaxyDescriptor;
 }
 
 export const LOCAL_GROUP_CATALOG: GalaxyDefinition[] = [

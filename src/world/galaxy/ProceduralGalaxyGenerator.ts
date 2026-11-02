@@ -5,15 +5,24 @@
  *
  * Models galactic morphology (Hubble sequence: E0-E7, S0, Sa-Sc, SBa-SBc, Irr)
  * using astrophysically grounded 3D stellar density functions:
- *   - Soft-core Hernquist / de Vaucouleurs spheroidal bulge (no r=0 singularity)
- *   - Triaxial central bar for barred spirals (SBa-SBc)
+ *   - Soft-core spheroidal bulge *inspired by* Hernquist (1990): same r^-4 outer asymptote,
+ *     but a finite core instead of the exact Hernquist r^-1 cusp (no r=0 singularity)
+ *   - Triaxial Gaussian central bar for barred spirals (SBa-SBc) — procedural approximation
  *   - Double exponential thin and thick stellar disk
  *   - Logarithmic spiral arms with envelope maximum (strictly M_arms >= 0.25 > 0)
  *   - Diffuse oblate/spherical stellar halo
  *
  * Determinism Contract:
  *   - Zero Math.random, zero Date.now, zero mutable global state.
- *   - Pure 64-bit integer FNV-1a hashing and 64-bit xorshift pseudo-random generator.
+ *   - Canonical full-magnitude BigInt key encoding, 64-bit FNV-1a + SplitMix64 finaliser,
+ *     and 64-bit xorshift pseudo-random generator (see GALAXY_GENERATOR_VERSION).
+ *
+ * Coordinate Contract (U4.1.1):
+ *   - A galaxy's cosmological position is (cell: BigInt3, localMpc: Vec3). Cell (0,0,0) is centred
+ *     on the Milky Way centre; cell c is centred at c * COSMOLOGICAL_CELL_SIZE_M.
+ *   - Conversion to absolute Float64 metres is only offered inside an explicit bounded domain
+ *     (|cell| <= COSMOLOGICAL_FLOAT_DOMAIN_MAX_CELLS). Outside it the API refuses explicitly.
+ *   - Relative vectors subtract cells in BigInt first, so distant-but-close pairs stay exact.
  *   - Output is strictly invariant to camera position, floating origin shifts, and query order.
  *   - Preserves canonical astronomical catalog entities (Milky Way, Andromeda, M33, LMC, SMC).
  *
@@ -37,6 +46,7 @@ import {
   PARSEC_M,
   type Vec3,
   degToRad,
+  isFiniteVec3,
   wrapPi,
   finite,
 } from '../spatial/units';
@@ -76,6 +86,60 @@ export const SPEED_OF_LIGHT_MPS = 299_792_458;
 /** Schwarzschild radius per solar mass in metres: R_s/M_sun = 2 G M_sun / c^2 ~= 2953.25 m. */
 export const SCHWARZSCHILD_RADIUS_PER_SOLAR_MASS_M =
   (2 * G_GRAVITATIONAL * SOLAR_MASS_KG) / (SPEED_OF_LIGHT_MPS * SPEED_OF_LIGHT_MPS);
+
+/* ========================================================================== */
+/* Cosmological Coordinate Contract (U4.1.1)                                  */
+/* ========================================================================== */
+
+/**
+ * Largest |cell index| (per axis) for which an absolute Float64 position in metres is offered.
+ * 1024 cells ≈ 2 Gpc ≈ 6.3e25 m, where the Float64 spacing is ~1.4e10 m (~0.1 AU): negligible
+ * against a galaxy (~1e21 m) and far from any loss of identity between neighbouring cells.
+ * Beyond it, `cosmologicalPositionM` returns `undefined` rather than an imprecise number.
+ */
+export const COSMOLOGICAL_FLOAT_DOMAIN_MAX_CELLS = 1024n;
+
+const absBig = (v: bigint): bigint => (v < 0n ? -v : v);
+
+export function isCellInFloatDomain(cell: BigInt3): boolean {
+  const max = COSMOLOGICAL_FLOAT_DOMAIN_MAX_CELLS;
+  return absBig(cell.x) <= max && absBig(cell.y) <= max && absBig(cell.z) <= max;
+}
+
+/**
+ * Absolute position (metres) relative to the Milky Way centre — the same frame as
+ * `GalaxyDefinition.positionM` — or `undefined` if the cell lies outside the bounded Float64
+ * domain or the local offset is not finite. Never returns a silently wrong position.
+ */
+export function cosmologicalPositionM(address: CosmologicalAddress): Vec3 | undefined {
+  if (!isCellInFloatDomain(address.cell) || !isFiniteVec3(address.localMpc)) return undefined;
+  return [
+    Number(address.cell.x) * COSMOLOGICAL_CELL_SIZE_M + address.localMpc[0] * MPC_M,
+    Number(address.cell.y) * COSMOLOGICAL_CELL_SIZE_M + address.localMpc[1] * MPC_M,
+    Number(address.cell.z) * COSMOLOGICAL_CELL_SIZE_M + address.localMpc[2] * MPC_M,
+  ];
+}
+
+/**
+ * Vector from `from` to `to`, in metres. The cell difference is taken exactly in BigInt and only
+ * the (small) difference is converted, mirroring `UniverseAddress.separationM`. Works for any
+ * absolute magnitude (including cells beyond 2^53 or 2^64) as long as the *difference* is within
+ * the bounded domain; otherwise returns `undefined`.
+ */
+export function cosmologicalSeparationVectorM(
+  from: CosmologicalAddress,
+  to: CosmologicalAddress,
+): Vec3 | undefined {
+  const delta: BigInt3 = { x: to.cell.x - from.cell.x, y: to.cell.y - from.cell.y, z: to.cell.z - from.cell.z };
+  if (!isCellInFloatDomain(delta) || !isFiniteVec3(from.localMpc) || !isFiniteVec3(to.localMpc)) {
+    return undefined;
+  }
+  return [
+    Number(delta.x) * COSMOLOGICAL_CELL_SIZE_M + (to.localMpc[0] - from.localMpc[0]) * MPC_M,
+    Number(delta.y) * COSMOLOGICAL_CELL_SIZE_M + (to.localMpc[1] - from.localMpc[1]) * MPC_M,
+    Number(delta.z) * COSMOLOGICAL_CELL_SIZE_M + (to.localMpc[2] - from.localMpc[2]) * MPC_M,
+  ];
+}
 
 /* ========================================================================== */
 /* Morphological Types & Parameter Interfaces                                 */
@@ -228,39 +292,121 @@ export interface ProceduralGalaxyDescriptor {
 /* ========================================================================== */
 
 /**
- * 64-bit FNV-1a hash over cosmological cell indices and universe seed.
- * Produces a stable, platform-independent 64-bit unsigned integer seed.
+ * Generator version. Part of every hashed key, so a future change to the generation algorithm can
+ * bump it and produce a disjoint seed space instead of silently mutating existing galaxies.
+ *   v1 (U4.1, d1def8c): 8-byte truncating mix, 32-bit index — superseded (aliasing at 2^64).
+ *   v2 (U4.1.1): canonical full-magnitude encoding + SplitMix64 finaliser.
+ */
+export const GALAXY_GENERATOR_VERSION = 2;
+
+/** Hash purposes. Distinct purposes never share a key, so a population roll is not galaxy 0's seed. */
+export const HASH_PURPOSE_GALAXY = 0;
+export const HASH_PURPOSE_CELL_POPULATION = 1;
+export type HashPurpose = typeof HASH_PURPOSE_GALAXY | typeof HASH_PURPOSE_CELL_POPULATION;
+
+/**
+ * Valid domain of `galaxyIndex`: integers in [0, GALAXY_INDEX_MAX].
+ * Field cells hold 1–4 galaxies and the Local Group cell 5; 65 535 leaves room for future cluster
+ * cells. Out-of-domain indices throw `RangeError` — they are never truncated or wrapped.
+ * Whether an index is *populated* is decided separately by `getGalaxyCountInCell`.
+ */
+export const GALAXY_INDEX_MAX = 0xffff;
+
+const FNV64_OFFSET = 0xcbf2_9ce4_8422_2325n;
+const FNV64_PRIME = 0x0000_0100_0000_01b3n;
+const MASK64 = 0xffff_ffff_ffff_ffffn;
+/** ASCII 'DMGX' — domain tag so these keys can never coincide with `sectorSeed` string keys. */
+const KEY_MAGIC = [0x44, 0x4d, 0x47, 0x58] as const;
+
+export function assertValidGalaxyIndex(galaxyIndex: number): void {
+  if (!Number.isSafeInteger(galaxyIndex) || galaxyIndex < 0 || galaxyIndex > GALAXY_INDEX_MAX) {
+    throw new RangeError(
+      `galaxyIndex must be an integer in [0, ${GALAXY_INDEX_MAX}]; received ${String(galaxyIndex)}`,
+    );
+  }
+}
+
+/** Plain 64-bit FNV-1a over bytes (Fowler–Noll–Vo). Exposed so tests can pin published vectors. */
+export function fnv1a64Bytes(bytes: ArrayLike<number>): bigint {
+  let hash = FNV64_OFFSET;
+  for (let i = 0; i < bytes.length; i++) {
+    hash ^= BigInt(bytes[i] & 0xff);
+    hash = (hash * FNV64_PRIME) & MASK64;
+  }
+  return hash;
+}
+
+/**
+ * SplitMix64 output finaliser (Steele, Lea & Flood 2014). FNV-1a's multiply only carries upward,
+ * so its low bits depend only on the low bits of the input; the finaliser gives full avalanche
+ * before the value seeds xorshift, decorrelating neighbouring cells.
+ */
+export function splitMix64Finalize(value: bigint): bigint {
+  let z = value & MASK64;
+  z = ((z ^ (z >> 30n)) * 0xbf58_476d_1ce4_e5b9n) & MASK64;
+  z = ((z ^ (z >> 27n)) * 0x94d0_49bb_1331_11ebn) & MASK64;
+  return (z ^ (z >> 31n)) & MASK64;
+}
+
+/**
+ * Canonical, injective byte encoding of an arbitrary-size BigInt:
+ *   [sign byte: 0 = non-negative, 1 = negative] [LEB128 byte length] [magnitude, little-endian]
+ * Zero is [0, 0]. Because the length is explicit, the encoding is prefix-free: no two distinct
+ * values (e.g. 0n and 2^64) and no two field sequences share a byte string.
+ */
+export function encodeBigIntCanonical(value: bigint, out: number[]): void {
+  const negative = value < 0n;
+  let magnitude = negative ? -value : value;
+  const magnitudeBytes: number[] = [];
+  while (magnitude > 0n) {
+    magnitudeBytes.push(Number(magnitude & 0xffn));
+    magnitude >>= 8n;
+  }
+  out.push(negative ? 1 : 0);
+  let length = magnitudeBytes.length;
+  do {
+    let byte = length & 0x7f;
+    length >>>= 7;
+    if (length !== 0) byte |= 0x80;
+    out.push(byte);
+  } while (length !== 0);
+  for (const byte of magnitudeBytes) out.push(byte);
+}
+
+/** Full key: magic, version, purpose, then seed, x, y, z, index — each canonically encoded. */
+export function encodeCosmologicalKey(
+  universeSeed: bigint,
+  cell: BigInt3,
+  galaxyIndex: number,
+  purpose: HashPurpose = HASH_PURPOSE_GALAXY,
+): number[] {
+  assertValidGalaxyIndex(galaxyIndex);
+  const out: number[] = [...KEY_MAGIC, GALAXY_GENERATOR_VERSION, purpose];
+  encodeBigIntCanonical(universeSeed, out);
+  encodeBigIntCanonical(cell.x, out);
+  encodeBigIntCanonical(cell.y, out);
+  encodeBigIntCanonical(cell.z, out);
+  encodeBigIntCanonical(BigInt(galaxyIndex), out);
+  return out;
+}
+
+/**
+ * 64-bit seed for (universe seed, cosmological cell, galaxy index).
+ *
+ * Contract: exact identities are never aliased by truncation — every bit of every coordinate
+ * reaches the hash. Like any 64-bit hash over an unbounded domain, accidental collisions remain
+ * mathematically possible (birthday bound ~2^32 keys for 50%); the identity of a galaxy is its
+ * (cell, index) address and `id`, never the seed alone.
  */
 export function hashCosmologicalCell(
   universeSeed: bigint,
   cell: BigInt3,
   galaxyIndex: number,
+  purpose: HashPurpose = HASH_PURPOSE_GALAXY,
 ): bigint {
-  let hash = 0xcbf2_9ce4_8422_2325n;
-  const prime = 0x0000_0100_0000_01b3n;
-  const mask = 0xffff_ffff_ffff_ffffn;
-
-  const mixBigInt = (value: bigint) => {
-    let v = value;
-    if (v < 0n) {
-      // Two's complement representation for negative coordinates
-      v = (~(-v) + 1n) & mask;
-    }
-    for (let i = 0; i < 8; i++) {
-      const byte = v & 0xffn;
-      hash = ((hash ^ byte) * prime) & mask;
-      v >>= 8n;
-    }
-  };
-
-  mixBigInt(universeSeed);
-  mixBigInt(cell.x);
-  mixBigInt(cell.y);
-  mixBigInt(cell.z);
-  mixBigInt(BigInt(galaxyIndex >>> 0));
-
-  return hash;
+  return splitMix64Finalize(fnv1a64Bytes(encodeCosmologicalKey(universeSeed, cell, galaxyIndex, purpose)));
 }
+
 
 /**
  * Deterministic 64-bit xorshift pseudo-random number generator.
@@ -353,9 +499,13 @@ export function calculateSpiralArmModulation(
 
 /**
  * Evaluates the 3D spheroidal bulge density with a soft core.
- * Uses Hernquist / de Vaucouleurs profile:
- *   rho_bulge(m) = rho_b0 / (1 + m_eff / r_b)^4
- * where m_eff = sqrt(m^2 + r_core^2), guaranteeing non-singularity at r = 0.
+ *   rho_bulge(m) = rho_b0 / (1 + m_eff / r_b)^4,   m_eff = sqrt(m^2 + r_core^2)
+ *
+ * This is NOT the exact Hernquist (1990) density, which is rho ∝ 1 / [(m/a)(1 + m/a)^3] and
+ * diverges as 1/m at the centre. It is a Hernquist-inspired procedural profile: it shares the
+ * r^-4 outer fall-off but replaces the cusp with a finite, smooth core so rho(0) is bounded.
+ * It is also not a de Vaucouleurs R^{1/4} law (that is a projected surface-brightness profile).
+ * Units: coordinates and radii in light-years; density in dimensionless model units.
  */
 export function calculateBulgeDensity(
   xLy: number,
@@ -403,8 +553,8 @@ export function calculateBarDensity(
   const c = Math.max(10.0, params.heightLy);
 
   const mBarSq = (xBar / a) ** 2 + (yBar / b) ** 2 + (zBar / c) ** 2;
-  if (mBarSq > 25.0) return 0; // Cut off beyond 5 scale lengths
-
+  // U4.1.1: no hard cut-off. The former `mBarSq > 25 → 0` introduced a jump of ~1.4e-11·rho_bar0;
+  // Math.exp underflows smoothly to +0 for large arguments, so continuity costs nothing.
   return params.peakDensity * Math.exp(-mBarSq);
 }
 
@@ -423,11 +573,11 @@ export function calculateDiskDensity(
   const hz1 = Math.max(10.0, params.thinScaleHeightLy);
   const hz2 = Math.max(20.0, params.thickScaleHeightLy);
 
+  // sech^2(u) = 4 e^{-2|u|} / (1 + e^{-2|u|})^2 — exact identity, never overflows, continuous
+  // everywhere (U4.1.1 replaces the former |u| > 15 → 0 cut-off, which was a small jump).
   const sechSq = (u: number): number => {
-    const absU = Math.abs(u);
-    if (absU > 15.0) return 0;
-    const coshU = Math.cosh(absU);
-    return 1 / (coshU * coshU);
+    const e = Math.exp(-2 * Math.abs(u));
+    return (4 * e) / ((1 + e) * (1 + e));
   };
 
   const thinRadial = Math.exp(-rLy / hr);
@@ -462,32 +612,97 @@ export function calculateHaloDensity(
 }
 
 /* ========================================================================== */
+/* Composite Density (single source of truth for procedural morphology)       */
+/* ========================================================================== */
+
+/**
+ * Stellar density at a point relative to the galaxy centre, in galaxy-local metres.
+ *
+ * This is the one evaluator for procedural morphology; `ProceduralGalaxyGenerator.calculateDensity`
+ * and `GalaxyRuntime.densityAtLocal` (for definitions carrying `proceduralMorphology`) both call it,
+ * so a consumer can never silently fall back to the Milky Way profile.
+ *
+ * Invariants: result >= 0; finite; continuous in position (including r = 0 and negative axes);
+ * non-finite inputs are treated as 0 (the same guard as `units.finite`).
+ * Units: dimensionless model density, already multiplied by `descriptor.densityScale`. It is NOT
+ * normalised to the solar neighbourhood (unlike legacy `milkyWayDensity`); calibrating it to
+ * StarSector's STARS_PER_SECTOR_BASE is an explicit U4.3 task.
+ */
+export function evaluateProceduralDensity(descriptor: ProceduralGalaxyDescriptor, localPosM: Vec3): number {
+  const xLy = finite(localPosM[0]) / LIGHT_YEAR_M;
+  const yLy = finite(localPosM[1]) / LIGHT_YEAR_M;
+  const zLy = finite(localPosM[2]) / LIGHT_YEAR_M;
+
+  const rLy = Math.hypot(xLy, yLy);
+  const thetaRad = Math.atan2(yLy, xLy);
+
+  const rhoBulge = calculateBulgeDensity(xLy, yLy, zLy, descriptor.bulge);
+  const rhoBar = calculateBarDensity(xLy, yLy, zLy, descriptor.bar);
+  const rhoDisk = calculateDiskDensity(rLy, zLy, descriptor.disk)
+    * calculateSpiralArmModulation(rLy, thetaRad, descriptor.spiralArms);
+  const rhoHalo = calculateHaloDensity(rLy, zLy, descriptor.halo);
+
+  const total = (rhoBulge + rhoBar + rhoDisk + rhoHalo) * descriptor.densityScale;
+  return Number.isFinite(total) && total >= 0 ? total : 0;
+}
+
+/* ========================================================================== */
+/* Legacy Adapter Contract                                                    */
+/* ========================================================================== */
+
+export type LegacyGalaxyDefinitionResult =
+  | {
+    readonly ok: true;
+    readonly definition: GalaxyDefinition;
+    /** 'canonical-catalog': the LOCAL_GROUP_CATALOG object itself (legacy density authority).
+     *  'procedural': new definition carrying `proceduralMorphology` (procedural density authority). */
+    readonly source: 'canonical-catalog' | 'procedural';
+  }
+  | {
+    readonly ok: false;
+    readonly reason: 'cell-outside-float-domain' | 'non-finite-local-offset';
+    readonly message: string;
+  };
+
+/* ========================================================================== */
 /* Procedural Galaxy Generator Core Engine                                    */
 /* ========================================================================== */
 
 export class ProceduralGalaxyGenerator {
   /**
    * Deterministically returns the number of galaxies in a cosmological cell.
-   * Field cells hold 1 to 4 galaxies; specific known cluster cells may hold more.
+   * Field cells hold 1 to 4 galaxies; the Local Group cell holds exactly 5 catalogued entities.
+   * Uses its own hash purpose, so the roll is independent of galaxy 0's seed.
    */
   getGalaxyCountInCell(universeSeed: bigint, cell: BigInt3): number {
     // Cell (0, 0, 0) is the Local Group cell: MW, Andromeda, Triangulum, LMC, SMC.
     if (cell.x === 0n && cell.y === 0n && cell.z === 0n) {
       return 5;
     }
-    const seed = hashCosmologicalCell(universeSeed, cell, 0);
+    const seed = hashCosmologicalCell(universeSeed, cell, 0, HASH_PURPOSE_CELL_POPULATION);
     const rng = new DeterministicRNG(seed);
     return rng.integer(1, 4);
   }
 
+  /** True when `galaxyIndex` is within the deterministic population of the cell. */
+  isGalaxyIndexPopulated(universeSeed: bigint, cell: BigInt3, galaxyIndex: number): boolean {
+    assertValidGalaxyIndex(galaxyIndex);
+    return galaxyIndex < this.getGalaxyCountInCell(universeSeed, cell);
+  }
+
   /**
    * Generates or retrieves a complete galaxy descriptor deterministically.
+   *
+   * Pure function of (universeSeed, cell, galaxyIndex). `galaxyIndex` must be an integer in
+   * [0, GALAXY_INDEX_MAX] (RangeError otherwise). The descriptor is defined for any valid index;
+   * use `isGalaxyIndexPopulated` to know whether the cell actually contains it.
    */
   generateGalaxy(
     universeSeed: bigint,
     cell: BigInt3,
     galaxyIndex: number,
   ): ProceduralGalaxyDescriptor {
+    assertValidGalaxyIndex(galaxyIndex);
     // 1. Check for canonical astronomical entities in the Local Group cell (0, 0, 0)
     if (cell.x === 0n && cell.y === 0n && cell.z === 0n) {
       const canonical = this.getCanonicalLocalGroupGalaxy(galaxyIndex);
@@ -574,10 +789,11 @@ export class ProceduralGalaxyGenerator {
     const bhMassSolar = Math.max(1e5, bulgeMassSolar * 0.0014); // Magorrian relation
     const schwarzschildRadiusM = bhMassSolar * SCHWARZSCHILD_RADIUS_PER_SOLAR_MASS_M;
 
-    // 10. Catalog naming
-    const catalogPrefix = rng.pick(['NGC', 'IC', 'UGC', 'PGC', 'SDSS']);
-    const catalogNum = rng.integer(1001, 99999);
-    const name = `${catalogPrefix} ${catalogNum}`;
+    // 10. Procedural designation. Deliberately NOT an NGC/IC/UGC/PGC/SDSS-style name: synthetic
+    // galaxies must never look like officially catalogued objects. 'DM-PG' = Dr-Manaus Procedural
+    // Galaxy, followed by the first 8 hex digits of the seed.
+    const seedHex = seed.toString(16).padStart(16, '0').toUpperCase();
+    const name = `DM-PG ${seedHex.slice(0, 4)}-${seedHex.slice(4, 8)}`;
     const id = `galaxy_c${cell.x}_${cell.y}_${cell.z}_${galaxyIndex}`;
 
     const cosmologicalAddress: CosmologicalAddress = {
@@ -617,54 +833,55 @@ export class ProceduralGalaxyGenerator {
   }
 
   /**
-   * Calculates stellar density at a point relative to the galaxy center in galaxy-local metres.
-   *
-   * Invariants:
-   *   - Strictly non-negative: result >= 0.
-   *   - Strictly finite: no NaN, no Infinity.
-   *   - Singularity-free: smooth and continuous for r = 0 and negative coordinates.
-   *   - Returns density normalized relative to the solar neighborhood (where Sun ~= 1.0).
+   * Stellar density at a point relative to the galaxy centre, in galaxy-local metres.
+   * Delegates to `evaluateProceduralDensity` (see its contract: >= 0, finite, continuous,
+   * dimensionless model units including `densityScale`; not solar-neighbourhood normalised).
    */
   calculateDensity(descriptor: ProceduralGalaxyDescriptor, localPosM: Vec3): number {
-    // Guard against non-finite inputs
-    const xM = finite(localPosM[0]);
-    const yM = finite(localPosM[1]);
-    const zM = finite(localPosM[2]);
-
-    // Convert metres to light-years
-    const xLy = xM / LIGHT_YEAR_M;
-    const yLy = yM / LIGHT_YEAR_M;
-    const zLy = zM / LIGHT_YEAR_M;
-
-    const rLy = Math.hypot(xLy, yLy);
-    const thetaRad = Math.atan2(yLy, xLy);
-
-    // 1. Bulge
-    const rhoBulge = calculateBulgeDensity(xLy, yLy, zLy, descriptor.bulge);
-
-    // 2. Central Bar
-    const rhoBar = calculateBarDensity(xLy, yLy, zLy, descriptor.bar);
-
-    // 3. Disk + Spiral Arm Modulation
-    const rhoDiskBase = calculateDiskDensity(rLy, zLy, descriptor.disk);
-    const mArms = calculateSpiralArmModulation(rLy, thetaRad, descriptor.spiralArms);
-    const rhoDisk = rhoDiskBase * mArms;
-
-    // 4. Halo
-    const rhoHalo = calculateHaloDensity(rLy, zLy, descriptor.halo);
-
-    // 5. Total composite density
-    const total = (rhoBulge + rhoBar + rhoDisk + rhoHalo) * descriptor.densityScale;
-
-    return Number.isFinite(total) && total >= 0 ? total : 0;
+    return evaluateProceduralDensity(descriptor, localPosM);
   }
 
   /**
-   * Translates a ProceduralGalaxyDescriptor into the existing GalaxyDefinition interface
-   * to ensure 100% backward compatibility with GalaxyRuntime, GalaxyCoordinates, and StarSector.
+   * Converts a descriptor into the legacy `GalaxyDefinition` shape, explicitly.
+   *
+   * - Canonical entities present in LOCAL_GROUP_CATALOG (`milky_way`, `andromeda`) return the
+   *   catalogue object itself: positions, orientation, black holes and the legacy density profile
+   *   are preserved bit-for-bit, never reconstructed from rounded Mpc offsets.
+   * - Every other descriptor gets `positionM` from (cell, localMpc) via `cosmologicalPositionM`,
+   *   so two galaxies with the same local offset in different cells never coincide. Cells outside
+   *   the bounded Float64 domain yield `{ ok: false }` — never a silently wrong position.
+   * - Procedural definitions carry `densityProfile: 'procedural'` and `proceduralMorphology`, so
+   *   `GalaxyRuntime.densityAtLocal` evaluates the descriptor's own morphology.
+   * - `centralBlackHole` is intentionally NOT emitted for procedural definitions: the descriptor
+   *   keeps it as metadata only, and emitting a BlackHoleDefinition would let presentation code
+   *   instantiate a functional black hole (BH0–BH2 remain blocked).
    */
-  toGalaxyDefinition(descriptor: ProceduralGalaxyDescriptor): GalaxyDefinition {
-    // Map morphological family to GalaxyDefinition.type
+  tryToGalaxyDefinition(descriptor: ProceduralGalaxyDescriptor): LegacyGalaxyDefinitionResult {
+    if (descriptor.isKnownAstronomicalEntity) {
+      const legacy = LOCAL_GROUP_CATALOG.find((g) => g.id === descriptor.id);
+      if (legacy) return { ok: true, definition: legacy, source: 'canonical-catalog' };
+    }
+
+    const address = descriptor.cosmologicalAddress;
+    if (!isFiniteVec3(address.localMpc)) {
+      return {
+        ok: false,
+        reason: 'non-finite-local-offset',
+        message: `Galaxy ${descriptor.id} has a non-finite local cell offset.`,
+      };
+    }
+    const position = cosmologicalPositionM(address);
+    if (!position) {
+      return {
+        ok: false,
+        reason: 'cell-outside-float-domain',
+        message: `Galaxy ${descriptor.id} lies in cell (${address.cell.x}, ${address.cell.y}, ${address.cell.z}), `
+          + `outside the legacy Float64 domain (|cell| <= ${COSMOLOGICAL_FLOAT_DOMAIN_MAX_CELLS}). `
+          + 'Use cosmologicalSeparationVectorM for relative placement.',
+      };
+    }
+
+    // Coarse legacy label only; the full Hubble type lives in `proceduralMorphology`.
     let type: GalaxyDefinition['type'];
     if (descriptor.family === 'barred-spiral') {
       type = 'barred-spiral';
@@ -676,56 +893,36 @@ export class ProceduralGalaxyGenerator {
       type = 'irregular';
     }
 
-    // Map densityProfile
-    let densityProfile: GalaxyDensityProfile;
-    if (descriptor.id === 'milky_way') {
-      densityProfile = 'milky-way';
-    } else if (descriptor.id === 'andromeda') {
-      densityProfile = 'andromeda';
-    } else if (descriptor.family === 'elliptical') {
-      densityProfile = 'elliptical';
-    } else {
-      densityProfile = 'irregular';
-    }
-
-    // Intergalactic position in metres
-    const positionM: [number, number, number] = [
-      descriptor.localCellMpc[0] * MPC_M,
-      descriptor.localCellMpc[1] * MPC_M,
-      descriptor.localCellMpc[2] * MPC_M,
-    ];
-
-    let centralBlackHole: BlackHoleDefinition | undefined;
-    if (descriptor.centralBlackHole) {
-      centralBlackHole = {
-        id: descriptor.centralBlackHole.id,
-        massKg: descriptor.centralBlackHole.massSolar * SOLAR_MASS_KG,
-        spin01: 0.85,
-        positionM,
-        accretion: {
-          innerRadiusRs: 3,
-          outerRadiusRs: 25,
-          temperatureK: 1.5e6,
-          luminosity: 1e37,
-        },
-      };
-    }
-
+    const densityProfile: GalaxyDensityProfile = 'procedural';
     return {
-      id: descriptor.id,
-      name: descriptor.name,
-      addressOriginM: descriptor.id === 'milky_way'
-        ? [-GALACTIC_CENTRE_FROM_SOL_M[0], 0, 0]
-        : [0, 0, 0],
-      type,
-      diameterLy: descriptor.diameterLy,
-      thicknessLy: descriptor.thicknessLy,
-      positionM,
-      orientationEuler: descriptor.orientationEulerRad,
-      densityProfile,
-      densityScale: descriptor.densityScale,
-      centralBlackHole,
+      ok: true,
+      source: 'procedural',
+      definition: {
+        id: descriptor.id,
+        name: descriptor.name,
+        addressOriginM: [0, 0, 0],
+        type,
+        diameterLy: descriptor.diameterLy,
+        thicknessLy: descriptor.thicknessLy,
+        positionM: [position[0], position[1], position[2]],
+        orientationEuler: [
+          descriptor.orientationEulerRad[0],
+          descriptor.orientationEulerRad[1],
+          descriptor.orientationEulerRad[2],
+        ],
+        densityProfile,
+        // Informational; the procedural evaluator already applies it (not multiplied twice).
+        densityScale: descriptor.densityScale,
+        proceduralMorphology: descriptor,
+      },
     };
+  }
+
+  /** Throwing form of `tryToGalaxyDefinition`: RangeError instead of an incorrect position. */
+  toGalaxyDefinition(descriptor: ProceduralGalaxyDescriptor): GalaxyDefinition {
+    const result = this.tryToGalaxyDefinition(descriptor);
+    if (!result.ok) throw new RangeError(result.message);
+    return result.definition;
   }
 
   /* ======================================================================== */

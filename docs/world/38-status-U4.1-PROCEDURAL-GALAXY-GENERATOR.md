@@ -1,221 +1,128 @@
-# Relatório Técnico U4.1 — Gerador Procedural Determinístico de Galáxias e Modelos Morfológicos
+# Relatório Técnico U4.1 / U4.1.1 — Gerador Procedural Determinístico de Galáxias e Hardening Arquitetural
 
 **Status**: Implementado e Pronto para Validação no CI  
 **Data**: 02 de Novembro de 2026  
 **Autor**: Antigravity Assistant & Dr-Manaus Core Team  
 **Branch**: `feat/universe-map`  
-**Baseline**: `22ba21ead896e1049999e94b43922f5d7c59767f` (Patch P0.5.11 aprovado em CI — Run [41385860673](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41385860673))  
-**Escopo Autorizado**: Exclusivamente U4.1 como módulo matemático de geração e modelagem procedural (`ProceduralGalaxyGenerator.ts`). Nenhuma integração em gameplay, renderização visual (U4.2) ou mapa interativo (U4.3) foi realizada neste patch.
+**Baseline U4.1 Aprovado em CI**: `d1def8c4e06eceb8e0a0ab8ddd0f706d46fb717d` (GitHub Actions Run [41388592245](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41388592245))  
+**Resultados Oficiais do U4.1**: Typecheck SUCCESS; 638/638 regressões permanentes PASS; 1.486/1.486 testes gerais PASS; build Vite de produção SUCCESS.  
+**Escopo U4.1.1**: Hardening arquitetural dos contratos de coordenadas, identidade e compatibilidade identificados na revisão pós-aprovação:
+1. Identidade espacial correta entre células cosmológicas no adaptador de coordenadas.
+2. Eliminação de aliasing por truncamento de $2^{64}$ na função de hash cosmológico (`GALAXY_GENERATOR_VERSION = 2`).
+3. Preservação da morfologia procedural específica no runtime (`GalaxyRuntime.densityAtLocal`).
+4. Auditoria de alegações de desempenho e terminologia matemática.
 
 ---
 
-## 1. Visão Geral e Objetivos do U4.1
+## 1. Problemas Identificados na Revisão do U4.1 e Soluções Implementadas
 
-O objetivo do checkpoint **U4.1** é estabelecer a infraestrutura matemática, determinística e astrofisicamente consistente para geração de galáxias no Dr-Manaus, expandindo o universo do catálogo estático de U2 (`milky_way` e `andromeda`) para uma rede procedural infinita em $\mathbb{Z}^3$.
-
-### Diretrizes Fundamentais Atendidas:
-1. **Determinismo Estrito:** Baseado exclusivamente em aritmética inteira de 64 bits (hash FNV-1a e gerador pseudo-aleatório xorshift64). Zero dependência de `Math.random`, `Date.now`, APIs externas ou estado global mutável.
-2. **Invariância de Câmera e Ordem:** A geração de um descritor galáctico e o cálculo de sua densidade estelar independem da posição da câmera, da ordem de consulta dos setores ou de translações da origem flutuante (`FloatingOrigin3D`).
-3. **Morfologia Astrofísica Completa (Sequência de Hubble):** Modelagem analítica de galáxias elípticas (E0–E7), lenticulares (S0), espirais regulares (Sa, Sb, Sc), espirais barradas (SBa, SBb, SBc) e irregulares (Irr).
-4. **Preservação Canônica:** O Grupo Local (célula `(0, 0, 0)`) preserva as entidades reais catalogadas (`milky_way`, `andromeda`, `triangulum`, `lmc`, `smc`) com seus parâmetros físicos, dimensões e buracos negros centrais sem modificações em relação a U2.
-5. **Estabilidade Numérica:** Densidade $\rho_{\text{total}}(r, \theta, z)$ rigorosamente não-negativa ($\ge 0$), finita, sem singularidades no centro ($r = 0$) através de núcleo suave (*soft-core*), e sem cancelamento de fase destrutivo nos braços espirais.
-6. **Desempenho Sob Demanda:** Geração puramente estatística sem pré-alocação de catálogos volumosos, sem instanciação de `Mesh`/`Object3D` por estrela, e com tempo de CPU $< 0.15 \text{ ms}$ por galáxia.
-
----
-
-## 2. Arquitetura e Diagrama de Dependências
-
-O gerador `ProceduralGalaxyGenerator.ts` foi construído para reutilizar os contratos de coordenadas espaciais existentes (`UniverseAddress.ts`), tipos físicos (`units.ts`) e o catálogo existente (`GalaxyDefinition.ts`), fornecendo um adaptador bidirecional para o ecossistema do runtime:
-
-```mermaid
-graph TD
-    subgraph "Spatial Core"
-        UA["UniverseAddress.ts<br/>(BigInt3, CosmologicalAddress, SECTOR_SIZE_M)"]
-        UN["units.ts<br/>(LIGHT_YEAR_M, PARSEC_M, Vec3, wrapPi)"]
-    end
-
-    subgraph "U4.1 Procedural Galaxy Engine"
-        PGG["ProceduralGalaxyGenerator.ts<br/>- hashCosmologicalCell (FNV-1a 64-bit)<br/>- DeterministicRNG (xorshift64)<br/>- ProceduralGalaxyDescriptor<br/>- calculateDensity(descriptor, localPosM)<br/>- toGalaxyDefinition(descriptor)"]
-        TEST["tests/procedural-galaxy-generator.test.ts<br/>(10 Contratos Formais de Verificação)"]
-    end
-
-    subgraph "Celestial & Runtime Layer (Preservada)"
-        GD["GalaxyDefinition.ts<br/>(LOCAL_GROUP_CATALOG, GalaxyDefinition)"]
-        GC["GalaxyCoordinates.ts<br/>(galaxyLocalPositionM, orientGalaxyVector)"]
-        GR["GalaxyRuntime.ts<br/>(densityAtLocal, generateSector)"]
-        SS["StarSector.ts<br/>(generateStarSector, SeededRandom)"]
-    end
-
-    UA --> PGG
-    UN --> PGG
-    GD --> PGG
-    PGG --> TEST
-    PGG -.->|"toGalaxyDefinition() [Compatibilidade]"| GD
-    PGG -.->|"Futura Integração U4.2/U4.3"| GR
-```
-
-### Decisão Arquitetural: Não Duplicar o Sistema de Endereçamento
-- **Alternativa Descartada:** Criar um novo sistema de coordenadas intergalácticas em ponto flutuante absoluto. Descartada porque causaria perda catastrófica de precisão (espaçamento de ULP $> 5.000\text{ km}$ a $2.5\text{ Mly}$ em Float64 e colapso total em Float32).
-- **Opção Adotada:** Células cosmológicas em coordenadas inteiras exatas $\mathbf{C} \in \mathbb{Z}^3$ (`BigInt3`), com tamanho calibrado em $2.0\text{ Mpc}$ ($\approx 6.52\text{ Mly}$), combinadas com offset relativo local em Mpc (`localCellMpc: Vec3`), preservando erro de truncamento nulo ($0$) no endereçamento cosmológico.
+| Prioridade | Componente | Problema Identificado no U4.1 | Solução Implementada no U4.1.1 |
+|---|---|---|---|
+| **P0** | `toGalaxyDefinition()` | O adaptador calculava `positionM` usando apenas `localCellMpc`, ignorando `cell`. Galáxias de células diferentes poderiam receber posições idênticas. | Implementado `cosmologicalPositionM()` e `cosmologicalSeparationVectorM()`. O domínio Float64 absoluto é explicitamente limitado a $\|cell\| \le 1024$ (`COSMOLOGICAL_FLOAT_DOMAIN_MAX_CELLS`). Células fora do domínio são rejeitadas com erro explícito (`tryToGalaxyDefinition`), nunca retornando posições silenciosamente erradas. |
+| **P0** | `hashCosmologicalCell()` | O algoritmo misturava apenas 8 bytes de cada BigInt, causando aliasing previsível para coordenadas com diferença de múltiplos de $2^{64}$. | Implementada codificação canônica bijetiva de BigInt (byte de sinal + comprimento LEB128 + magnitude em little-endian) com finalizador SplitMix64. `GALAXY_GENERATOR_VERSION = 2`. |
+| **P1** | `GalaxyRuntime.densityAtLocal()` | O adaptador mapeava galáxias procedurais para perfis legados, fazendo o runtime cair na densidade da Via Láctea e perder a morfologia gerada. | Adicionado `'procedural'` ao `GalaxyDensityProfile` e campo `proceduralMorphology` ao `GalaxyDefinition`. `GalaxyRuntime.densityAtLocal()` delega diretamente para `evaluateProceduralDensity()` quando a morfologia está presente. |
+| **P1** | Nomes de Galáxias Sintéticas | Galáxias procedurais recebiam prefixos de catálogos reais (`NGC`, `IC`, `UGC`), parecendo objetos oficiais. | Galáxias procedurais agora recebem designação procedural explícita `DM-PG <hex>` (Dr-Manaus Procedural Galaxy), reservando nomes de catálogos para o catálogo do Grupo Local. |
+| **P1** | Desempenho e Memória | O teste `T_U41_09` afirmava "zero alocação de heap" medindo apenas tempo de CPU via `performance.now()`. | Teste renomeado e calibrado como teste de vazão/tempo de resposta sob demanda. Alegações não instrumentadas de alocação de memória foram expurgadas. |
+| **Matemática** | Bulbo e Descontinuidades | O perfil do bulbo era chamado de "Hernquist / de Vaucouleurs", embora seja uma aproximação com núcleo suave. A barra e o disco tinham truncamentos bruscos em $5\sigma$ e $|u| > 15$. | Terminologia corrigida para "perfil inspirado em Hernquist com núcleo suave". Truncamentos bruscos substituídos por funções estritamente contínuas assintóticas ($\exp$ e fórmula analítica de $\operatorname{sech}^2$). |
 
 ---
 
-## 3. Formulação Matemática da Morfologia Galáctica
+## 2. Contrato de Coordenadas Cosmológicas (U4.1.1)
 
-A densidade estelar tridimensional $\rho_{\text{total}}(\mathbf{x})$ é calculada em coordenadas galácticas locais centradas no núcleo da galáxia, com distâncias convertidas para anos-luz ($r_{\text{ly}}, z_{\text{ly}}$):
+A autoridade espacial canônica de uma galáxia é definida pela tupla:
+$$\mathbf{A}_{\text{cosmic}} = (\mathbf{C}_{\text{cell}} \in \mathbb{Z}^3, \mathbf{r}_{\text{local}} \in [-1, 1]^3 \text{ Mpc})$$
 
-$$\rho_{\text{total}}(r, \theta, z) = \left[ \rho_{\text{bulge}}(m) + \rho_{\text{bar}}(\mathbf{x}_{\text{bar}}) + \rho_{\text{disk}}(r, z) \cdot M_{\text{arms}}(r, \theta) + \rho_{\text{halo}}(R) \right] \cdot S_{\text{density}}$$
+### 2.1 Domínio Limitado para Float64 Absoluto
+Como números Float64 possuem 53 bits de mantissa, distâncias superiores a $1024 \times 2.0\text{ Mpc} \approx 2\text{ Gpc}$ ($\approx 6.3 \times 10^{25}\text{ m}$) sofrem espaçamento de ULP $> 1.4 \times 10^{10}\text{ m}$. Para garantir integridade espacial:
+1. `isCellInFloatDomain(cell)`: Retorna `true` se e somente se $|C_x|, |C_y|, |C_z| \le 1024$.
+2. `cosmologicalPositionM(address)`:
+   - Se dentro do domínio: Retorna vetor `Vec3` em metros:
+     $$\mathbf{P}_{\text{metres}} = \mathbf{C}_{\text{cell}} \cdot D_{\text{cell}} + \mathbf{r}_{\text{local}} \cdot D_{\text{Mpc}}$$
+   - Se fora do domínio: Retorna `undefined`. A API **nunca** retorna coordenadas silenciosamente imprecisas.
+3. `tryToGalaxyDefinition(descriptor)`: Retorna `{ ok: true, definition }` para células válidas, ou `{ ok: false, reason: 'cell-outside-float-domain' }`.
+4. `toGalaxyDefinition(descriptor)`: Lança `RangeError` explícito se chamado para galáxia além do domínio Float64.
+5. `cosmologicalSeparationVectorM(from, to)`: Subtrai $\Delta \mathbf{C} = \mathbf{C}_{\text{to}} - \mathbf{C}_{\text{from}}$ em `BigInt` antes da conversão, permitindo navegação local exata entre quaisquer galáxias próximas mesmo se ambas estiverem a distâncias astronômicas arbitrárias ($> 2^{64}$).
 
-### 3.1 Bulbo Central Esferoidal ($\rho_{\text{bulge}}$)
-Utiliza o perfil elipsoidal truncado de Hernquist / de Vaucouleurs com regularização por núcleo suave (*soft-core* $r_{\text{core}} > 0$):
-
-$$m = \sqrt{\left(\frac{x}{a}\right)^2 + \left(\frac{y}{b}\right)^2 + \left(\frac{z}{c}\right)^2}$$
-
-$$m_{\text{eff}} = \sqrt{m^2 + r_{\text{core}}^2}$$
-
-$$\rho_{\text{bulge}}(m) = \frac{\rho_{b0}}{\left(1 + \frac{m_{\text{eff}}}{r_b}\right)^4}$$
-
-- **Eliminação de Singularidade:** Em $r = 0$, $m_{\text{eff}} = r_{\text{core}} > 0$. Logo, $\rho_{\text{bulge}}(0) = \frac{\rho_{b0}}{(1 + r_{\text{core}}/r_b)^4} < \infty$. A densidade no núcleo é perfeitamente finita, suave e diferenciável.
-- **Galáxias Elípticas (E0–E7):** O bulbo é o componente dominante ($r_b \approx 0.35 \cdot R_{\text{gal}}$), com razão de eixos $c/a \in [0.35, 0.95]$.
-
-### 3.2 Barra Central Triaxial ($\rho_{\text{bar}}$)
-Presente exclusivamente nas galáxias espirais barradas (tipos SBa, SBb, SBc, incluindo a Via Láctea):
-
-$$\begin{bmatrix} x_{\text{bar}} \\ y_{\text{bar}} \end{bmatrix} = \begin{bmatrix} \cos(\phi_{\text{bar}}) & \sin(\phi_{\text{bar}}) \\ -\sin(\phi_{\text{bar}}) & \cos(\phi_{\text{bar}}) \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix}, \quad z_{\text{bar}} = z$$
-
-$$m_{\text{bar}}^2 = \left(\frac{x_{\text{bar}}}{a_{\text{bar}}}\right)^2 + \left(\frac{y_{\text{bar}}}{b_{\text{bar}}}\right)^2 + \left(\frac{z_{\text{bar}}}{c_{\text{bar}}}\right)^2$$
-
-$$\rho_{\text{bar}}(\mathbf{x}_{\text{bar}}) = \rho_{\text{bar}0} \cdot \exp\left(-m_{\text{bar}}^2\right), \quad \text{para } m_{\text{bar}}^2 \le 25.0 \text{ (truncado a } 5\sigma\text{)}$$
-
-### 3.3 Disco Estelar Fino e Espesso ($\rho_{\text{disk}}$)
-O disco estelar adota a clássica distribuição de dupla exponencial (Freeman 1970; van der Kruit & Searle 1981):
-
-$$\rho_{\text{disk}}(r, z) = \rho_0 \left[ \exp\left(-\frac{r}{h_r}\right) \operatorname{sech}^2\left(\frac{z}{h_{z1}}\right) + f_{\text{thick}} \cdot \exp\left(-\frac{r}{1.4 h_r}\right) \operatorname{sech}^2\left(\frac{z}{h_{z2}}\right) \right]$$
-
-- **Estabilidade Numérica:** Para $|u| > 15$, $\operatorname{sech}^2(u) = 0$ analiticamente, evitando *underflow* ou estouro exponencial.
-
-### 3.4 Modulação de Braços Espirais Logarítmicos ($M_{\text{arms}}$)
-Para prevenir estritamente nós de interferência destrutiva e densidades negativas ($\rho < 0$), adota-se a formulação de envelope máximo multiplicativo auditada no plano U4:
-
-$$M_{\text{arms}}(r, \theta) = (1 - A_{\text{arm}}) + A_{\text{arm}} \cdot \max_{k \in \{0, \dots, N_{\text{arms}}-1\}} \exp\left( -\frac{\Delta\theta_k(r, \theta)^2}{2 \sigma_{\text{arm}}^2} \right)$$
-
-onde:
-$$\Delta\theta_k(r, \theta) = \operatorname{wrap}_{[-\pi, \pi]}\left( \theta - \left[\theta_k + \frac{\ln(\max(1, r)/r_0)}{\tan(\psi)}\right] \right)$$
-
-- **Piso Mínimo Garantido:** Com $A_{\text{arm}} \le 0.75$, $M_{\text{arms}} \ge 1 - A_{\text{arm}} \ge 0.25 > 0$ em qualquer ponto do espaço inter-braço.
-- **Periodicidade $2\pi$:** Devido ao operador `wrapPi`, $M_{\text{arms}}(r, \theta + 2\pi k) = M_{\text{arms}}(r, \theta)$.
-- **Alinhamento com Barra:** Em galáxias barradas, os braços espirais brotam suavemente das pontas da barra ($\theta_0 = \phi_{\text{bar}}$, $\theta_1 = \phi_{\text{bar}} + \pi$).
-
-### 3.5 Halo Estelar Difuso ($\rho_{\text{halo}}$)
-Esferoide oblato com perfil de lei de potência assimétrica:
-
-$$\rho_{\text{halo}}(r, z) = \rho_{h0} \left[ 1 + \frac{r^2 + (z/q)^2}{r_h^2} \right]^{-1.75}$$
+### 2.2 Preservação Exata do Catálogo do Grupo Local
+Para as galáxias canônicas do Grupo Local (`milky_way`, `andromeda`), o adaptador retorna **o próprio objeto imutável de `LOCAL_GROUP_CATALOG`**, preservando bit-a-bit as coordenadas, rotações e buracos negros originais sem qualquer reconstrução por arredondamento em Mpc.
 
 ---
 
-## 4. Classificação de Hubble e Distribuição Morfológica
+## 3. Função de Hash Canônica e Eliminação de Aliasing (Versão 2)
 
-A derivação do tipo galáctico a partir da semente de 64 bits reflete as frequências observacionais no universo local (Dressler 1980):
+O algoritmo de hash anterior realizava um truncamento implícito em 8 bytes (`v >>= 8n` em loop fixo de 8 iterações), tratando $0n$ e $2^{64}n$ como entradas equivalentes.
 
-| Família Morfológica | Tipos Hubble | Probabilidade | Disco | Braços Espirais | Barra Central | População Estelar Dominante |
-|---|---|---|---|---|---|---|
-| **Elíptica** | E0, E3, E7 | 20% | Ausente (`false`) | Inativos (`false`) | Inativa (`false`) | Estrelas velhas Pop II (Classes K, M) |
-| **Lenticular** | S0 | 15% | Presente (`true`) | Inativos (`false`) | Inativa (`false`) | População mista / intermediária (Classes G, K) |
-| **Espiral Regular** | Sa, Sb, Sc | 35% | Presente (`true`) | Ativos ($N=2, 3, 4$) | Inativa (`false`) | Formação contínua (Classes F, G) |
-| **Espiral Barrada** | SBa, SBb, SBc | 20% | Presente (`true`) | Ativos ($N=2, 4$) | Ativa (`true`) | Formação ao longo da barra (Classes F, G) |
-| **Irregular** | Irr | 10% | Presente (`true`) | Caóticos / 1 braço | Opcional | Formação estelar jovem intensa (Classes A, B) |
-
----
-
-## 5. Preservação Canônica e Catálogo do Grupo Local
-
-Na célula de origem $\mathbf{C} = (0n, 0n, 0n)$, o gerador preserva estritamente as entidades canônicas conhecidas:
-
-1. **Via Láctea (`milky_way`, index 0):**
-   - Morfologia: `SBc` (espiral barrada com 4 braços principais).
-   - Diâmetro: $100.000\text{ ly}$, Espessura: $1.000\text{ ly}$.
-   - Posição: Origem intergaláctica `[0, 0, 0]`.
-   - SMBH: Sagitário A* ($M = 4.15 \times 10^6 M_\odot$, $R_s \approx 1.225 \times 10^{10}\text{ m}$).
-2. **Andrômeda (`andromeda`, index 1):**
-   - Morfologia: `Sb` (espiral com 2 braços).
-   - Diâmetro: $220.000\text{ ly}$, Espessura: $2.000\text{ ly}$.
-   - Posição: $2.50\text{ Mly}$ no eixo Y (`[0, 2.365e22, 0]`).
-   - SMBH: M31 SMBH ($M = 1.0 \times 10^8 M_\odot$, $R_s \approx 2.953 \times 10^{11}\text{ m}$).
-3. **Galáxia do Triângulo (`triangulum`, index 2):** $M33$, tipo `Sc`, diâmetro $60.000\text{ ly}$.
-4. **Grande Nuvem de Magalhães (`lmc`, index 3):** Anã irregular com barra estelar e surto estelar jovem (Classe B).
-5. **Pequena Nuvem de Magalhães (`smc`, index 4):** Anã irregular difusa.
-
-Todas as entidades astronômicas reais possuem a flag imutável `isKnownAstronomicalEntity: true`.
+No U4.1.1, a função `hashCosmologicalCell` implementa:
+1. **Magic Tag de Domínio:** Prefixo ASCII `DMGX` (`[0x44, 0x4d, 0x47, 0x58]`), garantindo que hashes galácticos nunca coincidam com hashes de setores estelares.
+2. **Versionamento Explícito:** Byte `GALAXY_GENERATOR_VERSION = 2`.
+3. **Propósito da Semente:** Separação entre semente de galáxia (`HASH_PURPOSE_GALAXY = 0`) e contagem populacional de célula (`HASH_PURPOSE_CELL_POPULATION = 1`).
+4. **Codificação Bijetiva de BigInt:**
+   $$\text{Encode}(x) = [\text{sinal (0 ou 1)}] \parallel [\text{comprimento LEB128}] \parallel [\text{magnitude em little-endian}]$$
+   O comprimento explícito garante que a codificação seja livre de prefixos (prefix-free), tornando impossível que $0n$ e $2^{64}n$ gerem a mesma sequência de bytes.
+5. **Validação de Domínio de Índice:** O índice local `galaxyIndex` deve ser um inteiro válido em $[0, 65535]$ (`GALAXY_INDEX_MAX`). Índices inválidos geram `RangeError` imediato.
+6. **Finalizador SplitMix64:** Aplica duas etapas de multiplicação e xorshift para avalanche completo dos bits inferiores antes de inicializar o gerador xorshift64.
 
 ---
 
-## 6. Preparação Arquitetural para Buracos Negros (BH0–BH2)
+## 4. Preservação de Morfologia no Runtime (`GalaxyRuntime.ts`)
 
-Em conformidade estrita com o planejamento U4, **nenhum buraco negro funcional, lente gravitacional ou física relativística foi implementado em U4.1**.
-Foi disponibilizado exclusivamente o slot de metadados:
-
-```typescript
-readonly centralBlackHole?: {
-  readonly id: string;
-  readonly massSolar: number;
-  readonly schwarzschildRadiusM: number;
-};
-```
-
-A massa do SMBH segue a relação empírica de Magorrian (Magorrian et al. 1998; Kormendy & Ho 2013):
-$$M_{\text{BH}} \approx 0.0014 \times M_{\text{bulge}}$$
-O raio de Schwarzschild $R_s = \frac{2 G M}{c^2}$ é pré-calculado com precisão física em metros para ancoragem futura em BH0.
-
----
-
-## 7. Bateria de Testes Unitários de Contrato
-
-A nova suíte `tests/procedural-galaxy-generator.test.ts` implementa 10 testes formais que validam os contratos matemáticos sem atalhos:
-
-| Identificador do Teste | Propriedade Validada | Critério de Sucesso |
-|---|---|---|
-| `T_U41_01_DETERMINISM_IDENTICAL_SEED_AND_COORDINATES` | Determinismo estrito | Mesma semente e célula produzem descritores e densidades em 5 posições tridimensionais com igualdade exata (`assert.equal`). |
-| `T_U41_02_SEED_AND_COORDINATE_DIVERGENCE` | Sensibilidade à semente e posição | Variações de $\Delta\text{seed} = 1$, $\Delta x = 1$ ou $\Delta\text{index} = 1$ geram IDs e sementes galácticas distintas. |
-| `T_U41_03_INVARIANCE_TO_CALL_ORDER_AND_CAMERA` | Independência de ordem e estado | Geração em ordem direta versus inversa produz resultados rigorosamente idênticos (ausência de efeitos colaterais). |
-| `T_U41_04_EXACT_BIGINT_SCALING_BEYOND_2_POW_53` | Integridade BigInt $> 2^{53}$ | Coordenadas como $9.007.199.254.740.993n$ e valores negativos massivos preservam sementes distintas sem colapso IEEE-754. |
-| `T_U41_05_DENSITY_NON_NEGATIVITY_AND_FINITENESS` | Não negatividade e ausência de singularidades | Centenas de pontos amostrados em 20 galáxias garantem $\rho \ge 0$ e `Number.isFinite(rho) === true`, inclusive em $r = 0$. |
-| `T_U41_06_SPIRAL_ARM_MODULATION_INVARIANTS` | Invariantes dos braços espirais | $M_{\text{arms}} \ge 0.25$, periodicidade $2\pi$ perfeita e valor de crista $M_{\text{arms}} = 1.0$ no raio do braço logarítmico. |
-| `T_U41_07_HUBBLE_MORPHOLOGY_FAMILY_COVERAGE` | Cobertura da Sequência de Hubble | Amostragem de 200 galáxias comprova geração de todas as 5 famílias com seus componentes estruturais canônicos. |
-| `T_U41_08_PRESERVATION_OF_CANONICAL_ENTITIES` | Integridade do Grupo Local | Célula $(0,0,0)$ preserva Via Láctea, Andrômeda, M33, LMC e SMC com dados catalogados. |
-| `T_U41_09_ON_DEMAND_GENERATION_PERFORMANCE` | Orçamento de tempo e alocação | Geração sob demanda de 500 galáxias e avaliação de densidade concluem em $< 0.5\text{ ms}$ por galáxia sem acúmulo de heap. |
-| `T_U41_10_ADAPTER_TO_GALAXY_DEFINITION_COMPATIBILITY` | Compatibilidade de tipos | O método `toGalaxyDefinition()` converte descritores em objetos válidos para `GalaxyRuntime.ts`. |
+Para eliminar o falso anúncio de compatibilidade onde o runtime revertia galáxias procedurais para o perfil da Via Láctea:
+1. `GalaxyDensityProfile` foi estendido com a variante canônica `'procedural'`.
+2. A interface `GalaxyDefinition` recebeu o campo opcional `proceduralMorphology?: ProceduralGalaxyDescriptor`.
+3. `GalaxyRuntime.densityAtLocal(positionM)` verifica primeiramente:
+   ```typescript
+   densityAtLocal(positionM: Vec3): number {
+     if (this.definition.proceduralMorphology) {
+       return evaluateProceduralDensity(this.definition.proceduralMorphology, positionM);
+     }
+     return (this.definition.densityProfile === 'andromeda' ? andromedaDensity : milkyWayDensity)(positionM)
+       * (this.definition.densityScale ?? 1);
+   }
+   ```
+4. A função `evaluateProceduralDensity` atua como **fonte única de verdade matemática**, garantindo que tanto chamadas diretas quanto consultas através do runtime avaliem exatamente os mesmos braços espirais, bulbo, barra e halo da morfologia da galáxia gerada.
 
 ---
 
-## 8. Referências Técnicas Consultadas
+## 5. Auditoria Matemática e Rigor Físico
 
-Todas as referências abaixo foram auditadas quanto à sua legitimidade, autoria e dados bibliográficos:
-
-1. **Perfis de Bulbo e De Vaucouleurs/Hernquist:**
-   - Hernquist, L. (1990). *An Analytical Model for Spherical Galaxies and Bulges*. The Astrophysical Journal, 356, 359–364. [DOI: 10.1086/169084](https://doi.org/10.1086/169084)
-   - De Vaucouleurs, G. (1948). *Recherches sur les Nébuleuses Extragalactiques*. Annales d'Astrophysique, 11, 247.
-2. **Discos Estelares e Perfis Exponenciais:**
-   - Freeman, K. C. (1970). *On the Disks of Spiral and S0 Galaxies*. The Astrophysical Journal, 160, 811. [DOI: 10.1086/150474](https://doi.org/10.1086/150474)
-   - Van der Kruit, P. C., & Searle, L. (1981). *Surface photometry of edge-on spiral galaxies. I - A model for the three-dimensional distribution of light in galactic disks*. Astronomy and Astrophysics, 95, 105–115.
-3. **Dinâmica Galáctica e Braços Espirais:**
-   - Binney, J., & Tremaine, S. (2008). *Galactic Dynamics* (2nd ed.). Princeton University Press.
-   - Vallée, J. M. (2008). *The Spiral Arms and Galactic Magnetic Field of the Milky Way: An Overview*. The Astronomical Journal, 135(4), 1301–1310. [DOI: 10.1088/0004-6256/135/4/1301](https://doi.org/10.1088/0004-6256/135/4/1301)
-4. **Barras Centrais Triaxiais:**
-   - Pfenniger, D. (1984). *The 3D dynamics of barred galaxies*. Astronomy and Astrophysics, 134, 373–386.
-5. **Relação de Magorrian e Massa de Buracos Negros Centrais:**
-   - Magorrian, J., et al. (1998). *The Demography of Massive Dark Objects in Galaxy Centers*. The Astronomical Journal, 115(6), 2285–2305. [DOI: 10.1086/300353](https://doi.org/10.1086/300353)
-   - Kormendy, J., & Ho, L. C. (2013). *Coevolution (Or Not) of Supermassive Black Holes and Host Galaxies*. Annual Review of Astronomy and Astrophysics, 51, 511–653. [DOI: 10.1146/annurev-astro-082708-101811](https://doi.org/10.1146/annurev-astro-082708-101811)
-6. **Hashing e PRNG Inteiro:**
-   - Fowler, G., Noll, L. C., & Vo, K. P. (1994). *Fowler–Noll–Vo Hash Function*. IETF Network Working Group Draft.
-   - Marsaglia, G. (2003). *Xorshift RNGs*. Journal of Statistical Software, 8(14), 1–6. [DOI: 10.18637/jss.v008.i14](https://doi.org/10.18637/jss.v008.i14)
+1. **Bulbo Central Suavizado:**
+   $$\rho_{\text{bulge}}(m) = \frac{\rho_{b0}}{\left(1 + \frac{\sqrt{m^2 + r_{\text{core}}^2}}{r_b}\right)^4}$$
+   Documentado formalmente como perfil procedural inspirado na assíntota $r^{-4}$ de Hernquist (1990), com núcleo finito $r_{\text{core}}$ para evitar a cúspide singular $1/r$ da formulação original.
+2. **Barra Central:**
+   Eliminado o corte descontínuo em $m_{\text{bar}}^2 > 25 \implies 0$. A função decai naturalmente de forma suave via $\exp(-m_{\text{bar}}^2)$, garantindo diferenciabilidade em todo o domínio.
+3. **Disco Estelar:**
+   Eliminada a descontinuidade para $|u| > 15 \implies 0$. Utiliza a identidade analítica contínua:
+   $$\operatorname{sech}^2(u) = \frac{4 e^{-2|u|}}{(1 + e^{-2|u|})^2}$$
+   que nunca estoura o expoente de ponto flutuante e decai continuamente até zero.
+4. **Braços Espirais:**
+   Mantido o envelope máximo multiplicativo $M_{\text{arms}} \ge 0.25 > 0$ com periodicidade estrita $2\pi$.
 
 ---
 
-## 9. Limitações e Critérios para Fases Seguintes
+## 6. Cobertura de Testes Unitários de Contrato (15 Testes)
 
-- **O que foi implementado em U4.1:** Gerador procedural puramente matemático, descritores de dados, funções de densidade analíticas e suíte de testes de contrato unitário.
-- **O que NÃO foi implementado (reservado para U4.2 / U4.3):**
-  - **U4.2:** Shaders volumétricos de galáxia na GPU (`RawShaderMaterial`), nuvem instanciada de partículas estelares (`GalaxyPointCloudProvider`), extinção de poeira e LOD0/LOD1/LOD2 visuais.
-  - **U4.3:** Agendamento espacial em segundo plano (`GlobalStreamingScheduler`), renderização e seleção de galáxias no mapa universal (`UniversalMapRenderer`) e resolução de alvos universais (`UniversalTargetResolver`).
-  - **U4.4:** Handoff de hipercruzeiro interestelar para sistemas estelares em galáxias procedurais.
-  - **BH0–BH2:** Buracos negros relativísticos, lentes gravitacionais e trânsito por horizonte de eventos permanecem estritamente bloqueados.
+A suíte [tests/procedural-galaxy-generator.test.ts](file:///c:/Projetos/Dr-Manaus/tests/procedural-galaxy-generator.test.ts) foi ampliada para 15 testes formais:
+
+- `T_U41_01_DETERMINISM_IDENTICAL_SEED_AND_COORDINATES`: Determinismo estrito de descritores e densidades.
+- `T_U41_02_SEED_AND_COORDINATE_DIVERGENCE`: Sensibilidade a variações de semente, célula e índice.
+- `T_U41_03_INVARIANCE_TO_CALL_ORDER_AND_CAMERA`: Independência de ordem de chamada e ausência de efeitos colaterais.
+- `T_U41_04_EXACT_BIGINT_SCALING_BEYOND_2_POW_53`: Preservação exata em coordenadas $> 2^{53}$ e negativas.
+- `T_U41_05_DENSITY_NON_NEGATIVITY_AND_FINITENESS`: Densidade $\ge 0$ e finita sem singularidade em $r = 0$.
+- `T_U41_06_SPIRAL_ARM_MODULATION_INVARIANTS`: Piso mínimo $M_{\text{arms}} \ge 0.25$, periodicidade $2\pi$ e alinhamento de crista.
+- `T_U41_07_HUBBLE_MORPHOLOGY_FAMILY_COVERAGE`: Geração de todas as 5 famílias morfológicas.
+- `T_U41_08_PRESERVATION_OF_CANONICAL_ENTITIES`: Grupo Local preserva referências exatas de `LOCAL_GROUP_CATALOG`.
+- `T_U41_09_ON_DEMAND_GENERATION_THROUGHPUT`: Vazão de geração sob demanda sem retenção de cache.
+- `T_U41_10_ADAPTER_TO_GALAXY_DEFINITION_COMPATIBILITY`: Conformidade do adaptador com perfil `'procedural'`.
+- `T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY`: Células distintas com mesmo offset local produzem posições $X, Y, Z$ distintas.
+- `T_U411_02_HASH_NO_2_POW_64_ALIASING_AND_CANONICAL_VECTORS`: Comprova que coordenadas separadas por $2^{64}$ geram hashes distintos.
+- `T_U411_03_GALAXY_INDEX_DOMAIN_VALIDATION`: Lança `RangeError` para índices negativos, fracionários ou superiores a 65535.
+- `T_U411_04_BOUNDED_FLOAT_DOMAIN_AND_EXPLICIT_REFUSAL`: Rejeita células fora do domínio Float64 sem emitir posições erradas; valida vetores relativos.
+- `T_U411_05_GALAXY_RUNTIME_PRESERVES_PROCEDURAL_MORPHOLOGY`: `GalaxyRuntime.densityAtLocal` avalia a morfologia específica da galáxia procedural.
+
+---
+
+## 7. Próximos Passos (Transição para U4.2)
+
+Com o fechamento dos contratos de coordenadas, hashing e compatibilidade do U4.1.1:
+1. O modelo matemático está estabilizado e desacoplado de suposições visuais.
+2. O próximo passo autorizado será o **U4.2 — Shaders de Morfologia Galáctica e Sistema de Partículas GPU** (`GalaxyPointCloudProvider.ts`, `RawShaderMaterial`, buffers instanciados e níveis LOD0–LOD2).

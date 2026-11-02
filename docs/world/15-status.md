@@ -1,8 +1,19 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.1 Deterministic Procedural Galaxy Generator (2026-11-02)
+## Current checkpoint — U4.1.1 Hardening de Coordenadas, Identidade e Integração Galáctica (2026-11-02)
 
-Baseline at `22ba21ead896e1049999e94b43922f5d7c59767f` (P0.5.11). Implemented `ProceduralGalaxyGenerator.ts` providing deterministic mathematical generation of galactic descriptors across cosmological cell grids (`BigInt3`, 2.0 Mpc cells) using 64-bit integer FNV-1a hashing and 64-bit xorshift PRNG without `Math.random` or global state. Models complete Hubble sequence morphology (E0-E7, S0, Sa-Sc, SBa-SBc, Irr) with 3D analytic stellar density functions: soft-core Hernquist/de Vaucouleurs bulge (strictly non-singular at r=0), triaxial central bar, double exponential thin/thick disk, logarithmic spiral arms with envelope maximum (strictly M_arms >= 0.25 > 0), and diffuse stellar halo. Preserves canonical Local Group entities (`milky_way`, `andromeda`, `triangulum`, `lmc`, `smc`) and provides backward-compatible adapter `toGalaxyDefinition()`. Architectural metadata slot for central SMBH via Magorrian relation. Added 10 formal contract unit tests in `tests/procedural-galaxy-generator.test.ts`. U4.1 is implemented and ready for pipeline verification (not registered as approved prior to CI). U4.2 (GPU shaders/particles), U4.3 (map/gameplay integration), and BH0-BH2 remain strictly deferred.
+Baseline at `d1def8c4e06eceb8e0a0ab8ddd0f706d46fb717d` (U4.1). Hardening pós-aprovação do gerador procedural de galáxias:
+1. Identidade espacial correta entre células cosmológicas no adaptador legado via `cosmologicalPositionM()`, limiar explícito de domínio Float64 (`COSMOLOGICAL_FLOAT_DOMAIN_MAX_CELLS = 1024n`) e recusa explícita sem posições falsas (`tryToGalaxyDefinition()`).
+2. Eliminação de aliasing por truncamento de $2^{64}$ em `hashCosmologicalCell()` através de codificação canônica bijetiva de BigInt (sinal + comprimento LEB128 + magnitude) com finalizador SplitMix64 (`GALAXY_GENERATOR_VERSION = 2`).
+3. Preservação de morfologia específica no runtime consumidor: adicionado `'procedural'` a `GalaxyDensityProfile` e campo `proceduralMorphology` a `GalaxyDefinition`, integrando `GalaxyRuntime.densityAtLocal()` à fonte única `evaluateProceduralDensity()`.
+4. Auditoria de alegações de desempenho (vazão sob demanda sem alegações não instrumentadas de memória) e designação procedural estrita (`DM-PG ...`).
+Suíte de testes unitários ampliada para 15 contratos formais em `tests/procedural-galaxy-generator.test.ts`. U4.1.1 pronto para validação em pipeline (não registrado como aprovado antes do CI). U4.2 (shaders/partículas GPU) e U4.3 (mapa/gameplay) permanecem bloqueados.
+Evidence: [38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md](38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md).
+
+## Previous checkpoint — U4.1 Deterministic Procedural Galaxy Generator (2026-11-02)
+
+Baseline at `22ba21ead896e1049999e94b43922f5d7c59767f` (P0.5.11). Implemented `ProceduralGalaxyGenerator.ts` providing deterministic mathematical generation of galactic descriptors across cosmological cell grids (`BigInt3`, 2.0 Mpc cells) using 64-bit integer FNV-1a hashing and 64-bit xorshift PRNG without `Math.random` or global state. Models complete Hubble sequence morphology (E0-E7, S0, Sa-Sc, SBa-SBc, Irr) with 3D analytic stellar density functions: soft-core Hernquist-inspired bulge (strictly non-singular at r=0), triaxial central bar, double exponential thin/thick disk, logarithmic spiral arms with envelope maximum (strictly M_arms >= 0.25 > 0), and diffuse stellar halo. Preserves canonical Local Group entities (`milky_way`, `andromeda`, `triangulum`, `lmc`, `smc`).
+Officially verified in GitHub Actions Run 41388592245: Typecheck SUCCESS; permanent regression gate 638/638 PASS; general unit tests 1,486/1,486 PASS; Vite production build SUCCESS. Published at commit `d1def8c4e06eceb8e0a0ab8ddd0f706d46fb717d`.
 Evidence: [38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md](38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md).
 
 ## Previous checkpoint — P0.5.11 Interstellar Cruise Restoration & Flight Phase Semantics (2026-11-01)
