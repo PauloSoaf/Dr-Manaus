@@ -1,12 +1,23 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.1.2 Correção do Contrato Matemático de Separação Cosmológica (2026-11-02)
+## Current checkpoint — U4.2 Renderização Visual GPU de Galáxias Procedurais e Arquitetura Multi-Escala TSL (2026-11-02)
+
+Baseline at `bc530a7e3115f7bad715cb63f821fd47862dd633` (U4.1.2). Implementada a renderização visual GPU de alta fidelidade para galáxias:
+1. `GalaxyPointCloudProvider`: amostragem determinística da morfologia de Hubble (braços espirais logarítmicos, barra triaxial, bulbo de Hernquist suavizado, halo esferoidal e faixas de poeira interestelar) com coordenadas estritamente normalizadas em $[-1, 1]$ e alocação de partículas por preset (`Low`: 10k, `Medium`: 40k, `High`: 100k, `Ultra`: 160k).
+2. `GalaxyMorphologyRenderer`: arquitetura multi-escala em 3 níveis (LOD0: impostor cosmológico $< 16\text{ px}$; LOD1: disco intermediário TSL com absorção de poeira $+ 5\text{k}$ estrelas para $16\text{ px} \le D_{\text{px}} < 280\text{ px}$; LOD2: nuvem 3D GPU de alta resolução para $D_{\text{px}} \ge 280\text{ px}$).
+3. Histerese direcional de 15% na máquina de estados de LOD, prevenindo popping e oscilações numéricas na fronteira de transição.
+4. Compatibilidade universal com Three.js `WebGPURenderer` (tanto no backend nativo WebGPU quanto no fallback WebGL 2) através de materiais TSL e NodeMaterials (`PointsMaterial`, `MeshBasicNodeMaterial`, `attribute`, `mix`, `smoothstep`).
+5. `GalaxyProvider` atualizado como consumidor da nova renderização, mantendo os contratos externos de `GalaxyMaterializer` e mapeamento em proxy esférico de 20 km sem perda de precisão Float32.
+8 novos testes de contrato em `tests/galaxy-morphology-renderer.test.ts`. U4.2 pronto para validação em pipeline (não registrado como aprovado antes do CI). U4.3 (mapa/gameplay) e BH0-BH2 permanecem bloqueados.
+Evidence: [39-status-U4.2-GPU-GALAXY-RENDERING.md](39-status-U4.2-GPU-GALAXY-RENDERING.md).
+
+## Previous checkpoint — U4.1.2 Correção do Contrato Matemático de Separação Cosmológica (2026-11-02)
 
 Baseline at `5b889b0681581876e6f17787d13376a1006f745f` (U4.1.1). Corrigida a asserção matemática em `T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY`:
-1. Diagnóstico do CI (Run 41390693792): 638/638 regressões permanentes PASS; 1.490/1.491 testes gerais PASS; única falha na asserção de `T_U411_01` (exigia `deltaX > 30 Mpc` para células separadas por 20 Mpc nominais).
-2. Correção analítica: o teste agora compara `defB.positionM[0] - defA.positionM[0]` contra a expressão analítica exata `Number(cellB.x - cellA.x) * COSMOLOGICAL_CELL_SIZE_M + (galB.localCellMpc[0] - galA.localCellMpc[0]) * MPC_M` com tolerância relativa Float64 $< 10^{-14}$.
-3. Cobertura estendida: validação de sinal de separação, células negativas, igualdade de offsets locais em células distintas (delta exato de grade), compatibilidade com `cosmologicalSeparationVectorM()` e preservação do endereço BigInt.
-O código de produção (`ProceduralGalaxyGenerator.ts`, `GalaxyRuntime.ts`) já estava matematicamente correto e permaneceu inalterado. U4.1.2 pronto para validação em pipeline (não registrado como aprovado antes do CI). U4.2 (shaders/partículas GPU) permanece estritamente bloqueado.
+1. Diagnóstico do CI: falha única na asserção de `T_U411_01` (exigia `deltaX > 30 Mpc` para células separadas por 20 Mpc nominais).
+2. Correção analítica: comparação direta de `defB.positionM[0] - defA.positionM[0]` contra `Number(cellB.x - cellA.x) * COSMOLOGICAL_CELL_SIZE_M + (galB.localCellMpc[0] - galA.localCellMpc[0]) * MPC_M` com tolerância relativa Float64 $< 10^{-14}$.
+3. Cobertura estendida: sinal de separação, células negativas, igualdade de offsets locais em células distintas, compatibilidade vetorial e preservação de BigInt.
+Oficialmente aprovado no GitHub Actions Run 41393301279: Typecheck SUCCESS; regressões permanentes 638/638 PASS; testes gerais 1.491/1.491 PASS; produção build Vite SUCCESS. Publicado no commit `bc530a7e3115f7bad715cb63f821fd47862dd633`.
 Evidence: [38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md](38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md).
 
 ## Previous checkpoint — U4.1.1 Hardening de Coordenadas, Identidade e Integração Galáctica (2026-11-02)
