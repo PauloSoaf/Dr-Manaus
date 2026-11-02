@@ -1,13 +1,22 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.1.1 Hardening de Coordenadas, Identidade e Integração Galáctica (2026-11-02)
+## Current checkpoint — U4.1.2 Correção do Contrato Matemático de Separação Cosmológica (2026-11-02)
+
+Baseline at `5b889b0681581876e6f17787d13376a1006f745f` (U4.1.1). Corrigida a asserção matemática em `T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY`:
+1. Diagnóstico do CI (Run 41390693792): 638/638 regressões permanentes PASS; 1.490/1.491 testes gerais PASS; única falha na asserção de `T_U411_01` (exigia `deltaX > 30 Mpc` para células separadas por 20 Mpc nominais).
+2. Correção analítica: o teste agora compara `defB.positionM[0] - defA.positionM[0]` contra a expressão analítica exata `Number(cellB.x - cellA.x) * COSMOLOGICAL_CELL_SIZE_M + (galB.localCellMpc[0] - galA.localCellMpc[0]) * MPC_M` com tolerância relativa Float64 $< 10^{-14}$.
+3. Cobertura estendida: validação de sinal de separação, células negativas, igualdade de offsets locais em células distintas (delta exato de grade), compatibilidade com `cosmologicalSeparationVectorM()` e preservação do endereço BigInt.
+O código de produção (`ProceduralGalaxyGenerator.ts`, `GalaxyRuntime.ts`) já estava matematicamente correto e permaneceu inalterado. U4.1.2 pronto para validação em pipeline (não registrado como aprovado antes do CI). U4.2 (shaders/partículas GPU) permanece estritamente bloqueado.
+Evidence: [38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md](38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md).
+
+## Previous checkpoint — U4.1.1 Hardening de Coordenadas, Identidade e Integração Galáctica (2026-11-02)
 
 Baseline at `d1def8c4e06eceb8e0a0ab8ddd0f706d46fb717d` (U4.1). Hardening pós-aprovação do gerador procedural de galáxias:
 1. Identidade espacial correta entre células cosmológicas no adaptador legado via `cosmologicalPositionM()`, limiar explícito de domínio Float64 (`COSMOLOGICAL_FLOAT_DOMAIN_MAX_CELLS = 1024n`) e recusa explícita sem posições falsas (`tryToGalaxyDefinition()`).
 2. Eliminação de aliasing por truncamento de $2^{64}$ em `hashCosmologicalCell()` através de codificação canônica bijetiva de BigInt (sinal + comprimento LEB128 + magnitude) com finalizador SplitMix64 (`GALAXY_GENERATOR_VERSION = 2`).
 3. Preservação de morfologia específica no runtime consumidor: adicionado `'procedural'` a `GalaxyDensityProfile` e campo `proceduralMorphology` a `GalaxyDefinition`, integrando `GalaxyRuntime.densityAtLocal()` à fonte única `evaluateProceduralDensity()`.
 4. Auditoria de alegações de desempenho (vazão sob demanda sem alegações não instrumentadas de memória) e designação procedural estrita (`DM-PG ...`).
-Suíte de testes unitários ampliada para 15 contratos formais em `tests/procedural-galaxy-generator.test.ts`. U4.1.1 pronto para validação em pipeline (não registrado como aprovado antes do CI). U4.2 (shaders/partículas GPU) e U4.3 (mapa/gameplay) permanecem bloqueados.
+GitHub Actions Run 41390693792: Typecheck SUCCESS; regressões permanentes 638/638 PASS; testes gerais 1.490/1.491 PASS (1 falha de expectativa matemática no teste novo T_U411_01); Vite build SKIPPED. Publicado no commit `5b889b0681581876e6f17787d13376a1006f745f`.
 Evidence: [38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md](38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md).
 
 ## Previous checkpoint — U4.1 Deterministic Procedural Galaxy Generator (2026-11-02)

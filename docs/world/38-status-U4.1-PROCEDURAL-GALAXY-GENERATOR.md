@@ -1,16 +1,17 @@
-# Relatório Técnico U4.1 / U4.1.1 — Gerador Procedural Determinístico de Galáxias e Hardening Arquitetural
+# Relatório Técnico U4.1 / U4.1.1 / U4.1.2 — Gerador Procedural Determinístico de Galáxias e Hardening Arquitetural
 
-**Status**: Implementado e Pronto para Validação no CI  
+**Status**: U4.1.2 Implementado e Pronto para Validação no CI  
 **Data**: 02 de Novembro de 2026  
 **Autor**: Antigravity Assistant & Dr-Manaus Core Team  
 **Branch**: `feat/universe-map`  
 **Baseline U4.1 Aprovado em CI**: `d1def8c4e06eceb8e0a0ab8ddd0f706d46fb717d` (GitHub Actions Run [41388592245](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41388592245))  
 **Resultados Oficiais do U4.1**: Typecheck SUCCESS; 638/638 regressões permanentes PASS; 1.486/1.486 testes gerais PASS; build Vite de produção SUCCESS.  
-**Escopo U4.1.1**: Hardening arquitetural dos contratos de coordenadas, identidade e compatibilidade identificados na revisão pós-aprovação:
-1. Identidade espacial correta entre células cosmológicas no adaptador de coordenadas.
-2. Eliminação de aliasing por truncamento de $2^{64}$ na função de hash cosmológico (`GALAXY_GENERATOR_VERSION = 2`).
-3. Preservação da morfologia procedural específica no runtime (`GalaxyRuntime.densityAtLocal`).
-4. Auditoria de alegações de desempenho e terminologia matemática.
+**Auditoria do U4.1.1 no CI**: `5b889b0681581876e6f17787d13376a1006f745f` (GitHub Actions Run [41390693792](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41390693792))  
+- Typecheck: SUCCESS  
+- Regressões permanentes: 638/638 PASS  
+- Suíte geral de testes: 1.490/1.491 PASS (1 falha no teste novo `T_U411_01`)  
+- Build de produção: SKIPPED (bloqueado pela falha unitária)  
+**Escopo U4.1.2**: Correção pontual da expectativa matemática de separação cosmológica no teste `T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY` sem qualquer alteração no código de produção.
 
 ---
 
@@ -113,7 +114,7 @@ A suíte [tests/procedural-galaxy-generator.test.ts](file:///c:/Projetos/Dr-Mana
 - `T_U41_08_PRESERVATION_OF_CANONICAL_ENTITIES`: Grupo Local preserva referências exatas de `LOCAL_GROUP_CATALOG`.
 - `T_U41_09_ON_DEMAND_GENERATION_THROUGHPUT`: Vazão de geração sob demanda sem retenção de cache.
 - `T_U41_10_ADAPTER_TO_GALAXY_DEFINITION_COMPATIBILITY`: Conformidade do adaptador com perfil `'procedural'`.
-- `T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY`: Células distintas com mesmo offset local produzem posições $X, Y, Z$ distintas.
+- `T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY`: Separação espacial analítica exata entre células cosmológicas (Float64 rel $< 10^{-14}$), sinal, células negativas, delta exato de grade e compatibilidade vetorial.
 - `T_U411_02_HASH_NO_2_POW_64_ALIASING_AND_CANONICAL_VECTORS`: Comprova que coordenadas separadas por $2^{64}$ geram hashes distintos.
 - `T_U411_03_GALAXY_INDEX_DOMAIN_VALIDATION`: Lança `RangeError` para índices negativos, fracionários ou superiores a 65535.
 - `T_U411_04_BOUNDED_FLOAT_DOMAIN_AND_EXPLICIT_REFUSAL`: Rejeita células fora do domínio Float64 sem emitir posições erradas; valida vetores relativos.
@@ -121,8 +122,51 @@ A suíte [tests/procedural-galaxy-generator.test.ts](file:///c:/Projetos/Dr-Mana
 
 ---
 
-## 7. Próximos Passos (Transição para U4.2)
+## 7. Patch U4.1.2 — Diagnóstico e Correção Matemática de `T_U411_01`
 
-Com o fechamento dos contratos de coordenadas, hashing e compatibilidade do U4.1.1:
-1. O modelo matemático está estabilizado e desacoplado de suposições visuais.
-2. O próximo passo autorizado será o **U4.2 — Shaders de Morfologia Galáctica e Sistema de Partículas GPU** (`GalaxyPointCloudProvider.ts`, `RawShaderMaterial`, buffers instanciados e níveis LOD0–LOD2).
+### 7.1 Diagnóstico do CI (Run 41390693792)
+O commit `5b889b0681581876e6f17787d13376a1006f745f` passou por Typecheck e pelo portão permanente (638/638 PASS), além de 1.490 testes unitários gerais. A única falha ocorreu na asserção de linha 424 de `tests/procedural-galaxy-generator.test.ts`:
+```
+Distance between cells must reflect cosmological cell grid separation
+Expected: true
+Received: false
+```
+
+### 7.2 Causa Raiz Matemática
+No teste `T_U411_01`, as células avaliadas foram:
+- $\text{cell}_A = (10, 0, 0)$
+- $\text{cell}_B = (20, 0, 0)$
+
+Com tamanho de célula $D_{\text{cell}} = 2.0\text{ Mpc}$, a separação nominal entre as origens das células é:
+$$\Delta X_{\text{cell}} = (20 - 10) \times 2.0\text{ Mpc} = 20.0\text{ Mpc}$$
+
+Os offsets locais gerados $\mathbf{r}_{\text{local}} \in [-0.9, +0.9]\text{ Mpc}$ modulam essa distância em no máximo $\pm 1.8\text{ Mpc}$, resultando em uma separação real estritamente contida no intervalo $[18.2, 21.8]\text{ Mpc}$.
+
+Entretanto, a asserção no teste exigia:
+```typescript
+deltaXMetres > 15 * COSMOLOGICAL_CELL_SIZE_MPC * (1_000_000 * 3.08e16)
+```
+Como $15 \times 2.0\text{ Mpc} = 30.0\text{ Mpc}$, o teste exigia uma distância superior a $\approx 30\text{ Mpc}$ para objetos separados por apenas $20\text{ Mpc}$, tornando a falha matematicamente inevitável. O código de produção em `ProceduralGalaxyGenerator.ts` e `GalaxyRuntime.ts` calculava a posição perfeitamente correta e não necessitou de alterações.
+
+### 7.3 Correção Analítica e Tolerância Float64
+A asserção heurística incorreta foi substituída pela comparação direta com a expressão analítica exata:
+$$\Delta X_{\text{expected}} = (C_{B,x} - C_{A,x}) \cdot D_{\text{cell}} + (r_{B,\text{local},x} - r_{A,\text{local},x}) \cdot D_{\text{Mpc}}$$
+
+A comparação com a posição calculada pelo adaptador $\Delta X_{\text{actual}} = P_{B,x} - P_{A,x}$ emprega tolerância relativa estrita:
+$$\frac{|\Delta X_{\text{actual}} - \Delta X_{\text{expected}}|}{|\Delta X_{\text{expected}}|} < 10^{-14}$$
+
+### 7.4 Casos de Borda Adicionais Cobertos em `T_U411_01`
+Para assegurar a robustez completa do contrato de coordenadas, o teste foi expandido com:
+1. **Sinal da separação**: Verificação de que $\Delta X > 0$ quando $C_{B,x} > C_{A,x}$.
+2. **Células negativas**: Validação para células em coordenadas negativas ($C_x = -15n$ e $C_x = -5n$), confirmando o mesmo $\Delta X = 20\text{ Mpc}$ nominal.
+3. **Igualdade de offsets locais**: Verificação de que duas galáxias sintéticas com idênticos offsets locais produzem exatamente $\Delta X = 10 \times D_{\text{cell}}$ com tolerância $< 10^{-15}$.
+4. **Compatibilidade com `cosmologicalSeparationVectorM()`**: Verificação de que a subtração em BigInt produz resultado idêntico à subtração de posições Float64 no domínio suportado.
+5. **Preservação de endereço BigInt**: Confirmação de que `cosmologicalAddress.cell` preserva o valor exato `BigInt` sem perda de tipo ou magnitude.
+
+---
+
+## 8. Próximos Passos (Transição para U4.2)
+
+1. Validação automatizada completa no GitHub Actions para o commit U4.1.2 (1.491/1.491 testes esperados + Build Vite).
+2. Após confirmação remota de sucesso no pipeline, início imediato do **U4.2 — Shaders de Morfologia Galáctica e Sistema de Partículas GPU** (`GalaxyPointCloudProvider.ts`, shaders GLSL dedicados, buffers instanciados e níveis LOD0–LOD2).
+

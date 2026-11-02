@@ -23,6 +23,7 @@ import {
   cosmologicalPositionM,
   cosmologicalSeparationVectorM,
   isCellInFloatDomain,
+  MPC_M,
   COSMOLOGICAL_CELL_SIZE_M,
   COSMOLOGICAL_CELL_SIZE_MPC,
   COSMOLOGICAL_FLOAT_DOMAIN_MAX_CELLS,
@@ -398,18 +399,17 @@ test('T_U41_10_ADAPTER_TO_GALAXY_DEFINITION_COMPATIBILITY: produces valid Galaxy
 /* U4.1.1 Hardening Tests: Coordinates, Identity, Hash, Runtime Integration   */
 /* ========================================================================== */
 
-test('T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY: different cells with identical local offset receive distinct positionM', () => {
+test('T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY: positionM accurately reflects cell indices and local offsets', () => {
   const generator = new ProceduralGalaxyGenerator();
   const universeSeed = 0x5555_6666_7777_8888n;
 
-  // Create two cells
+  // 1. Positive cell separation (cellA.x = 10n, cellB.x = 20n)
   const cellA: BigInt3 = { x: 10n, y: 0n, z: 0n };
   const cellB: BigInt3 = { x: 20n, y: 0n, z: 0n };
 
   const galA = generator.generateGalaxy(universeSeed, cellA, 0);
   const galB = generator.generateGalaxy(universeSeed, cellB, 0);
 
-  // Even if they had the exact same localCellMpc, positionM must differ by cell delta * cell size
   const defA = generator.toGalaxyDefinition(galA);
   const defB = generator.toGalaxyDefinition(galB);
 
@@ -419,12 +419,75 @@ test('T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY: different cells with identic
     'Galaxies in cell.x=10 and cell.x=20 must have distinct X coordinates in positionM',
   );
 
-  const deltaXMetres = Math.abs(defB.positionM[0] - defA.positionM[0]);
-  // 10 cells difference = 10 * 2.0 Mpc = 20 Mpc ≈ 6.17e23 metres. Local offset is at most ±1.8 Mpc
+  const actualDeltaX = defB.positionM[0] - defA.positionM[0];
+  const expectedDeltaX =
+    Number(cellB.x - cellA.x) * COSMOLOGICAL_CELL_SIZE_M +
+    (galB.localCellMpc[0] - galA.localCellMpc[0]) * MPC_M;
+
+  assert.ok(actualDeltaX > 0, 'Separation from cell.x=10 to cell.x=20 must be positive');
   assert.ok(
-    deltaXMetres > 15 * COSMOLOGICAL_CELL_SIZE_MPC * (1_000_000 * 3.08e16),
-    'Distance between cells must reflect cosmological cell grid separation',
+    Math.abs(actualDeltaX - expectedDeltaX) / Math.abs(expectedDeltaX) < 1e-14,
+    `Separation must match analytical formula (expected: ${expectedDeltaX}, actual: ${actualDeltaX})`,
   );
+
+  // 2. Compatibility with cosmologicalSeparationVectorM()
+  const sepVector = cosmologicalSeparationVectorM(
+    galA.cosmologicalAddress,
+    galB.cosmologicalAddress,
+  );
+  assert.ok(sepVector !== undefined, 'cosmologicalSeparationVectorM must return vector for bounded delta');
+  assert.ok(
+    Math.abs(sepVector[0] - actualDeltaX) / Math.abs(actualDeltaX) < 1e-14,
+    'cosmologicalSeparationVectorM[0] must match positionM difference',
+  );
+
+  // 3. Negative cells: cellC.x = -15n, cellD.x = -5n
+  const cellC: BigInt3 = { x: -15n, y: -20n, z: 5n };
+  const cellD: BigInt3 = { x: -5n, y: -20n, z: 5n };
+
+  const galC = generator.generateGalaxy(universeSeed, cellC, 0);
+  const galD = generator.generateGalaxy(universeSeed, cellD, 0);
+
+  const defC = generator.toGalaxyDefinition(galC);
+  const defD = generator.toGalaxyDefinition(galD);
+
+  const actualDeltaNegX = defD.positionM[0] - defC.positionM[0];
+  const expectedDeltaNegX =
+    Number(cellD.x - cellC.x) * COSMOLOGICAL_CELL_SIZE_M +
+    (galD.localCellMpc[0] - galC.localCellMpc[0]) * MPC_M;
+
+  assert.ok(
+    Math.abs(actualDeltaNegX - expectedDeltaNegX) / Math.abs(expectedDeltaNegX) < 1e-14,
+    'Separation across negative cells must match analytical formula',
+  );
+
+  // 4. Equal local offsets in distinct cells (override test)
+  const syntheticGalA: ProceduralGalaxyDescriptor = {
+    ...galA,
+    localCellMpc: [0.5, -0.2, 0.1],
+    cosmologicalAddress: { cell: cellA, localMpc: [0.5, -0.2, 0.1] },
+  };
+  const syntheticGalB: ProceduralGalaxyDescriptor = {
+    ...galB,
+    localCellMpc: [0.5, -0.2, 0.1], // exact identical local offset
+    cosmologicalAddress: { cell: cellB, localMpc: [0.5, -0.2, 0.1] },
+  };
+
+  const synDefA = generator.toGalaxyDefinition(syntheticGalA);
+  const synDefB = generator.toGalaxyDefinition(syntheticGalB);
+
+  // Since local offsets are identical, deltaX must exactly equal 10 * COSMOLOGICAL_CELL_SIZE_M
+  const exactCellDeltaX = synDefB.positionM[0] - synDefA.positionM[0];
+  const expectedExact = 10 * COSMOLOGICAL_CELL_SIZE_M;
+  assert.ok(
+    Math.abs(exactCellDeltaX - expectedExact) / expectedExact < 1e-15,
+    'Identical local offsets in different cells must yield exactly cell-grid delta in positionM',
+  );
+
+  // 5. Preserving exact BigInt cell in cosmologicalAddress
+  assert.equal(galA.cosmologicalAddress.cell.x, 10n);
+  assert.equal(galB.cosmologicalAddress.cell.x, 20n);
+  assert.equal(galC.cosmologicalAddress.cell.x, -15n);
 });
 
 test('T_U411_02_HASH_NO_2_POW_64_ALIASING_AND_CANONICAL_VECTORS: full magnitude encoding prevents 2^64 hash collision', () => {
