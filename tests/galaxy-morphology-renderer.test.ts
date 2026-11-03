@@ -436,9 +436,12 @@ test('T_U421_05_CAMERA_FOV_AND_ENVELOPE_PROJECTION: FOV alters projected pixels 
   const nearbySatellite: import('../src/world/celestial/GalaxyDefinition.ts').GalaxyDefinition = {
     id: 'nearby_satellite',
     name: 'Nearby Satellite',
+    type: 'spiral',
     diameterLy: 10_000,
+    thicknessLy: 1_000,
     positionM: [1_000_000, 0, 0], // Within 1,000 km of origin (observer at [0,0,0])
     addressOriginM: [0, 0, 0],
+    densityProfile: 'milky-way',
   };
   const closeProvider = new GalaxyProvider(parent, { galaxy: nearbySatellite });
   // Observer in Milky Way at origin, distance is 1,000 km, well within 5,000 ly radius
@@ -449,3 +452,99 @@ test('T_U421_05_CAMERA_FOV_AND_ENVELOPE_PROJECTION: FOV alters projected pixels 
   provider.dispose();
   parent.clear();
 });
+
+test('T_U422_01_COPLANAR_XZ_ORIENTATION_AND_PREDICTIVE_PREHEATING: quads share XZ plane (+Y normal) and preheat on approach', () => {
+  const parent = new Group();
+  const desc = generator.generateGalaxy(universeSeed, cell, 0);
+  const renderer = new GalaxyMorphologyRenderer(parent, desc, {
+    lodThreshold01: 16,
+    lodThreshold12: 280,
+  });
+
+  // 1. LOD 0 geometry is coplanar in the XZ plane with polar normal along +Y
+  const lod0Pos = (renderer as any).lod0Geometry.getAttribute('position').array as Float32Array;
+  for (let i = 0; i < lod0Pos.length / 3; i++) {
+    const y = lod0Pos[i * 3 + 1];
+    assert.ok(Math.abs(y) < 1e-5, `LOD0 impostor quad vertex ${i} must lie in XZ plane (Y ~= 0)`);
+  }
+
+  // 2. LOD 1 disc geometry is also rotated -90 deg around X into the XZ plane
+  renderer.forceLod(1);
+  const lod1Pos = (renderer as any).lod1DiscGeometry.getAttribute('position').array as Float32Array;
+  for (let i = 0; i < lod1Pos.length / 3; i++) {
+    const y = lod1Pos[i * 3 + 1];
+    assert.ok(Math.abs(y) < 1e-5, `LOD1 intermediate disc vertex ${i} must lie in XZ plane (Y ~= 0)`);
+  }
+
+  renderer.dispose();
+  parent.clear();
+
+  // 3. Predictive preheating trigger
+  const preheatRenderer = new GalaxyMorphologyRenderer(parent, desc, {
+    lodThreshold01: 16,
+    lodThreshold12: 280,
+  });
+
+  // Distant: LOD 0, not preheated
+  preheatRenderer.update(1e25, 5);
+  assert.equal(preheatRenderer.currentLod, 0);
+  assert.equal(preheatRenderer.isLod2Preheated, false);
+
+  // Enters LOD 1 at 50 px (< 280 * 0.6 = 168 px): not yet preheated
+  preheatRenderer.update(1e23, 50);
+  assert.equal(preheatRenderer.currentLod, 1);
+  assert.equal(preheatRenderer.isLod2Preheated, false);
+  assert.equal(preheatRenderer.isLod2Materialized, false);
+
+  // Approaches LOD 2 threshold at 190 px (>= 168 px): preheats cache without materializing scene points
+  preheatRenderer.update(1e22, 190);
+  assert.equal(preheatRenderer.currentLod, 1);
+  assert.equal(preheatRenderer.isLod2Preheated, true, 'LOD 2 geometry must be predictively pre-warmed in cache');
+  assert.equal(preheatRenderer.isLod2Materialized, false, 'LOD 2 points must not yet be materialized in scene hierarchy');
+
+  // Crosses 280 px: enters LOD 2
+  preheatRenderer.update(1e21, 300);
+  assert.equal(preheatRenderer.currentLod, 2);
+  assert.equal(preheatRenderer.isLod2Materialized, true);
+
+  preheatRenderer.dispose();
+  parent.clear();
+});
+
+test('T_U422_02_REFERENCE_COUNTED_CACHE_AND_SAFE_EVICTION: active scene geometries are never disposed on LRU eviction', () => {
+  const provider = new GalaxyPointCloudProvider(2); // Capacity 2
+  const descA = generator.generateGalaxy(universeSeed, cell, 0);
+  const descB = generator.generateGalaxy(universeSeed, cell, 1);
+  const descC = generator.generateGalaxy(universeSeed, cell, 2);
+
+  // 1. Get and retain geometry A
+  const geomA = provider.getGeometry(descA, 'Low');
+  provider.retain(geomA);
+  assert.equal(provider.getRefCount(geomA), 1);
+
+  // 2. Get and retain geometry B
+  const geomB = provider.getGeometry(descB, 'Low');
+  provider.retain(geomB);
+  assert.equal(provider.getRefCount(geomB), 1);
+  assert.equal(provider.cacheSize, 2);
+
+  // 3. Fetch geometry C: forces eviction from 2-element cache
+  const geomC = provider.getGeometry(descC, 'Low');
+  assert.equal(provider.cacheSize, 2);
+
+  // Despite eviction from cache map, geomA must still be usable with position attribute intact because refCount > 0
+  assert.ok(geomA.getAttribute('position'), 'Retained evicted geometry must not be disposed');
+  assert.equal(geomA.getAttribute('position').count, 10_000);
+
+  // 4. Release geomA: refCount becomes 0 and since it was evicted, it disposes cleanly
+  provider.release(geomA);
+  assert.equal(provider.getRefCount(geomA), 0);
+
+  // 5. Release geomB while still in cache
+  provider.release(geomB);
+  assert.equal(provider.getRefCount(geomB), 0);
+
+  provider.dispose();
+  assert.equal(provider.cacheSize, 0);
+});
+

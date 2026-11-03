@@ -1,12 +1,12 @@
-# Relatório Técnico U4.2.1 — Correção do CI, Hardening de Materiais TSL e Alocação Sob Demanda de Galáxias GPU
+# Relatório Técnico U4.2.2 — Resolução do CI (TS2339), Alinhamento Geométrico Coplanar e Cache GPU com Contagem de Referências
 
-**Status**: Implementado e Submetido ao CI (U4.2.1)  
+**Status**: Implementado e Submetido ao CI (U4.2.2)  
 **Data**: 02 de Novembro de 2026  
 **Autor**: Antigravity Assistant & Dr-Manaus Core Team  
 **Branch**: `feat/universe-map`  
-**HEAD Auditado (U4.2)**: `b2f52dd44a32662759902e3aee5255a7b6174156` (GitHub Actions Run [41395945582](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41395945582))  
-**Resultado Oficial do CI U4.2**:
-- Typecheck: **FAILURE** (`TS2322: Type 'Color' is not assignable to type 'Node<"color"> | Node<"float"> | ...'`)
+**HEAD Auditado (U4.2.1)**: `7d828974e3ff24e433911ebf34a9ed593c29dca4` (GitHub Actions Run [41562999118](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41562999118))  
+**Resultado Oficial do CI U4.2.1**:
+- Typecheck: **FAILURE** (`TS2339: Property 'hubbleType' does not exist on type 'ProceduralGalaxyDescriptor'`)
 - Portão Permanente de Regressões (638): SKIPPED
 - Testes Unitários Gerais (1.491): SKIPPED
 - Build Vite de Produção: SKIPPED
@@ -100,7 +100,41 @@ Além disso, `GalaxyPointCloudProvider` agora implementa desalocação controlad
 
 ---
 
-## 3. Cobertura da Suíte de Testes (13 Testes de Contrato)
+## 2. Hardening e Correções do Patch U4.2.2
+
+### 2.1 Causa Raiz do Erro de Compilação TS2339
+No commit `7d82897`, `buildPointCloudCacheKey` em `src/world/galaxy/GalaxyPointCloudProvider.ts`:
+```ts
+return `v${GALAXY_GENERATOR_VERSION}|...|${descriptor.hubbleType}|...`;
+```
+A interface `ProceduralGalaxyDescriptor` define o campo canônico como `morphology: HubbleMorphology` (e não `hubbleType`).
+A referência foi corrigida para `descriptor.morphology`, alinhando a chave semântica do cache com o contrato estático do gerador procedural.
+
+### 2.2 Alinhamento Geométrico Coplanar entre Todos os Níveis de LOD
+- No Three.js, `PlaneGeometry(2, 2)` é construída no plano X-Y com vetor normal ao longo de +Z.
+- Por outro lado, `GalaxyPointCloudProvider` distribui os pontos no plano de coordenadas X-Z, utilizando o eixo Y como vetor normal polar perpendicular ao disco.
+- No U4.2/U4.2.1, essa discrepância causava uma rotação aparente de 90° ao cruzar a transição entre LOD 1 (disco quad) e LOD 2 (nuvem de partículas).
+- **Correção**: Aplicada a transformação `.rotateX(-Math.PI / 2)` em `lod0Geometry` e `lod1DiscGeometry`. Agora, LOD 0, LOD 1 e LOD 2 compartilham estritamente o mesmo plano equatorial X-Z com vetor normal canônico ao longo de +Y.
+
+### 2.3 Pré-Aquecimento Preditivo de LOD 2 (Anti-Stuttering)
+- Para evitar interrupções de frame ao cruzar o limiar de alta resolução ($D_{\text{px}} \ge 280\text{ px}$), foi implementado o gatilho preditivo de pré-aquecimento:
+  ```ts
+  if (current === 1 && projectedPx >= lodThreshold12 * 0.6 && !this._lod2Materialized && !this._lod2Preheated) {
+    this.preheatLod2();
+  }
+  ```
+- O buffer de partículas é gerado e indexado no cache em segundo plano durante a aproximação em LOD 1, tornando a transição para LOD 2 uma operação $O(1)$ sem stuttering de CPU/GPU.
+
+### 2.4 Cache GPU Seguro com Contagem de Referências (Ref Counting)
+- Adicionados métodos `retain(geom)` e `release(geom)` em `GalaxyPointCloudProvider`.
+- A política de evicção LRU garante que geometrias ativas vinculadas a nós de cena (`refCount > 0`) jamais sejam destruídas prematuramente via `.dispose()` ao atingir o limite de 16 buffers, eliminando riscos de ponteiros GPU pendentes (use-after-free).
+
+### 2.5 Propagação de Viewport Real
+- Em `Game.ts` e `GalaxyMaterializer.ts`, a projeção angular do LOD agora utiliza a altura real do elemento canvas renderizado (`this.rendering.renderer.domElement.clientHeight || window.innerHeight`), sincronizada com o FOV vertical efetivo da `PerspectiveCamera`.
+
+---
+
+## 3. Cobertura da Suíte de Testes (15 Testes de Contrato)
 
 Arquivo: [tests/galaxy-morphology-renderer.test.ts](file:///c:/Projetos/Dr-Manaus/tests/galaxy-morphology-renderer.test.ts)
 
@@ -117,6 +151,8 @@ Arquivo: [tests/galaxy-morphology-renderer.test.ts](file:///c:/Projetos/Dr-Manau
 - `T_U421_03_PROGRESSIVE_LAZY_LOD_MATERIALIZATION`: Comprova que instanciar a galáxia em LOD0 não aloca LOD1 nem LOD2; alocação ocorre somente na entrada de cada nível.
 - `T_U421_04_QUALITY_PRESET_DYNAMIC_SWITCHING`: Atualização dinâmica de partículas entre Low, Medium, High e Ultra em tempo real.
 - `T_U421_05_CAMERA_FOV_AND_ENVELOPE_PROJECTION`: Variação de FOV (30° vs 90°) alterando a seleção de LOD e observador interno ao envelope forçando LOD2.
+- `T_U422_01_COPLANAR_XZ_ORIENTATION_AND_PREDICTIVE_PREHEATING`: Quads de LOD0 e LOD1 coplanares no plano equatorial X-Z com normal +Y; pré-aquecimento preditivo em LOD1 ao cruzar 60% do limiar de transição.
+- `T_U422_02_REFERENCE_COUNTED_CACHE_AND_SAFE_EVICTION`: Contagem de referências ativa preserva integridade de geometrias em cena mesmo sob evicção do cache LRU.
 
 ---
 
@@ -127,4 +163,4 @@ Arquivo: [tests/galaxy-morphology-renderer.test.ts](file:///c:/Projetos/Dr-Manau
 2. **Backend WebGPU Puro vs WebGL 2**:
    - Conforme documentado pela Three.js, primitivas `Points` no backend WebGPU têm tamanho rasterizado de 1 pixel. A diferenciação estelar nesse backend opera por modulação de brilho e extinção de poeira; no backend WebGL 2, o diâmetro dos pontos também varia fisicamente via `sizeNode`.
 3. **Bloqueio de Fases Subsequentes**:
-   - **U4.3** (mapa e gameplay galáctico) e **BH0–BH2** (buracos negros supermassivos) permanecem rigorosamente bloqueados até que o CI oficial do GitHub Actions retorne verde no commit U4.2.1.
+   - **U4.3** (mapa e gameplay galáctico) e **BH0–BH2** (buracos negros supermassivos) permanecem rigorosamente bloqueados até que o CI oficial do GitHub Actions retorne verde no commit U4.2.2.

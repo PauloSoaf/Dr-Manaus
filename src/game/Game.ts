@@ -770,7 +770,12 @@ export class Game {
         if (fog) { fog.near = 1e8; fog.far = 1e9; }
       }
     }
-    this.galaxyMaterializer?.update([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z],altitudeNow,this.rendering.camera);
+    const viewportHeight = this.rendering.renderer.domElement.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 1080);
+    this.galaxyMaterializer?.update(
+      [this.rendering.camera.position.x, this.rendering.camera.position.y, this.rendering.camera.position.z],
+      altitudeNow,
+      { fov: this.rendering.camera.fov, aspect: this.rendering.camera.aspect, viewportHeightPx: viewportHeight },
+    );
     const audioBody=this.universe.telemetry.dominantBody;
     this.audio.update({
       medium:this.universalTravelController?.active?'vacuum':audioBody==='earth'?'earth-atmosphere':local?'airless-surface':'vacuum',

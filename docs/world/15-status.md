@@ -1201,3 +1201,17 @@ pre-existing errors, mostly a missing `node` entry in `compilerOptions.types`.
 - **Detecção Contínua Pura (CCD)**: Restabelecido o cálculo do vetor de trajetória real para `sweepSegmentSphere`, garantindo emissão correta de `CelestialContact` com velocidade pré-impacto real, absorção inelástica sem ricochete na fotosfera, ausência de tunelamento e acionamento de `emergencyStopActive = true` com razão `'ccd-contact'`.
 - **Documentação de Engenharia**: Elaborado documento [docs/world/34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md](file:///c:/Projetos/Dr-Manaus/docs/world/34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md) com análise detalhada, fluxo de dados, fórmulas matemáticas e matriz de testes.
 
+---
+
+## Checkpoint U4.2.2: Resolução do CI (TS2339), Alinhamento Geométrico Coplanar e Cache GPU com Contagem de Referências
+
+- **Baseline**: `7d828974e3ff24e433911ebf34a9ed593c29dca4`, `feat/universe-map`.
+- **Causa Raiz TypeScript Corrigida**: Substituída a referência inválida `descriptor.hubbleType` por `descriptor.morphology` em `GalaxyPointCloudProvider.buildPointCloudCacheKey`, satisfazendo estritamente a tipagem estática de `ProceduralGalaxyDescriptor`.
+- **Alinhamento Coplanar dos LODs**: Rotação de -90° em torno de X (`rotateX(-Math.PI / 2)`) em `lod0Geometry` e `lod1DiscGeometry`. Agora LOD 0 (impostor quad), LOD 1 (disco intermediário) e LOD 2 (nuvem de partículas) compartilham estritamente o mesmo plano equatorial galáctico X-Z com vetor normal ao longo de +Y, eliminando rotações aparentes de 90° e popping visual nas fronteiras de histerese.
+- **Pré-Aquecimento Preditivo de LOD 2**: Implementado gatilho anti-stuttering em `GalaxyMorphologyRenderer.update` ao atingir 60% do limiar de transição em LOD 1 (`projectedPx >= lodThreshold12 * 0.6`). O buffer GPU de partículas é construído e alocado no cache em background antes da entrada efetiva, tornando a entrada em LOD 2 uma operação $O(1)$.
+- **Cache LRU Seguro com Contagem de Referências**: Adicionado gerenciamento de ciclo de vida com `retain`/`release` em `GalaxyPointCloudProvider`. Geometrias ativas em cena (`refCount > 0`) jamais sofrem descarte (`.dispose()`) ao ocorrer evicção da tabela LRU.
+- **Propagação de Viewport Real**: `Game.ts` e `GalaxyMaterializer.ts` propagam a altura real do canvas (`renderer.domElement.clientHeight || window.innerHeight`) e o FOV vertical efetivo da `PerspectiveCamera`.
+- **Correção de Fixtures e Cobertura de Testes**: Corrigida a fixture `nearbySatellite` com todos os campos obrigatórios de `GalaxyDefinition`; adicionados testes `T_U422_01_COPLANAR_XZ_ORIENTATION_AND_PREDICTIVE_PREHEATING` e `T_U422_02_REFERENCE_COUNTED_CACHE_AND_SAFE_EVICTION` em `tests/galaxy-morphology-renderer.test.ts` (15 testes no total).
+- **Servidor Dev na Porta 9999**: Configurado `vite.config.ts` e `package.json` para escutar na porta 9999 via `0.0.0.0:9999`, liberando a porta 5173 para uso simultâneo.
+- **Bloqueio**: U4.3 e BH0–BH2 continuam estritamente bloqueados até validação oficial do CI no GitHub Actions.
+

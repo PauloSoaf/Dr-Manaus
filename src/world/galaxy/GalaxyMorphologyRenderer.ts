@@ -25,10 +25,16 @@ export interface GalaxyMorphologyRendererOptions {
 /**
  * Three-tier multi-scale GPU renderer for galaxies (LOD0, LOD1, LOD2).
  *
+ * Geometric Alignment:
+ * - Galactic disc plane is aligned with the X-Z plane (polar normal axis along +Y).
+ * - All quads (LOD0 impostor, LOD1 disc, LOD2 core glow) rotate -90° around X to share
+ *   the exact same normal (+Y) and plane (XZ) as the 3D stellar particle clouds.
+ *
+ * Multi-Scale Presentation:
  * - LOD 0: Compact distant impostor (< 16 px). Minimal initial footprint.
  * - LOD 1: Extragalactic intermediate morphology (16 px to 280 px). Materialized on demand.
  * - LOD 2: High-density 3D GPU point cloud (>= 280 px) with spiral arms, bar, bulge, and halo.
- *          Materialized only when approached.
+ *          Predictively preheated during approach to prevent frame drops.
  *
  * Employs a 15% directional hysteresis band to eliminate thrashing and popping on LOD boundaries.
  * Fully compatible with WebGPURenderer (both WebGPU and WebGL 2 backends) via TSL and NodeMaterials.
@@ -42,7 +48,7 @@ export class GalaxyMorphologyRenderer {
   private readonly baseColor: Color;
   private readonly coreColor: Color;
 
-  // LOD 0 (Minimal, always built in constructor)
+  // LOD 0 (Minimal, always built in constructor, coplanar with XZ disk plane)
   private lod0Mesh: Mesh;
   private lod0Material: MeshBasicNodeMaterial;
   private lod0Geometry: PlaneGeometry;
@@ -56,13 +62,14 @@ export class GalaxyMorphologyRenderer {
   private lod1PointsMaterial?: PointsNodeMaterial;
   private _lod1Materialized = false;
 
-  // LOD 2 (Lazy initialized on first entry to LOD 2)
+  // LOD 2 (Lazy initialized with predictive preheating)
   private lod2Group?: Group;
   private lod2Points?: Points;
   private lod2PointsMaterial?: PointsNodeMaterial;
   private lod2CoreGlow?: Mesh;
   private lod2CoreMaterial?: MeshBasicNodeMaterial;
   private _lod2Materialized = false;
+  private _lod2Preheated = false;
 
   private _currentLod: 0 | 1 | 2 = 0;
   private _particleCount = 0;
@@ -103,9 +110,12 @@ export class GalaxyMorphologyRenderer {
     this.coreColor = new Color('#fff0d0');
 
     /* ------------------------------------------------------------------------ */
-    /* 1. Build LOD 0 (Distant Impostor Quad) - Immediate minimal resource cost  */
+    /* 1. Build LOD 0 (Distant Impostor Quad) - Coplanar in galactic XZ plane    */
     /* ------------------------------------------------------------------------ */
     this.lod0Geometry = new PlaneGeometry(2.0, 2.0);
+    // Align normal to +Y so disc plane matches particle XZ coordinates
+    this.lod0Geometry.rotateX(-Math.PI / 2);
+
     this.lod0Material = new MeshBasicNodeMaterial({
       transparent: true,
       depthWrite: false,
@@ -153,8 +163,12 @@ export class GalaxyMorphologyRenderer {
     return this._lod2Materialized;
   }
 
+  get isLod2Preheated(): boolean {
+    return this._lod2Preheated;
+  }
+
   /**
-   * Updates LOD tier with 15% directional hysteresis.
+   * Updates LOD tier with 15% directional hysteresis and predictive preheating.
    *
    * @param distanceM Distance to galaxy center in metres.
    * @param projectedPx Apparent projected pixel size on viewport.
@@ -165,6 +179,11 @@ export class GalaxyMorphologyRenderer {
     const { lodThreshold01, lodThreshold12, hysteresisRatio } = this.options;
     const current = this._currentLod;
     let next: 0 | 1 | 2 = current;
+
+    // Predictive pre-heating: when approaching LOD 2 threshold in LOD 1, pre-warm cache
+    if (current === 1 && projectedPx >= lodThreshold12 * 0.6 && !this._lod2Materialized && !this._lod2Preheated) {
+      this.preheatLod2();
+    }
 
     if (current === 0) {
       if (projectedPx >= lodThreshold01) {
@@ -207,14 +226,29 @@ export class GalaxyMorphologyRenderer {
 
     if (this._lod2Materialized && this.lod2Points) {
       const customCount = this.options.maxParticles > 0 ? this.options.maxParticles : undefined;
+      const oldGeom = this.lod2Points.geometry;
+      this.pointCloudProvider.release(oldGeom);
+
       const newGeom = this.pointCloudProvider.getGeometry(this.descriptor, preset, customCount);
+      this.pointCloudProvider.retain(newGeom);
       this.lod2Points.geometry = newGeom;
       this._particleCount = newGeom.getAttribute('position').count;
     }
   }
 
   /**
+   * Pre-warms the cache entry in GalaxyPointCloudProvider so that entering LOD 2 is an O(1) lookup.
+   */
+  private preheatLod2(): void {
+    if (this._lod2Preheated || this._lod2Materialized || this._disposed) return;
+    this._lod2Preheated = true;
+    const customCount = this.options.maxParticles > 0 ? this.options.maxParticles : undefined;
+    this.pointCloudProvider.getGeometry(this.descriptor, this.options.qualityPreset, customCount);
+  }
+
+  /**
    * Lazy materialization of LOD 1 resources (morphological disk and 5,000 sparse stars).
+   * Aligned to X-Z plane (+Y normal) to be strictly co-planar with LOD 2 particles.
    */
   private ensureLod1(): void {
     if (this._lod1Materialized || this._disposed) return;
@@ -224,6 +258,9 @@ export class GalaxyMorphologyRenderer {
     this.lod1Group.name = 'LOD1_IntermediateGroup';
 
     this.lod1DiscGeometry = new PlaneGeometry(2.0, 2.0);
+    // Align normal to +Y so disc plane matches particle XZ coordinates
+    this.lod1DiscGeometry.rotateX(-Math.PI / 2);
+
     this.lod1DiscMaterial = new MeshBasicNodeMaterial({
       transparent: true,
       depthWrite: false,
@@ -250,6 +287,8 @@ export class GalaxyMorphologyRenderer {
 
     // Sparse point cloud for LOD 1 (5,000 stars) using PointsNodeMaterial with size and dust attributes
     const lod1Geom = this.pointCloudProvider.getGeometry(this.descriptor, 'Low', 5_000);
+    this.pointCloudProvider.retain(lod1Geom);
+
     this.lod1PointsMaterial = new PointsNodeMaterial({
       transparent: true,
       depthWrite: false,
@@ -290,6 +329,7 @@ export class GalaxyMorphologyRenderer {
       this.options.qualityPreset,
       customCount,
     );
+    this.pointCloudProvider.retain(lod2Geom);
     this._particleCount = lod2Geom.getAttribute('position').count;
 
     this.lod2PointsMaterial = new PointsNodeMaterial({
@@ -313,7 +353,7 @@ export class GalaxyMorphologyRenderer {
     this.lod2Points.frustumCulled = false;
     this.lod2Group.add(this.lod2Points);
 
-    // Nuclear core glow for LOD 2
+    // Nuclear core glow for LOD 2 (coplanar with XZ disk plane)
     this.lod2CoreMaterial = new MeshBasicNodeMaterial({
       transparent: true,
       depthWrite: false,
@@ -366,8 +406,14 @@ export class GalaxyMorphologyRenderer {
 
     if (this.lod1DiscGeometry) this.lod1DiscGeometry.dispose();
     if (this.lod1DiscMaterial) this.lod1DiscMaterial.dispose();
+    if (this.lod1Points) {
+      this.pointCloudProvider.release(this.lod1Points.geometry);
+    }
     if (this.lod1PointsMaterial) this.lod1PointsMaterial.dispose();
 
+    if (this.lod2Points) {
+      this.pointCloudProvider.release(this.lod2Points.geometry);
+    }
     if (this.lod2PointsMaterial) this.lod2PointsMaterial.dispose();
     if (this.lod2CoreMaterial) this.lod2CoreMaterial.dispose();
 

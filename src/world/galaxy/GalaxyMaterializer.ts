@@ -96,18 +96,18 @@ export class GalaxyMaterializer {
   update(
     cameraPosition:readonly [number,number,number],
     altitudeM:number,
-    cameraContext?:{fov?:number;aspect?:number},
-  ):void {
-    const session=this.current;if(!session)return;
-    const address=this.universe.address,offset=this.universe.location.sectorOffsetM??[0,0,0];
+    cameraContext?: { fov?: number; aspect?: number; viewportHeightPx?: number },
+  ): void {
+    const session = this.current; if (!session) return;
+    const address = this.universe.address, offset = this.universe.location.sectorOffsetM ?? [0, 0, 0];
     session.starSectorProvider.recentre(cameraPosition);
-    const toRender=(v:import('../spatial/units').Vec3)=>this.universe.frames.convertDirection(this.universe.activeSystem.systemFrameId,this.universe.renderSpace.currentOrigin.frame,v);
-    for(let i=0;i<3;i++){const basis:import('../spatial/units').Vec3=[0,0,0];basis[i]=1;this.axes[i].set(...toRender(basis));}
-    const rotation=this.viewBasis.makeBasis(this.axes[0],this.axes[1],this.axes[2]);
+    const toRender = (v: import('../spatial/units').Vec3) => this.universe.frames.convertDirection(this.universe.activeSystem.systemFrameId, this.universe.renderSpace.currentOrigin.frame, v);
+    for (let i = 0; i < 3; i++) { const basis: import('../spatial/units').Vec3 = [0, 0, 0]; basis[i] = 1; this.axes[i].set(...toRender(basis)); }
+    const rotation = this.viewBasis.makeBasis(this.axes[0], this.axes[1], this.axes[2]);
     session.starSectorProvider.group.quaternion.setFromRotationMatrix(rotation);
     session.centralBlackHole?.group.quaternion.setFromRotationMatrix(rotation);
-    const camCtx=cameraContext?{fovDeg:cameraContext.fov}:undefined;
-    for(const g of session.externalGalaxies)g.update(address,[...cameraPosition],altitudeM,offset,toRender,camCtx);
-    session.centralBlackHole?.update(address,[...cameraPosition],altitudeM,offset,toRender);
+    const camCtx = cameraContext ? { fovDeg: cameraContext.fov, viewportHeightPx: cameraContext.viewportHeightPx } : undefined;
+    for (const g of session.externalGalaxies) g.update(address, [...cameraPosition], altitudeM, offset, toRender, camCtx);
+    session.centralBlackHole?.update(address, [...cameraPosition], altitudeM, offset, toRender);
   }
 }
