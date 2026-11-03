@@ -1,8 +1,28 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.4.3 Desbloqueio do CI e Integridade de Seeds (2026-11-03)
+## Current checkpoint — U4.4.4 Hardening de Performance e Integridade da Viagem (2026-11-03)
 
-Baseline auditado do U4.4.2 no commit `d08159e33d528252622d3f7347987c66de2bd044` reprovou no CI oficial (GitHub Actions Run 41659664895) com erro TS2304 em `UniversalTargetCatalog.ts` (`Cannot find name 'LOCAL_GROUP_CATALOG'`). O patch U4.4.3 corrige a compilação, implementa invalidação atômica e coerente de caches dependentes de semente e reforça a verificação de elegibilidade real de viagem:
+Baseline auditado do U4.4.3 no commit `cc07b1c04b97d665c353b8c8d58513986494d6ca` aprovado integralmente no CI oficial (GitHub Actions Run 41662450492: Typecheck SUCCESS, 638/638 regressões permanentes, 1.533/1.533 testes gerais, build Vite em 1,28s). O patch U4.4.4 implementa o hardening definitivo de performance no loop de HUD/renderização e isolamento estrito de contexto multissemente:
+1. `UniversalTargetResolver.ts`:
+   - Eliminação da busca síncrona de até 13 setores estelares no loop de renderização/HUD a cada frame (`validate()` / `resolve()`).
+   - Resolução de capacidade de viagem agora utiliza consulta $O(1)$ sem geração (`peekProceduralGalaxyEntry(galaxyId, seed)`), separando a apresentação leve da preparação efetiva da rota em `createTravelPlan()`.
+2. `GalaxyEntryResolver.ts`:
+   - Contrato de identidade do cache de entrada corrigido: indexado por `${seed.toString(16)}:${galaxyId}`.
+   - Implementado cache negativo: galáxias confirmadas sem sistema de entrada válido nos setores candidatos determinísticos são memorizadas como `null`, prevenindo repetição de varredura estelar a cada frame.
+   - Sincronização explícita de semente do catálogo antes de qualquer consulta ao cache ou geração de setores.
+3. `GalaxyCoordinates.ts`, `GalaxyRuntime.ts`, `StarSector.ts` e `UniversalTravelPlan.ts`:
+   - Parametrização explícita de `universeSeed`: definições procedurais e runtimes são indexados por `${seed.toString(16)}:${id}`, permitindo que instâncias distintas de catálogo com diferentes sementes coexistam sem colisões, invalidações concorrentes ou corrupção do universo ativo durante uma viagem.
+   - Galáxias canônicas (Via Láctea, Andrômeda) mantêm identidade imutável independente de semente.
+4. `tests/procedural-travel.test.ts`:
+   - `T_U44_17`: validação de cache negativo com contadores determinísticos de geração (0 gerações adicionais em 100 frames simulados).
+   - `T_U44_18`: isolamento de instâncias intercaladas de catálogo sob sementes distintas.
+   - `T_U44_19`: validação de 0 gerações estelares na validação contínua de alvos do HUD (120 frames a 60 FPS).
+   - `T_U44_20`: garantia de preservação de identidade do destino preparado durante o voo, mesmo com consultas a sementes estrangeiras em segundo plano.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.3 Desbloqueio do CI e Integridade de Seeds (2026-11-03)
+
+Baseline auditado do U4.4.2 no commit `d08159e33d528252622d3f7347987c66de2bd044` reprovou no CI oficial (GitHub Actions Run 41659664895) com erro TS2304 em `UniversalTargetCatalog.ts` (`Cannot find name 'LOCAL_GROUP_CATALOG'`). O patch U4.4.3 corrigiu a compilação e foi aprovado integralmente no GitHub Actions Run 41662450492 (1.533/1.533 testes).
 1. `UniversalTargetCatalog.ts`:
    - Restaurado o import de `LOCAL_GROUP_CATALOG` de `../celestial/GalaxyDefinition`, eliminando o bloqueio de compilação TS2304.
    - Sincronização automática de semente: método `syncSeed()` ativa deterministicamente a semente da descoberta em `find()`, `resolve()`, `proceduralDescriptor()` e `proceduralTarget()`.

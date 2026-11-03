@@ -9,7 +9,11 @@ import {
   GalaxyEntryResolver,
   andromedaEntryDescriptor,
   proceduralGalaxyEntryDescriptor,
+  hasProceduralGalaxyEntry,
+  peekProceduralGalaxyEntry,
+  clearGalaxyEntryCache,
 } from '../src/world/travel/GalaxyEntryResolver';
+import { NavigationTargetState } from '../src/world/travel/NavigationLock';
 import { ProceduralSystemMaterializer, safeSystemArrivalM } from '../src/world/runtime/ProceduralSystemMaterializer';
 import { GalaxyMaterializer } from '../src/world/galaxy/GalaxyMaterializer';
 import { knownGalaxyRuntime, registerGalaxyRuntime, clearGalaxyRuntimes } from '../src/world/galaxy/GalaxyRuntime';
@@ -509,4 +513,141 @@ test('T_U44_16_CUSTOM_SEED_CONSISTENCY_AND_AUTHORITY', () => {
   // Clean up
   clearProceduralGalaxyDefinitions();
   clearGalaxyRuntimes();
+  clearGalaxyEntryCache();
 });
+
+test('T_U44_17_NEGATIVE_ENTRY_CACHING_PREVENTS_REPEATED_SEARCHES', () => {
+  clearGalaxyEntryCache();
+  const discovery = new ProceduralGalaxyDiscovery(0x1234_5678n);
+  const catalog = new UniversalTargetCatalog(undefined, discovery);
+  const galaxies = discovery.discoverRegion({ x: 1n, y: 2n, z: 3n }, 3, 20);
+
+  // Find a galaxy without a landable entry system in deterministic candidates
+  let entrylessGalaxyId: string | undefined;
+  for (const g of galaxies) {
+    if (!hasProceduralGalaxyEntry(g.id, catalog)) {
+      entrylessGalaxyId = g.id;
+      break;
+    }
+  }
+  assert.ok(entrylessGalaxyId, 'Must find at least one entryless galaxy in region');
+
+  // Verify negative cache status
+  assert.equal(peekProceduralGalaxyEntry(entrylessGalaxyId, discovery.universeSeed), false);
+
+  // Instrument runtime to count sector generation calls
+  const runtime = knownGalaxyRuntime(entrylessGalaxyId, discovery.universeSeed)!;
+  let generateSectorCalls = 0;
+  const originalGenerate = runtime.generateSector.bind(runtime);
+  runtime.generateSector = (sector, opts) => {
+    generateSectorCalls++;
+    return originalGenerate(sector, opts);
+  };
+
+  // Simulate 100 frames of HUD/validation queries on the entryless galaxy
+  for (let i = 0; i < 100; i++) {
+    const result = hasProceduralGalaxyEntry(entrylessGalaxyId, catalog);
+    assert.equal(result, false);
+  }
+
+  // Exactly 0 sector generations must occur across all 100 queries due to negative caching
+  assert.equal(generateSectorCalls, 0, 'Cached negative entry must never trigger sector generation');
+
+  // proceduralGalaxyEntryDescriptor throws cached error immediately
+  assert.throws(
+    () => proceduralGalaxyEntryDescriptor(entrylessGalaxyId!, catalog),
+    /No populated and landable entry system/,
+  );
+  assert.equal(generateSectorCalls, 0, 'Direct descriptor resolution on negative-cached galaxy must not generate sectors');
+});
+
+test('T_U44_18_INTERLEAVED_MULTI_SEED_CATALOG_ISOLATION', () => {
+  const seedA = 0xAAAA_1111_2222_3333n;
+  const seedB = 0xBBBB_4444_5555_6666n;
+  const discoveryA = new ProceduralGalaxyDiscovery(seedA);
+  const catalogA = new UniversalTargetCatalog(undefined, discoveryA);
+  const discoveryB = new ProceduralGalaxyDiscovery(seedB);
+  const catalogB = new UniversalTargetCatalog(undefined, discoveryB);
+  const testGalaxyId = 'galaxy_c10_20_30_0';
+
+  // Interleaved resolution:
+  const targetA = catalogA.find(testGalaxyId)!;
+  const targetB = catalogB.find(testGalaxyId)!;
+  assert.ok(targetA && targetB);
+
+  const defA = galaxyDefinition(testGalaxyId, seedA)!;
+  const defB = galaxyDefinition(testGalaxyId, seedB)!;
+  assert.notEqual(defA.diameterLy, defB.diameterLy, 'Morphology must differ between seeds');
+
+  const runtimeA = knownGalaxyRuntime(testGalaxyId, seedA)!;
+  const runtimeB = knownGalaxyRuntime(testGalaxyId, seedB)!;
+  assert.notEqual(runtimeA, runtimeB, 'Runtimes must be isolated by seed');
+  assert.equal(runtimeA.definition, defA);
+  assert.equal(runtimeB.definition, defB);
+
+  // Repeated interleaved queries across both catalogs without cross-poisoning
+  for (let i = 0; i < 5; i++) {
+    const qA = catalogA.find(testGalaxyId);
+    const qB = catalogB.find(testGalaxyId);
+    assert.equal(qA?.displayName, targetA.displayName);
+    assert.equal(qB?.displayName, targetB.displayName);
+    assert.equal(knownGalaxyRuntime(testGalaxyId, seedA)?.definition, defA);
+    assert.equal(knownGalaxyRuntime(testGalaxyId, seedB)?.definition, defB);
+  }
+});
+
+test('T_U44_19_HUD_PER_FRAME_VALIDATION_ZERO_HEAVY_GENERATION', () => {
+  const f = createTestFixture();
+  const procGalaxyId = 'galaxy_c10_20_30_0';
+  const target = f.catalog.target(procGalaxyId)!;
+  assert.ok(target);
+
+  const state = new NavigationTargetState();
+  state.select(target);
+  const resolver = new UniversalTargetResolver(f.catalog, f.u);
+
+  // Instrument runtime to verify 0 sector generations in HUD validation loop
+  const runtime = knownGalaxyRuntime(procGalaxyId, f.catalog.discovery.universeSeed)!;
+  let sectorGens = 0;
+  const origGen = runtime.generateSector.bind(runtime);
+  runtime.generateSector = (s, opts) => {
+    sectorGens++;
+    return origGen(s, opts);
+  };
+
+  // Simulate 120 frames (2 seconds at 60 FPS) of NavigationTargetState.validate()
+  for (let frame = 0; frame < 120; frame++) {
+    state.validate(resolver);
+  }
+
+  assert.equal(sectorGens, 0, 'Per-frame target validation must never generate stellar sectors');
+  assert.equal(state.current?.key, target.key);
+});
+
+test('T_U44_20_PREPARED_DESTINATION_IDENTITY_PRESERVED_DURING_TRAVEL', () => {
+  const f = createTestFixture();
+  const procGalaxyId = 'galaxy_c10_20_30_0';
+  const target = f.catalog.target(procGalaxyId)!;
+  assert.ok(target);
+
+  // Start travel: preparation resolves the entry system once and caches it
+  assert.equal(f.c.start(target, safety), 'started');
+  const plan = f.c.state!.plan;
+  const resolvedStarId = plan.resolvedDestination.systemId;
+  assert.ok(resolvedStarId);
+
+  // Advance flight partway
+  f.c.update(5);
+  assert.equal(f.c.state!.plan.resolvedDestination.systemId, resolvedStarId);
+
+  // Now query a different catalog with a different seed in the background
+  const foreignDiscovery = new ProceduralGalaxyDiscovery(0xDEAD_BEEFn);
+  const foreignCatalog = new UniversalTargetCatalog(undefined, foreignDiscovery);
+  foreignCatalog.find('galaxy_c10_20_30_0');
+
+  // Complete the flight: verify travel arrives at the EXACT originally prepared destination
+  finish(f);
+  assert.equal(f.u.activeGalaxy.id, procGalaxyId);
+  assert.equal(f.u.address.systemId, resolvedStarId);
+});
+

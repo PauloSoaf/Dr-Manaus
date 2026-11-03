@@ -191,13 +191,13 @@ function classify(massSolar: number): GeneratedStar['spectralClass'] {
 export function generateStarSector(
   galaxyId: string,
   sector: SectorIndex,
-  options: { densityScale?: number; maxStars?: number } = {},
+  options: { densityScale?: number; maxStars?: number; universeSeed?: bigint } = {},
 ): StarSectorContent {
   const seed = sectorSeed(galaxyId, sector);
   const random = new SeededRandom(seed);
 
   // Find the galaxy definition
-  const galDef = galaxyDefinition(galaxyId === 'milky-way' ? 'milky_way' : galaxyId);
+  const galDef = galaxyDefinition(galaxyId === 'milky-way' ? 'milky_way' : galaxyId, options.universeSeed);
   const sectorOptionScale = options.densityScale ?? 1;
 
   const galacticCentrePosM = galDef ? galaxyLocalPositionM(galDef, sector) : [0, 0, 0] as Vec3;

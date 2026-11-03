@@ -83,7 +83,7 @@ export class UniversalTargetCatalog {
     const galaxyDesc = this.discovery.findGalaxyById(rawId);
     if (galaxyDesc) {
       const def = this.discovery.getGalaxyDefinition(galaxyDesc.id);
-      if (def) registerProceduralGalaxyDefinition(def);
+      if (def) registerProceduralGalaxyDefinition(def, this.discovery.universeSeed);
       const target = createUniversalTarget({
         kind: 'galaxy',
         displayName: galaxyDesc.name,
@@ -105,7 +105,7 @@ export class UniversalTargetCatalog {
     if (matches.length > 0) {
       const match = matches[0];
       const def = this.discovery.getGalaxyDefinition(match.id);
-      if (def) registerProceduralGalaxyDefinition(def);
+      if (def) registerProceduralGalaxyDefinition(def, this.discovery.universeSeed);
       const target = createUniversalTarget({
         kind: 'galaxy',
         displayName: match.name,
@@ -128,11 +128,11 @@ export class UniversalTargetCatalog {
   /** Generated system seed combines the sector seed with the stable generated star identity. */
   proceduralDescriptor(galaxyId: string, sector: SectorIndex, starId: string): ProceduralTargetDescriptor | undefined {
     this.syncSeed();
-    if (!galaxyDefinition(galaxyId)) return;
+    if (!galaxyDefinition(galaxyId, this.discovery.universeSeed)) return;
     const key=sectorKey(galaxyId,sector), systemKey=`${key}/${starId}`;
     const cached=this.procedural.get(systemKey); if(cached)return cached;
     let stars=this.sectors.get(key);
-    if(!stars){stars=generateStarSector(galaxyId,sector).stars;this.sectors.set(key,stars);if(this.sectors.size>8)this.sectors.delete(this.sectors.keys().next().value!);}
+    if(!stars){stars=generateStarSector(galaxyId,sector,{ universeSeed: this.discovery.universeSeed }).stars;this.sectors.set(key,stars);if(this.sectors.size>8)this.sectors.delete(this.sectors.keys().next().value!);}
     const index=stars.findIndex(s=>s.id===starId); if(index<0)return;
     const star=stars[index], system=generateSystem(star.id,sectorSeed(galaxyId,sector)^BigInt(index+1),star);
     const descriptor={star,system,address:{galaxyId,sector,systemId:star.id}};
@@ -168,7 +168,7 @@ export class UniversalTargetCatalog {
         const desc = this.discovery.findGalaxyById(t.galaxyId);
         if (desc) {
           const def = this.discovery.getGalaxyDefinition(desc.id);
-          if (def) registerProceduralGalaxyDefinition(def);
+          if (def) registerProceduralGalaxyDefinition(def, this.discovery.universeSeed);
           const canonical = createUniversalTarget({
             kind: 'galaxy',
             displayName: desc.name,

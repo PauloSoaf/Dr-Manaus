@@ -12,9 +12,14 @@ import {
 
 const proceduralGalaxyDefinitions = new Map<string, GalaxyDefinition>();
 
-export function registerProceduralGalaxyDefinition(def: GalaxyDefinition): void {
-  proceduralGalaxyDefinitions.set(def.id, def);
-  if (proceduralGalaxyDefinitions.size > 256) {
+function galaxyDefCacheKey(seed: bigint, id: string): string {
+  return `${seed.toString(16)}:${id}`;
+}
+
+export function registerProceduralGalaxyDefinition(def: GalaxyDefinition, seed: bigint = activeUniverseSeed): void {
+  const effectiveSeed = def.proceduralMorphology?.seed ?? seed;
+  proceduralGalaxyDefinitions.set(galaxyDefCacheKey(effectiveSeed, def.id), def);
+  if (proceduralGalaxyDefinitions.size > 512) {
     proceduralGalaxyDefinitions.delete(proceduralGalaxyDefinitions.keys().next().value!);
   }
 }
@@ -30,7 +35,6 @@ export function onProceduralUniverseSeedChanged(listener: (seed: bigint) => void
 export function setProceduralUniverseSeed(seed: bigint): void {
   if (activeUniverseSeed === seed) return;
   activeUniverseSeed = seed;
-  proceduralGalaxyDefinitions.clear();
   for (const listener of seedChangeListeners) {
     listener(seed);
   }
@@ -52,26 +56,27 @@ export function clearProceduralGalaxyDefinitions(): void {
   }
 }
 
-export function galaxyDefinition(id: string): GalaxyDefinition | undefined {
+export function galaxyDefinition(id: string, universeSeed: bigint = activeUniverseSeed): GalaxyDefinition | undefined {
   const canon = LOCAL_GROUP_CATALOG.find(g => g.id === id);
   if (canon) return canon;
 
-  const cached = proceduralGalaxyDefinitions.get(id);
+  const key = galaxyDefCacheKey(universeSeed, id);
+  const cached = proceduralGalaxyDefinitions.get(key);
   if (cached) return cached;
 
   const parsed = parseGalaxyId(id);
   if (!parsed) return undefined;
 
   const gen = new ProceduralGalaxyGenerator();
-  if (!gen.isGalaxyIndexPopulated(activeUniverseSeed, parsed.cell, parsed.index)) {
+  if (!gen.isGalaxyIndexPopulated(universeSeed, parsed.cell, parsed.index)) {
     return undefined;
   }
-  const desc = gen.generateGalaxy(activeUniverseSeed, parsed.cell, parsed.index);
+  const desc = gen.generateGalaxy(universeSeed, parsed.cell, parsed.index);
   if (desc.id !== id) return undefined; // reject forged aliases
 
   const res = gen.tryToGalaxyDefinition(desc);
   if (res.ok) {
-    registerProceduralGalaxyDefinition(res.definition);
+    registerProceduralGalaxyDefinition(res.definition, universeSeed);
     return res.definition;
   }
 
@@ -90,7 +95,7 @@ export function galaxyDefinition(id: string): GalaxyDefinition | undefined {
     densityScale: desc.densityScale,
     proceduralMorphology: desc,
   };
-  registerProceduralGalaxyDefinition(fallbackDef);
+  registerProceduralGalaxyDefinition(fallbackDef, universeSeed);
   return fallbackDef;
 }
 
@@ -110,16 +115,16 @@ export function orientGalaxyVector(g:GalaxyDefinition,v:Vec3,inverse=false):Vec3
   }
   return result;
 }
-export function observerGlobalPositionM(a:UniverseAddress,offset:Vec3):Vec3|undefined {
-  const g=galaxyDefinition(a.galaxyId);if(!g||!boundedGalaxySector(a.sector))return;
+export function observerGlobalPositionM(a:UniverseAddress,offset:Vec3,universeSeed?:bigint):Vec3|undefined {
+  const g=galaxyDefinition(a.galaxyId,universeSeed);if(!g||!boundedGalaxySector(a.sector))return;
   return orientGalaxyVector(g,galaxyLocalPositionM(g,a.sector,offset)).map((v,i)=>v+g.positionM[i]) as Vec3;
 }
-export function globalTargetDeltaM(a:UniverseAddress,offset:Vec3,targetGlobal:Vec3):Vec3|undefined {
-  const observer=observerGlobalPositionM(a,offset);if(!observer)return;
+export function globalTargetDeltaM(a:UniverseAddress,offset:Vec3,targetGlobal:Vec3,universeSeed?:bigint):Vec3|undefined {
+  const observer=observerGlobalPositionM(a,offset,universeSeed);if(!observer)return;
   return targetGlobal.map((v,i)=>v-observer[i]) as Vec3;
 }
 
-export function galaxyCosmologicalAddress(galaxyId: string): CosmologicalAddress | undefined {
+export function galaxyCosmologicalAddress(galaxyId: string, universeSeed?: bigint): CosmologicalAddress | undefined {
   if (galaxyId === 'milky_way' || galaxyId === 'milky-way') {
     return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] };
   }
@@ -129,18 +134,18 @@ export function galaxyCosmologicalAddress(galaxyId: string): CosmologicalAddress
   if (galaxyId === 'triangulum') {
     return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0.84, 0] };
   }
-  const def = galaxyDefinition(galaxyId);
+  const def = galaxyDefinition(galaxyId, universeSeed);
   if (def?.proceduralMorphology?.cosmologicalAddress) {
     return def.proceduralMorphology.cosmologicalAddress;
   }
   return undefined;
 }
 
-export function addressSeparationM(a:UniverseAddress,ao:Vec3,b:UniverseAddress,bo:Vec3):number|undefined {
+export function addressSeparationM(a:UniverseAddress,ao:Vec3,b:UniverseAddress,bo:Vec3,universeSeed?:bigint):number|undefined {
   if(a.galaxyId===b.galaxyId)return separationM({sector:a.sector,offsetM:ao},{sector:b.sector,offsetM:bo});
 
-  const cosmoA = galaxyCosmologicalAddress(a.galaxyId);
-  const cosmoB = galaxyCosmologicalAddress(b.galaxyId);
+  const cosmoA = galaxyCosmologicalAddress(a.galaxyId, universeSeed);
+  const cosmoB = galaxyCosmologicalAddress(b.galaxyId, universeSeed);
   if (cosmoA && cosmoB) {
     const sepVec = cosmologicalSeparationVectorM(cosmoA, cosmoB);
     if (!sepVec) {
@@ -149,8 +154,8 @@ export function addressSeparationM(a:UniverseAddress,ao:Vec3,b:UniverseAddress,b
     }
 
     // Include observer's local displacement in galaxy A and arrival system's local displacement in galaxy B
-    const defA = galaxyDefinition(a.galaxyId);
-    const defB = galaxyDefinition(b.galaxyId);
+    const defA = galaxyDefinition(a.galaxyId, universeSeed);
+    const defB = galaxyDefinition(b.galaxyId, universeSeed);
     const localA = defA ? orientGalaxyVector(defA, galaxyLocalPositionM(defA, a.sector, ao)) : [0, 0, 0] as Vec3;
     const localB = defB ? orientGalaxyVector(defB, galaxyLocalPositionM(defB, b.sector, bo)) : [0, 0, 0] as Vec3;
 
@@ -165,7 +170,7 @@ export function addressSeparationM(a:UniverseAddress,ao:Vec3,b:UniverseAddress,b
     return distM > 0 ? distM : undefined;
   }
 
-  const target=observerGlobalPositionM(b,bo),delta=target&&globalTargetDeltaM(a,ao,target);
+  const target=observerGlobalPositionM(b,bo,universeSeed),delta=target&&globalTargetDeltaM(a,ao,target,universeSeed);
   return delta?Math.hypot(...delta):undefined;
 }
 

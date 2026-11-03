@@ -1,101 +1,111 @@
-# DR-MANAUS | Checkpoint U4.4.3 — Desbloqueio do CI e Integridade de Seeds
+# DR-MANAUS | Checkpoint U4.4.4 — Hardening de Performance e Integridade da Viagem
 
 **Data:** 03 de novembro de 2026  
 **Repositório:** PauloSoaf/Dr-Manaus  
 **Branch:** `feat/universe-map`  
-**Baseline auditado (U4.4.2):** `d08159e33d528252622d3f7347987c66de2bd044`  
-**CI Oficial U4.4.2:** GitHub Actions Run `41659664895` (FAILURE: 1 erro TS2304 em `UniversalTargetCatalog.ts`)  
-**Último Baseline Verde:** `b842cc8020779e90eac51366289766db63bb4e51` (U4.3.2, Run `41641242398`)  
-**Patch Atual:** U4.4.3  
+**Baseline auditado (U4.4.3):** `cc07b1c04b97d665c353b8c8d58513986494d6ca`  
+**CI Oficial U4.4.3:** GitHub Actions Run `41662450492` (SUCCESS: Typecheck aprovado, 638/638 regressões permanentes, 1.533/1.533 testes gerais, build Vite aprovado em 1,28s)  
+**Patch Atual:** U4.4.4  
 
 ---
 
-## 1. Auditoria e Diagnóstico da Reprovação do U4.4.2
+## 1. Auditoria e Diagnóstico Pós-U4.4.3
 
-O commit `d08159e33d528252622d3f7347987c66de2bd044` (U4.4.2) foi reprovado na etapa de **Typecheck** do GitHub Actions:
-- `src/world/travel/UniversalTargetCatalog.ts(31,26) TS2304: Cannot find name 'LOCAL_GROUP_CATALOG'`.
+Com o U4.4.3 integralmente aprovado no CI oficial, a auditoria arquitetural identificou dois riscos P0 de performance e integridade antes do teste visual de voo:
 
-A revisão do código identificou a causa raiz e dois riscos arquiteturais no U4.4.2:
-1. **P0 — Import Ausente (`UniversalTargetCatalog.ts`):** O commit anterior removeu inadvertidamente o import de `LOCAL_GROUP_CATALOG` de `../celestial/GalaxyDefinition`, utilizado no construtor para registrar os alvos canônicos da Via Láctea e Andrômeda.
-2. **P0 — Invalidação Incompleta de Caches ao Trocar a Semente Procedural:** `setProceduralUniverseSeed()` alterava a variável global `activeUniverseSeed`, mas não invalidava `proceduralGalaxyDefinitions` nem o cache independente de runtimes em `GalaxyRuntime` (`runtimes`). Isso permitia que trocas de semente (Seed A $\rightarrow$ Seed B $\rightarrow$ Seed A) reutilizassem definições ou runtimes de morfologias antigas.
-3. **P1 — Elegibilidade Real de Viagem e Desacoplamento HUD/Rota (`UniversalTargetResolver.ts`):** A capacidade de viagem `intergalactic` era ativada para qualquer galáxia procedural dentro do domínio seguro de 1024 células, sem verificar se `GalaxyEntryResolver` de fato conseguiria resolver um sistema estelar pousável com planetas.
-4. **Revisão dos Testes (`tests/procedural-travel.test.ts`):**
-   - `T_U44_03`: A asserção calculava `expectedStars = Math.round(STARS_PER_SECTOR_BASE * rawDensity)` sem considerar o teto físico estrito de 2.000 estrelas por setor de `generateStarSector()`.
-   - `T_U44_15`: Exigia que 100% das galáxias descobertas em uma região aleatória tivessem um sistema de entrada nos 13 setores candidatos, sem testar a geração do erro controlado quando uma galáxia não possui corpos pousáveis.
-   - `T_U44_16`: Limitava-se a validar um único conjunto de parâmetros em vez de testar a alternância real Seed A $\rightarrow$ Seed B $\rightarrow$ Seed A e a invalidação síncrona dos caches.
+1. **P0 — Busca Pesada de Setores no Loop Contínuo de Renderização:**
+   - No fluxo `Game.update() -> NavigationTargetState.validate() -> UniversalTargetResolver.resolve()`, a resolução do alvo era invocada a cada frame (60 FPS).
+   - Para galáxias procedurais, `resolve()` chamava `hasProceduralGalaxyEntry(t.galaxyId, this.catalog)`.
+   - Se a galáxia alvo não possuísse um sistema de entrada válido nos 13 setores candidatos, o U4.4.3 lançava erro, mas **não memorizava falhas** (apenas sucessos eram cacheados).
+   - Como resultado, a mesma varredura determinística de até 13 setores estelares (geração de estrelas, ephemerides e perfis de corpos celestes) era recalculada repetidamente a cada frame (~16 ms), causando congelamento de interface e microstuttering.
+   - *Correção de Alegação Anterior:* Alegações preliminares de ~0,001 ms por consulta no U4.4.3 não refletiam o pior caso algorítmico sem cache negativo. O U4.4.4 separa estritamente a complexidade teórica, a medição em execução e a validação visual.
+
+2. **P0 — Contrato de Identidade do Cache de Entradas e Risco de Poluição Cruzada:**
+   - Em `GalaxyEntryResolver.ts`, `resolvedEntryCache` utilizava como chave apenas `galaxyId`.
+   - Além disso, consultava o cache antes de sincronizar deterministicamente a semente do catálogo recebido.
+   - Cenário de colisão: se o Catálogo A (Seed A) resolvesse um sistema de entrada para `galaxy_c10_20_30_0`, e o Catálogo B (Seed B) consultasse a mesma galáxia, o Catálogo B recuperava o sistema gerado na Seed A, violando a integridade morfológica da semente.
+
+3. **P1 — Autoridade Global de Semente e Coexistência de Runtimes:**
+   - A chamada `setProceduralUniverseSeed()` limpava indiscriminadamente todos os runtimes procedurais, o que desestabilizava planos de viagem já em curso se outra consulta em segundo plano tocasse outro catálogo.
+   - Definições e runtimes precisam ser isolados deterministicamente por chave composta `(seed, id)`.
 
 ---
 
-## 2. Correções Implementadas no Patch U4.4.3
+## 2. Correções Implementadas no Patch U4.4.4
 
-### 2.1 Restauração do Catálogo Canônico e Sincronização de Semente (`UniversalTargetCatalog.ts`)
-- Restaurado o import oficial:
+### 2.1 Remoção da Busca Pesada no Loop do HUD (`UniversalTargetResolver.ts`)
+- [`UniversalTargetResolver.ts`](file:///c:/Projetos/Dr-Manaus/src/world/travel/UniversalTargetResolver.ts) não invoca mais geração de setores durante a validação por frame:
   ```typescript
-  import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
-  import { galaxyDefinition, registerProceduralGalaxyDefinition, setProceduralUniverseSeed } from '../galaxy/GalaxyCoordinates';
+  const entryStatus = peekProceduralGalaxyEntry(t.galaxyId, this.catalog.discovery.universeSeed);
+  capability = entryStatus === false ? 'cosmological-future' : 'intergalactic';
   ```
-- Implementado método interno `syncSeed()` chamado na inicialização e em consultas públicas (`find`, `resolve`, `proceduralDescriptor`, `proceduralTarget`), garantindo que o catálogo ativo synchronize a semente da sua instância de descoberta com a autoridade global de coordenadas de forma transparente.
+- O método `peekProceduralGalaxyEntry()` opera em complexidade $O(1)$ direta no mapa de memória:
+  - Se for `false` (confirmado sem entrada via cache negativo), reporta `'cosmological-future'`.
+  - Se for `true` ou `undefined`, mantém a elegibilidade como candidato `'intergalactic'`.
+  - A varredura real pesada de 13 setores candidatos é executada **uma única vez** no momento de engajamento do voo em `createTravelPlan()`.
 
-### 2.2 Padrão de Observador e Invalidação Atômica de Caches (`GalaxyCoordinates.ts`, `GalaxyRuntime.ts`, `GalaxyEntryResolver.ts`)
-- Implementada a autoridade de eventos `onProceduralUniverseSeedChanged` em [`GalaxyCoordinates.ts`](file:///c:/Projetos/Dr-Manaus/src/world/galaxy/GalaxyCoordinates.ts):
-  - Ao chamar `setProceduralUniverseSeed(newSeed)`, se a semente diferir da ativa:
-    1. Atualiza `activeUniverseSeed`.
-    2. Esvazia `proceduralGalaxyDefinitions.clear()`.
-    3. Dispara callbacks para todos os ouvintes registrados.
-- [`GalaxyRuntime.ts`](file:///c:/Projetos/Dr-Manaus/src/world/galaxy/GalaxyRuntime.ts) registra-se como ouvinte e invoca `clearGalaxyRuntimes()`, garantindo que nenhuma instância antiga permaneça em cache.
-- [`GalaxyEntryResolver.ts`](file:///c:/Projetos/Dr-Manaus/src/world/travel/GalaxyEntryResolver.ts) registra-se como ouvinte e invoca `clearGalaxyEntryCache()`, invalidando sistemas de entrada previamente memorizados.
-- **Zero dependências circulares:** `GalaxyCoordinates` não importa `GalaxyRuntime` nem `GalaxyEntryResolver`.
-
-### 2.3 Elegibilidade de Viagem e Cache $O(1)$ de Sistemas de Entrada (`GalaxyEntryResolver.ts` e `UniversalTargetResolver.ts`)
-- [`GalaxyEntryResolver.ts`](file:///c:/Projetos/Dr-Manaus/src/world/travel/GalaxyEntryResolver.ts) implementa `resolvedEntryCache` delimitado (256 entradas):
-  - A primeira consulta a uma galáxia varre os 13 setores determinísticos e memoriza o resultado em $O(1)$.
-  - Exportado helper defensivo `hasProceduralGalaxyEntry(galaxyId, catalog): boolean`.
-- [`UniversalTargetResolver.ts`](file:///c:/Projetos/Dr-Manaus/src/world/travel/UniversalTargetResolver.ts) valida a existência real de entrada:
+### 2.2 Cache de Entrada com Chave de Semente e Cache Negativo (`GalaxyEntryResolver.ts`)
+- [`GalaxyEntryResolver.ts`](file:///c:/Projetos/Dr-Manaus/src/world/travel/GalaxyEntryResolver.ts) implementa chave composta:
   ```typescript
-  capability = hasProceduralGalaxyEntry(t.galaxyId, this.catalog) ? 'intergalactic' : 'cosmological-future';
+  function entryCacheKey(seed: bigint, galaxyId: string): string {
+    return `${seed.toString(16)}:${galaxyId}`;
+  }
+  const resolvedEntryCache = new Map<string, ProceduralTargetDescriptor | null>();
   ```
-  - Alvo cosmologicamente alcançável continua com vetor e distância calculados no frame `cosmological-relative`.
-  - A capacidade de viagem só declara `intergalactic` (hypercruise disponível) se houver sistema de entrada válido e pousável comprovado.
-  - Graças ao cache $O(1)$, o loop de HUD executa com overhead negligenciável (~0.001 ms).
+- Sincronização explícita da semente do catálogo antes de qualquer consulta ao cache ou instanciação de runtime.
+- **Cache Negativo:** Se nenhum dos 13 setores candidatos contiver um sistema com corpos rochosos pousáveis, o resultado `null` é registrado na chave `(seed, galaxyId)`. Consultas subsequentes falham em $O(1)$ sem gerar uma única estrela.
+
+### 2.3 Isolamento Multissemente em Coordenadas, Runtimes e Setores
+- [`GalaxyCoordinates.ts`](file:///c:/Projetos/Dr-Manaus/src/world/galaxy/GalaxyCoordinates.ts):
+  - Definições de galáxias procedurais indexadas por `galaxyDefCacheKey(seed, id)`.
+  - Assinaturas `galaxyDefinition`, `galaxyCosmologicalAddress`, `observerGlobalPositionM` e `addressSeparationM` aceitam `universeSeed` explícito opcional (padrão: `activeUniverseSeed`).
+- [`GalaxyRuntime.ts`](file:///c:/Projetos/Dr-Manaus/src/world/galaxy/GalaxyRuntime.ts):
+  - Runtimes procedurais indexados por `${seed}:${id}`; galáxias canônicas mantêm chaves imutáveis.
+  - `generateSector()` propaga deterministicamente a semente morfológica para o gerador de setores.
+- [`StarSector.ts`](file:///c:/Projetos/Dr-Manaus/src/world/celestial/StarSector.ts):
+  - `generateStarSector(galaxyId, sector, options)` aceita `options.universeSeed` e propaga à busca de `galaxyDefinition`.
+- [`UniversalTravelPlan.ts`](file:///c:/Projetos/Dr-Manaus/src/world/travel/UniversalTravelPlan.ts):
+  - `createTravelPlan` passa `catalog.discovery.universeSeed` ao calcular `addressSeparationM`.
 
 ---
 
-## 3. Matriz de Testes Unitários Aprimorada (`tests/procedural-travel.test.ts`)
+## 3. Matriz de Testes Automatizados Expandida (20 Testes)
 
-A suíte mantém os 16 testes oficiais com as seguintes calibrações de rigor:
-1. `T_U44_01_DYNAMIC_GALAXY_RUNTIME_REGISTRATION`: Resolução e cache de runtime procedural.
-2. `T_U44_02_CANONICAL_GALAXIES_PRESERVATION`: Preservação formal de Via Láctea e Andrômeda com SMBHs.
-3. `T_U44_03_STELLAR_GENERATION_CONFORMS_TO_PROCEDURAL_MORPHOLOGY`: Validação de densidade morfológica incorporando o limite formal `Math.min(2000, ...)`.
-4. `T_U44_04_DETERMINISTIC_ENTRY_SYSTEM_RESOLUTION`: Resolução determinística exigindo planetas (`planetCount > 0`) e corpos sólidos pousáveis (`canLand`).
-5. `T_U44_05_PROCEDURAL_TRAVEL_ROUTE_PLANNING`: Planejamento de rota intergaláctica com duração calibrada.
-6. `T_U44_06_TRANSACTIONAL_PREPARATION_AND_INSTALLATION`: Transação atômica e substituição de provedores.
-7. `T_U44_07_SAFE_ARRIVAL_CORRIDOR_AND_ZERO_VELOCITY`: Velocidade zero e chegada fora de esferas de colisão.
-8. `T_U44_08_RETURN_TRIP_TO_SOLAR_SYSTEM`: Voo de ida para galáxia procedural e retorno integral ao Sol.
-9. `T_U44_09_CANCEL_AND_RESUME_PROCEDURAL_HYPERCRUISE`: Interrupção em voo, desaceleração emergencial e retomada.
-10. `T_U44_10_TRANSACTIONAL_ROLLBACK_ON_PREPARATION_FAILURE`: Rollback atômico em falha de preparação.
-11. `T_U44_11_REPEATED_JOURNEYS_WITHOUT_PROVIDER_LEAKS`: Retenção de apenas 1 `StarSectorProvider` ativo após múltiplos saltos.
-12. `T_U44_12_COSMOLOGICAL_DISTANCES_AND_BIGINT_SAFETY`: Sensibilidade métrica a offsets locais e rejeição de separações $> 1024$ células.
-13. `T_U44_13_PRESERVATION_OF_EARTH_ANDROMEDA_HYPERCRUISE`: Hipercruzeiro Terra-Andrômeda e confirmação das coordenadas cosmológicas de Andrômeda (`localMpc: [0, 0.767, 0]`) e Sol (`[0, 0, 0]`).
-14. `T_U44_14_HUD_AND_TELEMETRY_INTEGRITY_POST_ARRIVAL`: Telemetria, referencial inercial e modo ancorado.
-15. `T_U44_15_MORPHOLOGY_DIVERSITY_ENTRY_VALIDATION`: Validação mista em cluster de galáxias procedurais, comprovando que sistemas resolvidos possuem planetas rochosos pousáveis e galáxias sem entrada produzem erro controlado.
-16. `T_U44_16_CUSTOM_SEED_CONSISTENCY_AND_AUTHORITY`: Ciclo completo Seed A $\rightarrow$ Seed B $\rightarrow$ Seed A com dois catálogos, comprovando invalidação e reconstituição determinística de parâmetros e preservação das galáxias canônicas.
+Em [`tests/procedural-travel.test.ts`](file:///c:/Projetos/Dr-Manaus/tests/procedural-travel.test.ts), 4 novos testes foram adicionados utilizando contadores determinísticos de geração (sem depender de thresholds temporais voláteis em CI):
 
----
-
-## 4. Procedimento de Validação Manual (Operador Humano)
-
-No servidor de desenvolvimento ativo na porta `9999`:
-1. Acesse `http://localhost:9999/`.
-2. Decole da Terra ou posicione a nave em espaço seguro.
-3. Pressione `M`, acesse a aba **"Cosmos"** e selecione uma galáxia procedural (ex.: `galaxy_c1_2_3_0`).
-4. Trave o alvo no HUD e engaje o Hypercruise intergaláctico.
-5. Acompanhe a sequência (*spool* $\rightarrow$ aceleração $\rightarrow$ cruzeiro $\rightarrow$ desaceleração $\rightarrow$ chegada no sistema estelar procedural).
-6. Na chegada, inspecione a estrela de entrada, verifique a presença de planetas rochosos navegáveis e confirme que a velocidade local é `(0, 0, 0)`.
-7. Selecione o Sol no catálogo ou mapa e inicie o retorno, confirmando a reintegração com o Sistema Solar.
+1. **`T_U44_17_NEGATIVE_ENTRY_CACHING_PREVENTS_REPEATED_SEARCHES`:**
+   - Localiza uma galáxia sem sistema de entrada nos 13 setores candidatos.
+   - Instrumenta o runtime com interceptor de chamadas para `generateSector`.
+   - Executa 100 queries consecutivas de `hasProceduralGalaxyEntry`: comprova **exatamente 0 gerações estelares** nas 100 chamadas graças ao cache negativo.
+2. **`T_U44_18_INTERLEAVED_MULTI_SEED_CATALOG_ISOLATION`:**
+   - Cria Catálogo A (Seed A) e Catálogo B (Seed B) e consulta o mesmo ID galáctico alternadamente em loop.
+   - Comprova que `defA.diameterLy !== defB.diameterLy`, `runtimeA !== runtimeB` e que consultas intercaladas não contaminam ou sobrescrevem os dados da outra semente.
+3. **`T_U44_19_HUD_PER_FRAME_VALIDATION_ZERO_HEAVY_GENERATION`:**
+   - Alvo travado em galáxia procedural ainda não preparada.
+   - Simula 120 frames a 60 FPS de `NavigationTargetState.validate(resolver)`.
+   - Comprova **0 gerações de setores estelares** no caminho crítico contínuo do HUD.
+4. **`T_U44_20_PREPARED_DESTINATION_IDENTITY_PRESERVED_DURING_TRAVEL`:**
+   - Inicia viagem Hypercruise para uma galáxia procedural.
+   - Interpola voo até cruzeiro.
+   - Dispara consultas de fundo a outro catálogo com semente estrangeira.
+   - Conclui o voo e comprova que a nave chega ao destino exato originalmente preparado, sem desvio ou colisão de referencial.
 
 ---
 
-## 5. Riscos Restantes e Validações Pendentes
+## 4. Roteiro de Validação Visual Manual (Operador Humano)
 
-- **Validação Oficial:** O commit foi publicado na branch `feat/universe-map`. A homologação oficial depende da execução do GitHub Actions (Typecheck, 638 regressões permanentes, suíte geral e build Vite).
-- **Sem novas funcionalidades antecipadas:** U4.4.4 e marcos futuros permanecem bloqueados até a confirmação verde integral do CI.
+Com o servidor local ativo em `http://localhost:9999/`:
+1. **Decolagem:** A partir da Terra, decole para espaço seguro fora da atmosfera.
+2. **Mapa Cosmos:** Pressione `M`, selecione a aba Cosmos e escolha uma galáxia procedural (ex.: `galaxy_c10_20_30_0`).
+3. **HUD Fluido:** Confirme que a seleção do alvo ocorre sem quedas de framerate ou congelamentos.
+4. **Hypercruise:** Pressione a tecla de viagem intergaláctica. Observe a rampa de aceleração $C^2$ suave, cruzeiro e desaceleração.
+5. **Chegada:** Verifique a transição para o sistema estelar de entrada, presença de planetas rochosos navegáveis e velocidade local nula.
+6. **Retorno:** Selecione o Sol, ative o voo de volta e confirme o retorno bem-sucedido ao Sistema Solar.
+7. **Canônicas:** Repita o teste para Andrômeda e confirme a integridade contínua do Local Group.
+
+---
+
+## 5. Riscos Restantes
+
+- **Homologação no CI:** Aguarda validação oficial do commit no GitHub Actions.
+- **Teste Visual de Navegador:** Permanece como validação manual humana indispensável antes de declarar o marco U4 concluído.

@@ -2,13 +2,8 @@ import type { GalaxyDefinition } from '../celestial/GalaxyDefinition';
 import { generateStarSector, milkyWayDensity, andromedaDensity } from '../celestial/StarSector';
 import type { SectorIndex } from '../spatial/UniverseAddress';
 import type { Vec3 } from '../spatial/units';
-import { galaxyDefinition, galaxyLocalPositionM, onProceduralUniverseSeedChanged } from './GalaxyCoordinates';
+import { galaxyDefinition, galaxyLocalPositionM } from './GalaxyCoordinates';
 import { evaluateProceduralDensity } from './ProceduralGalaxyGenerator';
-
-// Invalidate runtime cache whenever procedural universe seed changes
-onProceduralUniverseSeedChanged(() => {
-  clearGalaxyRuntimes();
-});
 
 /** Small immutable runtime catalogue. UniverseAddress remains the player's sole location authority. */
 export class GalaxyRuntime {
@@ -26,13 +21,25 @@ export class GalaxyRuntime {
     }
     return (this.definition.densityProfile==='andromeda'?andromedaDensity:milkyWayDensity)(positionM)*(this.definition.densityScale??1);
   }
-  generateSector(sector:SectorIndex,options:{densityScale?:number;maxStars?:number}={}){return generateStarSector(this.id,sector,options);}
+  generateSector(sector:SectorIndex,options:{densityScale?:number;maxStars?:number;universeSeed?:bigint}={}){
+    const effectiveSeed = options.universeSeed ?? this.definition.proceduralMorphology?.seed;
+    return generateStarSector(this.id,sector,{...options, universeSeed: effectiveSeed});
+  }
 }
 const runtimes=new Map<string,GalaxyRuntime>();
 
-export function registerGalaxyRuntime(runtime: GalaxyRuntime): void {
-  runtimes.set(runtime.id, runtime);
-  if (runtimes.size > 128) {
+function runtimeCacheKey(id: string, universeSeed?: bigint): string {
+  if (id === 'milky_way' || id === 'milky-way' || id === 'andromeda' || id === 'triangulum' || id === 'large-magellanic-cloud' || id === 'small-magellanic-cloud') {
+    return id;
+  }
+  return universeSeed !== undefined ? `${universeSeed.toString(16)}:${id}` : id;
+}
+
+export function registerGalaxyRuntime(runtime: GalaxyRuntime, universeSeed?: bigint): void {
+  const seed = runtime.definition.proceduralMorphology?.seed ?? universeSeed;
+  const key = runtimeCacheKey(runtime.id, seed);
+  runtimes.set(key, runtime);
+  if (runtimes.size > 256) {
     runtimes.delete(runtimes.keys().next().value!);
   }
 }
@@ -41,12 +48,16 @@ export function clearGalaxyRuntimes(): void {
   runtimes.clear();
 }
 
-export function knownGalaxyRuntime(id:string):GalaxyRuntime|undefined {
-  let runtime=runtimes.get(id);
-  if(runtime)return runtime;
-  const g=galaxyDefinition(id);if(!g)return;
-  runtime=new GalaxyRuntime(g);
-  registerGalaxyRuntime(runtime);
+export function knownGalaxyRuntime(id:string, universeSeed?: bigint):GalaxyRuntime|undefined {
+  const g = galaxyDefinition(id, universeSeed);
+  if (!g) return undefined;
+  const seed = g.proceduralMorphology?.seed ?? universeSeed;
+  const key = runtimeCacheKey(id, seed);
+  let runtime = runtimes.get(key);
+  if (runtime) return runtime;
+  runtime = new GalaxyRuntime(g);
+  registerGalaxyRuntime(runtime, seed);
   return runtime;
 }
+
 

@@ -8,7 +8,7 @@ import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from './UniversalTargetC
 import { isUniverseAddress, type UniversalNavigationTarget } from './UniversalNavigationTarget';
 import { selectBodyDestination } from './BodyNavigation';
 import { COSMOLOGICAL_CELL_SIZE_M, cosmologicalSeparationVectorM, isCellInFloatDomain, cosmologicalPositionM } from '../galaxy/ProceduralGalaxyGenerator';
-import { hasProceduralGalaxyEntry } from './GalaxyEntryResolver';
+import { peekProceduralGalaxyEntry } from './GalaxyEntryResolver';
 
 export type TravelCapability = 'solar'|'intra-system'|'interstellar'|'intergalactic'|'black-hole-future'|'cosmological-future';
 export interface ResolvedUniversalTarget {
@@ -121,8 +121,10 @@ export class UniversalTargetResolver {
           distanceM = Math.hypot(...sepVec);
           // Relative separation vector in metres from observer to target in cosmological-relative frame
           positionM = sepVec;
-          // Reachable within safe conversion domain: verify valid entry system exists before declaring intergalactic capability
-          capability = hasProceduralGalaxyEntry(t.galaxyId, this.catalog) ? 'intergalactic' : 'cosmological-future';
+          // Reachable within safe conversion domain:
+          // Lightweight HUD presentation check: check cached entry availability without triggering expensive multi-sector generation.
+          const entryStatus = peekProceduralGalaxyEntry(t.galaxyId, this.catalog.discovery.universeSeed);
+          capability = entryStatus === false ? 'cosmological-future' : 'intergalactic';
         } else {
           // Separation exceeds safe Float64 conversion domain (> 1024 cells)
           const dx = Number(desc.cell.x - obsCosmo.cell.x);

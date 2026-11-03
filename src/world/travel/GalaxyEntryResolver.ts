@@ -3,18 +3,24 @@ import { sectorIndex } from '../spatial/UniverseAddress';
 import { bodyProfile } from '../celestial/CelestialBodyProfile';
 import { UniversalTargetCatalog, type ProceduralTargetDescriptor } from './UniversalTargetCatalog';
 import type { UniversalNavigationTarget } from './UniversalNavigationTarget';
-import { onProceduralUniverseSeedChanged } from '../galaxy/GalaxyCoordinates';
+import { setProceduralUniverseSeed } from '../galaxy/GalaxyCoordinates';
 
-const resolvedEntryCache = new Map<string, ProceduralTargetDescriptor>();
+function entryCacheKey(seed: bigint, galaxyId: string): string {
+  return `${seed.toString(16)}:${galaxyId}`;
+}
+
+const resolvedEntryCache = new Map<string, ProceduralTargetDescriptor | null>();
 
 export function clearGalaxyEntryCache(): void {
   resolvedEntryCache.clear();
 }
 
-// Invalidate entry system cache whenever procedural universe seed changes
-onProceduralUniverseSeedChanged(() => {
-  clearGalaxyEntryCache();
-});
+/** Check cached entry status in O(1) without triggering sector or star generation. */
+export function peekProceduralGalaxyEntry(galaxyId: string, seed: bigint): boolean | undefined {
+  const key = entryCacheKey(seed, galaxyId);
+  if (!resolvedEntryCache.has(key)) return undefined;
+  return resolvedEntryCache.get(key) !== null;
+}
 
 /** Stable production entry: a populated disc system about 20 kly from M31. */
 export function andromedaEntryDescriptor(catalog = new UniversalTargetCatalog()) {
@@ -34,6 +40,11 @@ export function andromedaEntryDescriptor(catalog = new UniversalTargetCatalog())
 
 /** Check whether a procedural galaxy has a resolvable landable entry system without throwing. */
 export function hasProceduralGalaxyEntry(galaxyId: string, catalog = new UniversalTargetCatalog()): boolean {
+  const seed = catalog.discovery.universeSeed;
+  const key = entryCacheKey(seed, galaxyId);
+  if (resolvedEntryCache.has(key)) {
+    return resolvedEntryCache.get(key) !== null;
+  }
   try {
     return !!proceduralGalaxyEntryDescriptor(galaxyId, catalog);
   } catch {
@@ -43,10 +54,19 @@ export function hasProceduralGalaxyEntry(galaxyId: string, catalog = new Univers
 
 /** Deterministic entry system resolution for any procedural galaxy. */
 export function proceduralGalaxyEntryDescriptor(galaxyId: string, catalog = new UniversalTargetCatalog()): ProceduralTargetDescriptor {
-  const cached = resolvedEntryCache.get(galaxyId);
-  if (cached) return cached;
+  const seed = catalog.discovery.universeSeed;
+  setProceduralUniverseSeed(seed);
 
-  const galaxy = knownGalaxyRuntime(galaxyId);
+  const key = entryCacheKey(seed, galaxyId);
+  if (resolvedEntryCache.has(key)) {
+    const cached = resolvedEntryCache.get(key);
+    if (cached === null) {
+      throw Error(`No populated and landable entry system in procedural galaxy ${galaxyId}`);
+    }
+    return cached;
+  }
+
+  const galaxy = knownGalaxyRuntime(galaxyId, seed);
   if (!galaxy) throw Error(`Unknown galaxy: ${galaxyId}`);
 
   // Base search radius in sectors (~20% of galactic diameter, 1 sector = 100 ly)
@@ -74,7 +94,7 @@ export function proceduralGalaxyEntryDescriptor(galaxyId: string, catalog = new 
 
   for (const [x, y, z] of candidateOffsets) {
     const sector = sectorIndex(x, y, z);
-    const sectorContent = galaxy.generateSector(sector);
+    const sectorContent = galaxy.generateSector(sector, { universeSeed: seed });
     for (const star of sectorContent.stars) {
       if (star.planetCount <= 0) continue;
       const d = catalog.proceduralDescriptor(galaxy.id, sector, star.id);
@@ -86,7 +106,7 @@ export function proceduralGalaxyEntryDescriptor(galaxyId: string, catalog = new 
 
       // Preferred ideal destination: rocky planet with a landable moon
       if (hasRocky && hasLandableMoon) {
-        resolvedEntryCache.set(galaxyId, d);
+        resolvedEntryCache.set(key, d);
         if (resolvedEntryCache.size > 256) resolvedEntryCache.delete(resolvedEntryCache.keys().next().value!);
         return d;
       }
@@ -99,10 +119,14 @@ export function proceduralGalaxyEntryDescriptor(galaxyId: string, catalog = new 
   }
 
   if (populatedFallback) {
-    resolvedEntryCache.set(galaxyId, populatedFallback);
+    resolvedEntryCache.set(key, populatedFallback);
     if (resolvedEntryCache.size > 256) resolvedEntryCache.delete(resolvedEntryCache.keys().next().value!);
     return populatedFallback;
   }
+
+  // Record negative result to prevent repeated searches every frame
+  resolvedEntryCache.set(key, null);
+  if (resolvedEntryCache.size > 256) resolvedEntryCache.delete(resolvedEntryCache.keys().next().value!);
   throw Error(`No populated and landable entry system in procedural galaxy ${galaxyId}`);
 }
 
@@ -122,4 +146,5 @@ export class GalaxyEntryResolver {
     throw Error('Unknown galaxy entry');
   }
 }
+
 

@@ -83,7 +83,6 @@ import { bodyProfile, bodyArrivalPolicy, supportsLanding, PHOTOSPHERE_GAMEPLAY_G
 import { NavigationTargetState, celestialLockCandidates, cycleNavigationTarget, type NavigationLock } from '../world/travel/NavigationLock';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../world/travel/UniversalTargetCatalog';
 import { UniversalTargetResolver, activeSystemTargetBodyId, intraSystemNavigationTarget, travelCapabilityLabel } from '../world/travel/UniversalTargetResolver';
-import { GalaxyEntryResolver } from '../world/travel/GalaxyEntryResolver';
 import { createUniversalTarget, type UniversalNavigationTarget, type TargetSource } from '../world/travel/UniversalNavigationTarget';
 import { CELESTIAL_LABEL_NAMES } from '../rendering/celestial/CelestialLabelLayer';
 import { PhotosphereGroundVisual } from '../rendering/celestial/PhotosphereGroundVisual';
