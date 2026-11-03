@@ -7,6 +7,13 @@ import { GalaxyMorphologyRenderer } from '../galaxy/GalaxyMorphologyRenderer';
 import { resolveGalaxyDescriptor } from '../galaxy/GalaxyPointCloudProvider';
 import type { QualityPreset } from '../../core/config';
 
+export interface GalaxyCameraContext {
+  /** Vertical field of view in degrees. Defaults to 58 deg. */
+  fovDeg?: number;
+  /** Viewport height in pixels. Defaults to window.innerHeight or 1080. */
+  viewportHeightPx?: number;
+}
+
 export interface GalaxyProviderOptions {
   galaxy: GalaxyDefinition;
   /** Altitude above which this galaxy is rendered as a macro structure. */
@@ -15,6 +22,10 @@ export interface GalaxyProviderOptions {
   qualityPreset?: QualityPreset;
   /** Optional custom maximum particle count. */
   maxParticles?: number;
+  /** Default camera vertical FOV in degrees (default: 58). */
+  cameraFovDeg?: number;
+  /** Default viewport height in pixels (default: window.innerHeight or 1080). */
+  viewportHeightPx?: number;
 }
 
 /**
@@ -47,6 +58,8 @@ export class GalaxyProvider {
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 0)),
       qualityPreset: options.qualityPreset ?? 'High',
       maxParticles: options.maxParticles ?? 0,
+      cameraFovDeg: options.cameraFovDeg ?? 58,
+      viewportHeightPx: options.viewportHeightPx ?? 0,
     };
 
     this.group.name = `Galaxy ${options.galaxy.id}`;
@@ -76,12 +89,21 @@ export class GalaxyProvider {
     };
   }
 
+  /**
+   * Updates quality preset dynamically across morphology renderer.
+   */
+  setQuality(preset: QualityPreset): void {
+    this.options.qualityPreset = preset;
+    this.morphologyRenderer.setQuality(preset);
+  }
+
   update(
     address: import('../spatial/UniverseAddress').UniverseAddress,
     cameraPosM: Vec3,
     altitudeM: number,
     sectorOffsetM: Vec3 = [0, 0, 0],
     toRenderDirection: (v: Vec3) => Vec3 = (v) => v,
+    cameraContext?: GalaxyCameraContext,
   ): void {
     const delta = globalTargetDeltaM(address, sectorOffsetM, this.options.galaxy.positionM);
     this.group.visible =
@@ -125,10 +147,22 @@ export class GalaxyProvider {
     const proxyScale = Math.min(4000, (proxyDistance * galaxyRadiusM) / distance);
     this.group.scale.setScalar(proxyScale);
 
-    // Projected pixel size on standard 1080p viewport (FOV ~ 60 deg: tan(30°) ≈ 0.57735)
-    const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 1080;
-    const tanHalfFov = 0.57735;
-    const projectedPx = Math.max(1, (viewportHeight * galaxyRadiusM) / (distance * tanHalfFov));
+    // Compute apparent angular pixel diameter with actual camera FOV and viewport height
+    const fovDeg = cameraContext?.fovDeg ?? this.options.cameraFovDeg ?? 58;
+    const configuredHeight = this.options.viewportHeightPx > 0 ? this.options.viewportHeightPx : undefined;
+    const viewportHeight =
+      cameraContext?.viewportHeightPx ??
+      configuredHeight ??
+      (typeof window !== 'undefined' ? window.innerHeight : 1080);
+    const tanHalfFov = Math.tan(((fovDeg * 0.5) * Math.PI) / 180);
+
+    // If observer is within or intersecting the galactic envelope, select maximum resolution (LOD 2)
+    let projectedPx: number;
+    if (distance <= galaxyRadiusM) {
+      projectedPx = 10_000;
+    } else {
+      projectedPx = Math.max(1, (viewportHeight * galaxyRadiusM) / (distance * tanHalfFov));
+    }
 
     // Update morphology LOD selection with 15% hysteresis
     this.morphologyRenderer.update(distance, projectedPx);

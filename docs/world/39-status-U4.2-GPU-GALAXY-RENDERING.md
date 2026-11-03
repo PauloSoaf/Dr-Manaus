@@ -1,160 +1,130 @@
-# Relatório Técnico U4.2 — Renderização Visual GPU de Galáxias Procedurais e Arquitetura Multi-Escala TSL
+# Relatório Técnico U4.2.1 — Correção do CI, Hardening de Materiais TSL e Alocação Sob Demanda de Galáxias GPU
 
-**Status**: Implementado e Pronto para Validação no CI  
+**Status**: Implementado e Submetido ao CI (U4.2.1)  
 **Data**: 02 de Novembro de 2026  
 **Autor**: Antigravity Assistant & Dr-Manaus Core Team  
 **Branch**: `feat/universe-map`  
-**Baseline U4.1.2 Aprovado em CI**: `bc530a7e3115f7bad715cb63f821fd47862dd633` (GitHub Actions Run [41393301279](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41393301279))  
-**Resultados Oficiais do U4.1.2**: Typecheck SUCCESS; 638/638 regressões permanentes PASS; 1.491/1.491 testes gerais PASS; build Vite de produção SUCCESS.  
-**Escopo U4.2**: Renderização visual de alta fidelidade para galáxias na GPU, substituindo o disco exponencial primitivo de `GalaxyProvider` por uma arquitetura multi-escala integrada (LOD0, LOD1, LOD2) com `GalaxyPointCloudProvider` e `GalaxyMorphologyRenderer`, compatível com Three.js WebGPURenderer e seu fallback WebGL 2 via TSL.
+**HEAD Auditado (U4.2)**: `b2f52dd44a32662759902e3aee5255a7b6174156` (GitHub Actions Run [41395945582](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41395945582))  
+**Resultado Oficial do CI U4.2**:
+- Typecheck: **FAILURE** (`TS2322: Type 'Color' is not assignable to type 'Node<"color"> | Node<"float"> | ...'`)
+- Portão Permanente de Regressões (638): SKIPPED
+- Testes Unitários Gerais (1.491): SKIPPED
+- Build Vite de Produção: SKIPPED
 
 ---
 
-## 1. Contexto Arquitetural e Decisões de GPU
+## 1. Diagnóstico do CI e Auditoria da Implementação U4.2
 
-### 1.1 Avaliação do Backend Gráfico (WebGPURenderer & TSL)
-O projeto Dr-Manaus utiliza `WebGPURenderer` da Three.js r186 com inicialização dual:
-- Backend primário: **WebGPU** (quando suportado nativamente pelo navegador/sistema operacional).
-- Backend secundário: **WebGL 2** (via flag `forceWebGL` ou fallback automático caso o dispositivo não suporte WebGPU).
-
-O planejamento anterior (redigido antes da migração para Three.js WebGPU) sugeria `RawShaderMaterial` em GLSL tradicional. No entanto, `WebGPURenderer` **não aceita** shaders brutos em GLSL antigo sem compatibilizadores manuais pesados.
-**Decisão Arquitetural**: Implementação baseada 100% no Three Shading Language (**TSL**) e NodeMaterials (`PointsMaterial` / `PointsNodeMaterial`, `MeshBasicNodeMaterial`, `attribute`, `mix`, `smoothstep`, `uniform`, `uv`). O TSL compila nativamente tanto para **WGSL** (no backend WebGPU) quanto para **GLSL 3.0 ES** (no backend WebGL 2), garantindo portabilidade universal sem fragmentação de código.
-
-### 1.2 Comparação de Técnicas de Renderização de Galáxias
-| Abordagem | Qualidade Visual | Compatibilidade GPU | Custo de Memória | Veredito |
-|---|---|---|---|---|
-| **RawShaderMaterial GLSL** | Média | Incompatível com WebGPU | Baixo | **Rejeitado**: Quebra no backend WebGPU nativo. |
-| **InstancedBufferGeometry (Meshes por Estrela)** | Alta | Compatível | Excessivo (> 200 MB por galáxia) | **Rejeitado**: Excede orçamento de GPU para 100.000 partículas. |
-| **Volumetric Raymarching Puro em Tela Cheia** | Média | Risco de fill-rate | Médio | **Rejeitado**: Alto impacto de pixel shader em telas 4K. |
-| **TSL Hybrid: Multi-scale LOD (Points GPU + Impostor Mesh TSL)** | **Excelente** | **100% WebGPU e WebGL 2** | **Mínimo (< 12 MB em High)** | **Adotado (U4.2)**: Combina nuvem de pontos tridimensional, impostor analítico e sprite cosmológico. |
-
----
-
-## 2. Componentes Implementados
-
-### 2.1 `GalaxyPointCloudProvider.ts`
-Localização: [src/world/galaxy/GalaxyPointCloudProvider.ts](file:///c:/Projetos/Dr-Manaus/src/world/galaxy/GalaxyPointCloudProvider.ts)
-
-Responsável pela amostragem procedural determinística de populações estelares a partir do `ProceduralGalaxyDescriptor` gerado no U4.1.
-
-1. **Amostragem por Morfologia de Hubble**:
-   - **Galáxias Espirais (Sa, Sb, Sc) e Espirais Barradas (SBa, SBb, SBc, Via Láctea)**:
-     - **Bulbo Central**: Distribuição de Hernquist com núcleo suave ($r_{\text{core}} = 0.002 R_{\text{gal}}$), achatamento vertical $q_z$, cores quentes douradas/âmbar (estrelas maduras K/M, $T \sim 3500-5000\text{ K}$, RGB $\sim [1.0, 0.82, 0.55]$).
-     - **Barra Central**: Elipsoide triaxial orientado pelo ângulo `bar.angleRad`, conectando-se suavemente ao início dos braços espirais.
-     - **Braços Espirais Logarítmicos**:
-       $$\theta_{\text{ridge}}(r) = \theta_0 + \frac{\ln(r / r_0)}{\tan(\psi)}$$
-       com dispersão angular gaussiana $\Delta\theta \sim \mathcal{N}(0, \sigma_\theta^2)$ e espessura vertical exponencial laplaciana.
-       - *Crista do Braço*: Associações OB jovens brilhantes azul-esbranquiçadas ($T \sim 15000-30000\text{ K}$, RGB $\sim [0.68, 0.82, 1.0]$).
-       - *Nódulos H II*: Regiões de gás ionizado magenta/ciano.
-       - *Faixa de Poeira Interna*: Estrelas na borda interna/reversa sofrem extinção avermelhada ($A_V \approx 0.35-0.65$), simulando faixas escuras de poeira interestelar interestelar.
-     - **Disco Difuso & Halo**: População mista com estrelas de disco e halo esferoidal disperso.
-   - **Galáxias Elípticas (E0 a E7)**:
-     - Sferoide suave puro governado por `descriptor.bulge.axisRatio`. Ausência total de braços espirais artificiais. Predomínio de estrelas frias amarelas/vermelhas ($R > B$ em $> 85\%$ dos pontos).
-   - **Galáxias Irregulares (Irr-I, Irr-II)**:
-     - Três centros assimétricos de formação estelar intensa, com gás caótico e aglomerados azul-violeta.
-
-2. **Normalização de Coordenadas e Imunidade a Overflow Float32**:
-   - Todas as coordenadas de partículas são normalizadas na esfera unitária $[-1, 1]$ relativa ao raio galáctico $R_{\text{gal}}$.
-   - Não há conversão de coordenadas absolutas em metros dentro do buffer de vértices Float32, garantindo precisão sub-milimétrica.
-
-3. **Orçamentos de Engenharia e Cache**:
-   - **Low**: 10.000 partículas.
-   - **Medium**: 40.000 partículas.
-   - **High**: 100.000 partículas.
-   - **Ultra**: 160.000 partículas.
-   - O `GalaxyPointCloudProvider` mantém cache indexado por `${id}_${preset}_${count}`, impedindo qualquer alocação de memória no loop de renderização.
-
----
-
-### 2.2 `GalaxyMorphologyRenderer.ts`
-Localização: [src/world/galaxy/GalaxyMorphologyRenderer.ts](file:///c:/Projetos/Dr-Manaus/src/world/galaxy/GalaxyMorphologyRenderer.ts)
-
-Gerencia a apresentação gráfica em 3 níveis de detalhe (LOD):
-
+### 1.1 Causa Raiz do Erro de Compilação TypeScript (TS2322)
+No arquivo `src/world/galaxy/GalaxyMorphologyRenderer.ts`, linha 208:
+```ts
+this.lod2CoreMaterial.colorNode = coreColor;
 ```
-+--------------------------------------------------------------------------------------+
-|                           GALAXY MORPHOLOGY RENDERER (LOD)                           |
-+--------------------------------------------------------------------------------------+
-| LOD 0: Cosmológico Distante (D_px < 16 px)                                           |
-|   -> PlaneGeometry com MeshBasicNodeMaterial (TSL), brilho radial gaussiano suave    |
-+--------------------------------------------------------------------------------------+
-| LOD 1: Extragaláctico Intermediário (16 px <= D_px < 280 px)                         |
-|   -> Impostor de disco TSL com absorção de poeira equatorial + Nuvem 5k partículas   |
-+--------------------------------------------------------------------------------------+
-| LOD 2: Regional de Alta Resolução (D_px >= 280 px)                                   |
-|   -> Nuvem 3D GPU de 40.000 a 100.000 partículas com braços, barra, bulbo e núcleo  |
-+--------------------------------------------------------------------------------------+
+O objeto `coreColor` era uma instância de `THREE.Color` (`new Color('#fff0d0')`).
+Na Three.js WebGPU (r186), as propriedades de nós de sombreamento (`colorNode`, `opacityNode`) esperam expressões nodais do Three Shading Language (TSL). A atribuição direta de `THREE.Color` causa incompatibilidade de tipos `TS2322`.
+
+**Correção**: Importada a função TSL `color(...)` de `'three/tsl'` e encapsulada a expressão nodal:
+```ts
+this.lod2CoreMaterial.colorNode = color(this.coreColor);
 ```
-
-#### Histerese Direcional de 15%
-Para prevenir alternância rápida (*popping* / *thrashing*) de buffers e materiais quando a nave ou câmera navega na fronteira entre níveis de LOD:
-- **Transição de Aproximação ($N \to N+1$)**:
-  - $0 \to 1$: ativada quando $D_{\text{px}} \ge 16\text{ px}$.
-  - $1 \to 2$: ativada quando $D_{\text{px}} \ge 280\text{ px}$.
-- **Transição de Afastamento ($N+1 \to N$)**:
-  - $2 \to 1$: ativada somente quando $D_{\text{px}} < 280 \times 0.85 = 238\text{ px}$ (faixa morta de $42\text{ px}$).
-  - $1 \to 0$: ativada somente quando $D_{\text{px}} < 16 \times 0.85 = 13.6\text{ px}$ (faixa morta de $2.4\text{ px}$).
+Todas as atribuições e misturas de cores em materiais nodais (`lod0Material`, `lod1DiscMaterial`, `lod2CoreMaterial`) foram unificadas utilizando nós TSL válidos, eliminando a necessidade de qualquer cast forçado (`as any` ou `@ts-ignore`).
 
 ---
 
-### 2.3 Atualização de `GalaxyProvider.ts`
-Localização: [src/world/providers/GalaxyProvider.ts](file:///c:/Projetos/Dr-Manaus/src/world/providers/GalaxyProvider.ts)
+### 1.2 Auditoria de Arquitetura de Materiais e Atributos GPU
+A auditoria identificou que, no U4.2, o `GalaxyPointCloudProvider` gerava atributos customizados de geometria (`size` e `dust`), porém `GalaxyMorphologyRenderer` utilizava `PointsMaterial` básico, deixando os atributos desconectados do pipeline gráfico.
 
-O provedor existente foi atualizado para atuar como ponte entre a cena espacial Three.js e o novo `GalaxyMorphologyRenderer`:
-1. Resolve a morfologia procedural via `resolveGalaxyDescriptor(galaxy)`:
-   - Para a **Via Láctea** (`milky_way`), obtém o descritor canônico `SBc` com 4 braços espirais e barra central.
-   - Para **Andrômeda** (`andromeda`), obtém o descritor canônico `Sb` com 2 braços espirais.
-   - Para galáxias sintéticas, gera descritores determinísticos completos a partir de sua semente.
-2. Posiciona o proxy na esfera delimitadora de 20 km (`proxyDistance = 20_000 m`), impedindo desvios numéricos em Float32.
-3. Calcula o tamanho angular e diâmetro aparente em pixels $D_{\text{px}}$ com base no FOV vertical e resolução do viewport, delegando o controle de LOD com histerese ao `GalaxyMorphologyRenderer`.
-4. Mantém estritamente todos os contratos de `GalaxyMaterializer`:
-   - `id = galaxy-macro/${id}`
-   - `priority = 2`
-   - `group: Group`
-   - `update(address, cameraPosM, altitudeM, sectorOffsetM, toRenderDirection)`
-   - `stats: { visible, currentLod, particleCount }`
-   - `dispose()`
+Além disso, a especificação nativa do WebGPU impõe que primitivas de pontos (`Points`) possuam tamanho fixo de 1 pixel em implementações nativas.
+**Solução Técnica Adotada (TSL PointsNodeMaterial)**:
+1. `PointsMaterial` foi substituído por `PointsNodeMaterial`, derivado de `SpriteNodeMaterial` na Three.js WebGPU:
+   - `sizeNode = attribute('size', 'float').mul(...)`
+   - `colorNode = attribute('color', 'vec3').mul(attribute('dust', 'float')).mul(attribute('size', 'float').mul(0.6).add(0.4))`
+   - `opacityNode = attribute('dust', 'float').mul(uAlpha).saturate()`
+2. **Compatibilidade Dual de Backends**:
+   - No backend **WebGL 2**: `sizeNode` comanda fisicamente a variação contínua do diâmetro dos pontos na tela ($0.8\text{ px}$ a $2.5\text{ px}$).
+   - No backend **WebGPU**: a luminosidade aparente e o fluxo radiante da estrela são modulados pelo atributo `size`, garantindo que supergigantes azuis (O/B) se destaquem visualmente em relação a anãs frias, enquanto o atributo `dust` aplica extinção e avermelhamento estelar realista ao longo das faixas equatoriais de poeira.
+   - Ambas as propriedades são computadas nativamente na GPU com 1 único draw call por galáxia, preservando estritamente os orçamentos de desempenho.
 
 ---
 
-## 3. Cobertura de Testes Unitários de Contrato (8 Novos Testes)
+### 1.3 Materialização Progressiva e Alocação Sob Demanda (Lazy LOD)
+No U4.2 original, buffers de até 160.000 partículas eram gerados imediatamente no construtor de `GalaxyMorphologyRenderer`, independentemente da distância da galáxia.
+**Implementação Progressiva (U4.2.1)**:
+- **LOD 0**: Alocado imediatamente no construtor. Consiste apenas em um quad minimalista de 2 triângulos com shader impostor radial TSL.
+- **LOD 1**: Materializado sob demanda via `ensureLod1()` somente quando a galáxia cruza o limiar de aproximação ($D_{\text{px}} \ge 16\text{ px}$).
+- **LOD 2**: Materializado sob demanda via `ensureLod2()` somente quando a galáxia cruza o limiar de alta resolução ($D_{\text{px}} \ge 280\text{ px}$).
+- Se uma galáxia distante for descartada ou o observador nunca se aproximar dela, **zero buffers de partículas de alta densidade são alocados**.
+- Adicionado flag `_disposed` que protege contra operações e vazamentos pós-descarte.
+
+---
+
+### 1.4 Propagação de Presets Gráficos em Tempo de Execução
+No U4.2, `GalaxyMaterializer` não recebia nem repassava o preset de qualidade (`Low`, `Medium`, `High`, `Ultra`).
+**Integração Implementada**:
+- `GalaxyMaterializer` agora recebe o preset do `RendererManager` na inicialização (`this.rendering.preset`) e repassa para cada `GalaxyProvider` instanciado.
+- Adicionado método `setQuality(preset: QualityPreset)` em `GalaxyMaterializer`, `GalaxyProvider` e `GalaxyMorphologyRenderer`.
+- Quando o jogador altera a qualidade no menu de pausa / HUD (`Game.applySettings`), o preset é repassado instantaneamente, atualizando os buffers residentes e a contagem de partículas ativas.
+
+---
+
+### 1.5 Correção do Cálculo de Projeção LOD e Envelope
+- Removido o FOV fixo de 60° e `window.innerHeight`.
+- `GalaxyProvider` agora aceita `GalaxyCameraContext` com FOV vertical efetivo (padrão de 58°, alinhado à `PerspectiveCamera` de `RendererManager`) e altura útil da viewport de renderização.
+- Tratado o caso em que o observador se encontra no interior ou interceptando o envelope da galáxia ($D \le R_{\text{gal}}$): a projeção seleciona deterministicamente a resolução máxima (LOD 2), eliminando singularidades numéricas.
+
+---
+
+### 1.6 Blindagem da Identidade do Cache e Limite de Memória (LRU)
+A chave de cache anterior (`${id}_${preset}_${count}`) podia colidir entre descritores de sementes diferentes com mesmo ID.
+**Chave Semântica Canônica Implementada**:
+```ts
+buildPointCloudCacheKey(descriptor, preset, budget)
+// Formato: v{GALAXY_GENERATOR_VERSION}|{id}|{seedHex}|{family}|{hubbleType}|{preset}|{budget}|arms:{...}|bar:{...}
+```
+Além disso, `GalaxyPointCloudProvider` agora implementa desalocação controlada com política LRU e capacidade máxima (`MAX_POINT_CLOUD_CACHE_SIZE = 16`). Quando a capacidade é atingida, a geometria mais antiga é descartada via `.dispose()` e removida do mapa, impedindo crescimento ilimitado de memória GPU.
+
+---
+
+## 2. Resumo dos Arquivos Modificados no Patch U4.2.1
+
+| Arquivo | Modificações Principais |
+|---|---|
+| `src/world/galaxy/GalaxyMorphologyRenderer.ts` | Correção TS2322 com `color(...)`; substituição por `PointsNodeMaterial`; conexão de atributos `size` e `dust`; alocação preguiçosa (lazy) de LOD1/LOD2; método `setQuality`. |
+| `src/world/galaxy/GalaxyPointCloudProvider.ts` | Função `buildPointCloudCacheKey` com versão `GALAXY_GENERATOR_VERSION = 2`, semente BigInt e parâmetros morfológicos; cache limitado com política LRU de 16 entradas e descarte GPU. |
+| `src/world/providers/GalaxyProvider.ts` | Suporte a `GalaxyCameraContext` com FOV e viewport reais; tratamento de observador interno ao envelope ($D \le R_{\text{gal}}$); método `setQuality`. |
+| `src/world/galaxy/GalaxyMaterializer.ts` | Injeção de `QualityPreset` no construtor; método `setQuality(preset)`; repasse de FOV da câmera no `update`. |
+| `src/game/Game.ts` | Passagem de `this.rendering.preset` no `new GalaxyMaterializer`; chamada `galaxyMaterializer.setQuality` no `applySettings`; passagem de `this.rendering.camera` no loop de frame. |
+| `tests/galaxy-morphology-renderer.test.ts` | 5 novos testes de contrato Cobrindo materiais TSL, atributos GPU, materialização lazy, troca de qualidade, resistência a colisão e projeção de FOV (13 testes no total). |
+| `docs/world/15-status.md` | Atualização do status operacional e registro do checkpoint U4.2.1. |
+| `docs/world/39-status-U4.2-GPU-GALAXY-RENDERING.md` | Relatório técnico completo de diagnóstico, resolução e auditoria. |
+
+---
+
+## 3. Cobertura da Suíte de Testes (13 Testes de Contrato)
 
 Arquivo: [tests/galaxy-morphology-renderer.test.ts](file:///c:/Projetos/Dr-Manaus/tests/galaxy-morphology-renderer.test.ts)
 
-- `T_U42_01_POINT_CLOUD_DETERMINISM`: Garante determinismo estrito bit-a-bit dos atributos de posição e cor, bem como divergência adequada ao variar a semente.
-- `T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION`: Comprova que galáxias espirais geram discos achatados com populações azuladas ($B > R$), enquanto elípticas geram esferoides maduros dominados por estrelas avermelhadas ($R > B$ em $> 85\%$).
-- `T_U42_03_PARTICLE_BUDGETS_AND_PRESETS`: Valida tetos máximos para Low (10k), Medium (40k), High (100k) e overrides personalizados.
-- `T_U42_04_LOD_TRANSITIONS_AND_15_PERCENT_HYSTERESIS`: Testa a máquina de estados completa de LOD0/LOD1/LOD2 sob aproximação e afastamento, comprovando a estabilidade da histerese de 15%.
-- `T_U42_05_BUFFER_CACHING_AND_REUSE`: Valida que chamadas repetidas reutilizam a mesma instância de `BufferGeometry` sem alocação ou garbage collection no loop de frame.
-- `T_U42_06_CANONICAL_ENTITIES_PRESERVATION`: Confirma que a Via Láctea (`SBc`, 4 braços, barra) e Andrômeda (`Sb`, 2 braços, sem barra) preservam suas características canônicas.
-- `T_U42_07_GALAXY_PROVIDER_LIFECYCLE_AND_PROXY_BOUNDS`: Comprova que o proxy mantém a distância exata de 20.000 metros e responde ao ciclo de vida de `GalaxyMaterializer`.
-- `T_U42_08_NO_FLOAT32_COSMIC_POSITION_LEAK`: Verifica que as coordenadas do buffer de vértices estão estritamente contidas no envelope unitário $[-1.5, 1.5]$, sem vazamento de distâncias astronômicas em Float32.
+- `T_U42_01_POINT_CLOUD_DETERMINISM`: Determinismo estrito bit-a-bit e divergência sob variação de semente.
+- `T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION`: Parâmetros morfológicos da sequência de Hubble (azul em espirais, âmbar/vermelho em elípticas).
+- `T_U42_03_PARTICLE_BUDGETS_AND_PRESETS`: Tetos de Low (10k), Medium (40k), High (100k) e Ultra (160k).
+- `T_U42_04_LOD_TRANSITIONS_AND_15_PERCENT_HYSTERESIS`: Transições 0/1/2 e histerese direcional de 15%.
+- `T_U42_05_BUFFER_CACHING_AND_REUSE`: Reutilização sem GC e regeneração pós-descarte.
+- `T_U42_06_CANONICAL_ENTITIES_PRESERVATION`: Via Láctea e Andrômeda preservam atributos canônicos.
+- `T_U42_07_GALAXY_PROVIDER_LIFECYCLE_AND_PROXY_BOUNDS`: Proxy delimitador em 20 km Float32.
+- `T_U42_08_NO_FLOAT32_COSMIC_POSITION_LEAK`: Coordenadas unitárias normalizadas em $[-1.5, 1.5]$.
+- `T_U421_01_CACHE_IDENTITY_COLLISION_RESISTANCE_AND_LRU`: Diferenciação estrita de chaves por semente, versão e parâmetros; limite LRU de 3 entradas descartando o mais antigo.
+- `T_U421_02_TSL_POINTS_NODE_MATERIAL_AND_GPU_ATTRIBUTES`: Comprova `PointsNodeMaterial`, `sizeNode`, `colorNode`, `opacityNode` e atributos de buffer `size` e `dust`.
+- `T_U421_03_PROGRESSIVE_LAZY_LOD_MATERIALIZATION`: Comprova que instanciar a galáxia em LOD0 não aloca LOD1 nem LOD2; alocação ocorre somente na entrada de cada nível.
+- `T_U421_04_QUALITY_PRESET_DYNAMIC_SWITCHING`: Atualização dinâmica de partículas entre Low, Medium, High e Ultra em tempo real.
+- `T_U421_05_CAMERA_FOV_AND_ENVELOPE_PROJECTION`: Variação de FOV (30° vs 90°) alterando a seleção de LOD e observador interno ao envelope forçando LOD2.
 
 ---
 
-## 4. Roteiro de Verificação Visual Manual para o Operador
+## 4. Limitações e Riscos
 
-Como ferramentas de teste automatizado de navegador permanecem estritamente bloqueadas por instrução, o operador pode validar visualmente a nova apresentação com os seguintes passos:
-
-1. **Início do Jogo**:
-   - Iniciar o servidor local (`npm run dev`) e carregar `http://localhost:5173/`.
-2. **Observação de Andrômeda a Longa Distância (LOD 0 / LOD 1)**:
-   - Decolar a partir de Manaus para o espaço orbital (altitude $> 150\text{ km}$).
-   - No espaço livre, localizar Andrômeda na abóbada celeste.
-   - Observar que ela não é mais uma textura genérica simples, mas um disco galáctico inclinado e luminoso com núcleo concentrado e sutil brilho estelar.
-3. **Aproximação em Voo Cósmico / Hypercruise (LOD 1 $\to$ LOD 2)**:
-   - Alinhar a nave com Andrômeda e engatar velocidade cósmica.
-   - Conforme a distância cai abaixo de $500\text{ kpc}$ e o diâmetro angular cruza $280\text{ px}$, observar a transição suave para o campo de partículas GPU (LOD 2).
-   - Observar a presença distinta dos dois braços espirais com cristas azul-claras e zonas centrais avermelhadas.
-4. **Visão Lateral do Disco (Edge-on)**:
-   - Ao manobrar ao redor da galáxia, observar a espessura tridimensional real do disco e a concentração do bulbo central.
-5. **Alternância de Qualidade**:
-   - No menu de pausa / configurações gráficas, alternar entre os presets `Low`, `Medium` e `High` e verificar a adaptação imediata da densidade de partículas sem travamentos ou vazamentos de memória.
-
----
-
-## 5. Próximos Passos (U4.3)
-
-Com o pipeline visual GPU estabilizado e integrado em U4.2:
-1. **U4.3 — Navegação e Streaming de Galáxias Procedurais Arbitrárias**: Permitirá ao jogador selecionar e navegar pelo hipercruzador para quaisquer das bilhões de galáxias sintéticas geradas pelo grid cosmológico em $\mathbb{Z}^3$.
-2. **BH0–BH2**: Implementação dos buracos negros supermassivos centrais com lentes gravitacionais procedurais.
+1. **Validação Visual no Navegador**:
+   - A compilação TSL para WGSL/GLSL e a renderização dos nós foram verificadas contra a especificação e tipos de Three.js r186. Contudo, artefatos visuais de fill-rate ou blendings aditivos exigem confirmação visual do operador humano no navegador.
+2. **Backend WebGPU Puro vs WebGL 2**:
+   - Conforme documentado pela Three.js, primitivas `Points` no backend WebGPU têm tamanho rasterizado de 1 pixel. A diferenciação estelar nesse backend opera por modulação de brilho e extinção de poeira; no backend WebGL 2, o diâmetro dos pontos também varia fisicamente via `sizeNode`.
+3. **Bloqueio de Fases Subsequentes**:
+   - **U4.3** (mapa e gameplay galáctico) e **BH0–BH2** (buracos negros supermassivos) permanecem rigorosamente bloqueados até que o CI oficial do GitHub Actions retorne verde no commit U4.2.1.

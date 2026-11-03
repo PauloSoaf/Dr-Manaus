@@ -3,6 +3,7 @@ import {
   type ProceduralGalaxyDescriptor,
   DeterministicRNG,
   ProceduralGalaxyGenerator,
+  GALAXY_GENERATOR_VERSION,
 } from './ProceduralGalaxyGenerator';
 import { LOCAL_GROUP_CATALOG, type GalaxyDefinition } from '../celestial/GalaxyDefinition';
 import type { QualityPreset } from '../../core/config';
@@ -14,6 +15,30 @@ export const GALAXY_POINT_BUDGETS: Record<QualityPreset, number> = {
   High: 100_000,
   Ultra: 160_000,
 };
+
+/** Maximum number of cached particle geometries before evicting the least recently used entry. */
+export const MAX_POINT_CLOUD_CACHE_SIZE = 16;
+
+/**
+ * Builds a collision-resistant semantic cache key for procedural galaxy geometries.
+ * Incorporates generator version, unique ID, BigInt seed hex, Hubble classification,
+ * quality preset, particle count, and distinct structural morphology parameters.
+ */
+export function buildPointCloudCacheKey(
+  descriptor: ProceduralGalaxyDescriptor,
+  preset: QualityPreset,
+  particleBudget: number,
+): string {
+  const seedHex = descriptor.seed.toString(16);
+  const armsKey = descriptor.spiralArms?.active
+    ? `arms:${descriptor.spiralArms.numArms}_${descriptor.spiralArms.pitchAngleRad.toFixed(4)}`
+    : 'noarms';
+  const barKey = descriptor.bar?.active
+    ? `bar:${descriptor.bar.lengthLy.toFixed(0)}_${descriptor.bar.angleRad.toFixed(4)}`
+    : 'nobar';
+
+  return `v${GALAXY_GENERATOR_VERSION}|${descriptor.id}|${seedHex}|${descriptor.family}|${descriptor.hubbleType}|${preset}|${particleBudget}|${armsKey}|${barKey}`;
+}
 
 /** Helper to resolve or generate a ProceduralGalaxyDescriptor from any GalaxyDefinition. */
 export function resolveGalaxyDescriptor(
@@ -53,10 +78,30 @@ export interface PointCloudGenerationOptions {
  *
  * Translates a mathematical ProceduralGalaxyDescriptor into a GPU BufferGeometry containing
  * normalized coordinates [-1, 1], RGB spectral colors, luminosity sizes, and dust extinction factors.
- * Preserves strict determinism and maintains a cache to avoid per-frame allocations.
+ * Preserves strict determinism and maintains a bounded LRU cache to avoid per-frame allocations and memory leaks.
  */
 export class GalaxyPointCloudProvider {
   private readonly cache = new Map<string, BufferGeometry>();
+  readonly maxCacheSize: number;
+
+  constructor(maxCacheSize: number = MAX_POINT_CLOUD_CACHE_SIZE) {
+    this.maxCacheSize = Math.max(1, maxCacheSize);
+  }
+
+  get cacheSize(): number {
+    return this.cache.size;
+  }
+
+  /** Checks if a specific descriptor and quality geometry is currently resident in cache. */
+  hasCached(
+    descriptor: ProceduralGalaxyDescriptor,
+    preset: QualityPreset = 'High',
+    customMaxParticles?: number,
+  ): boolean {
+    const budget = customMaxParticles ?? GALAXY_POINT_BUDGETS[preset] ?? GALAXY_POINT_BUDGETS.Medium;
+    const cacheKey = buildPointCloudCacheKey(descriptor, preset, budget);
+    return this.cache.has(cacheKey);
+  }
 
   /**
    * Retrieves or builds a cached BufferGeometry for the requested descriptor and quality.
@@ -67,13 +112,29 @@ export class GalaxyPointCloudProvider {
     customMaxParticles?: number,
   ): BufferGeometry {
     const budget = customMaxParticles ?? GALAXY_POINT_BUDGETS[preset] ?? GALAXY_POINT_BUDGETS.Medium;
-    const cacheKey = `${descriptor.id}_${preset}_${budget}`;
+    const cacheKey = buildPointCloudCacheKey(descriptor, preset, budget);
 
     let geom = this.cache.get(cacheKey);
-    if (!geom) {
-      geom = this.generateGeometry(descriptor, budget);
+    if (geom) {
+      // Refresh position in LRU order
+      this.cache.delete(cacheKey);
       this.cache.set(cacheKey, geom);
+      return geom;
     }
+
+    geom = this.generateGeometry(descriptor, budget);
+
+    // Enforce memory bounds via LRU eviction
+    if (this.cache.size >= this.maxCacheSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) {
+        const evicted = this.cache.get(oldestKey);
+        this.cache.delete(oldestKey);
+        evicted?.dispose();
+      }
+    }
+
+    this.cache.set(cacheKey, geom);
     return geom;
   }
 

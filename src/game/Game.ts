@@ -416,7 +416,7 @@ export class Game {
     // Behind its flag, and a provider rather than a renderer: the scheduler decides when a
     // sector loads, the budget applies, and a sector nobody wants is disposed.
     if(FEATURES.galaxyTravel){
-      this.galaxyMaterializer=new GalaxyMaterializer(this.universe,this.celestialRoot);
+      this.galaxyMaterializer=new GalaxyMaterializer(this.universe,this.celestialRoot,undefined,this.rendering.preset);
       const session=this.galaxyMaterializer.prepare(this.universe.activeGalaxy.id);
       session.install();session.activate();session.complete?.();
 
@@ -508,6 +508,7 @@ export class Game {
   }
   applySettings(settings:Settings){this.save.data.settings=settings;this.save.save();this.rendering.setQuality(settings.quality);
     this.celestialVisuals.setQuality(settings.quality);
+    this.galaxyMaterializer?.setQuality(settings.quality);
     this.rendering.setShadows(settings.shadows);this.camera.baseFov=settings.fov;this.camera.sensitivity=settings.sensitivity;this.camera.invertY=settings.invertY;
     this.audio.setVolumes(settings.masterVolume,settings.ambienceVolume,settings.effectsVolume);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.destruction.setQuality(QUALITY[settings.quality].particles);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');this.realCity.setNight(settings.time==='Night');this.realCity.setDetail(settings.quality!=='Low');}
   async travel(id:string,debug=false){
@@ -769,7 +770,7 @@ export class Game {
         if (fog) { fog.near = 1e8; fog.far = 1e9; }
       }
     }
-    this.galaxyMaterializer?.update([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z],altitudeNow);
+    this.galaxyMaterializer?.update([this.rendering.camera.position.x,this.rendering.camera.position.y,this.rendering.camera.position.z],altitudeNow,this.rendering.camera);
     const audioBody=this.universe.telemetry.dominantBody;
     this.audio.update({
       medium:this.universalTravelController?.active?'vacuum':audioBody==='earth'?'earth-atmosphere':local?'airless-surface':'vacuum',

@@ -1,17 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Group } from 'three/webgpu';
+import { Group, PointsNodeMaterial } from 'three/webgpu';
 import {
   GalaxyPointCloudProvider,
   GALAXY_POINT_BUDGETS,
   resolveGalaxyDescriptor,
+  buildPointCloudCacheKey,
+  MAX_POINT_CLOUD_CACHE_SIZE,
 } from '../src/world/galaxy/GalaxyPointCloudProvider.ts';
 import { GalaxyMorphologyRenderer } from '../src/world/galaxy/GalaxyMorphologyRenderer.ts';
 import { GalaxyProvider } from '../src/world/providers/GalaxyProvider.ts';
-import { ProceduralGalaxyGenerator } from '../src/world/galaxy/ProceduralGalaxyGenerator.ts';
+import { ProceduralGalaxyGenerator, GALAXY_GENERATOR_VERSION } from '../src/world/galaxy/ProceduralGalaxyGenerator.ts';
 import { LOCAL_GROUP_CATALOG } from '../src/world/celestial/GalaxyDefinition.ts';
 import { LIGHT_YEAR_M } from '../src/world/spatial/units.ts';
 import { sectorIndex } from '../src/world/spatial/UniverseAddress.ts';
+import { GalaxyMaterializer } from '../src/world/galaxy/GalaxyMaterializer.ts';
+import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
 
 const generator = new ProceduralGalaxyGenerator();
 const universeSeed = 0x1234_5678_9abc_defn;
@@ -81,10 +85,8 @@ test('T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION: geometry attributes reflect Hu
   assert.ok(mwMaxAbsY < 0.5, 'Spiral galaxy disk must have small vertical thickness ratio');
   assert.ok(mwBlueCount > 1000, 'Spiral galaxy must have significant blue-white stellar population in arms');
 
-  // 2. Pure Elliptical galaxy (force elliptical descriptor)
-  const ellDesc = generator.generateGalaxy(universeSeed, { x: 12n, y: 34n, z: 56n }, 0);
-  // Find an elliptical galaxy
-  let targetEllDesc = ellDesc;
+  // 2. Pure Elliptical galaxy
+  let targetEllDesc = mwDesc;
   for (let idx = 0; idx < 10; idx++) {
     const candidate = generator.generateGalaxy(0x9999_8888n + BigInt(idx * 17), { x: 30n, y: 40n, z: 50n }, 0);
     if (candidate.family === 'elliptical') {
@@ -118,12 +120,16 @@ test('T_U42_03_PARTICLE_BUDGETS_AND_PRESETS: particle counts respect engineering
   assert.equal(GALAXY_POINT_BUDGETS.Low, 10_000);
   assert.equal(GALAXY_POINT_BUDGETS.Medium, 40_000);
   assert.equal(GALAXY_POINT_BUDGETS.High, 100_000);
+  assert.equal(GALAXY_POINT_BUDGETS.Ultra, 160_000);
 
   const geomLow = provider.getGeometry(desc, 'Low');
   assert.equal(geomLow.getAttribute('position').count, 10_000);
 
   const geomMed = provider.getGeometry(desc, 'Medium');
   assert.equal(geomMed.getAttribute('position').count, 40_000);
+
+  const geomUltra = provider.getGeometry(desc, 'Ultra');
+  assert.equal(geomUltra.getAttribute('position').count, 160_000);
 
   const geomCustom = provider.getGeometry(desc, 'High', 1500);
   assert.equal(geomCustom.getAttribute('position').count, 1500);
@@ -256,4 +262,190 @@ test('T_U42_08_NO_FLOAT32_COSMIC_POSITION_LEAK: point cloud coordinates are stri
   }
 
   provider.dispose();
+});
+
+test('T_U421_01_CACHE_IDENTITY_COLLISION_RESISTANCE_AND_LRU: distinct keys avoid cross-geometry reuse', () => {
+  const provider = new GalaxyPointCloudProvider(3); // Small capacity for LRU eviction testing
+  const descA = generator.generateGalaxy(universeSeed, cell, 0);
+  const descB = generator.generateGalaxy(universeSeed ^ 0x999n, cell, 0); // Same ID possible, distinct seed
+
+  // 1. Semantic cache keys must be distinct
+  const keyA = buildPointCloudCacheKey(descA, 'Medium', 40_000);
+  const keyB = buildPointCloudCacheKey(descB, 'Medium', 40_000);
+  assert.notEqual(keyA, keyB, 'Different seeds must produce distinct cache keys');
+  assert.ok(keyA.includes(`v${GALAXY_GENERATOR_VERSION}`), 'Cache key must encode generator version');
+
+  // 2. Presets must differentiate cache keys
+  const keyLow = buildPointCloudCacheKey(descA, 'Low', 10_000);
+  const keyHigh = buildPointCloudCacheKey(descA, 'High', 100_000);
+  assert.notEqual(keyLow, keyHigh, 'Different presets must produce distinct cache keys');
+
+  // 3. Populate 3 entries (reaches max capacity 3)
+  const geomA = provider.getGeometry(descA, 'Low');
+  const geomB = provider.getGeometry(descB, 'Low');
+  const geomC = provider.getGeometry(descA, 'Medium');
+  assert.equal(provider.cacheSize, 3);
+
+  // 4. Adding 4th entry evicts oldest (geomA)
+  const descD = generator.generateGalaxy(0xbeef_cafen, cell, 0);
+  const geomD = provider.getGeometry(descD, 'High');
+  assert.equal(provider.cacheSize, 3, 'Cache size must remain bounded at maxCacheSize');
+  assert.equal(provider.hasCached(descD, 'High'), true);
+
+  provider.dispose();
+  assert.equal(provider.cacheSize, 0);
+});
+
+test('T_U421_02_TSL_POINTS_NODE_MATERIAL_AND_GPU_ATTRIBUTES: size, color, dust connected to GPU nodes', () => {
+  const parent = new Group();
+  const desc = generator.generateGalaxy(universeSeed, cell, 0);
+  const renderer = new GalaxyMorphologyRenderer(parent, desc);
+
+  // Force LOD 2 to inspect high-resolution GPU materials and attributes
+  renderer.forceLod(2);
+  assert.equal(renderer.currentLod, 2);
+  assert.equal(renderer.isLod2Materialized, true);
+
+  // Inspect children of root to retrieve LOD2 Points
+  const lod2Group = parent.children[0].children.find((c) => c.name === 'LOD2_PointCloudGroup') as Group;
+  assert.ok(lod2Group, 'LOD2 group must be present in scene hierarchy');
+
+  const points = lod2Group.children.find((c) => (c as any).isPoints) as any;
+  assert.ok(points, 'LOD2 Points mesh must exist');
+
+  const material = points.material as PointsNodeMaterial;
+  assert.ok(material.isPointsNodeMaterial, 'Points must use PointsNodeMaterial for TSL WebGPU compatibility');
+  assert.ok(material.sizeNode, 'sizeNode must be attached to PointsNodeMaterial');
+  assert.ok(material.colorNode, 'colorNode must be attached to PointsNodeMaterial');
+  assert.ok(material.opacityNode, 'opacityNode must be attached to PointsNodeMaterial');
+
+  // Verify custom buffer attributes on geometry
+  const geom = points.geometry;
+  const sizeAttr = geom.getAttribute('size');
+  const dustAttr = geom.getAttribute('dust');
+  assert.ok(sizeAttr, 'size attribute must be present on geometry');
+  assert.ok(dustAttr, 'dust attribute must be present on geometry');
+
+  assert.equal(sizeAttr.itemSize, 1);
+  assert.equal(dustAttr.itemSize, 1);
+
+  // Values inspection: size is positive, dust is in [0, 1]
+  const sizes = sizeAttr.array as Float32Array;
+  const dust = dustAttr.array as Float32Array;
+  for (let i = 0; i < Math.min(100, sizes.length); i++) {
+    assert.ok(sizes[i] > 0, `Stellar size at index ${i} must be positive`);
+    assert.ok(dust[i] >= 0 && dust[i] <= 1.0, `Dust extinction factor at index ${i} must be in [0, 1]`);
+  }
+
+  renderer.dispose();
+  parent.clear();
+});
+
+test('T_U421_03_PROGRESSIVE_LAZY_LOD_MATERIALIZATION: LOD1 and LOD2 buffers allocated only when entered', () => {
+  const parent = new Group();
+  const desc = generator.generateGalaxy(universeSeed, cell, 1); // Andromeda
+  const renderer = new GalaxyMorphologyRenderer(parent, desc);
+
+  // 1. Initial distant state: LOD0 active, neither LOD1 nor LOD2 materialized
+  assert.equal(renderer.currentLod, 0, 'Initial LOD must be 0 (minimal distant sprite)');
+  assert.equal(renderer.isLod1Materialized, false, 'LOD1 must NOT be materialized at constructor time');
+  assert.equal(renderer.isLod2Materialized, false, 'LOD2 must NOT be materialized at constructor time');
+  assert.equal(renderer.particleCount, 0, 'Zero particles active at LOD 0');
+
+  // 2. Stay distant (D_px = 8)
+  renderer.update(1e25, 8);
+  assert.equal(renderer.isLod1Materialized, false, 'Distant updates must preserve unmaterialized state');
+  assert.equal(renderer.isLod2Materialized, false);
+
+  // 3. Move into intermediate extragalactic range (D_px = 50): enters LOD1
+  renderer.update(1e23, 50);
+  assert.equal(renderer.currentLod, 1);
+  assert.equal(renderer.isLod1Materialized, true, 'LOD1 must be materialized upon entering tier 1');
+  assert.equal(renderer.isLod2Materialized, false, 'LOD2 must still NOT be materialized while in tier 1');
+  assert.equal(renderer.particleCount, 5_000, 'LOD1 allocates 5,000 sparse sparkle particles');
+
+  // 4. Move into close range (D_px = 350): enters LOD2
+  renderer.update(1e21, 350);
+  assert.equal(renderer.currentLod, 2);
+  assert.equal(renderer.isLod2Materialized, true, 'LOD2 must be materialized upon entering tier 2');
+  assert.ok(renderer.particleCount >= 40_000, 'LOD2 particle count reflects high quality tier');
+
+  // 5. Clean disposal and safety against stale calls
+  renderer.dispose();
+  assert.doesNotThrow(() => {
+    renderer.update(1e21, 350);
+    renderer.forceLod(1);
+    renderer.setQuality('Low');
+  }, 'Post-dispose calls must execute safely without throwing');
+
+  parent.clear();
+});
+
+test('T_U421_04_QUALITY_PRESET_DYNAMIC_SWITCHING: updates particle count and geometry across levels', () => {
+  const parent = new Group();
+  const desc = generator.generateGalaxy(universeSeed, cell, 0);
+  const renderer = new GalaxyMorphologyRenderer(parent, desc);
+
+  // Materialize LOD2
+  renderer.forceLod(2);
+  assert.equal(renderer.particleCount, 100_000); // Default: High
+
+  // Switch to Low
+  renderer.setQuality('Low');
+  assert.equal(renderer.particleCount, 10_000);
+
+  // Switch to Ultra
+  renderer.setQuality('Ultra');
+  assert.equal(renderer.particleCount, 160_000);
+
+  // Switch to Medium
+  renderer.setQuality('Medium');
+  assert.equal(renderer.particleCount, 40_000);
+
+  // Integration with GalaxyProvider
+  const andDef = LOCAL_GROUP_CATALOG.find((g) => g.id === 'andromeda')!;
+  const provider = new GalaxyProvider(parent, { galaxy: andDef, qualityPreset: 'Low' });
+  provider.morphologyRenderer.forceLod(2);
+  assert.equal(provider.stats.particleCount, 10_000);
+
+  provider.setQuality('High');
+  assert.equal(provider.stats.particleCount, 100_000);
+
+  provider.dispose();
+  renderer.dispose();
+  parent.clear();
+});
+
+test('T_U421_05_CAMERA_FOV_AND_ENVELOPE_PROJECTION: FOV alters projected pixels and envelope forces LOD2', () => {
+  const parent = new Group();
+  const mwDef = LOCAL_GROUP_CATALOG.find((g) => g.id === 'milky_way')!;
+  const provider = new GalaxyProvider(parent, { galaxy: mwDef });
+
+  const andAddress = { galaxyId: 'andromeda', sector: sectorIndex(0n, 0n, 0n), systemId: 'sys-0' };
+  const cameraPosM: [number, number, number] = [0, 0, 0];
+
+  // 1. Narrow FOV (30°) produces larger apparent angular pixel size than Wide FOV (90°)
+  provider.update(andAddress, cameraPosM, 1e20, [0, 0, 0], (v) => v, { fovDeg: 30, viewportHeightPx: 1080 });
+  const lodNarrow = provider.stats.currentLod;
+
+  provider.update(andAddress, cameraPosM, 1e20, [0, 0, 0], (v) => v, { fovDeg: 90, viewportHeightPx: 1080 });
+  const lodWide = provider.stats.currentLod;
+  assert.ok(lodNarrow >= lodWide, 'Narrower FOV must result in equal or higher LOD tier');
+
+  // 2. Observer located inside the galactic envelope (distance <= radius): forces LOD2
+  const nearbySatellite: import('../src/world/celestial/GalaxyDefinition.ts').GalaxyDefinition = {
+    id: 'nearby_satellite',
+    name: 'Nearby Satellite',
+    diameterLy: 10_000,
+    positionM: [1_000_000, 0, 0], // Within 1,000 km of origin (observer at [0,0,0])
+    addressOriginM: [0, 0, 0],
+  };
+  const closeProvider = new GalaxyProvider(parent, { galaxy: nearbySatellite });
+  // Observer in Milky Way at origin, distance is 1,000 km, well within 5,000 ly radius
+  closeProvider.update({ galaxyId: 'milky_way', sector: sectorIndex(0n, 0n, 0n), systemId: 'sol' }, cameraPosM, 100);
+  assert.equal(closeProvider.stats.currentLod, 2, 'Observer within galactic envelope must force LOD 2');
+
+  closeProvider.dispose();
+  provider.dispose();
+  parent.clear();
 });

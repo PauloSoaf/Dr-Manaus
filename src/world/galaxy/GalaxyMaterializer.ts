@@ -6,6 +6,7 @@ import { BlackHoleProvider } from '../providers/BlackHoleProvider';
 import type { UniverseRuntime } from '../runtime/UniverseRuntime';
 import type { SystemResources } from '../runtime/ProceduralSystemMaterializer';
 import { knownGalaxyRuntime, type GalaxyRuntime } from './GalaxyRuntime';
+import type { QualityPreset } from '../../core/config';
 
 export interface GalaxySession {
   readonly galaxy:GalaxyRuntime;
@@ -24,8 +25,20 @@ export class GalaxyMaterializer {
   private readonly viewBasis=new Matrix4();
   private readonly axes=[new Vector3(),new Vector3(),new Vector3()];
   readonly timings:Record<string,number>={};
-  constructor(readonly universe:UniverseRuntime,private readonly parent:Object3D,
-    private readonly checkpoint:(stage:GalaxyStage)=>void=()=>{}) {}
+  constructor(
+    readonly universe:UniverseRuntime,
+    private readonly parent:Object3D,
+    private readonly checkpoint:(stage:GalaxyStage)=>void=()=>{},
+    private qualityPreset:QualityPreset='High',
+  ) {}
+
+  /** Updates quality preset across the active materializer and resident external galaxies. */
+  setQuality(preset:QualityPreset):void {
+    this.qualityPreset=preset;
+    for(const g of this.current?.externalGalaxies??[]) {
+      g.setQuality(preset);
+    }
+  }
 
   prepare(id:string):SystemResources {
     const old=this.current;
@@ -47,7 +60,12 @@ export class GalaxyMaterializer {
     try {
       const t=performance.now();this.checkpoint('star-sectors');sectors=new StarSectorProvider(root,{galaxyId:id});
       this.timings.starSectors=performance.now()-t;
-      const ext=performance.now();for(const def of LOCAL_GROUP_CATALOG)if(def.id!==id)externals.push(new GalaxyProvider(root,{galaxy:def}));
+      const ext=performance.now();
+      for(const def of LOCAL_GROUP_CATALOG) {
+        if(def.id!==id) {
+          externals.push(new GalaxyProvider(root,{galaxy:def,qualityPreset:this.qualityPreset}));
+        }
+      }
       this.timings.externalGalaxies=performance.now()-ext;
       const b=performance.now();this.checkpoint('black-hole');
       if(galaxy.centralBlackHole)bh=new BlackHoleProvider(root,{galaxyId:id,blackHole:galaxy.centralBlackHole});
@@ -75,7 +93,11 @@ export class GalaxyMaterializer {
   }
   /** Used after a prepared Solar restoration commits; the same saved Solar origin belongs to U1. */
   prepareSolarReturn():SystemResources{return this.prepare('milky_way');}
-  update(cameraPosition:readonly [number,number,number],altitudeM:number):void {
+  update(
+    cameraPosition:readonly [number,number,number],
+    altitudeM:number,
+    cameraContext?:{fov?:number;aspect?:number},
+  ):void {
     const session=this.current;if(!session)return;
     const address=this.universe.address,offset=this.universe.location.sectorOffsetM??[0,0,0];
     session.starSectorProvider.recentre(cameraPosition);
@@ -84,7 +106,8 @@ export class GalaxyMaterializer {
     const rotation=this.viewBasis.makeBasis(this.axes[0],this.axes[1],this.axes[2]);
     session.starSectorProvider.group.quaternion.setFromRotationMatrix(rotation);
     session.centralBlackHole?.group.quaternion.setFromRotationMatrix(rotation);
-    for(const g of session.externalGalaxies)g.update(address,[...cameraPosition],altitudeM,offset,toRender);
+    const camCtx=cameraContext?{fovDeg:cameraContext.fov}:undefined;
+    for(const g of session.externalGalaxies)g.update(address,[...cameraPosition],altitudeM,offset,toRender,camCtx);
     session.centralBlackHole?.update(address,[...cameraPosition],altitudeM,offset,toRender);
   }
 }

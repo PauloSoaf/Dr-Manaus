@@ -1,14 +1,20 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.2 Renderização Visual GPU de Galáxias Procedurais e Arquitetura Multi-Escala TSL (2026-11-02)
+## Current checkpoint — U4.2.1 Correção do CI, Hardening de Materiais TSL e Alocação Sob Demanda de Galáxias (2026-11-02)
 
-Baseline at `bc530a7e3115f7bad715cb63f821fd47862dd633` (U4.1.2). Implementada a renderização visual GPU de alta fidelidade para galáxias:
-1. `GalaxyPointCloudProvider`: amostragem determinística da morfologia de Hubble (braços espirais logarítmicos, barra triaxial, bulbo de Hernquist suavizado, halo esferoidal e faixas de poeira interestelar) com coordenadas estritamente normalizadas em $[-1, 1]$ e alocação de partículas por preset (`Low`: 10k, `Medium`: 40k, `High`: 100k, `Ultra`: 160k).
-2. `GalaxyMorphologyRenderer`: arquitetura multi-escala em 3 níveis (LOD0: impostor cosmológico $< 16\text{ px}$; LOD1: disco intermediário TSL com absorção de poeira $+ 5\text{k}$ estrelas para $16\text{ px} \le D_{\text{px}} < 280\text{ px}$; LOD2: nuvem 3D GPU de alta resolução para $D_{\text{px}} \ge 280\text{ px}$).
-3. Histerese direcional de 15% na máquina de estados de LOD, prevenindo popping e oscilações numéricas na fronteira de transição.
-4. Compatibilidade universal com Three.js `WebGPURenderer` (tanto no backend nativo WebGPU quanto no fallback WebGL 2) através de materiais TSL e NodeMaterials (`PointsMaterial`, `MeshBasicNodeMaterial`, `attribute`, `mix`, `smoothstep`).
-5. `GalaxyProvider` atualizado como consumidor da nova renderização, mantendo os contratos externos de `GalaxyMaterializer` e mapeamento em proxy esférico de 20 km sem perda de precisão Float32.
-8 novos testes de contrato em `tests/galaxy-morphology-renderer.test.ts`. U4.2 pronto para validação em pipeline (não registrado como aprovado antes do CI). U4.3 (mapa/gameplay) e BH0-BH2 permanecem bloqueados.
+Baseline at `b2f52dd44a32662759902e3aee5255a7b6174156` (U4.2, CI falhou em TS2322). Implementadas as correções de integridade arquitetural e de tipos para renderização visual GPU:
+1. Resolução definitiva do TS2322 em `GalaxyMorphologyRenderer.ts` encapsulando cores com TSL `color(...)` em nós nodais.
+2. Adoção de `PointsNodeMaterial` com conexão efetiva dos atributos de buffer `size` e `dust` via nós de sombreamento GPU (`sizeNode`, `colorNode`, `opacityNode`), suportando variações contínuas de diâmetro e luminosidade estelar com extinção de poeira equatorial em um único draw call.
+3. Alocação progressiva sob demanda (lazy LOD): LOD0 (impostor mínimo) construído inicialmente, com LOD1 e LOD2 gerados estritamente na transição de aproximação, impedindo alocação antecipada de buffers de partículas.
+4. Propagação bidirecional de presets de qualidade (`Low`, `Medium`, `High`, `Ultra`) a partir de `RendererManager` e `Game.applySettings` através de `GalaxyMaterializer` e `GalaxyProvider`.
+5. Projeção angular LOD recalculada com FOV vertical efetivo da câmera (padrão 58°) e dimensões reais da viewport, com tratamento de observador interno ao envelope forçando LOD2.
+6. Blindagem de identidade de cache com `buildPointCloudCacheKey` incorporando versão do gerador `v2`, semente BigInt e parâmetros morfológicos, e política de capacidade máxima LRU (16 entradas) com descarte GPU.
+5 novos testes de contrato (totalizando 13 testes em `tests/galaxy-morphology-renderer.test.ts`). U4.2.1 pronto para validação em pipeline (não registrado como aprovado antes do CI). U4.3 (mapa/gameplay) e BH0-BH2 permanecem bloqueados.
+Evidence: [39-status-U4.2-GPU-GALAXY-RENDERING.md](39-status-U4.2-GPU-GALAXY-RENDERING.md).
+
+## Previous checkpoint — U4.2 Renderização Visual GPU de Galáxias Procedurais e Arquitetura Multi-Escala TSL (2026-11-02)
+
+Commit `b2f52dd44a32662759902e3aee5255a7b6174156`. Implementou componentes de GPU e 3 níveis de detalhe multi-escala, mas reprovado no GitHub Actions Run 41395945582 devido a erro de compilação TS2322 em `GalaxyMorphologyRenderer.ts:208` (`colorNode = coreColor`). Substituído e sanado pelo patch U4.2.1.
 Evidence: [39-status-U4.2-GPU-GALAXY-RENDERING.md](39-status-U4.2-GPU-GALAXY-RENDERING.md).
 
 ## Previous checkpoint — U4.1.2 Correção do Contrato Matemático de Separação Cosmológica (2026-11-02)
