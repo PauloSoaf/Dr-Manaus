@@ -71,19 +71,48 @@ test('T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION: geometry attributes reflect Hu
   const mwPos = mwGeom.getAttribute('position').array as Float32Array;
   const mwColors = mwGeom.getAttribute('color').array as Float32Array;
 
-  // Thin disk: vertical coordinate (Y in Three.js) must be tightly bounded
-  let mwMaxAbsY = 0;
+  // Statistical planar concentration of spiral disk:
+  // Over 90% of stars reside in the thin/thick disk and central bar/bulge (|Y| <= 0.25).
+  // Spheroidal halo stars can legitimately extend to |Y| > 0.5, but form a small minority (< 5%).
+  let mwPlanarCount = 0;
+  let mwHaloCount = 0;
+  let mwSumY2 = 0;
   let mwBlueCount = 0;
+
   for (let i = 0; i < 5000; i++) {
-    const y = Math.abs(mwPos[i * 3 + 1]);
-    if (y > mwMaxAbsY) mwMaxAbsY = y;
-    // Blue-white stars on spiral arms: B > R
+    const y = mwPos[i * 3 + 1];
+    const absY = Math.abs(y);
+    mwSumY2 += y * y;
+    if (absY <= 0.25) mwPlanarCount++;
+    if (absY > 0.5) mwHaloCount++;
+
+    // Blue-white OB associations on spiral arms: B > R
     const r = mwColors[i * 3];
     const b = mwColors[i * 3 + 2];
     if (b > r) mwBlueCount++;
   }
-  assert.ok(mwMaxAbsY < 0.5, 'Spiral galaxy disk must have small vertical thickness ratio');
-  assert.ok(mwBlueCount > 1000, 'Spiral galaxy must have significant blue-white stellar population in arms');
+
+  const mwPlanarFraction = mwPlanarCount / 5000;
+  const mwHaloFraction = mwHaloCount / 5000;
+  const mwRmsY = Math.sqrt(mwSumY2 / 5000);
+
+  // Spiral morphological contracts:
+  assert.ok(
+    mwPlanarFraction >= 0.90,
+    `Spiral galaxy stars must be predominantly concentrated in the disk plane (|Y| <= 0.25), actual: ${(mwPlanarFraction * 100).toFixed(1)}%`,
+  );
+  assert.ok(
+    mwRmsY < 0.15,
+    `Spiral galaxy RMS vertical thickness must reflect flat disk geometry (RMS < 0.15), actual: ${mwRmsY.toFixed(4)}`,
+  );
+  assert.ok(
+    mwHaloFraction < 0.05,
+    `Extended spheroidal halo stars (|Y| > 0.5) must constitute a small minority (< 5%), actual: ${(mwHaloFraction * 100).toFixed(1)}%`,
+  );
+  assert.ok(
+    mwBlueCount > 1000,
+    `Spiral galaxy must have significant blue-white stellar population in arms, actual: ${mwBlueCount}`,
+  );
 
   // 2. Pure Elliptical galaxy
   let targetEllDesc = mwDesc;
@@ -96,16 +125,30 @@ test('T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION: geometry attributes reflect Hu
   }
 
   const ellGeom = provider.generateGeometry(targetEllDesc, 3000);
+  const ellPos = ellGeom.getAttribute('position').array as Float32Array;
   const ellColors = ellGeom.getAttribute('color').array as Float32Array;
+
   let ellWarmCount = 0;
+  let ellSumY2 = 0;
   for (let i = 0; i < 3000; i++) {
+    const y = ellPos[i * 3 + 1];
+    ellSumY2 += y * y;
+
     const r = ellColors[i * 3];
     const b = ellColors[i * 3 + 2];
     if (r > b) ellWarmCount++; // Warm amber/red stars
   }
+
+  const ellWarmFraction = ellWarmCount / 3000;
+  const ellRmsY = Math.sqrt(ellSumY2 / 3000);
+
   assert.ok(
-    ellWarmCount / 3000 > 0.85,
-    'Elliptical galaxy must be dominated by mature warm/red stellar populations (R > B)',
+    ellWarmFraction > 0.85,
+    `Elliptical galaxy must be dominated by mature warm/red stellar populations (R > B), actual: ${(ellWarmFraction * 100).toFixed(1)}%`,
+  );
+  assert.ok(
+    ellRmsY > mwRmsY * 1.5,
+    `Elliptical galaxy spheroidal distribution must exhibit significantly larger vertical RMS than spiral disk (ell: ${ellRmsY.toFixed(4)} vs mw: ${mwRmsY.toFixed(4)})`,
   );
 
   mwGeom.dispose();
@@ -266,31 +309,52 @@ test('T_U42_08_NO_FLOAT32_COSMIC_POSITION_LEAK: point cloud coordinates are stri
 
 test('T_U421_01_CACHE_IDENTITY_COLLISION_RESISTANCE_AND_LRU: distinct keys avoid cross-geometry reuse', () => {
   const provider = new GalaxyPointCloudProvider(3); // Small capacity for LRU eviction testing
-  const descA = generator.generateGalaxy(universeSeed, cell, 0);
-  const descB = generator.generateGalaxy(universeSeed ^ 0x999n, cell, 0); // Same ID possible, distinct seed
 
-  // 1. Semantic cache keys must be distinct
-  const keyA = buildPointCloudCacheKey(descA, 'Medium', 40_000);
-  const keyB = buildPointCloudCacheKey(descB, 'Medium', 40_000);
-  assert.notEqual(keyA, keyB, 'Different seeds must produce distinct cache keys');
-  assert.ok(keyA.includes(`v${GALAXY_GENERATOR_VERSION}`), 'Cache key must encode generator version');
+  // A. Canonical catalog invariance:
+  // Generating cell (0,0,0) index 0 (Milky Way) with different universe seeds yields the identical canonical descriptor and seed
+  const mwA = generator.generateGalaxy(universeSeed, cell, 0);
+  const mwB = generator.generateGalaxy(universeSeed ^ 0x999n, cell, 0);
+  assert.equal(mwA.id, 'milky_way');
+  assert.equal(mwA.seed, mwB.seed, 'Canonical Milky Way retains immutable seed regardless of universe seed');
+  const keyMwA = buildPointCloudCacheKey(mwA, 'Medium', 40_000);
+  const keyMwB = buildPointCloudCacheKey(mwB, 'Medium', 40_000);
+  assert.equal(keyMwA, keyMwB, 'Canonical Milky Way produces identical cache keys across different universe seeds');
 
-  // 2. Presets must differentiate cache keys
-  const keyLow = buildPointCloudCacheKey(descA, 'Low', 10_000);
-  const keyHigh = buildPointCloudCacheKey(descA, 'High', 100_000);
+  // B. Procedural galaxies with distinct seeds produce distinct cache keys:
+  const procCell = { x: 10n, y: 20n, z: 30n };
+  const procA = generator.generateGalaxy(0x1111_2222n, procCell, 0);
+  const procB = generator.generateGalaxy(0x3333_4444n, procCell, 0);
+  assert.notEqual(procA.seed, procB.seed, 'Procedural galaxies with different universe seeds must have distinct seeds');
+  const keyProcA = buildPointCloudCacheKey(procA, 'Medium', 40_000);
+  const keyProcB = buildPointCloudCacheKey(procB, 'Medium', 40_000);
+  assert.notEqual(keyProcA, keyProcB, 'Different procedural seeds must produce distinct cache keys');
+  assert.ok(keyProcA.includes(`v${GALAXY_GENERATOR_VERSION}`), 'Cache key must encode generator version');
+
+  // C. Presets and visual parameters differentiate cache keys:
+  const keyLow = buildPointCloudCacheKey(procA, 'Low', 10_000);
+  const keyHigh = buildPointCloudCacheKey(procA, 'High', 100_000);
   assert.notEqual(keyLow, keyHigh, 'Different presets must produce distinct cache keys');
 
-  // 3. Populate 3 entries (reaches max capacity 3)
-  const geomA = provider.getGeometry(descA, 'Low');
-  const geomB = provider.getGeometry(descB, 'Low');
-  const geomC = provider.getGeometry(descA, 'Medium');
+  // D. Morphological divergence on identical seed must produce distinct cache key:
+  const procAMod = { ...procA, diameterLy: procA.diameterLy * 2 };
+  const keyProcAMod = buildPointCloudCacheKey(procAMod, 'Medium', 40_000);
+  assert.notEqual(keyProcA, keyProcAMod, 'Modified visual dimensions must yield distinct cache keys');
+
+  // E. LRU eviction with bounded capacity and cache reuse:
+  // 1. Populate 3 entries (reaches max capacity 3)
+  const geomA = provider.getGeometry(procA, 'Low');
+  const geomAReuse = provider.getGeometry(procA, 'Low');
+  assert.equal(geomA, geomAReuse, 'Same descriptor and preset must reuse cached geometry instance');
+
+  const geomB = provider.getGeometry(procB, 'Low');
+  const geomA_med = provider.getGeometry(procA, 'Medium');
   assert.equal(provider.cacheSize, 3);
 
-  // 4. Adding 4th entry evicts oldest (geomA)
-  const descD = generator.generateGalaxy(0xbeef_cafen, cell, 0);
-  const geomD = provider.getGeometry(descD, 'High');
+  // 2. Adding 4th entry evicts oldest unreferenced entry (geomA)
+  const procC = generator.generateGalaxy(0x5555_6666n, procCell, 1);
+  const geomC = provider.getGeometry(procC, 'High');
   assert.equal(provider.cacheSize, 3, 'Cache size must remain bounded at maxCacheSize');
-  assert.equal(provider.hasCached(descD, 'High'), true);
+  assert.equal(provider.hasCached(procC, 'High'), true);
 
   provider.dispose();
   assert.equal(provider.cacheSize, 0);

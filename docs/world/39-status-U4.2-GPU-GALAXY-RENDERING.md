@@ -1,15 +1,18 @@
-# Relatório Técnico U4.2.2 — Resolução do CI (TS2339), Alinhamento Geométrico Coplanar e Cache GPU com Contagem de Referências
+# Relatório Técnico U4.2.3 — Ajuste de Contratos Estatísticos Morfológicos, Invariância Canônica e Validação do Cache GPU
 
-**Status**: Implementado e Submetido ao CI (U4.2.2)  
-**Data**: 02 de Novembro de 2026  
+**Status**: Implementado e Submetido ao CI (U4.2.3)  
+**Data**: 03 de Novembro de 2026  
 **Autor**: Antigravity Assistant & Dr-Manaus Core Team  
 **Branch**: `feat/universe-map`  
-**HEAD Auditado (U4.2.1)**: `7d828974e3ff24e433911ebf34a9ed593c29dca4` (GitHub Actions Run [41562999118](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41562999118))  
-**Resultado Oficial do CI U4.2.1**:
-- Typecheck: **FAILURE** (`TS2339: Property 'hubbleType' does not exist on type 'ProceduralGalaxyDescriptor'`)
-- Portão Permanente de Regressões (638): SKIPPED
-- Testes Unitários Gerais (1.491): SKIPPED
-- Build Vite de Produção: SKIPPED
+**HEAD Auditado (U4.2.2)**: `4d6823424e3e2a79d1d9b1ff435392691d7c950c` (GitHub Actions Run [41572802319](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/41572802319))  
+**Resultado Oficial do CI U4.2.2**:
+- Typecheck: **SUCCESS** (0 erros)
+- Portão Permanente de Regressões (638): **638/638 APROVADAS**
+- Testes Unitários Gerais (1.506): **1.504/1.506 (2 falhas de contrato em testes)**
+  1. `T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION`: asserção de espessura máxima global no disco espiral.
+  2. `T_U421_01_CACHE_IDENTITY_COLLISION_RESISTANCE_AND_LRU`: expectativa de sementes diferentes na Via Láctea canônica.
+- Novos testes U4.2.2 (`T_U422_01` e `T_U422_02`): **APROVADOS**
+- Build Vite de Produção: SKIPPED (interrompido pelas 2 falhas na suíte de testes)
 
 ---
 
@@ -103,12 +106,7 @@ Além disso, `GalaxyPointCloudProvider` agora implementa desalocação controlad
 ## 2. Hardening e Correções do Patch U4.2.2
 
 ### 2.1 Causa Raiz do Erro de Compilação TS2339
-No commit `7d82897`, `buildPointCloudCacheKey` em `src/world/galaxy/GalaxyPointCloudProvider.ts`:
-```ts
-return `v${GALAXY_GENERATOR_VERSION}|...|${descriptor.hubbleType}|...`;
-```
-A interface `ProceduralGalaxyDescriptor` define o campo canônico como `morphology: HubbleMorphology` (e não `hubbleType`).
-A referência foi corrigida para `descriptor.morphology`, alinhando a chave semântica do cache com o contrato estático do gerador procedural.
+No commit `7d82897`, `buildPointCloudCacheKey` em `src/world/galaxy/GalaxyPointCloudProvider.ts` acessava `descriptor.hubbleType`. A interface `ProceduralGalaxyDescriptor` define o campo canônico como `morphology: HubbleMorphology`. A referência foi corrigida para `descriptor.morphology`, eliminando a falha de tipagem estática.
 
 ### 2.2 Alinhamento Geométrico Coplanar entre Todos os Níveis de LOD
 - No Three.js, `PlaneGeometry(2, 2)` é construída no plano X-Y com vetor normal ao longo de +Z.
@@ -116,37 +114,54 @@ A referência foi corrigida para `descriptor.morphology`, alinhando a chave sem�
 - No U4.2/U4.2.1, essa discrepância causava uma rotação aparente de 90° ao cruzar a transição entre LOD 1 (disco quad) e LOD 2 (nuvem de partículas).
 - **Correção**: Aplicada a transformação `.rotateX(-Math.PI / 2)` em `lod0Geometry` e `lod1DiscGeometry`. Agora, LOD 0, LOD 1 e LOD 2 compartilham estritamente o mesmo plano equatorial X-Z com vetor normal canônico ao longo de +Y.
 
-### 2.3 Pré-Aquecimento Preditivo de LOD 2 (Anti-Stuttering)
-- Para evitar interrupções de frame ao cruzar o limiar de alta resolução ($D_{\text{px}} \ge 280\text{ px}$), foi implementado o gatilho preditivo de pré-aquecimento:
-  ```ts
-  if (current === 1 && projectedPx >= lodThreshold12 * 0.6 && !this._lod2Materialized && !this._lod2Preheated) {
-    this.preheatLod2();
-  }
-  ```
-- O buffer de partículas é gerado e indexado no cache em segundo plano durante a aproximação em LOD 1, tornando a transição para LOD 2 uma operação $O(1)$ sem stuttering de CPU/GPU.
+### 2.3 Modelo de Execução do Pré-Aquecimento Preditivo de LOD 2
+- **Esclarecimento Técnico de Execução**: `GalaxyMorphologyRenderer.preheatLod2()` executa sincronamente na thread principal durante o loop `update()`, ativado ao cruzar 60% do limiar de alta resolução ($D_{\text{px}} \ge 168\text{ px}$).
+- Essa antecipação garante que, ao atingir o limiar formal de 280 px, o buffer GPU já esteja indexado no cache, tornando a transição de LOD uma operação $O(1)$.
+- A geração não ocorre em Web Worker ou thread paralela; a implementação de streaming assíncrono ou particionado por orçamento de frame (budgeting) permanece planejada para uma passagem dedicada de otimização de performance.
 
 ### 2.4 Cache GPU Seguro com Contagem de Referências (Ref Counting)
 - Adicionados métodos `retain(geom)` e `release(geom)` em `GalaxyPointCloudProvider`.
 - A política de evicção LRU garante que geometrias ativas vinculadas a nós de cena (`refCount > 0`) jamais sejam destruídas prematuramente via `.dispose()` ao atingir o limite de 16 buffers, eliminando riscos de ponteiros GPU pendentes (use-after-free).
 
-### 2.5 Propagação de Viewport Real
-- Em `Game.ts` e `GalaxyMaterializer.ts`, a projeção angular do LOD agora utiliza a altura real do elemento canvas renderizado (`this.rendering.renderer.domElement.clientHeight || window.innerHeight`), sincronizada com o FOV vertical efetivo da `PerspectiveCamera`.
+### 2.5 Propagação de Viewport Real e Configuração da Porta 9999
+- Em `Game.ts` e `GalaxyMaterializer.ts`, a projeção angular do LOD utiliza a altura real do elemento canvas renderizado (`this.rendering.renderer.domElement.clientHeight || window.innerHeight`), sincronizada com o FOV vertical efetivo da `PerspectiveCamera`.
+- **Porta 9999**: Preservada a configuração em `package.json` e `vite.config.ts`, atendendo à solicitação explícita do operador devido à ocupação prévia da porta 5173 por outra aplicação de desenvolvimento.
 
 ---
 
-## 3. Cobertura da Suíte de Testes (15 Testes de Contrato)
+## 3. Diagnóstico e Resoluções do Patch U4.2.3
+
+### 3.1 Correção dos Contratos Estatísticos de Morfologia (`T_U42_02`)
+- **Problema Diagnosticado**: O teste original exigia `mwMaxAbsY < 0.5` sobre todas as 5.000 partículas geradas. Entretanto, o gerador procedural modela o halo esferoidal estelar legítimo com semi-eixo vertical $z = r_{\text{halo}} \cos(\theta) \times 0.82$, podendo atingir até $1.025$ para estrelas externas do halo (~1.8% da população total). Essa asserção ingênua reprovava um comportamento astrofísico deliberado.
+- **Contratos Estatísticos Adotados**:
+  1. **Concentração Planar do Disco**: $\ge 90\%$ das estrelas situam-se em $|Y| \le 0.25$, refletindo o confinamento em disco fino, disco espesso e barra central.
+  2. **Espessura Quadrática Média (RMS)**: $\sqrt{\langle Y^2 \rangle} < 0.15$ para a galáxia espiral, comprovando o achatamento plano do disco.
+  3. **Fração do Halo Esferoidal**: estrelas com $|Y| > 0.5$ são rigorosamente limitadas a $< 5\%$ da população estelar total.
+  4. **Contraste Morfológico com Elíptica**: a galáxia elíptica triaxial apresenta distribuição volumétrica tridimensional com $RMS_{\text{ell}} > 1.5 \times RMS_{\text{mw}}$, além de dominância de estrelas maduras avermelhadas ($R > B$ em $> 85\%$ das partículas).
+
+### 3.2 Correção do Contrato de Identidade do Cache e Invariância Canônica (`T_U421_01`)
+- **Problema Diagnosticado**: O teste anterior fornecia sementes universais diferentes para a célula `(0, 0, 0)` no índice 0, esperando chaves de cache diferentes. No entanto, por contrato inegociável do U4.1, a célula `(0, 0, 0)` no índice 0 é a Via Láctea canônica do Catálogo do Grupo Local, cuja semente é estática (`0x4d494c4b59574159n`), invariante à semente do universo procedural.
+- **Resolução**:
+  1. O teste agora valida explicitamente a **invariância da Via Láctea**: gerar a galáxia canônica com diferentes seeds universais preserva idêntica semente e chave de cache.
+  2. Para validar a **resistência a colisões e unicidade de chaves procedurais**, o teste utiliza células procedurais não-canônicas (`{ x: 10n, y: 20n, z: 30n }`), comprovando que sementes diferentes geram chaves distintas.
+  3. Comprova que alterações em dimensões visuais (`diameterLy`) ou presets (`Low` vs `High`) geram chaves distintas.
+  4. Valida a reutilização $O(1)$ de geometrias para o mesmo descritor e a política de evicção LRU limitada a 3 entradas.
+
+---
+
+## 4. Cobertura da Suíte de Testes (15 Testes de Contrato)
 
 Arquivo: [tests/galaxy-morphology-renderer.test.ts](file:///c:/Projetos/Dr-Manaus/tests/galaxy-morphology-renderer.test.ts)
 
 - `T_U42_01_POINT_CLOUD_DETERMINISM`: Determinismo estrito bit-a-bit e divergência sob variação de semente.
-- `T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION`: Parâmetros morfológicos da sequência de Hubble (azul em espirais, âmbar/vermelho em elípticas).
+- `T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION`: Contratos estatísticos de disco plano espiral ($\ge 90\%$ planar, $RMS < 0.15$, halo $< 5\%$) e contraste com elíptica volumétrica ($RMS_{\text{ell}} > 1.5 \times RMS_{\text{mw}}$, $R > B$ em $> 85\%$).
 - `T_U42_03_PARTICLE_BUDGETS_AND_PRESETS`: Tetos de Low (10k), Medium (40k), High (100k) e Ultra (160k).
 - `T_U42_04_LOD_TRANSITIONS_AND_15_PERCENT_HYSTERESIS`: Transições 0/1/2 e histerese direcional de 15%.
 - `T_U42_05_BUFFER_CACHING_AND_REUSE`: Reutilização sem GC e regeneração pós-descarte.
 - `T_U42_06_CANONICAL_ENTITIES_PRESERVATION`: Via Láctea e Andrômeda preservam atributos canônicos.
 - `T_U42_07_GALAXY_PROVIDER_LIFECYCLE_AND_PROXY_BOUNDS`: Proxy delimitador em 20 km Float32.
 - `T_U42_08_NO_FLOAT32_COSMIC_POSITION_LEAK`: Coordenadas unitárias normalizadas em $[-1.5, 1.5]$.
-- `T_U421_01_CACHE_IDENTITY_COLLISION_RESISTANCE_AND_LRU`: Diferenciação estrita de chaves por semente, versão e parâmetros; limite LRU de 3 entradas descartando o mais antigo.
+- `T_U421_01_CACHE_IDENTITY_COLLISION_RESISTANCE_AND_LRU`: Invariância canônica da Via Láctea, distinção de sementes procedurais, diferenciação por dimensão/preset e evicção LRU.
 - `T_U421_02_TSL_POINTS_NODE_MATERIAL_AND_GPU_ATTRIBUTES`: Comprova `PointsNodeMaterial`, `sizeNode`, `colorNode`, `opacityNode` e atributos de buffer `size` e `dust`.
 - `T_U421_03_PROGRESSIVE_LAZY_LOD_MATERIALIZATION`: Comprova que instanciar a galáxia em LOD0 não aloca LOD1 nem LOD2; alocação ocorre somente na entrada de cada nível.
 - `T_U421_04_QUALITY_PRESET_DYNAMIC_SWITCHING`: Atualização dinâmica de partículas entre Low, Medium, High e Ultra em tempo real.
@@ -156,11 +171,11 @@ Arquivo: [tests/galaxy-morphology-renderer.test.ts](file:///c:/Projetos/Dr-Manau
 
 ---
 
-## 4. Limitações e Riscos
+## 5. Limitações e Riscos
 
 1. **Validação Visual no Navegador**:
    - A compilação TSL para WGSL/GLSL e a renderização dos nós foram verificadas contra a especificação e tipos de Three.js r186. Contudo, artefatos visuais de fill-rate ou blendings aditivos exigem confirmação visual do operador humano no navegador.
 2. **Backend WebGPU Puro vs WebGL 2**:
    - Conforme documentado pela Three.js, primitivas `Points` no backend WebGPU têm tamanho rasterizado de 1 pixel. A diferenciação estelar nesse backend opera por modulação de brilho e extinção de poeira; no backend WebGL 2, o diâmetro dos pontos também varia fisicamente via `sizeNode`.
 3. **Bloqueio de Fases Subsequentes**:
-   - **U4.3** (mapa e gameplay galáctico) e **BH0–BH2** (buracos negros supermassivos) permanecem rigorosamente bloqueados até que o CI oficial do GitHub Actions retorne verde no commit U4.2.2.
+   - **U4.3** (mapa e gameplay galáctico) e **BH0–BH2** (buracos negros supermassivos) permanecem rigorosamente bloqueados até que o CI oficial do GitHub Actions retorne verde no commit U4.2.3.

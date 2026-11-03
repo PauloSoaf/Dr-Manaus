@@ -34,7 +34,7 @@ export interface GalaxyMorphologyRendererOptions {
  * - LOD 0: Compact distant impostor (< 16 px). Minimal initial footprint.
  * - LOD 1: Extragalactic intermediate morphology (16 px to 280 px). Materialized on demand.
  * - LOD 2: High-density 3D GPU point cloud (>= 280 px) with spiral arms, bar, bulge, and halo.
- *          Predictively preheated during approach to prevent frame drops.
+ *          Predictively preheated synchronously during approach to eliminate transition stutter.
  *
  * Employs a 15% directional hysteresis band to eliminate thrashing and popping on LOD boundaries.
  * Fully compatible with WebGPURenderer (both WebGPU and WebGL 2 backends) via TSL and NodeMaterials.
@@ -238,6 +238,8 @@ export class GalaxyMorphologyRenderer {
 
   /**
    * Pre-warms the cache entry in GalaxyPointCloudProvider so that entering LOD 2 is an O(1) lookup.
+   * Note: Executes synchronously during update() upon approaching the LOD 2 threshold in LOD 1.
+   * Asynchronous Web Worker / frame-budgeted streaming is planned for a dedicated performance pass.
    */
   private preheatLod2(): void {
     if (this._lod2Preheated || this._lod2Materialized || this._disposed) return;
