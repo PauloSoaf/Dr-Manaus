@@ -20,9 +20,20 @@ export function registerProceduralGalaxyDefinition(def: GalaxyDefinition): void 
 }
 
 let activeUniverseSeed = DEFAULT_UNIVERSE_SEED;
+const seedChangeListeners = new Set<(seed: bigint) => void>();
+
+export function onProceduralUniverseSeedChanged(listener: (seed: bigint) => void): () => void {
+  seedChangeListeners.add(listener);
+  return () => seedChangeListeners.delete(listener);
+}
 
 export function setProceduralUniverseSeed(seed: bigint): void {
+  if (activeUniverseSeed === seed) return;
   activeUniverseSeed = seed;
+  proceduralGalaxyDefinitions.clear();
+  for (const listener of seedChangeListeners) {
+    listener(seed);
+  }
 }
 
 export function getProceduralUniverseSeed(): bigint {
@@ -31,7 +42,14 @@ export function getProceduralUniverseSeed(): bigint {
 
 export function clearProceduralGalaxyDefinitions(): void {
   proceduralGalaxyDefinitions.clear();
-  activeUniverseSeed = DEFAULT_UNIVERSE_SEED;
+  const resetSeed = DEFAULT_UNIVERSE_SEED;
+  const changed = activeUniverseSeed !== resetSeed;
+  activeUniverseSeed = resetSeed;
+  if (changed) {
+    for (const listener of seedChangeListeners) {
+      listener(resetSeed);
+    }
+  }
 }
 
 export function galaxyDefinition(id: string): GalaxyDefinition | undefined {

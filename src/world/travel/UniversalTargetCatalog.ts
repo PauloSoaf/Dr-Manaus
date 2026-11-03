@@ -1,5 +1,6 @@
 import { SolarSystem } from '../celestial/SolarSystem';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
+import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
 import { galaxyDefinition, registerProceduralGalaxyDefinition, setProceduralUniverseSeed } from '../galaxy/GalaxyCoordinates';
 import { KNOWN_COSMIC_ANCHORS, OBSERVABLE_HORIZON_MPC } from '../celestial/CosmicAnchorCatalog';
 import { generateStarSector, type GeneratedStar } from '../celestial/StarSector';
@@ -52,8 +53,12 @@ export class UniversalTargetCatalog {
     const immutable = createUniversalTarget(descriptor);
     this.entries.set(immutable.key,{ descriptor:immutable, globalPositionM });
   }
+  private syncSeed(): void {
+    setProceduralUniverseSeed(this.discovery.universeSeed);
+  }
   get descriptors(): readonly UniversalTargetDescriptor[] { return [...this.entries.values()].map(e=>e.descriptor); }
   find(query: string): UniversalTargetDescriptor | undefined {
+    this.syncSeed();
     let rawId = query;
     if (query.startsWith('galaxy/')) {
       try {
@@ -122,6 +127,7 @@ export class UniversalTargetCatalog {
   }
   /** Generated system seed combines the sector seed with the stable generated star identity. */
   proceduralDescriptor(galaxyId: string, sector: SectorIndex, starId: string): ProceduralTargetDescriptor | undefined {
+    this.syncSeed();
     if (!galaxyDefinition(galaxyId)) return;
     const key=sectorKey(galaxyId,sector), systemKey=`${key}/${starId}`;
     const cached=this.procedural.get(systemKey); if(cached)return cached;
@@ -135,6 +141,7 @@ export class UniversalTargetCatalog {
   }
   proceduralTarget(galaxyId:string, sector:SectorIndex, starId:string, kind:'star'|'system'|'body', bodyId?:string,
     source:TargetSource='hud',timeS=0): UniversalNavigationTarget | undefined {
+    this.syncSeed();
     const p=this.proceduralDescriptor(galaxyId,sector,starId);if(!p)return;
     const body=kind==='system'?undefined:p.system.bodies.find(b=>b.id===(kind==='star'?starId:bodyId));
     if(kind!=='system' && (!body || (kind==='body' && body.id===starId)))return;
@@ -142,6 +149,7 @@ export class UniversalTargetCatalog {
       galaxyId,systemId:starId,bodyId:body?.id,address:{...p.address,bodyId:body?.id}},source,timeS);
   }
   resolve(t: UniversalNavigationTarget): CatalogTarget | undefined {
+    this.syncSeed();
     try {
       if(universalTargetKey(t)!==t.key)return;
       const entry=this.entries.get(t.key) ?? this.proceduralGalaxies.get(t.key);

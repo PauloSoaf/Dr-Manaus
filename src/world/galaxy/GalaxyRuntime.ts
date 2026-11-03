@@ -2,8 +2,13 @@ import type { GalaxyDefinition } from '../celestial/GalaxyDefinition';
 import { generateStarSector, milkyWayDensity, andromedaDensity } from '../celestial/StarSector';
 import type { SectorIndex } from '../spatial/UniverseAddress';
 import type { Vec3 } from '../spatial/units';
-import { galaxyDefinition, galaxyLocalPositionM } from './GalaxyCoordinates';
+import { galaxyDefinition, galaxyLocalPositionM, onProceduralUniverseSeedChanged } from './GalaxyCoordinates';
 import { evaluateProceduralDensity } from './ProceduralGalaxyGenerator';
+
+// Invalidate runtime cache whenever procedural universe seed changes
+onProceduralUniverseSeedChanged(() => {
+  clearGalaxyRuntimes();
+});
 
 /** Small immutable runtime catalogue. UniverseAddress remains the player's sole location authority. */
 export class GalaxyRuntime {

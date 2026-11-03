@@ -1,6 +1,24 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.4.2 Correção do CI e Integridade da Viagem Procedural (2026-11-03)
+## Current checkpoint — U4.4.3 Desbloqueio do CI e Integridade de Seeds (2026-11-03)
+
+Baseline auditado do U4.4.2 no commit `d08159e33d528252622d3f7347987c66de2bd044` reprovou no CI oficial (GitHub Actions Run 41659664895) com erro TS2304 em `UniversalTargetCatalog.ts` (`Cannot find name 'LOCAL_GROUP_CATALOG'`). O patch U4.4.3 corrige a compilação, implementa invalidação atômica e coerente de caches dependentes de semente e reforça a verificação de elegibilidade real de viagem:
+1. `UniversalTargetCatalog.ts`:
+   - Restaurado o import de `LOCAL_GROUP_CATALOG` de `../celestial/GalaxyDefinition`, eliminando o bloqueio de compilação TS2304.
+   - Sincronização automática de semente: método `syncSeed()` ativa deterministicamente a semente da descoberta em `find()`, `resolve()`, `proceduralDescriptor()` e `proceduralTarget()`.
+2. `GalaxyCoordinates.ts`, `GalaxyRuntime.ts` e `GalaxyEntryResolver.ts`:
+   - Padrão de observador desacoplado `onProceduralUniverseSeedChanged`: alterações de semente ativam invalidação síncrona de `proceduralGalaxyDefinitions`, `clearGalaxyRuntimes()` e `clearGalaxyEntryCache()`.
+   - Elimina qualquer risco de reaproveitamento incorreto de morfologias entre sementes distintas (Seed A $\rightarrow$ Seed B $\rightarrow$ Seed A), preservando as galáxias canônicas da Via Láctea e Andrômeda.
+3. `GalaxyEntryResolver.ts` e `UniversalTargetResolver.ts`:
+   - Cache delimitado $O(1)$ de resoluções de entrada em `resolvedEntryCache` com limpeza automática em mudança de semente.
+   - `UniversalTargetResolver` agora valida a existência real de sistema de entrada via `hasProceduralGalaxyEntry(t.galaxyId, this.catalog)` antes de marcar `capability = 'intergalactic'`, evitando indicar hypercruise disponível para alvos que falhariam no planejamento de rota.
+4. `tests/procedural-travel.test.ts`:
+   - `T_U44_03`: asserção calibrada para respeitar formalmente o teto de 2.000 estrelas por setor (`Math.min(2000, ...)`).
+   - `T_U44_15`: validação mista em região de galáxias procedurais, comprovando que sistemas resolvidos cumprem todos os requisitos de planetas rochosos pousáveis e galáxias sem entrada produzem erro controlado.
+   - `T_U44_16`: teste exaustivo de ciclo Seed A $\rightarrow$ Seed B $\rightarrow$ Seed A com duas instâncias de catálogo, comprovando invalidação e regeneração fiel de parâmetros e integridade das galáxias canônicas.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.2 Correção do CI e Integridade da Viagem Procedural (2026-11-03)
 
 Baseline auditado do U4.4.1 no commit `e46d10d29ae6789ba7c7e7d47d19d30e935d3352` reprovou no CI oficial (GitHub Actions Run 41653156652) com dois erros TS2305 em `GalaxyCoordinates.ts`. O patch U4.4.2 corrige a raiz do bloqueio de compilação e implementa o reforço dos contratos de densidade estelar, coordenadas cosmológicas ativas, métrica de separação e segurança de entrada procedural:
 1. `GalaxyCoordinates.ts`:

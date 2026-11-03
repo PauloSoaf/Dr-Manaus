@@ -8,6 +8,7 @@ import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from './UniversalTargetC
 import { isUniverseAddress, type UniversalNavigationTarget } from './UniversalNavigationTarget';
 import { selectBodyDestination } from './BodyNavigation';
 import { COSMOLOGICAL_CELL_SIZE_M, cosmologicalSeparationVectorM, isCellInFloatDomain, cosmologicalPositionM } from '../galaxy/ProceduralGalaxyGenerator';
+import { hasProceduralGalaxyEntry } from './GalaxyEntryResolver';
 
 export type TravelCapability = 'solar'|'intra-system'|'interstellar'|'intergalactic'|'black-hole-future'|'cosmological-future';
 export interface ResolvedUniversalTarget {
@@ -120,8 +121,8 @@ export class UniversalTargetResolver {
           distanceM = Math.hypot(...sepVec);
           // Relative separation vector in metres from observer to target in cosmological-relative frame
           positionM = sepVec;
-          // Reachable within safe conversion domain: enable real intergalactic travel in U4.4
-          capability = 'intergalactic';
+          // Reachable within safe conversion domain: verify valid entry system exists before declaring intergalactic capability
+          capability = hasProceduralGalaxyEntry(t.galaxyId, this.catalog) ? 'intergalactic' : 'cosmological-future';
         } else {
           // Separation exceeds safe Float64 conversion domain (> 1024 cells)
           const dx = Number(desc.cell.x - obsCosmo.cell.x);
