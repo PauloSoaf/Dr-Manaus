@@ -241,7 +241,8 @@ export class UniverseRuntime {
     const address = this.navigationState;
     const loc: UniverseLocation = {
       address,mode:'anchored',
-      frameId: this.playerPose.frame
+      frameId: this.playerPose.frame,
+      cosmological: this.activeGalaxy.definition.proceduralMorphology?.cosmologicalAddress ?? { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] },
     };
     
     if (this.playerPose.frame === this.activeSystem.systemFrameId) {

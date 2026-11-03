@@ -120,6 +120,8 @@ export class UniversalTargetResolver {
           distanceM = Math.hypot(...sepVec);
           // Relative separation vector in metres from observer to target in cosmological-relative frame
           positionM = sepVec;
+          // Reachable within safe conversion domain: enable real intergalactic travel in U4.4
+          capability = 'intergalactic';
         } else {
           // Separation exceeds safe Float64 conversion domain (> 1024 cells)
           const dx = Number(desc.cell.x - obsCosmo.cell.x);
@@ -128,6 +130,7 @@ export class UniversalTargetResolver {
           distanceM = Math.hypot(dx, dy, dz) * COSMOLOGICAL_CELL_SIZE_M;
           // Beyond safe Float64 domain: do not fabricate an imprecise Float64 vector
           positionM = undefined;
+          capability = 'cosmological-future';
         }
       }
     } else if(entry.globalPositionM && !isProceduralGalaxy){

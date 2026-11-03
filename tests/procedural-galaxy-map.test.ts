@@ -283,14 +283,14 @@ test('T_U43_06_UNIVERSAL_TARGET_RESOLVER_PROCEDURAL_TRAVEL_SEPARATION', () => {
   assert.equal(andromedaResolved.domain, 'intergalactic');
   assert.equal(andromedaResolved.travelCapability, 'intergalactic');
 
-  // Procedural galaxy target: selected and valid, but travel capability separated for U4.4
+  // Procedural galaxy target: selected and valid; reachable target has real intergalactic travel capability in U4.4
   const procTarget = catalog.target('galaxy_c10_20_30_0');
   assert.ok(procTarget);
   const procResolved = resolver.resolve(procTarget);
   assert.equal(procResolved.valid, true);
   assert.equal(procResolved.domain, 'cosmological');
-  assert.equal(procResolved.travelCapability, 'cosmological-future');
-  assert.ok(travelCapabilityLabel(procResolved.travelCapability).includes('U4.4'));
+  assert.equal(procResolved.travelCapability, 'intergalactic');
+  assert.ok(travelCapabilityLabel(procResolved.travelCapability).includes('intergaláctico'));
   assert.ok(Number.isFinite(procResolved.distanceM));
   assert.ok(procResolved.distanceM! > 0);
 

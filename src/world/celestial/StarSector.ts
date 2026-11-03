@@ -1,4 +1,5 @@
-import { galaxyLocalPositionM } from '../galaxy/GalaxyCoordinates';
+import { galaxyDefinition, galaxyLocalPositionM } from '../galaxy/GalaxyCoordinates';
+import { evaluateProceduralDensity } from '../galaxy/ProceduralGalaxyGenerator';
 import {
   type SectorIndex, SECTOR_SIZE_M, sectorKey, sectorSeed,
 } from '../spatial/UniverseAddress';
@@ -196,13 +197,15 @@ export function generateStarSector(
   const random = new SeededRandom(seed);
 
   // Find the galaxy definition
-  const galDef = LOCAL_GROUP_CATALOG.find(g => g.id === (galaxyId==='milky-way'?'milky_way':galaxyId));
+  const galDef = galaxyDefinition(galaxyId === 'milky-way' ? 'milky_way' : galaxyId);
   const densityScale = (galDef?.densityScale ?? 1) * (options.densityScale ?? 1);
 
-  const galacticCentrePosM = galDef ? galaxyLocalPositionM(galDef,sector) : [0,0,0] as Vec3;
+  const galacticCentrePosM = galDef ? galaxyLocalPositionM(galDef, sector) : [0, 0, 0] as Vec3;
 
   let density = 0;
-  if (galDef?.densityProfile === 'andromeda') {
+  if (galDef?.proceduralMorphology) {
+    density = evaluateProceduralDensity(galDef.proceduralMorphology, galacticCentrePosM) * densityScale;
+  } else if (galDef?.densityProfile === 'andromeda') {
     density = andromedaDensity(galacticCentrePosM) * densityScale;
   } else {
     density = milkyWayDensity(galacticCentrePosM) * densityScale;

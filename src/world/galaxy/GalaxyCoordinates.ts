@@ -1,8 +1,64 @@
 import { LOCAL_GROUP_CATALOG, type GalaxyDefinition } from '../celestial/GalaxyDefinition';
-import { SECTOR_SIZE_M, separationM, type SectorIndex, type UniverseAddress } from '../spatial/UniverseAddress';
+import { SECTOR_SIZE_M, separationM, type SectorIndex, type UniverseAddress, type CosmologicalAddress } from '../spatial/UniverseAddress';
 import type { Vec3 } from '../spatial/units';
+import {
+  parseGalaxyId,
+  ProceduralGalaxyGenerator,
+  DEFAULT_UNIVERSE_SEED,
+  cosmologicalSeparationVectorM,
+} from './ProceduralGalaxyGenerator';
 
-export const galaxyDefinition = (id:string):GalaxyDefinition|undefined => LOCAL_GROUP_CATALOG.find(g=>g.id===id);
+const proceduralGalaxyDefinitions = new Map<string, GalaxyDefinition>();
+
+export function registerProceduralGalaxyDefinition(def: GalaxyDefinition): void {
+  proceduralGalaxyDefinitions.set(def.id, def);
+  if (proceduralGalaxyDefinitions.size > 256) {
+    proceduralGalaxyDefinitions.delete(proceduralGalaxyDefinitions.keys().next().value!);
+  }
+}
+
+export function galaxyDefinition(id: string): GalaxyDefinition | undefined {
+  const canon = LOCAL_GROUP_CATALOG.find(g => g.id === id);
+  if (canon) return canon;
+
+  const cached = proceduralGalaxyDefinitions.get(id);
+  if (cached) return cached;
+
+  const parsed = parseGalaxyId(id);
+  if (!parsed) return undefined;
+
+  const gen = new ProceduralGalaxyGenerator();
+  if (!gen.isGalaxyIndexPopulated(DEFAULT_UNIVERSE_SEED, parsed.cell, parsed.index)) {
+    return undefined;
+  }
+  const desc = gen.generateGalaxy(DEFAULT_UNIVERSE_SEED, parsed.cell, parsed.index);
+  if (desc.id !== id) return undefined; // reject forged aliases
+
+  const res = gen.tryToGalaxyDefinition(desc);
+  if (res.ok) {
+    registerProceduralGalaxyDefinition(res.definition);
+    return res.definition;
+  }
+
+  // Fallback for cells outside legacy float domain: construct definition with local coordinates
+  // so morphology, dimensions and density profiles remain intact.
+  const fallbackDef: GalaxyDefinition = {
+    id: desc.id,
+    name: desc.name,
+    addressOriginM: [0, 0, 0],
+    type: desc.family === 'barred-spiral' ? 'barred-spiral' : desc.family === 'elliptical' ? 'elliptical' : desc.family === 'irregular' ? 'irregular' : 'spiral',
+    diameterLy: desc.diameterLy,
+    thicknessLy: desc.thicknessLy,
+    positionM: [0, 0, 0],
+    orientationEuler: desc.orientationEulerRad,
+    densityProfile: 'procedural',
+    densityScale: desc.densityScale,
+    proceduralMorphology: desc,
+  };
+  registerProceduralGalaxyDefinition(fallbackDef);
+  return fallbackDef;
+}
+
 export const boundedGalaxySector = (s:SectorIndex):boolean => [s.x,s.y,s.z].every(v=>v>=-1_000_000n&&v<=1_000_000n);
 
 /** Bounded density fallback preserves exact BigInt identity, never converting enormous indices. */
@@ -27,8 +83,40 @@ export function globalTargetDeltaM(a:UniverseAddress,offset:Vec3,targetGlobal:Ve
   const observer=observerGlobalPositionM(a,offset);if(!observer)return;
   return targetGlobal.map((v,i)=>v-observer[i]) as Vec3;
 }
+
+export function galaxyCosmologicalAddress(galaxyId: string): CosmologicalAddress | undefined {
+  if (galaxyId === 'milky_way' || galaxyId === 'milky-way') {
+    return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] };
+  }
+  if (galaxyId === 'andromeda') {
+    return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0.767, 0] };
+  }
+  if (galaxyId === 'triangulum') {
+    return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0.84, 0] };
+  }
+  const def = galaxyDefinition(galaxyId);
+  if (def?.proceduralMorphology?.cosmologicalAddress) {
+    return def.proceduralMorphology.cosmologicalAddress;
+  }
+  return undefined;
+}
+
 export function addressSeparationM(a:UniverseAddress,ao:Vec3,b:UniverseAddress,bo:Vec3):number|undefined {
   if(a.galaxyId===b.galaxyId)return separationM({sector:a.sector,offsetM:ao},{sector:b.sector,offsetM:bo});
+
+  const cosmoA = galaxyCosmologicalAddress(a.galaxyId);
+  const cosmoB = galaxyCosmologicalAddress(b.galaxyId);
+  if (cosmoA && cosmoB) {
+    const sepVec = cosmologicalSeparationVectorM(cosmoA, cosmoB);
+    if (!sepVec) {
+      // Beyond safe Float64 relative conversion domain (> 1024 cells)
+      return undefined;
+    }
+    const distM = Math.hypot(...sepVec);
+    return distM > 0 ? distM : undefined;
+  }
+
   const target=observerGlobalPositionM(b,bo),delta=target&&globalTargetDeltaM(a,ao,target);
   return delta?Math.hypot(...delta):undefined;
 }
+

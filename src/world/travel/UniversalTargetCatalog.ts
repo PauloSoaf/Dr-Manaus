@@ -1,6 +1,7 @@
 import { SolarSystem } from '../celestial/SolarSystem';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
+import { galaxyDefinition } from '../galaxy/GalaxyCoordinates';
 import { KNOWN_COSMIC_ANCHORS, OBSERVABLE_HORIZON_MPC } from '../celestial/CosmicAnchorCatalog';
 import { generateStarSector, type GeneratedStar } from '../celestial/StarSector';
 import { generateSystem, type ProceduralSystem } from '../celestial/SystemGenerator';
@@ -117,7 +118,7 @@ export class UniversalTargetCatalog {
   }
   /** Generated system seed combines the sector seed with the stable generated star identity. */
   proceduralDescriptor(galaxyId: string, sector: SectorIndex, starId: string): ProceduralTargetDescriptor | undefined {
-    if (!LOCAL_GROUP_CATALOG.some(g=>g.id===galaxyId)) return;
+    if (!galaxyDefinition(galaxyId)) return;
     const key=sectorKey(galaxyId,sector), systemKey=`${key}/${starId}`;
     const cached=this.procedural.get(systemKey); if(cached)return cached;
     let stars=this.sectors.get(key);

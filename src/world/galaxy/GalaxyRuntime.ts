@@ -24,7 +24,24 @@ export class GalaxyRuntime {
   generateSector(sector:SectorIndex,options:{densityScale?:number;maxStars?:number}={}){return generateStarSector(this.id,sector,options);}
 }
 const runtimes=new Map<string,GalaxyRuntime>();
-export function knownGalaxyRuntime(id:string):GalaxyRuntime|undefined {
-  const g=galaxyDefinition(id);if(!g)return;
-  let runtime=runtimes.get(id);if(!runtime){runtime=new GalaxyRuntime(g);runtimes.set(id,runtime);}return runtime;
+
+export function registerGalaxyRuntime(runtime: GalaxyRuntime): void {
+  runtimes.set(runtime.id, runtime);
+  if (runtimes.size > 128) {
+    runtimes.delete(runtimes.keys().next().value!);
+  }
 }
+
+export function clearGalaxyRuntimes(): void {
+  runtimes.clear();
+}
+
+export function knownGalaxyRuntime(id:string):GalaxyRuntime|undefined {
+  let runtime=runtimes.get(id);
+  if(runtime)return runtime;
+  const g=galaxyDefinition(id);if(!g)return;
+  runtime=new GalaxyRuntime(g);
+  registerGalaxyRuntime(runtime);
+  return runtime;
+}
+

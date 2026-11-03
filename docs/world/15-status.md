@@ -1,6 +1,30 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.3.2 Finalização Visual e Integridade do Mapa Cósmico (2026-11-03)
+## Current checkpoint — U4.4.1 Viagem Real para Galáxias Procedurais (2026-11-03)
+
+Baseline auditado do U4.3.2 no commit `b842cc8020779e90eac51366289766db63bb4e51` aprovado integralmente no GitHub Actions Run 41641242398 (Typecheck SUCCESS, 638/638 regressões permanentes, 1.517/1.517 testes gerais, build Vite aprovado em 1.13s). O patch U4.4.1 estabelece a primeira rota vertical completa de viagem intergaláctica para galáxias procedurais com retorno seguro ao Sol:
+1. `GalaxyCoordinates.ts` e `GalaxyRuntime.ts`:
+   - Registro dinâmico de `GalaxyDefinition` e `GalaxyRuntime` para galáxias procedurais a partir do gerador procedural (`ProceduralGalaxyGenerator`), com preservação formal das identidades canônicas da Via Láctea e Andrômeda.
+   - Cache delimitado LRU de definições e runtimes, garantindo determimismo e ausência de vazamento de memória sob exploração massiva.
+   - Cálculo de separação intergaláctica cosmológica em `addressSeparationM(a, ao, b, bo)` utilizando `cosmologicalSeparationVectorM`. Delimitação segura: distâncias superiores a 1024 células cósmicas (~2 Gpc) retornam `undefined` impedindo planejamento de voo com coordenadas imprecisas.
+2. `StarSector.ts`:
+   - Integração de morfologia procedural em `generateStarSector()`: densidade de estrelas agora avalia `evaluateProceduralDensity(galDef.proceduralMorphology, galacticCentrePosM) * densityScale` quando a galáxia possui morfologia gerada (bulbo, barra, disco e braços espirais), em vez de recorrer ao perfil da Via Láctea.
+3. `GalaxyEntryResolver.ts`:
+   - Implementada resolução determinística de sistema de entrada `proceduralGalaxyEntryDescriptor(galaxyId, catalog)`: busca ordenada em raio de 20% do disco galáctico por sistemas com estrelas de sequência principal e planetas rochosos passíveis de pouso.
+   - Resolução em `GalaxyEntryResolver.resolve()` convertendo alvos galácticos procedurais em alvos estelares de entrada.
+4. `UniversalTargetCatalog.ts` e `UniversalTargetResolver.ts`:
+   - `proceduralDescriptor` estendido para gerar e resolver sistemas em qualquer galáxia procedural conhecida.
+   - Alvos galácticos procedurais alcançáveis ($\le 1024$ células) promovidos de `'cosmological-future'` para a capacidade de viagem real `'intergalactic'`.
+5. `UniverseRuntime.ts`:
+   - `location.cosmological` atualizado para reportar o endereço cosmológico real da galáxia ativa do jogador.
+6. `ProceduralSystemMaterializer.ts` e `GalaxyMaterializer.ts`:
+   - Handoff transacional e ciclo completo de materialização/instalação/descarte sem duplicidade de provedores nem vazamentos durante viagens repetidas.
+   - Retorno seguro ao Sistema Solar via `prepareSolarReturn()`.
+7. `tests/procedural-travel.test.ts`:
+   - Nova suíte com 14 testes cobrindo registro dinâmico, morfologia estelar, destino de entrada, plano de rota, transações atômicas, segurança de chegada, retorno ao Sol, cancelamento/retomada, rollback em falhas, limites BigInt e integridade de HUD.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.3.2 Finalização Visual e Integridade do Mapa Cósmico (2026-11-03)
 
 Baseline auditado do U4.3.1 no commit `5c806af6abe95d84d5d1cf8a44a58173adbf33f3` aprovado integralmente no GitHub Actions Run 41585363753 (Typecheck SUCCESS, 638/638 regressões permanentes, 1.515/1.515 testes gerais, build Vite aprovado). O patch U4.3.2 finaliza o mapa cósmico com integridade espacial, simetria e robustez vetorial para a fase U4.4:
 1. `ProceduralGalaxyDiscovery.ts`:
