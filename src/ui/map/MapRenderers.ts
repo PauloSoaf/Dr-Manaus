@@ -446,6 +446,8 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
   panOffsetMpc = { x: 0, y: 0 };
   zoomMpc = 14;
   private galaxyHits: { key: string; x: number; y: number; radius: number }[] = [];
+  private cachedVisibleKey = '';
+  private cachedGalaxies: readonly ProceduralGalaxyDescriptor[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     super(canvas);
@@ -461,15 +463,15 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     this.panOffsetMpc.x -= dxPx * mpcPerPx;
     this.panOffsetMpc.y -= dyPx * mpcPerPx;
 
-    while (Math.abs(this.panOffsetMpc.x) >= COSMOLOGICAL_CELL_SIZE_MPC) {
-      const step = Math.sign(this.panOffsetMpc.x);
-      this.centerCell = { x: this.centerCell.x + BigInt(step), y: this.centerCell.y, z: this.centerCell.z };
-      this.panOffsetMpc.x -= step * COSMOLOGICAL_CELL_SIZE_MPC;
+    const cellStepX = Math.trunc(this.panOffsetMpc.x / COSMOLOGICAL_CELL_SIZE_MPC);
+    if (cellStepX !== 0) {
+      this.centerCell = { x: this.centerCell.x + BigInt(cellStepX), y: this.centerCell.y, z: this.centerCell.z };
+      this.panOffsetMpc.x -= cellStepX * COSMOLOGICAL_CELL_SIZE_MPC;
     }
-    while (Math.abs(this.panOffsetMpc.y) >= COSMOLOGICAL_CELL_SIZE_MPC) {
-      const step = Math.sign(this.panOffsetMpc.y);
-      this.centerCell = { x: this.centerCell.x, y: this.centerCell.y + BigInt(step), z: this.centerCell.z };
-      this.panOffsetMpc.y -= step * COSMOLOGICAL_CELL_SIZE_MPC;
+    const cellStepY = Math.trunc(this.panOffsetMpc.y / COSMOLOGICAL_CELL_SIZE_MPC);
+    if (cellStepY !== 0) {
+      this.centerCell = { x: this.centerCell.x, y: this.centerCell.y + BigInt(cellStepY), z: this.centerCell.z };
+      this.panOffsetMpc.y -= cellStepY * COSMOLOGICAL_CELL_SIZE_MPC;
     }
   }
 
@@ -486,14 +488,27 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     this.galaxyHits = [];
 
     const pxPerMpc = w / this.zoomMpc;
-    const spanCells = Math.min(16, Math.max(2, Math.ceil((this.zoomMpc * 0.6) / COSMOLOGICAL_CELL_SIZE_MPC) + 1));
-    const galaxies = this.discovery.discoverVisibleRegion(this.centerCell, this.zoomMpc, 64);
+    const mpcPerPx = this.zoomMpc / Math.max(1, w);
+    const halfSpanX_Mpc = (w * 0.5) * mpcPerPx + Math.abs(this.panOffsetMpc.x);
+    const halfSpanY_Mpc = (h * 0.5) * mpcPerPx + Math.abs(this.panOffsetMpc.y);
+    const spanCellsX = Math.max(2, Math.ceil(halfSpanX_Mpc / COSMOLOGICAL_CELL_SIZE_MPC) + 1);
+    const spanCellsY = Math.max(2, Math.ceil(halfSpanY_Mpc / COSMOLOGICAL_CELL_SIZE_MPC) + 1);
+
+    // Cache visible galaxies per centerCell & zoom level to avoid synchronous discovery spikes on idle redraws
+    const visibleKey = `${this.centerCell.x}_${this.centerCell.y}_${this.centerCell.z}_${this.zoomMpc}`;
+    if (this.cachedVisibleKey !== visibleKey) {
+      this.cachedVisibleKey = visibleKey;
+      this.cachedGalaxies = this.discovery.discoverVisibleRegion(this.centerCell, this.zoomMpc, 64);
+    }
+    const galaxies = this.cachedGalaxies;
 
     // Subtle Cosmological Cell Grid lines (relative coordinates prevent Float64 precision loss at > 2^53)
     this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
     this.ctx.lineWidth = 1;
+    const lineStepX = spanCellsX > 24 ? 2 : 1;
+    const lineStepY = spanCellsY > 24 ? 2 : 1;
 
-    for (let relX = -spanCells; relX <= spanCells; relX++) {
+    for (let relX = -spanCellsX; relX <= spanCellsX; relX += lineStepX) {
       const worldMpcX = relX * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.x;
       const sx = cx + worldMpcX * pxPerMpc;
       if (sx >= 0 && sx <= w) {
@@ -503,7 +518,7 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
         this.ctx.stroke();
       }
     }
-    for (let relY = -spanCells; relY <= spanCells; relY++) {
+    for (let relY = -spanCellsY; relY <= spanCellsY; relY += lineStepY) {
       const worldMpcY = relY * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.y;
       const sy = cy + worldMpcY * pxPerMpc;
       if (sy >= 0 && sy <= h) {
@@ -514,13 +529,14 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
       }
     }
 
-    // Cell coordinate tags (using exact BigInt addition for label display)
+    // Cell coordinate tags (using exact BigInt addition for label display with decimation)
     this.ctx.font = '10px "Inter", sans-serif';
     this.ctx.fillStyle = 'rgba(148, 163, 184, 0.25)';
     this.ctx.textAlign = 'left';
-    const tagStep = spanCells > 8 ? 2 : 1;
-    for (let relX = -spanCells; relX <= spanCells; relX += tagStep) {
-      for (let relY = -spanCells; relY <= spanCells; relY += tagStep) {
+    const tagStepX = spanCellsX > 20 ? 4 : spanCellsX > 10 ? 2 : 1;
+    const tagStepY = spanCellsY > 20 ? 4 : spanCellsY > 10 ? 2 : 1;
+    for (let relX = -spanCellsX; relX <= spanCellsX; relX += tagStepX) {
+      for (let relY = -spanCellsY; relY <= spanCellsY; relY += tagStepY) {
         const sx = cx + (relX * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.x + 0.1) * pxPerMpc;
         const sy = cy + (relY * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.y + 0.2) * pxPerMpc;
         if (sx >= 10 && sx <= w - 60 && sy >= 15 && sy <= h - 45) {

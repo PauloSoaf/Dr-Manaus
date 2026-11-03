@@ -2,7 +2,7 @@ import { addressSeparationM, globalTargetDeltaM, galaxyDefinition, galaxyLocalPo
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
-import { sectorsEqual, sectorIndex, type UniverseAddress } from '../spatial/UniverseAddress';
+import { sectorsEqual, sectorIndex, type UniverseAddress, type CosmologicalAddress } from '../spatial/UniverseAddress';
 import { PARSEC_M, type Vec3 } from '../spatial/units';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from './UniversalTargetCatalog';
 import { isUniverseAddress, type UniversalNavigationTarget } from './UniversalNavigationTarget';
@@ -57,6 +57,20 @@ function generatedEphemeris(catalog:UniversalTargetCatalog,p:NonNullable<ReturnT
   if(!runtime){runtime=new ProceduralSystemRuntime(p.system,time);cache.set(p.star.id,runtime);if(cache.size>64)cache.delete(cache.keys().next().value!);}
   if(runtime.time!==time)runtime.update(time);return runtime;
 }
+function observerCosmologicalAddress(context: TargetResolutionContext, currentGalaxyId: string): CosmologicalAddress {
+  if (context.location?.cosmological) {
+    return context.location.cosmological;
+  }
+  // Curated reference positions in Local Group (cell 0,0,0)
+  if (currentGalaxyId === 'andromeda') {
+    return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0.767, 0] };
+  }
+  if (currentGalaxyId === 'triangulum') {
+    return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0.84, 0] };
+  }
+  return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] };
+}
+
 export class UniversalTargetResolver {
   constructor(readonly catalog:UniversalTargetCatalog,readonly context:TargetResolutionContext){}
   resolve(t:UniversalNavigationTarget):ResolvedUniversalTarget {
@@ -100,22 +114,20 @@ export class UniversalTargetResolver {
       frame='cosmological-relative';
       const desc=this.catalog.discovery.findGalaxyById(t.galaxyId);
       if(desc){
-        const obsCell=this.context.location?.cosmological?.cell ?? {x:0n,y:0n,z:0n};
-        const obsLocalMpc = this.context.location?.cosmological?.localMpc ?? [0, 0, 0];
-        const sepVec = cosmologicalSeparationVectorM(
-          { cell: obsCell, localMpc: obsLocalMpc },
-          desc.cosmologicalAddress,
-        );
+        const obsCosmo = observerCosmologicalAddress(this.context, current.galaxyId);
+        const sepVec = cosmologicalSeparationVectorM(obsCosmo, desc.cosmologicalAddress);
         if (sepVec) {
           distanceM = Math.hypot(...sepVec);
+          // Relative separation vector in metres from observer to target in cosmological-relative frame
+          positionM = sepVec;
         } else {
-          const dx = Number(desc.cell.x - obsCell.x);
-          const dy = Number(desc.cell.y - obsCell.y);
-          const dz = Number(desc.cell.z - obsCell.z);
+          // Separation exceeds safe Float64 conversion domain (> 1024 cells)
+          const dx = Number(desc.cell.x - obsCosmo.cell.x);
+          const dy = Number(desc.cell.y - obsCosmo.cell.y);
+          const dz = Number(desc.cell.z - obsCosmo.cell.z);
           distanceM = Math.hypot(dx, dy, dz) * COSMOLOGICAL_CELL_SIZE_M;
-        }
-        if (isCellInFloatDomain(desc.cell)) {
-          positionM = cosmologicalPositionM(desc.cosmologicalAddress);
+          // Beyond safe Float64 domain: do not fabricate an imprecise Float64 vector
+          positionM = undefined;
         }
       }
     } else if(entry.globalPositionM && !isProceduralGalaxy){

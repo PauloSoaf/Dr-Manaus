@@ -75,7 +75,14 @@ export interface ParsedGalaxyId {
 
 /** Parses a procedural galaxy ID (`galaxy_c{x}_{y}_{z}_{idx}`) or canonical identifier. */
 export function parseGalaxyId(id: string): ParsedGalaxyId | undefined {
-  const cleanId = id.startsWith('galaxy/') ? decodeURIComponent(id.slice(7)) : id;
+  let cleanId = id;
+  if (id.startsWith('galaxy/')) {
+    try {
+      cleanId = decodeURIComponent(id.slice(7));
+    } catch {
+      cleanId = id.slice(7);
+    }
+  }
   // Canonical Local Group entities
   if (cleanId === 'milky_way') return { cell: { x: 0n, y: 0n, z: 0n }, index: 0 };
   if (cleanId === 'andromeda') return { cell: { x: 0n, y: 0n, z: 0n }, index: 1 };
@@ -242,9 +249,10 @@ export class ProceduralGalaxyDiscovery {
    * Adaptive multi-scale discovery for cosmological map viewport rendering.
    *
    * For close zoom (<= 16 Mpc), queries 3D neighbourhood cells in radius 1..3.
-   * For distant zoom (> 16 Mpc up to 120 Mpc), samples visible cosmological 2D plane (z = centerCell.z)
-   * with deterministic striding and LOD decimation (1 galaxy per sampled cell), preventing main-thread
-   * hitching while providing full panoramic visual coverage across the wide field of view.
+   * For distant zoom (> 16 Mpc up to 120 Mpc), applies deterministic 4-quadrant symmetric
+   * concentric sampling across the visible 2D cosmological plane (z = centerCell.z).
+   * Ensures identical sampling density in all 4 quadrants without edge truncation,
+   * with LOD decimation (1 galaxy per sampled cell) and strict query budgeting.
    */
   discoverVisibleRegion(
     centerCell: BigInt3,
@@ -258,38 +266,93 @@ export class ProceduralGalaxyDiscovery {
       return this.discoverRegion(centerCell, radius, maxGalaxies);
     }
 
-    // Distant 2D planar viewport sampling
+    // Viewport visible span in cells (each cell is 2 Mpc)
     const spanMpc = zoomMpc * 0.6;
     const spanCells = Math.max(1, Math.ceil(spanMpc / COSMOLOGICAL_CELL_SIZE_MPC));
-    const stride = Math.max(1, Math.ceil(spanCells / 4));
+    const maxTiers = 4;
+    const tierStep = Math.max(1, Math.floor(spanCells / maxTiers));
+    const tiers = Math.max(1, Math.ceil(spanCells / tierStep));
 
     const results: ProceduralGalaxyDescriptor[] = [];
+    const visitedKeys = new Set<string>();
 
-    // Prioritize center cell
+    // 1. Center cell is always highest priority
+    visitedKeys.add(cosmologicalCellKey(centerCell));
     const centerGalaxies = this.discoverCell(centerCell);
     for (const g of centerGalaxies) {
       results.push(g);
       if (results.length >= maxGalaxies) return Object.freeze(results);
     }
 
-    // Sample concentric square rings with stride
-    for (let r = 1; r <= spanCells; r += stride) {
-      for (let dx = -r; dx <= r; dx += stride) {
-        for (let dy = -r; dy <= r; dy += stride) {
-          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+    // Helper to evaluate and collect 1 galaxy per cell
+    const trySampleCell = (dx: number, dy: number): boolean => {
+      const targetCell: BigInt3 = {
+        x: centerCell.x + BigInt(dx),
+        y: centerCell.y + BigInt(dy),
+        z: centerCell.z,
+      };
+      const key = cosmologicalCellKey(targetCell);
+      if (visitedKeys.has(key)) return false;
+      visitedKeys.add(key);
 
-          const targetCell: BigInt3 = {
-            x: centerCell.x + BigInt(dx),
-            y: centerCell.y + BigInt(dy),
-            z: centerCell.z,
-          };
+      const cellGalaxies = this.discoverCell(targetCell);
+      if (cellGalaxies.length > 0) {
+        results.push(cellGalaxies[0]);
+        if (results.length >= maxGalaxies) return true;
+      }
+      return false;
+    };
 
-          const cellGalaxies = this.discoverCell(targetCell);
-          if (cellGalaxies.length > 0) {
-            results.push(cellGalaxies[0]);
-            if (results.length >= maxGalaxies) {
-              return Object.freeze(results);
-            }
+    // 2. Symmetric concentric tiers expanding outward
+    for (let t = 1; t <= tiers; t++) {
+      const r = Math.min(spanCells, t * tierStep);
+
+      // (a) Axial points: (+x, +y, -x, -y)
+      const axialOffsets: readonly [number, number][] = [
+        [r, 0],
+        [0, r],
+        [-r, 0],
+        [0, -r],
+      ];
+      for (const [dx, dy] of axialOffsets) {
+        if (trySampleCell(dx, dy)) return Object.freeze(results);
+      }
+
+      // (b) Corners: 4 quadrants (+r,+r), (-r,+r), (-r,-r), (+r,-r)
+      const cornerOffsets: readonly [number, number][] = [
+        [r, r],
+        [-r, r],
+        [-r, -r],
+        [r, -r],
+      ];
+      for (const [dx, dy] of cornerOffsets) {
+        if (trySampleCell(dx, dy)) return Object.freeze(results);
+      }
+
+      // (c) Intermediate points on edges: step symmetrically between 1 and r-1
+      const intermediateSteps = Math.max(0, Math.floor(t) - 1);
+      if (intermediateSteps > 0) {
+        const stepK = Math.max(1, Math.floor(r / (intermediateSteps + 1)));
+        for (let k = stepK; k < r; k += stepK) {
+          // Quad-symmetric tuples
+          const quadPoints1: readonly [number, number][] = [
+            [k, r],
+            [-k, r],
+            [-k, -r],
+            [k, -r],
+          ];
+          for (const [dx, dy] of quadPoints1) {
+            if (trySampleCell(dx, dy)) return Object.freeze(results);
+          }
+
+          const quadPoints2: readonly [number, number][] = [
+            [r, k],
+            [-r, k],
+            [-r, -k],
+            [r, -k],
+          ];
+          for (const [dx, dy] of quadPoints2) {
+            if (trySampleCell(dx, dy)) return Object.freeze(results);
           }
         }
       }
@@ -305,7 +368,14 @@ export class ProceduralGalaxyDiscovery {
    * Rejects forged procedural aliases for canonical astronomical entities.
    */
   findGalaxyById(id: string): ProceduralGalaxyDescriptor | undefined {
-    const cleanId = id.startsWith('galaxy/') ? decodeURIComponent(id.slice(7)) : id;
+    let cleanId = id;
+    if (id.startsWith('galaxy/')) {
+      try {
+        cleanId = decodeURIComponent(id.slice(7));
+      } catch {
+        cleanId = id.slice(7);
+      }
+    }
     const parsed = parseGalaxyId(cleanId);
     if (!parsed) return undefined;
 

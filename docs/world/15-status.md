@@ -1,22 +1,28 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.3.1 Correção de CI e Integração Funcional do Mapa Cosmológico (2026-11-03)
+## Current checkpoint — U4.3.2 Finalização Visual e Integridade do Mapa Cósmico (2026-11-03)
 
-Baseline auditado do U4.3 no commit `0dc9c0070ece4bb9548dd6807dca7647ab31a21f` reprovou no GitHub Actions Run 41580919276 com três erros TS2339 (`Property 'cosmological' does not exist on type 'StreamingContext'`). O patch U4.3.1 soluciona a causa raiz de tipagem e todas as pendências funcionais de ponta a ponta:
-1. `StreamingContext` e `SpatialContext` (`WorldProvider.ts`): adicionado o campo opcional `readonly cosmological?: CosmologicalAddress`, preservando 100% de retrocompatibilidade com subsistemas existentes.
-2. `ProceduralGalaxyDiscovery.ts`:
-   - Removida a alegação prematura de `ManagedSubsystem` (`covers`, `plan`, `advance`, `stats`), mantendo a descoberta focada estritamente no mapa interativo com orçamento determinístico e cache LRU limitado (128 células) até a implementação do trânsito 3D contínuo em U4.4.
-   - Corrigido o caminho de raio zero em `discoverRegion()`: consultas com `radiusCells = 0` avaliam estritamente a célula central sem incluir offsets de raio 1; `maxGalaxies <= 0` retorna `[]`.
-   - Adicionado `discoverVisibleRegion(centerCell, zoomMpc, maxGalaxies)`: amostragem adaptativa multiescala com decimação (1 galáxia por célula amostrada) e striding determinístico no plano cosmológico visível para campos de até 120 Mpc, garantindo cobertura visual sem travamento da renderização.
-   - Blindagem de identidade canônica em `findGalaxyById()`: rejeita aliases procedurais forjados para entidades canônicas (ex.: recusa `galaxy_c0_0_0_0` tentando personificar a Via Láctea).
-3. `UniversalTargetCatalog.ts` e `UniversalTargetResolver.ts`:
-   - Resolução de alvos em cache frio: `find(query)` normaliza prefixos `galaxy/` recebidos de `hitTest` do mapa e armazena em cache bidirecional (`target.key` e `objectId`), permitindo selecionar galáxias procedurais no primeiro clique.
-   - Cálculo de distâncias cosmológicas via `cosmologicalSeparationVectorM`, utilizando subtrações exatas de células em BigInt antes da conversão para metros. Alvos procedurais são isolados dos cálculos de referenciais locais do Grupo Local.
-4. `MapRenderers.ts` (`CosmologyMapRenderer`):
-   - Eliminação total do risco de perda de precisão Float64 e loops infinitos em magnitudes superiores a $2^{53}$: a grade agora itera sobre offsets inteiros relativos pequenos (`relX = -spanCells .. spanCells`) e formata coordenadas absolutas por adição BigInt exata (`(centerCell.x + BigInt(relX)).toString(10)`).
+Baseline auditado do U4.3.1 no commit `5c806af6abe95d84d5d1cf8a44a58173adbf33f3` aprovado integralmente no GitHub Actions Run 41585363753 (Typecheck SUCCESS, 638/638 regressões permanentes, 1.515/1.515 testes gerais, build Vite aprovado). O patch U4.3.2 finaliza o mapa cósmico com integridade espacial, simetria e robustez vetorial para a fase U4.4:
+1. `ProceduralGalaxyDiscovery.ts`:
+   - Amostragem 4-quadrantes simétrica em `discoverVisibleRegion()`: reformulada com anéis concêntricos subdivididos em níveis ordenados (axial, cantos e intermediários) com simetria rotacional de 90°, eliminando o truncamento de bordas positivas (+x, +y) e garantindo distribuição homogênea em escalas de 16 a 120 Mpc.
+   - Proteção estrita contra erros de decodificação de URI em `parseGalaxyId()`.
+2. `MapRenderers.ts` (`CosmologyMapRenderer`):
+   - Extensão da grade cosmológica calculada dinamicamente a partir das dimensões reais da viewport (`spanCellsX` e `spanCellsY`), cobrindo o canvas até as bordas mesmo em zoom máximo de 120 Mpc.
+   - Orçamento e decimação independente: linhas e rótulos decimados sob zoom distante (`stepX`, `stepY`) para preservar legibilidade sem poluição visual.
+   - Cache de resultados de descoberta por chave de visualização (`centerCell` + `zoomMpc`), eliminando chamadas repetitivas de descoberta em quadros ociosos, e cálculo $O(1)$ de deslocamento de células em pan.
+3. `UniversalTargetResolver.ts`:
+   - Alinhamento de referencial vetorial: `logicalPosition.positionM` no frame `cosmological-relative` agora expressa estritamente o vetor relativo de separação do observador até o alvo (`sepVec`), em vez da posição absoluta cosmológica em relação à origem (0,0,0).
+   - Suporte a observadores em referenciais locais do Grupo Local (Via Láctea `[0,0,0]`, Andrômeda `[0, 0.767, 0]` Mpc, Triângulo `[0, 0.84, 0]` Mpc) e coordenadas cosmológicas arbitrárias.
+   - Para distâncias superiores ao domínio seguro Float64 (> 1024 células / ~2 Gpc), `positionM` retorna explicitamente `undefined` enquanto `distanceM` fornece a aproximação em ordem de magnitude, impedindo que o planejador de viagem do U4.4 tente vetorizações incorretas.
+4. `UniversalTargetCatalog.ts`:
+   - Proteção de `decodeURIComponent` em `find(query)` contra entradas malformadas.
 5. `tests/procedural-galaxy-map.test.ts`:
-   - Corrigido o import inválido de `SolarSystem` para `src/world/celestial/SolarSystem.ts`.
-   - Adicionados testes específicos para raio zero, limite zero, coordenadas negativas, seleção em cache frio com prefixo `galaxy/`, rejeição de aliases forjados, visualização multiescala até 120 Mpc, coordenadas extremas ($2^{64}$ e $-(2^{53}+1)$) sem perda de precisão, e contrato de `StreamingContext`.
+   - Adicionados testes `T_U43_10` (simetria espacial dos 4 quadrantes em 16, 32, 64 e 120 Mpc) e `T_U43_11` (integridade de posição relativa, observadores em múltiplos referenciais e proteção contra entradas malformadas).
+Evidence: [40-status-U4.3-PROCEDURAL-COSMIC-MAP.md](40-status-U4.3-PROCEDURAL-COSMIC-MAP.md).
+
+## Previous checkpoint — U4.3.1 Correção de CI e Integração Funcional do Mapa Cosmológico (2026-11-03)
+
+Baseline auditado do U4.3 no commit `0dc9c0070ece4bb9548dd6807dca7647ab31a21f` reprovou no GitHub Actions Run 41580919276 com três erros TS2339 (`Property 'cosmological' does not exist on type 'StreamingContext'`). Sanado no commit `5c806af6abe95d84d5d1cf8a44a58173adbf33f3` com aprovação integral no Run 41585363753 (638/638 regressões, 1.515/1.515 testes gerais, build Vite aprovado).
 Evidence: [40-status-U4.3-PROCEDURAL-COSMIC-MAP.md](40-status-U4.3-PROCEDURAL-COSMIC-MAP.md).
 
 ## Previous checkpoint — U4.2.3 Estabilização do CI e Validação Morfológica (2026-11-03)

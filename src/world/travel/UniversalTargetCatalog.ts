@@ -53,7 +53,14 @@ export class UniversalTargetCatalog {
   }
   get descriptors(): readonly UniversalTargetDescriptor[] { return [...this.entries.values()].map(e=>e.descriptor); }
   find(query: string): UniversalTargetDescriptor | undefined {
-    const rawId = query.startsWith('galaxy/') ? decodeURIComponent(query.slice(7)) : query;
+    let rawId = query;
+    if (query.startsWith('galaxy/')) {
+      try {
+        rawId = decodeURIComponent(query.slice(7));
+      } catch {
+        rawId = query.slice(7);
+      }
+    }
     const direct = this.entries.get(query)?.descriptor
       ?? this.entries.get(rawId)?.descriptor
       ?? this.proceduralGalaxies.get(query)?.descriptor

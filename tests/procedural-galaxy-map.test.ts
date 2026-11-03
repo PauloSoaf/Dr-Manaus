@@ -444,3 +444,115 @@ test('T_U43_09_STREAMING_CONTEXT_CONTRACT_AND_BUDGET', () => {
   assert.ok(streaming.cosmological);
   assert.equal(streaming.cosmological.cell.x, 0n);
 });
+
+test('T_U43_10_QUADRANT_SYMMETRIC_DISTANT_DISCOVERY', () => {
+  const discovery = new ProceduralGalaxyDiscovery(DEFAULT_UNIVERSE_SEED);
+  const center = { x: 0n, y: 0n, z: 0n };
+
+  for (const zoom of [16, 32, 64, 120]) {
+    const galaxies = discovery.discoverVisibleRegion(center, zoom, 64);
+    assert.ok(galaxies.length > 0, `Zoom ${zoom} should discover galaxies`);
+    assert.ok(galaxies.length <= 64);
+
+    // Center cell must be prioritized
+    assert.equal(galaxies[0].cell.x, 0n);
+    assert.equal(galaxies[0].cell.y, 0n);
+
+    // Check representation across all 4 quadrants for distant zoom
+    if (zoom > 16) {
+      let q1 = 0; // +x, +y
+      let q2 = 0; // -x, +y
+      let q3 = 0; // -x, -y
+      let q4 = 0; // +x, -y
+      let maxPosX = 0n;
+      let minNegX = 0n;
+
+      for (const g of galaxies) {
+        if (g.cell.x > 0n && g.cell.y >= 0n) q1++;
+        else if (g.cell.x <= 0n && g.cell.y > 0n) q2++;
+        else if (g.cell.x < 0n && g.cell.y <= 0n) q3++;
+        else if (g.cell.x >= 0n && g.cell.y < 0n) q4++;
+
+        if (g.cell.x > maxPosX) maxPosX = g.cell.x;
+        if (g.cell.x < minNegX) minNegX = g.cell.x;
+      }
+
+      assert.ok(q1 > 0, `Zoom ${zoom} must have samples in Quadrant 1 (+x, +y)`);
+      assert.ok(q2 > 0, `Zoom ${zoom} must have samples in Quadrant 2 (-x, +y)`);
+      assert.ok(q3 > 0, `Zoom ${zoom} must have samples in Quadrant 3 (-x, -y)`);
+      assert.ok(q4 > 0, `Zoom ${zoom} must have samples in Quadrant 4 (+x, -y)`);
+
+      // Symmetry check: positive span reaches similar magnitude as negative span
+      assert.ok(maxPosX > 0n, `Positive X must reach distant cells`);
+      assert.ok(minNegX < 0n, `Negative X must reach distant cells`);
+      const ratio = Number(maxPosX) / Math.abs(Number(minNegX));
+      assert.ok(ratio >= 0.5 && ratio <= 2.0, `Quadrant coverage must be balanced (ratio: ${ratio})`);
+    }
+  }
+});
+
+test('T_U43_11_COSMOLOGICAL_TARGET_POSITION_AND_OBSERVER_FRAMES', () => {
+  const catalog = new UniversalTargetCatalog();
+  const solar = new SolarSystem();
+
+  // 1. Observer at Milky Way (cell 0,0,0, localMpc [0,0,0])
+  const contextMW: TargetResolutionContext = {
+    activeSystem: solar,
+    solarSystem: solar,
+    address: SOLAR_TARGET_ADDRESS,
+    playerSystemPositionM: () => [0, 0, 0],
+    location: { cosmological: { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] } },
+  };
+  const resolverMW = new UniversalTargetResolver(catalog, contextMW);
+
+  // Target in cell (10, 20, 30, index 0)
+  const targetDesc = catalog.find('galaxy_c10_20_30_0')!;
+  assert.ok(targetDesc);
+  const target = catalog.target('galaxy_c10_20_30_0')!;
+  const resolvedMW = resolverMW.resolve(target);
+  assert.equal(resolvedMW.valid, true);
+  assert.equal(resolvedMW.domain, 'cosmological');
+  assert.equal(resolvedMW.logicalPosition?.frame, 'cosmological-relative');
+  assert.ok(resolvedMW.logicalPosition?.positionM);
+  assert.ok(resolvedMW.distanceM! > 0);
+
+  // Vector positionM must be relative to observer (approx 10*2 Mpc along X, 20*2 Mpc along Y, 30*2 Mpc along Z)
+  const px = resolvedMW.logicalPosition!.positionM[0];
+  const py = resolvedMW.logicalPosition!.positionM[1];
+  const pz = resolvedMW.logicalPosition!.positionM[2];
+  assert.ok(px > 0 && py > 0 && pz > 0, 'Relative vector must point from MW (0,0,0) to target (10,20,30)');
+  assert.ok(Math.abs(Math.hypot(px, py, pz) - resolvedMW.distanceM!) < 1e6, 'Hypot of relative vector must match distanceM');
+
+  // 2. Observer at Andromeda (galaxyId: 'andromeda', localMpc ~ [0, 0.767, 0])
+  const contextAndromeda: TargetResolutionContext = {
+    activeSystem: solar,
+    address: { galaxyId: 'andromeda', sector: sectorIndex(0n, 0n, 0n) },
+    playerSystemPositionM: () => [0, 0, 0],
+  };
+  const resolverAndromeda = new UniversalTargetResolver(catalog, contextAndromeda);
+  const resolvedAndr = resolverAndromeda.resolve(target);
+  assert.equal(resolvedAndr.valid, true);
+  assert.equal(resolvedAndr.logicalPosition?.frame, 'cosmological-relative');
+  assert.ok(resolvedAndr.logicalPosition?.positionM);
+
+  // 3. Observer at distant cell (2000, 3000, 4000)
+  const contextDistant: TargetResolutionContext = {
+    activeSystem: solar,
+    address: { galaxyId: 'milky_way', sector: sectorIndex(0n, 0n, 0n) },
+    playerSystemPositionM: () => [0, 0, 0],
+    location: { cosmological: { cell: { x: 2000n, y: 3000n, z: 4000n }, localMpc: [0, 0, 0] } },
+  };
+  const resolverDistant = new UniversalTargetResolver(catalog, contextDistant);
+  const resolvedDistant = resolverDistant.resolve(target);
+  assert.equal(resolvedDistant.valid, true);
+  assert.equal(resolvedDistant.domain, 'cosmological');
+  // Beyond safe Float64 domain: positionM is undefined to prevent overflow/confusion in U4.4
+  assert.equal(resolvedDistant.logicalPosition?.positionM, undefined);
+  assert.ok(resolvedDistant.distanceM! > 0);
+
+  // 4. Robustness against malformed inputs (never throws)
+  assert.equal(catalog.find('galaxy/%E0%A4%A'), undefined);
+  assert.equal(catalog.find('galaxy/%99%'), undefined);
+  assert.equal(catalog.find('galaxy/'), undefined);
+  assert.equal(catalog.find('c:invalid,coords'), undefined);
+});
