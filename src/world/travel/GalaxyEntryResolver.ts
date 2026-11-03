@@ -29,41 +29,51 @@ export function proceduralGalaxyEntryDescriptor(galaxyId: string, catalog = new 
   const diameterLy = galaxy.definition.diameterLy ?? 100_000;
   const radiusSectors = BigInt(Math.max(5, Math.floor((diameterLy * 0.2) / 100)));
 
-  // Deterministic candidates around disc / mid-radius
+  // 13 deterministic candidate offsets covering mid-radius, cardinal axes, diagonals, and inner core
   const candidateOffsets: readonly [bigint, bigint, bigint][] = [
     [radiusSectors, 0n, 0n],
     [radiusSectors, 1n, 0n],
     [radiusSectors, -1n, 0n],
-    [radiusSectors + 5n, 2n, 0n],
+    [-radiusSectors, 0n, 0n],
+    [0n, radiusSectors, 0n],
+    [0n, -radiusSectors, 0n],
+    [radiusSectors / 2n, radiusSectors / 2n, 0n],
+    [-radiusSectors / 2n, radiusSectors / 2n, 0n],
+    [radiusSectors / 2n, -radiusSectors / 2n, 0n],
+    [-radiusSectors / 2n, -radiusSectors / 2n, 0n],
     [radiusSectors / 2n, 0n, 0n],
-    [10n, 0n, 0n],
-    [5n, 5n, 0n],
+    [0n, radiusSectors / 2n, 0n],
     [0n, 0n, 0n],
   ];
 
-  let fallbackDescriptor: ProceduralTargetDescriptor | undefined;
+  let populatedFallback: ProceduralTargetDescriptor | undefined;
 
   for (const [x, y, z] of candidateOffsets) {
     const sector = sectorIndex(x, y, z);
     const sectorContent = galaxy.generateSector(sector);
     for (const star of sectorContent.stars) {
+      if (star.planetCount <= 0) continue;
       const d = catalog.proceduralDescriptor(galaxy.id, sector, star.id);
       if (!d) continue;
-      if (!fallbackDescriptor) fallbackDescriptor = d;
-      if (star.planetCount > 0) {
-        if (d.system.bodies.some(b => bodyProfile(b).bodyClass === 'rocky')
-          && d.system.bodies.some(b => b.parentId && b.parentId !== star.id && bodyProfile(b).canLand)) {
-          return d;
-        }
-        if (!fallbackDescriptor || fallbackDescriptor.star.planetCount === 0) {
-          fallbackDescriptor = d;
-        }
+
+      const hasRocky = d.system.bodies.some(b => bodyProfile(b).bodyClass === 'rocky');
+      const hasLandable = d.system.bodies.some(b => b.id !== star.id && bodyProfile(b).canLand);
+      const hasLandableMoon = d.system.bodies.some(b => b.parentId && b.parentId !== star.id && bodyProfile(b).canLand);
+
+      // Preferred ideal destination: rocky planet with a landable moon
+      if (hasRocky && hasLandableMoon) {
+        return d;
+      }
+
+      // Valid secondary candidate: populated system with landable surface
+      if (hasRocky && hasLandable && !populatedFallback) {
+        populatedFallback = d;
       }
     }
   }
 
-  if (fallbackDescriptor) return fallbackDescriptor;
-  throw Error(`No populated entry system in procedural galaxy ${galaxyId}`);
+  if (populatedFallback) return populatedFallback;
+  throw Error(`No populated and landable entry system in procedural galaxy ${galaxyId}`);
 }
 
 export class GalaxyEntryResolver {

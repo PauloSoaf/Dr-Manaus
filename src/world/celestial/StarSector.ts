@@ -198,17 +198,19 @@ export function generateStarSector(
 
   // Find the galaxy definition
   const galDef = galaxyDefinition(galaxyId === 'milky-way' ? 'milky_way' : galaxyId);
-  const densityScale = (galDef?.densityScale ?? 1) * (options.densityScale ?? 1);
+  const sectorOptionScale = options.densityScale ?? 1;
 
   const galacticCentrePosM = galDef ? galaxyLocalPositionM(galDef, sector) : [0, 0, 0] as Vec3;
 
   let density = 0;
   if (galDef?.proceduralMorphology) {
-    density = evaluateProceduralDensity(galDef.proceduralMorphology, galacticCentrePosM) * densityScale;
+    // evaluateProceduralDensity already incorporates descriptor.densityScale as intrinsic morphology scale.
+    // Only apply the optional per-sector generation modifier here.
+    density = evaluateProceduralDensity(galDef.proceduralMorphology, galacticCentrePosM) * sectorOptionScale;
   } else if (galDef?.densityProfile === 'andromeda') {
-    density = andromedaDensity(galacticCentrePosM) * densityScale;
+    density = andromedaDensity(galacticCentrePosM) * (galDef.densityScale ?? 1) * sectorOptionScale;
   } else {
-    density = milkyWayDensity(galacticCentrePosM) * densityScale;
+    density = milkyWayDensity(galacticCentrePosM) * (galDef?.densityScale ?? 1) * sectorOptionScale;
   }
   const cap=Number.isFinite(options.maxStars)?Math.max(0,Math.min(2000,Math.floor(options.maxStars!))):2000;
   const target = Math.min(cap, Math.round(STARS_PER_SECTOR_BASE * density));

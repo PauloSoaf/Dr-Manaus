@@ -1,6 +1,27 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.4.1 Viagem Real para Galáxias Procedurais (2026-11-03)
+## Current checkpoint — U4.4.2 Correção do CI e Integridade da Viagem Procedural (2026-11-03)
+
+Baseline auditado do U4.4.1 no commit `e46d10d29ae6789ba7c7e7d47d19d30e935d3352` reprovou no CI oficial (GitHub Actions Run 41653156652) com dois erros TS2305 em `GalaxyCoordinates.ts`. O patch U4.4.2 corrige a raiz do bloqueio de compilação e implementa o reforço dos contratos de densidade estelar, coordenadas cosmológicas ativas, métrica de separação e segurança de entrada procedural:
+1. `GalaxyCoordinates.ts`:
+   - Correção dos imports de `parseGalaxyId` e `DEFAULT_UNIVERSE_SEED` provenientes de `./ProceduralGalaxyDiscovery`.
+   - Sincronização explícita de autoridade de semente (`setProceduralUniverseSeed`, `getProceduralUniverseSeed`, `clearProceduralGalaxyDefinitions`) eliminando discrepâncias morfológicas entre catálogo e coordenadas.
+   - Cálculo métrico de separação intergaláctica `addressSeparationM(a, ao, b, bo)` estendido para considerar os deslocamentos locais tridimensionais no sistema de saída e sistema de chegada (`localA` e `localB`), respeitando setor, offset submétrico e orientação intrínseca de ambas as galáxias ($\vec{r}_{total} = \vec{r}_{sep} + \vec{r}_{localB} - \vec{r}_{localA}$).
+2. `StarSector.ts`:
+   - Eliminação da duplicação de escala de densidade estelar em `generateStarSector`: `evaluateProceduralDensity` já incorpora intrinsecamente `descriptor.densityScale`. O gerador agora aplica unicamente o modificador opcional por setor (`options.densityScale`), preservando a normalização física de `STARS_PER_SECTOR_BASE`.
+3. `UniverseRuntime.ts`:
+   - `location.cosmological` atualizado para utilizar a autoridade `galaxyCosmologicalAddress(this.activeGalaxy.id)`: Andrômeda passa a reportar com fidelidade suas coordenadas cosmológicas reais (`localMpc: [0, 0.767, 0]`), preservando a Via Láctea (`[0, 0, 0]`), Triângulo e galáxias procedurais ativas.
+4. `GalaxyEntryResolver.ts`:
+   - Resolução determinística ampliada para 13 setores estratégicos (eixos cardeais a ~20% do raio galáctico, diagonais simétricas e núcleo central).
+   - Reforço do contrato de exploração segura: rejeição estrita de estrelas sem planetas (`planetCount <= 0`) e garantia de corpos sólidos com superfície passível de pouso (`canLand`), lançando erro controlado se nenhum sistema satisfizer os requisitos em vez de fabricar destinos fictícios.
+5. `UniversalTargetCatalog.ts` e `ProceduralGalaxyDiscovery.ts`:
+   - Implementado método `getGalaxyDefinition` em `ProceduralGalaxyDiscovery` e registro imediato de definições descobertas em `registerProceduralGalaxyDefinition`, unificando a autoridade de dados do catálogo e das coordenadas.
+6. `tests/procedural-travel.test.ts`:
+   - Tipagem estrita completa das fixtures sem uso de `any`.
+   - Suíte expandida para 16 testes abrangendo asserções de telemetria cosmológica em Andrômeda, validação unitária de ausência de dupla escala de densidade, sensibilidade métrica a offsets locais e validação de chegada segura em galáxias espirais, barradas, elípticas e irregulares com sementes customizadas.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.1 Viagem Real para Galáxias Procedurais (2026-11-03)
 
 Baseline auditado do U4.3.2 no commit `b842cc8020779e90eac51366289766db63bb4e51` aprovado integralmente no GitHub Actions Run 41641242398 (Typecheck SUCCESS, 638/638 regressões permanentes, 1.517/1.517 testes gerais, build Vite aprovado em 1.13s). O patch U4.4.1 estabelece a primeira rota vertical completa de viagem intergaláctica para galáxias procedurais com retorno seguro ao Sol:
 1. `GalaxyCoordinates.ts` e `GalaxyRuntime.ts`:

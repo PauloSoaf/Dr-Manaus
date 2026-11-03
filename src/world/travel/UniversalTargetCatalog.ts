@@ -1,7 +1,6 @@
 import { SolarSystem } from '../celestial/SolarSystem';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
-import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
-import { galaxyDefinition } from '../galaxy/GalaxyCoordinates';
+import { galaxyDefinition, registerProceduralGalaxyDefinition, setProceduralUniverseSeed } from '../galaxy/GalaxyCoordinates';
 import { KNOWN_COSMIC_ANCHORS, OBSERVABLE_HORIZON_MPC } from '../celestial/CosmicAnchorCatalog';
 import { generateStarSector, type GeneratedStar } from '../celestial/StarSector';
 import { generateSystem, type ProceduralSystem } from '../celestial/SystemGenerator';
@@ -25,6 +24,7 @@ export class UniversalTargetCatalog {
   private readonly sectors = new Map<string,readonly GeneratedStar[]>();
   constructor(solar: CelestialSystemRuntime = new SolarSystem(), discovery?: ProceduralGalaxyDiscovery) {
     this.discovery = discovery ?? new ProceduralGalaxyDiscovery();
+    if (discovery) setProceduralUniverseSeed(discovery.universeSeed);
     this.add({kind:'system',displayName:'Sol · Sistema Solar',objectId:'sol',galaxyId:'milky_way',systemId:'sol',address:SOLAR_TARGET_ADDRESS});
     for (const body of solar.bodies) this.add({ kind:'body', displayName:names[body.id]??body.name, objectId:body.id,
       galaxyId:'milky_way', systemId:'sol', bodyId:body.id, address:{...SOLAR_TARGET_ADDRESS,bodyId:body.id} });
@@ -77,6 +77,8 @@ export class UniversalTargetCatalog {
     // Check procedural galaxy resolution via discovery
     const galaxyDesc = this.discovery.findGalaxyById(rawId);
     if (galaxyDesc) {
+      const def = this.discovery.getGalaxyDefinition(galaxyDesc.id);
+      if (def) registerProceduralGalaxyDefinition(def);
       const target = createUniversalTarget({
         kind: 'galaxy',
         displayName: galaxyDesc.name,
@@ -97,6 +99,8 @@ export class UniversalTargetCatalog {
     const matches = this.discovery.search(rawId);
     if (matches.length > 0) {
       const match = matches[0];
+      const def = this.discovery.getGalaxyDefinition(match.id);
+      if (def) registerProceduralGalaxyDefinition(def);
       const target = createUniversalTarget({
         kind: 'galaxy',
         displayName: match.name,
@@ -155,6 +159,8 @@ export class UniversalTargetCatalog {
       if (t.kind === 'galaxy' && t.galaxyId) {
         const desc = this.discovery.findGalaxyById(t.galaxyId);
         if (desc) {
+          const def = this.discovery.getGalaxyDefinition(desc.id);
+          if (def) registerProceduralGalaxyDefinition(def);
           const canonical = createUniversalTarget({
             kind: 'galaxy',
             displayName: desc.name,

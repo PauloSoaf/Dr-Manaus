@@ -3,8 +3,10 @@ import { SECTOR_SIZE_M, separationM, type SectorIndex, type UniverseAddress, typ
 import type { Vec3 } from '../spatial/units';
 import {
   parseGalaxyId,
-  ProceduralGalaxyGenerator,
   DEFAULT_UNIVERSE_SEED,
+} from './ProceduralGalaxyDiscovery';
+import {
+  ProceduralGalaxyGenerator,
   cosmologicalSeparationVectorM,
 } from './ProceduralGalaxyGenerator';
 
@@ -15,6 +17,21 @@ export function registerProceduralGalaxyDefinition(def: GalaxyDefinition): void 
   if (proceduralGalaxyDefinitions.size > 256) {
     proceduralGalaxyDefinitions.delete(proceduralGalaxyDefinitions.keys().next().value!);
   }
+}
+
+let activeUniverseSeed = DEFAULT_UNIVERSE_SEED;
+
+export function setProceduralUniverseSeed(seed: bigint): void {
+  activeUniverseSeed = seed;
+}
+
+export function getProceduralUniverseSeed(): bigint {
+  return activeUniverseSeed;
+}
+
+export function clearProceduralGalaxyDefinitions(): void {
+  proceduralGalaxyDefinitions.clear();
+  activeUniverseSeed = DEFAULT_UNIVERSE_SEED;
 }
 
 export function galaxyDefinition(id: string): GalaxyDefinition | undefined {
@@ -28,10 +45,10 @@ export function galaxyDefinition(id: string): GalaxyDefinition | undefined {
   if (!parsed) return undefined;
 
   const gen = new ProceduralGalaxyGenerator();
-  if (!gen.isGalaxyIndexPopulated(DEFAULT_UNIVERSE_SEED, parsed.cell, parsed.index)) {
+  if (!gen.isGalaxyIndexPopulated(activeUniverseSeed, parsed.cell, parsed.index)) {
     return undefined;
   }
-  const desc = gen.generateGalaxy(DEFAULT_UNIVERSE_SEED, parsed.cell, parsed.index);
+  const desc = gen.generateGalaxy(activeUniverseSeed, parsed.cell, parsed.index);
   if (desc.id !== id) return undefined; // reject forged aliases
 
   const res = gen.tryToGalaxyDefinition(desc);
@@ -112,7 +129,21 @@ export function addressSeparationM(a:UniverseAddress,ao:Vec3,b:UniverseAddress,b
       // Beyond safe Float64 relative conversion domain (> 1024 cells)
       return undefined;
     }
-    const distM = Math.hypot(...sepVec);
+
+    // Include observer's local displacement in galaxy A and arrival system's local displacement in galaxy B
+    const defA = galaxyDefinition(a.galaxyId);
+    const defB = galaxyDefinition(b.galaxyId);
+    const localA = defA ? orientGalaxyVector(defA, galaxyLocalPositionM(defA, a.sector, ao)) : [0, 0, 0] as Vec3;
+    const localB = defB ? orientGalaxyVector(defB, galaxyLocalPositionM(defB, b.sector, bo)) : [0, 0, 0] as Vec3;
+
+    // Total displacement: center separation + destination offset - origin offset
+    const totalDelta: Vec3 = [
+      sepVec[0] + localB[0] - localA[0],
+      sepVec[1] + localB[1] - localA[1],
+      sepVec[2] + localB[2] - localA[2],
+    ];
+
+    const distM = Math.hypot(...totalDelta);
     return distM > 0 ? distM : undefined;
   }
 

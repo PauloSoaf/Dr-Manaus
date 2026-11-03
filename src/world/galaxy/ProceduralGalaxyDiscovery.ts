@@ -36,7 +36,7 @@ import {
   isCellInFloatDomain,
   cosmologicalPositionM,
 } from './ProceduralGalaxyGenerator';
-import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
+import { LOCAL_GROUP_CATALOG, type GalaxyDefinition } from '../celestial/GalaxyDefinition';
 
 /** Default universe seed derived from ASCII 'DRMANAUS' */
 export const DEFAULT_UNIVERSE_SEED = 0x4452_4d41_4e41_5553n;
@@ -477,5 +477,26 @@ export class ProceduralGalaxyDiscovery {
     }
 
     return Object.freeze([...canonicalResults, ...proceduralMatches].slice(0, limit));
+  }
+
+  /** Resolves and returns a full GalaxyDefinition for a discovered or canonical galaxy. */
+  getGalaxyDefinition(id: string): GalaxyDefinition | undefined {
+    const desc = this.findGalaxyById(id);
+    if (!desc) return undefined;
+    const res = this.generator.tryToGalaxyDefinition(desc);
+    if (res.ok) return res.definition;
+    return {
+      id: desc.id,
+      name: desc.name,
+      addressOriginM: [0, 0, 0],
+      type: desc.family === 'barred-spiral' ? 'barred-spiral' : desc.family === 'elliptical' ? 'elliptical' : desc.family === 'irregular' ? 'irregular' : 'spiral',
+      diameterLy: desc.diameterLy,
+      thicknessLy: desc.thicknessLy,
+      positionM: [0, 0, 0],
+      orientationEuler: desc.orientationEulerRad,
+      densityProfile: 'procedural',
+      densityScale: desc.densityScale,
+      proceduralMorphology: desc,
+    };
   }
 }

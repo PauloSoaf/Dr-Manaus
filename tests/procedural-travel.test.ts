@@ -4,7 +4,7 @@ import { Group } from 'three/webgpu';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../src/world/travel/UniversalTargetCatalog';
 import { UniversalTravelController, type PreparedTravelDestination } from '../src/world/travel/UniversalTravelController';
-import { createTravelPlan, hypercruiseDuration } from '../src/world/travel/UniversalTravelPlan';
+import { createTravelPlan, hypercruiseDuration, type UniversalTravelPlan } from '../src/world/travel/UniversalTravelPlan';
 import {
   GalaxyEntryResolver,
   andromedaEntryDescriptor,
@@ -13,19 +13,20 @@ import {
 import { ProceduralSystemMaterializer, safeSystemArrivalM } from '../src/world/runtime/ProceduralSystemMaterializer';
 import { GalaxyMaterializer } from '../src/world/galaxy/GalaxyMaterializer';
 import { knownGalaxyRuntime, registerGalaxyRuntime, clearGalaxyRuntimes } from '../src/world/galaxy/GalaxyRuntime';
-import { galaxyDefinition, addressSeparationM, galaxyCosmologicalAddress } from '../src/world/galaxy/GalaxyCoordinates';
-import { generateStarSector } from '../src/world/celestial/StarSector';
+import { galaxyDefinition, addressSeparationM, galaxyCosmologicalAddress, galaxyLocalPositionM } from '../src/world/galaxy/GalaxyCoordinates';
+import { generateStarSector, STARS_PER_SECTOR_BASE } from '../src/world/celestial/StarSector';
 import { sectorIndex, sectorKey } from '../src/world/spatial/UniverseAddress';
 import { LIGHT_YEAR_M } from '../src/world/spatial/units';
 import { LOCAL_GROUP_CATALOG } from '../src/world/celestial/GalaxyDefinition';
 import { ProceduralGalaxyDiscovery, DEFAULT_UNIVERSE_SEED } from '../src/world/galaxy/ProceduralGalaxyDiscovery';
-import { COSMOLOGICAL_CELL_SIZE_M } from '../src/world/galaxy/ProceduralGalaxyGenerator';
+import { COSMOLOGICAL_CELL_SIZE_M, evaluateProceduralDensity } from '../src/world/galaxy/ProceduralGalaxyGenerator';
 import { UniversalTargetResolver } from '../src/world/travel/UniversalTargetResolver';
+import { bodyProfile } from '../src/world/celestial/CelestialBodyProfile';
 
 const safety = { grounded: false, localPhysics: false, landing: false, collision: false };
 const fixtures: Array<ReturnType<typeof createTestFixture>> = [];
 
-function createTestFixture(prepareHook?: (p: any) => PreparedTravelDestination | Promise<PreparedTravelDestination>) {
+function createTestFixture(prepareHook?: (plan: UniversalTravelPlan) => PreparedTravelDestination | Promise<PreparedTravelDestination>) {
   const catalog = new UniversalTargetCatalog();
   const u = new UniverseRuntime();
   const root = new Group();
@@ -38,7 +39,7 @@ function createTestFixture(prepareHook?: (p: any) => PreparedTravelDestination |
   const m = new ProceduralSystemMaterializer(u, catalog, noop, () => noop, undefined, g);
   u.installSystem(u.solarSystem, SOLAR_TARGET_ADDRESS, safeSystemArrivalM(u.solarSystem));
   let calls = 0;
-  const arrived: any[] = [];
+  const arrived: UniversalTravelPlan[] = [];
   const c = new UniversalTravelController(u, catalog, {
     prepare: (plan) => {
       calls++;
@@ -125,6 +126,12 @@ test('T_U44_03_STELLAR_GENERATION_CONFORMS_TO_PROCEDURAL_MORPHOLOGY', () => {
   assert.equal(coreContent.galaxyId, procGalaxyId);
   assert.ok(coreContent.stars.length > 0, 'Core sector should contain stars');
 
+  // Verify evaluateProceduralDensity scale is NOT duplicated in generateStarSector:
+  const galacticCentrePosM = galaxyLocalPositionM(galaxy.definition, coreSector);
+  const rawDensity = evaluateProceduralDensity(galaxy.definition.proceduralMorphology!, galacticCentrePosM);
+  const expectedStars = Math.round(STARS_PER_SECTOR_BASE * rawDensity);
+  assert.equal(coreContent.stars.length, expectedStars, 'Sector stars must match single-scaled morphology density');
+
   // Sector far out in halo: density must drop significantly
   const farSector = sectorIndex(1000n, 1000n, 1000n);
   const farContent = galaxy.generateSector(farSector);
@@ -145,7 +152,10 @@ test('T_U44_04_DETERMINISTIC_ENTRY_SYSTEM_RESOLUTION', () => {
   assert.ok(entry1);
   assert.ok(entry1.star.id);
   assert.equal(entry1.address.galaxyId, procGalaxyId);
+  assert.ok(entry1.star.planetCount > 0, 'Entry star must have planets');
   assert.ok(entry1.system.bodies.length > 0);
+  assert.ok(entry1.system.bodies.some(b => bodyProfile(b).bodyClass === 'rocky'), 'Entry system must have rocky body');
+  assert.ok(entry1.system.bodies.some(b => b.id !== entry1.star.id && bodyProfile(b).canLand), 'Entry system must have landable body');
 
   // Deterministic repeatability across multiple invocations
   const entry2 = proceduralGalaxyEntryDescriptor(procGalaxyId, catalog);
@@ -327,6 +337,16 @@ test('T_U44_12_COSMOLOGICAL_DISTANCES_AND_BIGINT_SAFETY', () => {
   assert.ok(reachableDist !== undefined);
   assert.ok(reachableDist > 0);
 
+  // Verify that local offsets in destination alter addressSeparationM
+  const distWithOffset = addressSeparationM(
+    SOLAR_TARGET_ADDRESS,
+    [0, 0, 0],
+    { galaxyId: 'galaxy_c10_20_30_0', sector: sectorIndex(500n, 0n, 0n) },
+    [1e12, 0, 0],
+  );
+  assert.ok(distWithOffset !== undefined);
+  assert.notEqual(reachableDist, distWithOffset, 'Local sector and offset displacement must affect total separation');
+
   // Target far outside safe float/conversion domain (> 1024 cells)
   const unreachableDist = addressSeparationM(
     SOLAR_TARGET_ADDRESS,
@@ -356,12 +376,20 @@ test('T_U44_13_PRESERVATION_OF_EARTH_ANDROMEDA_HYPERCRUISE', () => {
   assert.equal(f.u.activeGalaxy.id, 'andromeda');
   assert.equal(f.u.address.systemId, andromedaEntry.star.id);
 
+  // Cosmological location in Andromeda must report Andromeda's true cosmological coordinates, not (0,0,0) offset 0
+  assert.ok(f.u.location.cosmological);
+  assert.equal(f.u.location.cosmological.cell.x, 0n);
+  assert.equal(f.u.location.cosmological.cell.y, 0n);
+  assert.equal(f.u.location.cosmological.cell.z, 0n);
+  assert.deepEqual(f.u.location.cosmological.localMpc, [0, 0.767, 0]);
+
   // Return to Milky Way
   const mwTarget = f.catalog.target('milky_way')!;
   assert.equal(f.c.start(mwTarget, safety), 'started');
   finish(f);
   assert.equal(f.u.activeGalaxy.id, 'milky_way');
   assert.equal(f.u.address.systemId, 'sol');
+  assert.deepEqual(f.u.location.cosmological?.localMpc, [0, 0, 0]);
 });
 
 test('T_U44_14_HUD_AND_TELEMETRY_INTEGRITY_POST_ARRIVAL', () => {
@@ -385,4 +413,52 @@ test('T_U44_14_HUD_AND_TELEMETRY_INTEGRITY_POST_ARRIVAL', () => {
   const telem = f.u.telemetry;
   assert.equal(telem.frame, f.u.activeSystem.systemFrameId);
   assert.ok(Number.isFinite(telem.altitudeM));
+});
+
+test('T_U44_15_MORPHOLOGY_DIVERSITY_ENTRY_VALIDATION', () => {
+  const discovery = new ProceduralGalaxyDiscovery();
+  const catalog = new UniversalTargetCatalog(undefined, discovery);
+
+  // Discover a cluster of procedural galaxies around cell (1, 2, 3)
+  const galaxies = discovery.discoverRegion({ x: 1n, y: 2n, z: 3n }, 2, 16);
+  assert.ok(galaxies.length >= 4, 'Should discover at least 4 procedural galaxies in region');
+
+  // Verify that different morphology types all resolve valid, landable entry systems
+  for (const g of galaxies) {
+    const entry = proceduralGalaxyEntryDescriptor(g.id, catalog);
+    assert.ok(entry, `Entry descriptor must resolve for ${g.id} (${g.family})`);
+    assert.ok(entry.star.planetCount > 0, `Star in ${g.id} must have planets`);
+    assert.ok(entry.system.bodies.length > 0, `System in ${g.id} must have bodies`);
+    assert.ok(
+      entry.system.bodies.some(b => bodyProfile(b).bodyClass === 'rocky'),
+      `System in ${g.id} must contain rocky bodies`,
+    );
+    assert.ok(
+      entry.system.bodies.some(b => b.id !== entry.star.id && bodyProfile(b).canLand),
+      `System in ${g.id} must contain landable planetary surfaces`,
+    );
+  }
+});
+
+test('T_U44_16_CUSTOM_SEED_CONSISTENCY_AND_AUTHORITY', () => {
+  const customSeed = 0x9876_5432_10fe_dcban;
+  const customDiscovery = new ProceduralGalaxyDiscovery(customSeed);
+  const catalog = new UniversalTargetCatalog(undefined, customDiscovery);
+
+  const region = customDiscovery.discoverRegion({ x: 5n, y: 5n, z: 5n }, 1, 4);
+  assert.ok(region.length > 0);
+  const sample = region[0];
+
+  // Target resolution in catalog must register and sync with GalaxyCoordinates
+  const target = catalog.find(sample.id);
+  assert.ok(target);
+
+  const def = galaxyDefinition(sample.id);
+  assert.ok(def, 'Galaxy definition must be available and synchronized');
+  assert.equal(def.id, sample.id);
+  assert.equal(def.diameterLy, sample.diameterLy);
+  assert.equal(def.thicknessLy, sample.thicknessLy);
+
+  // Clean up
+  clearGalaxyRuntimes();
 });

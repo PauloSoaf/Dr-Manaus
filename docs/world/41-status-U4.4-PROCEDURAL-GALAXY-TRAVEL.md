@@ -1,134 +1,113 @@
-# DR-MANAUS | Checkpoint U4.4.1 — Viagem Real para Galáxias Procedurais
+# DR-MANAUS | Checkpoint U4.4.2 — Correção do CI e Integridade da Viagem Procedural
 
 **Data:** 03 de novembro de 2026  
 **Repositório:** PauloSoaf/Dr-Manaus  
 **Branch:** `feat/universe-map`  
-**Baseline auditado (U4.3.2):** `b842cc8020779e90eac51366289766db63bb4e51`  
-**CI Oficial U4.3.2:** GitHub Actions Run `41641242398` (SUCCESS: Typecheck, 638/638 regressões permanentes, 1.517/1.517 testes gerais, Build Vite em 1.13s)  
-**Patch Atual:** U4.4.1  
+**Baseline auditado (U4.4.1):** `e46d10d29ae6789ba7c7e7d47d19d30e935d3352`  
+**CI Oficial U4.4.1:** GitHub Actions Run `41653156652` (FAILURE: 2 erros TS2305 em `GalaxyCoordinates.ts`)  
+**Último Baseline Verde:** `b842cc8020779e90eac51366289766db63bb4e51` (U4.3.2, Run `41641242398`)  
+**Patch Atual:** U4.4.2  
 
 ---
 
-## 1. Estado Oficial e Diagnóstico de Bloqueios do U4.3.2
+## 1. Auditoria e Diagnóstico da Reprovação do U4.4.1
 
-O baseline U4.3.2 foi homologado com 100% de aprovação na automação do CI:
-- **Typecheck:** Aprovado
-- **Regressões Permanentes:** 638/638 aprovadas
-- **Testes Gerais:** 1.517/1.517 aprovados
-- **Build de Produção Vite:** Aprovado
+O commit `e46d10d29ae6789ba7c7e7d47d19d30e935d3352` (U4.4.1) foi reprovado na etapa de **Typecheck** do GitHub Actions:
+- `TS2305: Module './ProceduralGalaxyGenerator' has no exported member 'parseGalaxyId'`.
+- `TS2305: Module './ProceduralGalaxyGenerator' has no exported member 'DEFAULT_UNIVERSE_SEED'`.
 
-A auditoria da arquitetura de viagem identificou 6 limitações fundamentais que impediam o trânsito até galáxias procedurais:
-1. **Bloqueio A — `GalaxyEntryResolver`:** Suportava unicamente destinos canônicos (`milky_way` e `andromeda`), lançando exceção (`Unknown galaxy entry`) para qualquer identificador procedural.
-2. **Bloqueio B — `GalaxyMaterializer.prepare()`:** Rejeitava galáxias fora de `knownGalaxyRuntime()`, o qual consultava estritamente o catálogo fixo de 2 entradas `LOCAL_GROUP_CATALOG`.
-3. **Bloqueio C — `UniverseRuntime.installSystem()`:** Dependia exclusivamente de `knownGalaxyRuntime(address.galaxyId)` para comitar a galáxia ativa do jogador.
-4. **Bloqueio D — `ProceduralSystemMaterializer.prepare()`:** Rejeitava galáxias desconhecidas (`!knownGalaxyRuntime(a.galaxyId)`), impedindo a instanciação de sistemas estelares em galáxias descobertas.
-5. **Bloqueio E — `StarSector.generateStarSector()`:** Não consultava a morfologia da galáxia procedural, utilizando o perfil legado da Via Láctea como fallback para qualquer galáxia procedural desconhecida.
-6. **Bloqueio F — `UniversalTravelPlan` e `addressSeparationM`:** Utilizavam apenas o vetor legado do Grupo Local via `observerGlobalPositionM`. Para galáxias fora do catálogo, a separação retornava `undefined`, inviabilizando o cálculo de rota e duração de voo.
+A auditoria minuciosa do código revelou 5 problemas estruturais e de integridade física/cosmológica:
+1. **P0 — Imports Provenientes do Módulo Incorreto (`GalaxyCoordinates.ts`):** `parseGalaxyId` e `DEFAULT_UNIVERSE_SEED` pertencem e são exportados por `ProceduralGalaxyDiscovery.ts`.
+2. **P0 — Dupla Multiplicação de Escala de Densidade Estelar (`StarSector.ts`):** `evaluateProceduralDensity` já multiplica intrinsecamente pela escala morfológica `descriptor.densityScale`. O código anterior multiplicava novamente por `galDef.densityScale`, aplicando a escala ao quadrado.
+3. **P0 — Origem Cosmológica Incorreta no Runtime (`UniverseRuntime.ts`):** O getter `location.cosmological` utilizava fallback fixo `(0,0,0)` com offset nulo para todas as galáxias não procedurais, fazendo com que o jogador em Andrômeda reportasse incorretamente a origem da Via Láctea.
+4. **P1 — Separação Intergaláctica Sem Deslocamento Local (`GalaxyCoordinates.ts`):** `addressSeparationM` utilizava puramente os centros cosmológicos das galáxias, ignorando o setor de saída, offset submétrico do observador e sistema de chegada com as orientações intrínsecas de cada galáxia.
+5. **P1 — Resolução de Entrada com Fallback Inválido (`GalaxyEntryResolver.ts`):** `proceduralGalaxyEntryDescriptor` permitia selecionar sistemas com 0 planetas como fallback e varria apenas 8 setores, arriscando quedas em sistemas estelares desabitados.
+6. **P1 — Divergência Potencial de Semente e Identidade:** Risco de discordância entre o catálogo de alvos e o runtime quando descobertas utilizam sementes personalizadas.
 
 ---
 
-## 2. Soluções Implementadas no Patch U4.4.1
+## 2. Correções Implementadas no Patch U4.4.2
 
-### 2.1 Registro Dinâmico e Resolução de `GalaxyRuntime` (`GalaxyCoordinates.ts` e `GalaxyRuntime.ts`)
-- `galaxyDefinition(id)` agora resolve identidades canônicas e galáxias procedurais:
-  1. Consulta prioritária em `LOCAL_GROUP_CATALOG` (`milky_way`, `andromeda`).
-  2. Consulta no cache LRU delimitado de 256 definições procedurais.
-  3. Resolução e validação determinística via `parseGalaxyId(id)` e `ProceduralGalaxyGenerator`, rejeitando forjas e gerando a definição canônica com `proceduralMorphology`.
-- `knownGalaxyRuntime(id)` instancia e retém a sessão `GalaxyRuntime` correspondente com cache delimitado (128 entradas) e suporte a limpeza (`clearGalaxyRuntimes()`).
-- O comportamento e os dados de Via Láctea e Andrômeda permanecem 100% inalterados.
+### 2.1 Correção dos Módulos e Autoridade de Semente (`GalaxyCoordinates.ts`)
+- Segregação correta das importações:
+  - `parseGalaxyId` e `DEFAULT_UNIVERSE_SEED` importados de `./ProceduralGalaxyDiscovery`.
+  - `ProceduralGalaxyGenerator` e `cosmologicalSeparationVectorM` importados de `./ProceduralGalaxyGenerator`.
+- Ausência de dependência circular: `ProceduralGalaxyDiscovery` não importa `GalaxyCoordinates`.
+- Implementação de autoridade configurável de semente:
+  - `setProceduralUniverseSeed(seed: bigint)` e `getProceduralUniverseSeed(): bigint`.
+  - `clearProceduralGalaxyDefinitions()` limpa o cache de definições e redefine a semente para `DEFAULT_UNIVERSE_SEED`.
+  - `galaxyDefinition(id)` utiliza a semente ativa, mantendo coerência absoluta com o catálogo de descoberta.
 
-### 2.2 Geração Estelar Fiel à Morfologia Procedural (`StarSector.ts`)
-- `generateStarSector(galaxyId, sector, options)` consulta `galaxyDefinition(galaxyId)`.
-- Quando a galáxia possui `proceduralMorphology`, a densidade estelar local é calculada diretamente via `evaluateProceduralDensity(galDef.proceduralMorphology, galacticCentrePosM) * densityScale`.
-- Avalia fielmente:
-  - Concentração central no bulbo esferoidal (`calculateBulgeDensity`).
-  - Barra estelar em galáxias barradas (`calculateBarDensity`).
-  - Estrutura de disco fino e espesso (`calculateDiskDensity`).
-  - Ondas de densidade espiral logarítmica com contraste de braços (`calculateSpiralArmModulation`).
-  - Queda suave em direção ao halo (`calculateHaloDensity`).
-- Setores galácticos refletem com rigor as características astronômicas geradas para a galáxia.
+### 2.2 Deslocamentos Tridimensionais Locais em Trajetos Intergalácticos (`GalaxyCoordinates.ts`)
+- A função `addressSeparationM(a, ao, b, bo)` foi aprimorada:
+  - Calcula a separação métrica entre os centros cosmológicos via `cosmologicalSeparationVectorM`.
+  - Projeta a posição 3D local do ponto de origem `localA` no referencial da galáxia A (considerando setor, offset métrico e matriz de orientação de Euler).
+  - Projeta a posição 3D local do sistema de chegada `localB` no referencial da galáxia B.
+  - O vetor total de separação é: $\vec{r}_{total} = \vec{r}_{sep} + \vec{r}_{localB} - \vec{r}_{localA}$.
+  - A distância euclidiana final $d = \|\vec{r}_{total}\|$ reflete com precisão os sistemas reais de saída e entrada, preservando a distância canônica Terra-Andrômeda (~2.48 milhões de anos-luz).
 
-### 2.3 Resolução Determinística de Sistema de Entrada Seguro (`GalaxyEntryResolver.ts`)
-- Implementada a função `proceduralGalaxyEntryDescriptor(galaxyId, catalog)`:
-  - Pesquisa determinística em anel situado a $\approx 20\%$ do raio da galáxia (`radiusSectors = BigInt(Math.max(5, Math.floor((diameterLy * 0.2) / 100)))`).
-  - Sequência ordenada de setores candidatos (`[r, 0, 0]`, `[r, 1, 0]`, `[r, -1, 0]`, `[r+5, 2, 0]`, `[r/2, 0, 0]`, `[10, 0, 0]`, `[5, 5, 0]`, `[0, 0, 0]`).
-  - Seleção de sistema estelar com planetas rochosos e corpos passíveis de pouso.
-  - Reproducibilidade estrita: a mesma galáxia procedural resolve exatamente o mesmo sistema de chegada em todas as visitas, sem teletransporte nem aleatoriedade em tempo de execução.
-- `GalaxyEntryResolver.resolve()` direciona o alvo de galáxia para o sistema seguro de entrada resolvido.
+### 2.3 Densidade Estelar Fiel e Não Duplicada (`StarSector.ts`)
+- `evaluateProceduralDensity(galDef.proceduralMorphology, galacticCentrePosM)` já incorpora a escala intrínseca de morfologia.
+- `generateStarSector()` agora aplica estritamente o modificador opcional de geração por setor:
+  `density = evaluateProceduralDensity(galDef.proceduralMorphology, galacticCentrePosM) * sectorOptionScale`.
+- Para galáxias canônicas (Via Láctea e Andrômeda), a escala do catálogo continua aplicada normalmente.
 
-### 2.4 Handoff Transacional, Preparação e Retorno ao Sol (`ProceduralSystemMaterializer.ts` e `UniversalTravelController.ts`)
-- Reutilização integral do `UniversalTravelController` existente, mantendo seu ciclo de vida de fases:
-  `spool` $\rightarrow$ `acceleration` $\rightarrow$ `cruise` $\rightarrow$ `deceleration` $\rightarrow$ `arrival-hold` $\rightarrow$ `arrival` $\rightarrow$ `complete`.
-- `prepareTravel` prepara simultaneamente:
-  1. A sessão da galáxia de destino (`GalaxyMaterializer.prepare(a.galaxyId)`), instanciando seu `StarSectorProvider` exclusivo.
-  2. O subsistema estelar U1 (`ProceduralSystemRuntime`), registrando grafos de referenciais inerciais e de corpos.
-  3. Posição segura de chegada (`safeSystemArrivalM`) a distância segura de órbitas e corpos físicos, com velocidade de chegada nula.
-- **Rollback em Caso de Falha:** Qualquer erro na fase de preparação ou commit aciona o cancelamento, restaura a sessão anterior com a câmera intacta e limpa frames sem vazamento.
-- **Retorno ao Sol:** A viagem reversa para `sol` / `milky_way` utiliza o pipeline canônico existente (`prepareSolarReturn`), restaurando integralmente o Sistema Solar e a Via Láctea.
+### 2.4 Telemetria e Coordenadas Cosmológicas Ativas (`UniverseRuntime.ts`)
+- O getter `UniverseRuntime.location` agora consulta a autoridade central `galaxyCosmologicalAddress(this.activeGalaxy.id)`:
+  - Via Láctea: `cell: (0,0,0)`, `localMpc: [0, 0, 0]`.
+  - Andrômeda: `cell: (0,0,0)`, `localMpc: [0, 0.767, 0]`.
+  - Triângulo: `cell: (0,0,0)`, `localMpc: [0, 0.84, 0]`.
+  - Galáxias procedurais: `proceduralMorphology.cosmologicalAddress`.
+  - Fallback defensivo: `cell: (0,0,0)`, `localMpc: [0, 0, 0]`.
+- Garante que a telemetria, HUD e `UniversalTargetResolver` operem a partir da posição cosmológica verídica do observador.
 
-### 2.5 Limites de Precisão Relativística e Separação Cosmológica (`GalaxyCoordinates.ts` e `UniversalTargetResolver.ts`)
-- `addressSeparationM(a, ao, b, bo)` integra aritmética cosmológica:
-  - Pares de galáxias com endereço cosmológico utilizam `cosmologicalSeparationVectorM(cosmoA, cosmoB)`.
-  - Diferença BigInt exata antes da conversão para metros.
-  - **Política Explícita de Domínio Seguro:** Para separações superiores a 1024 células cósmicas (~2 Gpc), onde a conversão para Float64 perde resolução métrica, o método retorna `undefined` e impede o planejamento de viagem com coordenadas imprecisas.
-- `UniversalTargetResolver`:
-  - Galáxias procedurais alcançáveis ($\le 1024$ células) passam do status informativo `'cosmological-future'` para a capacidade de viagem real `'intergalactic'`.
-  - Galáxias além do limite seguro permanecem `'cosmological-future'`, com aviso informativo de alcance.
+### 2.5 Resolução Determinística e Garantia de Entrada Válida (`GalaxyEntryResolver.ts`)
+- Ampliação do leque de candidatos para **13 setores determinísticos**:
+  - Eixos cardeais no raio médio (~20% do diâmetro): `[+r, 0, 0]`, `[+r, 1, 0]`, `[+r, -1, 0]`, `[-r, 0, 0]`, `[0, +r, 0]`, `[0, -r, 0]`.
+  - Diagonais nos 4 quadrantes: `[+r/2, +r/2, 0]`, `[-r/2, +r/2, 0]`, `[+r/2, -r/2, 0]`, `[-r/2, -r/2, 0]`.
+  - Anéis intermediários e núcleo: `[+r/2, 0, 0]`, `[0, +r/2, 0]`, `[0, 0, 0]`.
+- **Política Estrita de Entrada:**
+  - Rejeita qualquer estrela sem planetas (`star.planetCount <= 0`).
+  - Destino prioritário: sistema com planeta rochoso e lua passível de pouso (`canLand`).
+  - Destino secundário: sistema com planeta rochoso passível de pouso.
+  - Se nenhum sistema satisfizer a política, lança exceção controlada `Error('No populated and landable entry system in procedural galaxy ' + galaxyId)`. Zero fabricação de destinos inválidos.
 
----
-
-## 3. Matriz de Cobertura e Invariantes Arquiteturais
-
-| Subsistema | Invariante | Garantia U4.4.1 |
-| :--- | :--- | :--- |
-| **Identidade Galáctica** | Determinismo Absoluto | Mesma semente e coordenadas BigInt produzem o mesmo `GalaxyRuntime` e as mesmas estrelas. |
-| **Streaming e Descarte** | Provedor Único Ativo | Apenas um `StarSectorProvider` ativo por sessão; providers anteriores são desregistrados e descartados no commit. |
-| **Segurança de Chegada** | Corredor Seguro | Chegada sempre em `safeSystemArrivalM` com velocidade local $\vec{v} = (0,0,0)$. |
-| **Referenciais de Câmera** | Ausência de Coordenadas Absolutas | A câmera e a cena 3D operam estritamente no referencial local da estrela/sistema (`systemFrameId`). Coordenadas cósmicas BigInt nunca entram na GPU. |
-| **Fronteira com BH0-BH2** | Buracos Negros Funcionais Bloqueados | Definições procedurais não instanciam provedores funcionais de buraco negro. |
+### 2.6 Sincronização de Descoberta e Catálogo (`UniversalTargetCatalog.ts` e `ProceduralGalaxyDiscovery.ts`)
+- Adicionado `ProceduralGalaxyDiscovery.getGalaxyDefinition(id)`.
+- `UniversalTargetCatalog` sincroniza imediatamente a semente ativa e registra as definições descobertas em `registerProceduralGalaxyDefinition(def)`.
+- Elimina caches divergentes entre o mapa cósmico, catálogo e runtime espacial.
 
 ---
 
-## 4. Testes Automatizados Criados (`tests/procedural-travel.test.ts`)
+## 3. Matriz de Verificação dos Testes Automatizados (`tests/procedural-travel.test.ts`)
 
-A nova suíte contém 14 testes cobrindo todas as exigências do U4.4.1:
-1. `T_U44_01_DYNAMIC_GALAXY_RUNTIME_REGISTRATION`: Registro e cache de `GalaxyRuntime` procedural.
-2. `T_U44_02_CANONICAL_GALAXIES_PRESERVATION`: Preservação formal de Via Láctea e Andrômeda.
-3. `T_U44_03_STELLAR_GENERATION_CONFORMS_TO_PROCEDURAL_MORPHOLOGY`: Geração estelar fiel à morfologia com densidade radial descendente.
-4. `T_U44_04_DETERMINISTIC_ENTRY_SYSTEM_RESOLUTION`: Resolução determinística e repetível do sistema de entrada.
-5. `T_U44_05_PROCEDURAL_TRAVEL_ROUTE_PLANNING`: Criação de plano de viagem com duração balanceada (15 a 30s).
-6. `T_U44_06_TRANSACTIONAL_PREPARATION_AND_INSTALLATION`: Commit e troca atômica de galáxia e sistema.
-7. `T_U44_07_SAFE_ARRIVAL_CORRIDOR_AND_ZERO_VELOCITY`: Chegada fora de órbitas com velocidade nula.
-8. `T_U44_08_RETURN_TRIP_TO_SOLAR_SYSTEM`: Viagem completa de ida para galáxia procedural e retorno ao Sol.
-9. `T_U44_09_CANCEL_AND_RESUME_PROCEDURAL_HYPERCRUISE`: Cancelamento em voo, desaceleração para coasting e retomada.
-10. `T_U44_10_TRANSACTIONAL_ROLLBACK_ON_PREPARATION_FAILURE`: Rollback atômico em falha de preparação sem estado corrompido.
-11. `T_U44_11_REPEATED_JOURNEYS_WITHOUT_PROVIDER_LEAKS`: Múltiplas viagens sequenciais sem duplicação de provedores.
-12. `T_U44_12_COSMOLOGICAL_DISTANCES_AND_BIGINT_SAFETY`: Rejeição segura de viagens para alvos $> 1024$ células.
-13. `T_U44_13_PRESERVATION_OF_EARTH_ANDROMEDA_HYPERCRUISE`: Hipercruzeiro canônico Terra-Andrômeda e retorno preservados.
-14. `T_U44_14_HUD_AND_TELEMETRY_INTEGRITY_POST_ARRIVAL`: Telemetria, endereço e modo `anchored` corretos pós-chegada.
+A suíte foi reformulada com tipagem estrita (zero `any`) e expandida para 16 testes oficiais:
+1. `T_U44_01_DYNAMIC_GALAXY_RUNTIME_REGISTRATION`: Resolução dinâmica e cache de `GalaxyRuntime` procedural.
+2. `T_U44_02_CANONICAL_GALAXIES_PRESERVATION`: Preservação formal de Via Láctea e Andrômeda com SMBHs.
+3. `T_U44_03_STELLAR_GENERATION_CONFORMS_TO_PROCEDURAL_MORPHOLOGY`: Validação de densidade morfológica e comprovação de ausência de dupla escala de densidade.
+4. `T_U44_04_DETERMINISTIC_ENTRY_SYSTEM_RESOLUTION`: Resolução determinística exigindo planetas e superfícies pousáveis.
+5. `T_U44_05_PROCEDURAL_TRAVEL_ROUTE_PLANNING`: Planejamento de rota intergaláctica com duração calibrada.
+6. `T_U44_06_TRANSACTIONAL_PREPARATION_AND_INSTALLATION`: Transação atômica e substituição de provedores.
+7. `T_U44_07_SAFE_ARRIVAL_CORRIDOR_AND_ZERO_VELOCITY`: Chegada segura com velocidade exatamente nula fora da zona estelar perigosa.
+8. `T_U44_08_RETURN_TRIP_TO_SOLAR_SYSTEM`: Viagem de ida e volta completa entre Sol e galáxia procedural.
+9. `T_U44_09_CANCEL_AND_RESUME_PROCEDURAL_HYPERCRUISE`: Interrupção em voo, desaceleração emergencial e retomada.
+10. `T_U44_10_TRANSACTIONAL_ROLLBACK_ON_PREPARATION_FAILURE`: Rollback atômico em falha de preparação.
+11. `T_U44_11_REPEATED_JOURNEYS_WITHOUT_PROVIDER_LEAKS`: Ciclos repetidos garantindo provedor único ativo.
+12. `T_U44_12_COSMOLOGICAL_DISTANCES_AND_BIGINT_SAFETY`: Validação de sensibilidade métrica a offsets locais e limite BigInt (> 1024 células).
+13. `T_U44_13_PRESERVATION_OF_EARTH_ANDROMEDA_HYPERCRUISE`: Hipercruzeiro Terra-Andrômeda e verificação das coordenadas cosmológicas de Andrômeda (`localMpc: [0, 0.767, 0]`).
+14. `T_U44_14_HUD_AND_TELEMETRY_INTEGRITY_POST_ARRIVAL`: Integridade de telemetria e HUD ancorado na chegada.
+15. `T_U44_15_MORPHOLOGY_DIVERSITY_ENTRY_VALIDATION`: Validação de sistemas de entrada em galáxias espirais, barradas, elípticas e irregulares.
+16. `T_U44_16_CUSTOM_SEED_CONSISTENCY_AND_AUTHORITY`: Consistência e compartilhamento único de semente e definições entre catálogo e coordenadas.
 
 ---
 
-## 5. Roteiro Manual de Viagem e Retorno (Operador Humano)
+## 4. Procedimento de Validação Manual (Operador Humano)
 
 No servidor de desenvolvimento ativo na porta `9999`:
-1. **Acessar a Aplicação:** Abra `http://localhost:9999/`.
-2. **Decolagem e Espaço Seguro:** Decole da Terra ou posicione a nave em espaço seguro do Sistema Solar.
-3. **Abrir Mapa Cósmico e Selecionar Galáxia:**
-   - Pressione `M`, selecione a aba **"Cosmos"**.
-   - Aproxime/afaste o zoom e selecione uma galáxia procedural (ex.: *Cosmic Discovery DM-PG-...*).
-   - Feche o mapa (`M`).
-4. **Verificar Alvo Travado no HUD:**
-   - O HUD exibe a galáxia procedural selecionada com distância em anos-luz / megaparsecs e status de *Hypercruise intergaláctico disponível*.
-5. **Engajar Hypercruise:**
-   - Pressione a tecla de engate de viagem intergaláctica.
-   - Acompanhe a telemetria: *spool* $\rightarrow$ aceleração $\rightarrow$ cruzeiro $\rightarrow$ desaceleração $\rightarrow$ chegada.
-6. **Chegada na Galáxia Procedural:**
-   - A transição comita atomicamente o novo sistema estelar.
-   - O jogador surge em corredor seguro com velocidade zero.
-   - O fundo estelar exibe estrelas geradas pela morfologia da galáxia.
-   - Navegue pelo sistema estelar procedural e inspecione seus planetas.
-7. **Retorno ao Sistema Solar:**
-   - Abra o mapa (`M`) ou selecione Sol no catálogo de alvos.
-   - Inicie Hypercruise com destino a Sol.
-   - Confirme a chegada e reintegração perfeita ao Sistema Solar na Via Láctea.
+1. Abra o navegador em `http://localhost:9999/`.
+2. Decole da Terra ou posicione a nave em órbita segura.
+3. Pressione `M`, acesse a aba **"Cosmos"** e selecione uma galáxia procedural (ex.: `galaxy_c1_2_3_0`).
+4. Trave o alvo no HUD e engaje o Hypercruise intergaláctico.
+5. Observe a sequência completa de voo: *spool* $\rightarrow$ aceleração $\rightarrow$ cruzeiro $\rightarrow$ desaceleração $\rightarrow$ chegada no sistema estelar procedural.
+6. Verifique o HUD exibindo a galáxia procedural, a estrela de entrada e seus planetas rochosos.
+7. Selecione o Sol no catálogo ou mapa e inicie a rota de retorno, confirmando a reintegração com o Sistema Solar.

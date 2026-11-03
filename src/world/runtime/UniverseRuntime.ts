@@ -22,6 +22,7 @@ import { budgetForSpeed, DEFAULT_STREAMING_BUDGET } from '../streaming/Streaming
 import { ProviderRegistry } from './ProviderRegistry';
 import { sectorIndex, SECTOR_SIZE_M, sectorSeed, type UniverseAddress } from '../spatial/UniverseAddress';
 import type { UniverseLocation } from '../spatial/UniverseLocation';
+import { galaxyCosmologicalAddress } from '../galaxy/GalaxyCoordinates';
 import { generateStarSector } from '../celestial/StarSector';
 import { generateSystem } from '../celestial/SystemGenerator';
 import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
@@ -242,7 +243,7 @@ export class UniverseRuntime {
     const loc: UniverseLocation = {
       address,mode:'anchored',
       frameId: this.playerPose.frame,
-      cosmological: this.activeGalaxy.definition.proceduralMorphology?.cosmologicalAddress ?? { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] },
+      cosmological: galaxyCosmologicalAddress(this.activeGalaxy.id) ?? { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] },
     };
     
     if (this.playerPose.frame === this.activeSystem.systemFrameId) {
