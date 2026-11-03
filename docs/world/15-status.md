@@ -1,16 +1,22 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.3 Streaming Espacial e Mapa Universal Procedural (2026-11-03)
+## Current checkpoint — U4.3.1 Correção de CI e Integração Funcional do Mapa Cosmológico (2026-11-03)
 
-Baseline at `9fab30fcd114170d4ac3754cadc13dbab9166730` (U4.2.3 aprovado integralmente no GitHub Actions Run 41577361396 com 638/638 regressões, 1.506/1.506 testes gerais e build de produção Vite aprovado). Implementados os sistemas de streaming espacial determinístico, catálogo universal procedural e renderização interativa do mapa cósmico:
-1. `ProceduralGalaxyDiscovery.ts`: streaming determinístico de galáxias particionadas em células cosmológicas de 2.0 Mpc (`BigInt3`), com cache LRU limitado (`maxCachedCells = 128`), suporte a coordenadas arbitrariamente grandes (> 2^53) e negativas, exploração esférica radial concêntrica (`discoverRegion`) com teto orçamentário (`maxGalaxies = 64`), e integração `ManagedSubsystem` para compatibilidade com `GlobalStreamingScheduler`.
-2. `UniversalTargetCatalog.ts`: integração da descoberta procedural, permitindo busca e resolução determinística de alvos galácticos (`kind: 'galaxy'`, `objectId: id`, `galaxyId: id`) com chave estável `galaxy/...`, resolução de posições globais métricas dentro do domínio Float64 e cache LRU dedicado, preservando estritamente todas as entidades canônicas do Grupo Local (Via Láctea, Andrômeda, Triângulo, LMC, SMC) e alvos solares.
-3. `UniversalTargetResolver.ts`: separação estrita de autoridade de trânsito (U4.3 seleção vs. U4.4 viagem). Galáxias procedurais são resolvidas com `domain: 'cosmological'` e `travelCapability: 'cosmological-future'` com rótulo descritivo na UI (*"Navegação intergaláctica procedural disponível em U4.4"*), enquanto alvos canônicos existentes mantêm hipercruzeiro intergaláctico ativo. Cálculo preciso de distância relativa intercelular.
-4. `MapRenderers.ts`:
-   - `CosmologyMapRenderer`: substituição de pontos estáticos por mapa cosmológico funcional com grade de células de 2 Mpc, identificadores de células, ícones diferenciados por morfologia (espiral, espiral barrada, elíptica com excentricidade real, lenticular e irregular), destaque de entidades canônicas e galáxia do jogador, zoom multiescala (4 a 120 Mpc) e translação espacial contínua (pan) com rebaseamento de células centrais, e teste de impacto (`hitTest`) para seleção direta no canvas.
-   - `GalaxyMapRenderer`: adaptação dinâmica da renderização visual esquemática da galáxia aos parâmetros morfológicos reais (número de braços, pitch angle, barra central orientada, classe espectral e contornos esferoidais em elípticas).
-5. `UniversalMapPanel.ts`: zoom com roda do mouse e drag-to-pan no nível cósmico, integração do campo de busca para identificadores procedurais, coordenadas de células (`c:x,y,z`) e designações (`DM-PG ...`), e ficha detalhada de alvo de navegação com morfologia, diâmetro, população estelar estimada e coordenadas cosmológicas.
-6. 8 novos testes de unidade adicionados em `tests/procedural-galaxy-map.test.ts`. U4.4 (trânsito contínuo e handoff de chegada a galáxias procedurais) e BH0-BH2 permanecem bloqueados.
+Baseline auditado do U4.3 no commit `0dc9c0070ece4bb9548dd6807dca7647ab31a21f` reprovou no GitHub Actions Run 41580919276 com três erros TS2339 (`Property 'cosmological' does not exist on type 'StreamingContext'`). O patch U4.3.1 soluciona a causa raiz de tipagem e todas as pendências funcionais de ponta a ponta:
+1. `StreamingContext` e `SpatialContext` (`WorldProvider.ts`): adicionado o campo opcional `readonly cosmological?: CosmologicalAddress`, preservando 100% de retrocompatibilidade com subsistemas existentes.
+2. `ProceduralGalaxyDiscovery.ts`:
+   - Removida a alegação prematura de `ManagedSubsystem` (`covers`, `plan`, `advance`, `stats`), mantendo a descoberta focada estritamente no mapa interativo com orçamento determinístico e cache LRU limitado (128 células) até a implementação do trânsito 3D contínuo em U4.4.
+   - Corrigido o caminho de raio zero em `discoverRegion()`: consultas com `radiusCells = 0` avaliam estritamente a célula central sem incluir offsets de raio 1; `maxGalaxies <= 0` retorna `[]`.
+   - Adicionado `discoverVisibleRegion(centerCell, zoomMpc, maxGalaxies)`: amostragem adaptativa multiescala com decimação (1 galáxia por célula amostrada) e striding determinístico no plano cosmológico visível para campos de até 120 Mpc, garantindo cobertura visual sem travamento da renderização.
+   - Blindagem de identidade canônica em `findGalaxyById()`: rejeita aliases procedurais forjados para entidades canônicas (ex.: recusa `galaxy_c0_0_0_0` tentando personificar a Via Láctea).
+3. `UniversalTargetCatalog.ts` e `UniversalTargetResolver.ts`:
+   - Resolução de alvos em cache frio: `find(query)` normaliza prefixos `galaxy/` recebidos de `hitTest` do mapa e armazena em cache bidirecional (`target.key` e `objectId`), permitindo selecionar galáxias procedurais no primeiro clique.
+   - Cálculo de distâncias cosmológicas via `cosmologicalSeparationVectorM`, utilizando subtrações exatas de células em BigInt antes da conversão para metros. Alvos procedurais são isolados dos cálculos de referenciais locais do Grupo Local.
+4. `MapRenderers.ts` (`CosmologyMapRenderer`):
+   - Eliminação total do risco de perda de precisão Float64 e loops infinitos em magnitudes superiores a $2^{53}$: a grade agora itera sobre offsets inteiros relativos pequenos (`relX = -spanCells .. spanCells`) e formata coordenadas absolutas por adição BigInt exata (`(centerCell.x + BigInt(relX)).toString(10)`).
+5. `tests/procedural-galaxy-map.test.ts`:
+   - Corrigido o import inválido de `SolarSystem` para `src/world/celestial/SolarSystem.ts`.
+   - Adicionados testes específicos para raio zero, limite zero, coordenadas negativas, seleção em cache frio com prefixo `galaxy/`, rejeição de aliases forjados, visualização multiescala até 120 Mpc, coordenadas extremas ($2^{64}$ e $-(2^{53}+1)$) sem perda de precisão, e contrato de `StreamingContext`.
 Evidence: [40-status-U4.3-PROCEDURAL-COSMIC-MAP.md](40-status-U4.3-PROCEDURAL-COSMIC-MAP.md).
 
 ## Previous checkpoint — U4.2.3 Estabilização do CI e Validação Morfológica (2026-11-03)

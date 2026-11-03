@@ -486,19 +486,15 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     this.galaxyHits = [];
 
     const pxPerMpc = w / this.zoomMpc;
-    const radiusCells = Math.min(3, Math.max(1, Math.ceil(this.zoomMpc / (2 * COSMOLOGICAL_CELL_SIZE_MPC))));
-    const galaxies = this.discovery.discoverRegion(this.centerCell, radiusCells, 48);
+    const spanCells = Math.min(16, Math.max(2, Math.ceil((this.zoomMpc * 0.6) / COSMOLOGICAL_CELL_SIZE_MPC) + 1));
+    const galaxies = this.discovery.discoverVisibleRegion(this.centerCell, this.zoomMpc, 64);
 
-    // Subtle Cosmological Cell Grid lines
+    // Subtle Cosmological Cell Grid lines (relative coordinates prevent Float64 precision loss at > 2^53)
     this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
     this.ctx.lineWidth = 1;
-    const minCellX = Number(this.centerCell.x) - radiusCells - 1;
-    const maxCellX = Number(this.centerCell.x) + radiusCells + 1;
-    const minCellY = Number(this.centerCell.y) - radiusCells - 1;
-    const maxCellY = Number(this.centerCell.y) + radiusCells + 1;
 
-    for (let gx = minCellX; gx <= maxCellX; gx++) {
-      const worldMpcX = (gx - Number(this.centerCell.x)) * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.x;
+    for (let relX = -spanCells; relX <= spanCells; relX++) {
+      const worldMpcX = relX * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.x;
       const sx = cx + worldMpcX * pxPerMpc;
       if (sx >= 0 && sx <= w) {
         this.ctx.beginPath();
@@ -507,8 +503,8 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
         this.ctx.stroke();
       }
     }
-    for (let gy = minCellY; gy <= maxCellY; gy++) {
-      const worldMpcY = (gy - Number(this.centerCell.y)) * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.y;
+    for (let relY = -spanCells; relY <= spanCells; relY++) {
+      const worldMpcY = relY * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.y;
       const sy = cy + worldMpcY * pxPerMpc;
       if (sy >= 0 && sy <= h) {
         this.ctx.beginPath();
@@ -518,16 +514,19 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
       }
     }
 
-    // Cell coordinate tags
+    // Cell coordinate tags (using exact BigInt addition for label display)
     this.ctx.font = '10px "Inter", sans-serif';
     this.ctx.fillStyle = 'rgba(148, 163, 184, 0.25)';
     this.ctx.textAlign = 'left';
-    for (let gx = minCellX; gx <= maxCellX; gx++) {
-      for (let gy = minCellY; gy <= maxCellY; gy++) {
-        const sx = cx + ((gx - Number(this.centerCell.x)) * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.x + 0.1) * pxPerMpc;
-        const sy = cy + ((gy - Number(this.centerCell.y)) * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.y + 0.2) * pxPerMpc;
+    const tagStep = spanCells > 8 ? 2 : 1;
+    for (let relX = -spanCells; relX <= spanCells; relX += tagStep) {
+      for (let relY = -spanCells; relY <= spanCells; relY += tagStep) {
+        const sx = cx + (relX * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.x + 0.1) * pxPerMpc;
+        const sy = cy + (relY * COSMOLOGICAL_CELL_SIZE_MPC - this.panOffsetMpc.y + 0.2) * pxPerMpc;
         if (sx >= 10 && sx <= w - 60 && sy >= 15 && sy <= h - 45) {
-          this.ctx.fillText(`[${gx},${gy}]`, sx, sy);
+          const absX = (this.centerCell.x + BigInt(relX)).toString(10);
+          const absY = (this.centerCell.y + BigInt(relY)).toString(10);
+          this.ctx.fillText(`[${absX},${absY}]`, sx, sy);
         }
       }
     }

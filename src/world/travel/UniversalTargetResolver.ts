@@ -7,7 +7,7 @@ import { PARSEC_M, type Vec3 } from '../spatial/units';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from './UniversalTargetCatalog';
 import { isUniverseAddress, type UniversalNavigationTarget } from './UniversalNavigationTarget';
 import { selectBodyDestination } from './BodyNavigation';
-import { COSMOLOGICAL_CELL_SIZE_M } from '../galaxy/ProceduralGalaxyGenerator';
+import { COSMOLOGICAL_CELL_SIZE_M, cosmologicalSeparationVectorM, isCellInFloatDomain, cosmologicalPositionM } from '../galaxy/ProceduralGalaxyGenerator';
 
 export type TravelCapability = 'solar'|'intra-system'|'interstellar'|'intergalactic'|'black-hole-future'|'cosmological-future';
 export interface ResolvedUniversalTarget {
@@ -96,7 +96,29 @@ export class UniversalTargetResolver {
         const live=t.kind==='system'?[0,0,0] as Vec3:this.context.activeSystem.positionOf(t.bodyId!);
         if(live)distanceM=Math.hypot(...live.map((v,i)=>v-observer[i]));
       }else if(positionM)distanceM=addressSeparationM(current,this.context.location?.sectorOffsetM??observer,a,positionM);
-    } else if(entry.globalPositionM){
+    } else if(isProceduralGalaxy && t.galaxyId){
+      frame='cosmological-relative';
+      const desc=this.catalog.discovery.findGalaxyById(t.galaxyId);
+      if(desc){
+        const obsCell=this.context.location?.cosmological?.cell ?? {x:0n,y:0n,z:0n};
+        const obsLocalMpc = this.context.location?.cosmological?.localMpc ?? [0, 0, 0];
+        const sepVec = cosmologicalSeparationVectorM(
+          { cell: obsCell, localMpc: obsLocalMpc },
+          desc.cosmologicalAddress,
+        );
+        if (sepVec) {
+          distanceM = Math.hypot(...sepVec);
+        } else {
+          const dx = Number(desc.cell.x - obsCell.x);
+          const dy = Number(desc.cell.y - obsCell.y);
+          const dz = Number(desc.cell.z - obsCell.z);
+          distanceM = Math.hypot(dx, dy, dz) * COSMOLOGICAL_CELL_SIZE_M;
+        }
+        if (isCellInFloatDomain(desc.cell)) {
+          positionM = cosmologicalPositionM(desc.cosmologicalAddress);
+        }
+      }
+    } else if(entry.globalPositionM && !isProceduralGalaxy){
       frame='local-group-global';positionM=entry.globalPositionM;
       const delta=globalTargetDeltaM(current,this.context.location?.sectorOffsetM??observer,positionM);
       if(delta)distanceM=Math.hypot(...delta);
@@ -107,15 +129,6 @@ export class UniversalTargetResolver {
         distanceM=Math.hypot(...localTarget.map((v,i)=>v-localObserver[i]));
       }
       materialized=t.kind==='black-hole' && t.galaxyId===current.galaxyId;
-
-    } else if(isProceduralGalaxy && t.galaxyId){
-      frame='cosmological-relative';
-      const desc=this.catalog.discovery.findGalaxyById(t.galaxyId);
-      if(desc){
-        const obsCell=this.context.location?.cosmological?.cell ?? {x:0n,y:0n,z:0n};
-        const dx=Number(desc.cell.x-obsCell.x),dy=Number(desc.cell.y-obsCell.y),dz=Number(desc.cell.z-obsCell.z);
-        distanceM=Math.hypot(dx,dy,dz)*COSMOLOGICAL_CELL_SIZE_M;
-      }
     } else if(a && !isUniverseAddress(a)){
       frame='cosmological-relative';
       const player=this.context.location?.cosmological;

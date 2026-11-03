@@ -1,71 +1,48 @@
-# DR-MANAUS | Checkpoint U4.3 — Streaming Espacial e Mapa Universal Procedural
+# DR-MANAUS | Checkpoint U4.3 / U4.3.1 — Streaming Espacial e Mapa Universal Procedural
 
 **Data:** 03 de novembro de 2026  
 **Repositório:** PauloSoaf/Dr-Manaus  
 **Branch:** `feat/universe-map`  
-**Baseline anterior:** `9fab30fcd114170d4ac3754cadc13dbab9166730` (U4.2.3 aprovado integralmente no GitHub Actions Run 41577361396)  
+**Baseline auditado (U4.3):** `0dc9c0070ece4bb9548dd6807dca7647ab31a21f`  
+**CI Oficial U4.3:** GitHub Actions Run `41580919276` (FAILURE: 3 erros TS2339 em `ProceduralGalaxyDiscovery.ts`)  
 
 ---
 
-## 1. Contexto e Status de Entrada
+## 1. Auditoria do CI e Causas Raízes do U4.3
 
-O commit baseline `9fab30fcd114170d4ac3754cadc13dbab9166730` (U4.2.3) estabilizou a suíte visual e morfológica no GitHub Actions CI:
-- **Typecheck:** Aprovado sem erros de tipagem.
-- **Portão Permanente de Regressões:** 638/638 aprovados.
-- **Suíte Geral de Testes:** 1.506/1.506 aprovados.
-- **Build de Produção (Vite):** Aprovado.
-
-Com a base visual do U4.2.3 estabilizada, o objetivo de **U4.3** é construir o mapa cosmológico procedural, integrando streaming espacial determinístico, catálogo universal de alvos procedurais, busca multiescala e navegação interativa sem violar contratos de física, precisão numérica ou autoridades de viagem existentes.
+A auditoria pós-publicação do U4.3 identificou os seguintes problemas:
+1. **TS2339 em `ProceduralGalaxyDiscovery.ts` (linhas 341, 345, 346):** O subsistema tentava acessar `context.cosmological`, propriedade inexistente no contrato oficial de `StreamingContext` em `WorldProvider.ts`.
+2. **Alegação inoperante de `ManagedSubsystem`:** `ProceduralGalaxyDiscovery` declarava implementar `ManagedSubsystem`, mas seu método `advance()` era vazio e o subsistema não estava registrado em `GlobalStreamingScheduler`.
+3. **Seleção de galáxias procedurais no mapa em cache frio:** `CosmologyMapRenderer.hitTest()` gerava chaves no formato `galaxy/galaxy_c...`. `UniversalTargetCatalog.find()` não tratava esse prefixo ao consultar a descoberta, impedindo que o clique travasse o alvo em cache frio.
+4. **Caminho de raio zero em `discoverRegion()`:** A consulta com `radiusCells = 0` selecionava `PRECOMPUTED_OFFSETS_R1` por usar `r <= 1`, incluindo células vizinhas indevidamente.
+5. **Import inválido em teste unitário:** `tests/procedural-galaxy-map.test.ts` importava `../src/celestial/SolarSystem`, que reside em `src/world/celestial/SolarSystem.ts`.
+6. **Perda de precisão e risco de loop infinito na grade cósmica:** `CosmologyMapRenderer.draw()` convertia `centerCell.x` para `Number` e iterava incrementalmente em Float64, suscetível a loops infinitos em magnitudes superiores a $2^{53}$.
+7. **Cobertura visual limitada em zoom distante:** O mapa permitia zoom até 120 Mpc, mas `discoverRegion()` limitava a 48 galáxias próximas, deixando a maior parte do campo visual vazia.
+8. **Validação de identidades canônicas:** `findGalaxyById()` permitia recuperar galáxias pelo índice na célula sem validar se o ID solicitado correspondia à identidade verdadeira, abrindo brecha para aliases procedurais falsificados de entidades canônicas (ex.: `galaxy_c0_0_0_0` para a Via Láctea).
 
 ---
 
-## 2. Decisões de Arquitetura e Engenharia
+## 2. Correções Implementadas no Patch U4.3.1
 
-### 2.1 Descoberta e Streaming de Células Cosmológicas (`ProceduralGalaxyDiscovery.ts`)
-1. **Particionamento Espacial em Células BigInt:** O universo cosmológico é particionado em células regulares de $2.0 \text{ Mpc}$ ($~6.523 \text{ Mly}$), endereçadas por triplas inteiras `BigInt3` ($C_x, C_y, C_z$).
-2. **Determinismo Estrito:** Baseado em `ProceduralGalaxyGenerator` (U4.1/U4.1.1) utilizando hash FNV-1a de 64 bits com codificação canônica e finalizador SplitMix64 (`GALAXY_GENERATOR_VERSION = 2`). Zero chamadas a `Math.random` ou relógio do sistema.
-3. **Orçamento e Cache LRU Bounded:** A autoridade de descoberta mantém um cache LRU estritamente limitado (`maxCachedCells = 128`), garantindo que a exploração livre ou deslocamentos cosmológicos rápidos nunca provoquem vazamento de memória ou alocação descontrolada.
-4. **Exploração Concêntrica por Vizinhança:** `discoverRegion(centerCell, radius, maxGalaxies)` realiza busca radial em conchas esféricas concêntricas ordenadas por $dx^2 + dy^2 + dz^2$, priorizando células visíveis próximas ao observador ou centro de visualização do mapa, com teto rígido de galáxias por requisição (`maxGalaxies <= 64`).
-5. **Integração com `GlobalStreamingScheduler`:** Implementa a interface `ManagedSubsystem` (`covers`, `plan`, `advance`, `stats`), permitindo controle centralizado do orçamento de quadros.
+### 2.1 Contrato de Streaming e Descoberta (`WorldProvider.ts` e `ProceduralGalaxyDiscovery.ts`)
+- `SpatialContext` e `StreamingContext` receberam o campo opcional `readonly cosmological?: CosmologicalAddress`, garantindo compatibilidade futura com endereçamento cosmológico.
+- `ProceduralGalaxyDiscovery` removeu a alegação espúria de `implements ManagedSubsystem` (`covers`, `plan`, `advance`, `stats`). A descoberta cósmica em U4.3 é estritamente orientada ao mapa e orçada por consulta síncrona com cache LRU limitado a 128 células. O streaming 3D contínuo pertence a U4.4.
+- `discoverRegion()` corrigiu o caminho de raio zero: `if (r === 0)` retorna estritamente as galáxias da célula central. Consultas com `maxGalaxies <= 0` retornam `[]`.
+- Adicionado `discoverVisibleRegion(centerCell, zoomMpc, maxGalaxies)`: amostragem plana adaptativa multiescala no plano cosmológico visível com striding determinístico e decimação (1 galáxia por célula amostrada) para campos visuais de até 120 Mpc.
+- `findGalaxyById()` agora valida a identidade canônica e rejeita aliases procedurais que tentem forjar entidades do Grupo Local.
 
-### 2.2 Integração ao Catálogo Universal (`UniversalTargetCatalog.ts` e `UniversalTargetResolver.ts`)
-1. **Preservação de Entidades Canônicas:** A célula `(0, 0, 0)` mantém intacto o Grupo Local canônico:
-   - Via Láctea (`milky_way`), Andrômeda (`andromeda`), Triângulo (`triangulum`), Grande Nuvem de Magalhães (`large_magellanic_cloud`), Pequena Nuvem de Magalhães (`small_magellanic_cloud`).
-   - Todos os alvos do Sistema Solar, âncoras cósmicas e horizonte observável permanecem inalterados.
-2. **Alvos Galácticos Procedurais:**
-   - Contrato canônico: `kind: 'galaxy'`, `objectId: id`, `galaxyId: id`, chave estável `galaxy/${encodeURIComponent(galaxyId)}`.
-   - Compatível com a gramática de `universalTargetKey` sem introduzir campos espúrios.
-3. **Fronteira Funcional Estrita entre U4.3 e U4.4 (Seleção vs. Viagem):**
-   - Em U4.3, galáxias procedurais são **selecionáveis**, **pesquisáveis** e **exploráveis** no mapa.
-   - O resolvedor atribui `domain: 'cosmological'` e `travelCapability: 'cosmological-future'` para galáxias procedurais.
-   - O rótulo da capacidade é explicitamente apresentado na UI: *"Navegação intergaláctica procedural disponível em U4.4"*, impedindo acionamento indevido de trânsito contínuo antes da homologação da fase U4.4.
-   - Alvos canônicos existentes (ex: Andrômeda) preservam `travelCapability: 'intergalactic'`, mantendo 100% funcional o hipercruzeiro de U3.
+### 2.2 Seleção de Alvos e Resolução de Ponta a Ponta (`UniversalTargetCatalog.ts` e `UniversalTargetResolver.ts`)
+- `UniversalTargetCatalog.find(query)`: normaliza o prefixo `galaxy/` recebido dos cliques do mapa (`rawId = query.startsWith('galaxy/') ? decodeURIComponent(query.slice(7)) : query`).
+- Resolução e armazenamento bidirecional em cache (`target.key` e `objectId`), garantindo que o primeiro clique do jogador em qualquer galáxia do mapa resolva e trave o alvo imediatamente, mesmo em cache frio.
+- `UniversalTargetResolver.resolve()`: processa galáxias procedurais antes de checar `entry.globalPositionM`, impedindo que caiam em cálculos de referenciais locais do Grupo Local.
+- Cálculo de distâncias cosmológicas baseado em `cosmologicalSeparationVectorM`, com subtrações BigInt exatas antes da conversão para metros.
+- Fronteira U4.3/U4.4 estritamente mantida: `travelCapability: 'cosmological-future'` com mensagem *"Navegação intergaláctica procedural disponível em U4.4"*.
 
-### 2.3 Renderização do Mapa Cosmológico e Galáctico (`MapRenderers.ts`)
-1. **`CosmologyMapRenderer`:**
-   - Substituição do protótipo estático de pontos pseudo-aleatórios por renderizador cosmológico funcional baseado em células $2 \text{ Mpc}$.
-   - Grade cosmológica com linhas de células e coordenadas `[x, y]` em coordenadas relativas.
-   - Diferenciação morfológica visual:
-     - **Espirais (Sa, Sb, Sc):** Núcleo brilhante, disco elíptico inclinado e arcos espirais azul-celestes (`#38bdf8`).
-     - **Espirais Barradas (SBa, SBb, SBc):** Barra central orientada pelo ângulo intrínseco com braços espirais a partir das pontas (`#c084fc`).
-     - **Elípticas (E0, E3, E7):** Gradiente suave esferoidal âmbar/dourado (`#fbbf24`), com achatamento proporcional à excentricidade real.
-     - **Lenticulares (S0):** Disco lenticular brilhante sem braços (`#e2e8f0`).
-     - **Irregulares (Irr):** Aglomerados estelares assimétricos mosqueados ciano/magenta (`#34d399` / `#38bdf8`).
-   - Destaque canônico com anéis para o Grupo Local e retícula vermelha (`#ef4444`) para a galáxia atual do jogador.
-   - Zoom contínuo (`zoomMpc` de 4 a 120 Mpc) e translação espacial com mouse drag (pan).
-   - Teste de impacto (`hitTest`) retornando chaves canônicas de alvos para seleção direta.
-2. **`GalaxyMapRenderer`:**
-   - Adaptativo à morfologia da galáxia inspecionada (`location.address.galaxyId` ou alvo selecionado).
-   - Espirais desenham o número exato de braços ($N_{\text{arms}} = 2$ ou $4$), ângulo de abertura (pitch angle) e barra central caso ativa.
-   - Galáxias elípticas renderizam contornos esferoidais sem inventar braços espirais inexistentes.
-
-### 2.4 Interface e Experiência de Navegação (`UniversalMapPanel.ts`)
-1. **Controles Interativos:**
-   - Roda do mouse no nível `cosmology` ajusta zoom multiescala.
-   - Arraste do mouse (drag-to-pan) desloca a visão cosmológica rebaseando as células centrais sem descontinuidade.
-   - Clique em qualquer galáxia no mapa cosmológico seleciona o alvo correspondente.
-2. **Ficha de Alvo Expandida:** Apresenta tipo morfológico Hubble, diâmetro óptico em anos-luz, população estelar estimada em bilhões, coordenadas da célula BigInt e classificação (canônica vs procedural).
-3. **Busca e Localização:** Campo de coordenadas e busca aceita IDs procedurais (`galaxy_c...`), coordenadas de células (`c:10,20,-30`), designações procedurais (`DM-PG ...`) e nomes canônicos.
+### 2.3 Eliminação de Perda de Precisão na Grade Cosmológica (`MapRenderers.ts`)
+- `CosmologyMapRenderer.draw()` não converte coordenadas absolutas de células para Float64 em loops.
+- A grade itera inteiros relativos pequenos (`relX = -spanCells .. spanCells`, onde `spanCells <= 16`).
+- As coordenadas de rótulo são geradas via aritmética BigInt exata: `(this.centerCell.x + BigInt(relX)).toString(10)`.
+- Seguro contra coordenadas extremas ($2^{64}$, $-(2^{53}+1)$) e números negativos, com garantia formal de ausência de loops sem progresso.
 
 ---
 
@@ -76,13 +53,13 @@ Com a base visual do U4.2.3 estabilizada, o objetivo de **U4.3** é construir o 
 | **Célula Cosmológica** | $2.0 \text{ Mpc}$ ($~6.17 \times 10^{22} \text{ m}$) | `BigInt` | Precisão exata em qualquer distância cósmica, inclusive superior a $2^{53}$ e $2^{64}$. |
 | **Offset Local de Célula** | $[-1.0, 1.0] \text{ Mpc}$ | `Float64` (`number`) | Espaçamento ULP $< 10^{-15} \times 1 \text{ Mpc} \approx 30 \text{ m}$ no interior da célula. |
 | **Diferença Relativa de Posição** | Distâncias intergalácticas | Subtração BigInt antes de conversão | Elimina cancelamento catastrófico e overflow de representação Float32. |
-| **Posição Absoluta Float64 Legada** | $\|C\| \le 1024n$ | `Float64` ou `undefined` | Conversão direta para metros apenas dentro do domínio delimitado (`cosmologicalPositionM`). |
+| **Iteração de Grade do Mapa** | $[-16, 16]$ células | Inteiros pequenos relativos | Elimina estagnação de somador Float64 e loops infinitos. |
 
 ---
 
-## 4. Testes Automatizados Adicionados (U4.3)
+## 4. Testes Automatizados (`tests/procedural-galaxy-map.test.ts`)
 
-Arquivo de testes: `tests/procedural-galaxy-map.test.ts`
+A suíte cobre 9 blocos de testes unitários:
 1. `T_U43_01_COSMOLOGICAL_CELL_DISCOVERY_DETERMINISM`:
    - Geração determinística de células idênticas em instâncias independentes.
    - Preservação estrita das 5 entidades do Grupo Local na célula (0,0,0).
@@ -94,11 +71,15 @@ Arquivo de testes: `tests/procedural-galaxy-map.test.ts`
    - Capacidade máxima respeitada (`maxCachedCells = 8`), prevenindo vazamento de memória sob exploração massiva.
    - Limpeza total com `clearCache()`.
 4. `T_U43_04_SPATIAL_REGION_EXPLORATION_LIMITS`:
-   - Teto rígido de galáxias por consulta (`maxGalaxies`).
-   - Priorização radial da célula central.
+   - Raio zero estritamente restrito à célula central.
+   - Raio um e raio dois.
+   - Teto rígido de galáxias (`maxGalaxies`) e retorno de lista vazia para limite zero.
+   - Células negativas e independência de ordem de descoberta.
 5. `T_U43_05_UNIVERSAL_TARGET_CATALOG_PROCEDURAL_INTEGRATION`:
    - Resolução de alvos procedurais em `UniversalTargetCatalog`.
    - Compatibilidade estrita com `universalTargetKey` (`galaxy/...`).
+   - Resolução em cache frio com prefixo `galaxy/` (cenário real do clique no mapa).
+   - Rejeição estrita de aliases forjados (`galaxy_c0_0_0_0`, `galaxy_c0_0_0_1`).
    - Preservação de todos os alvos solares e canônicos.
 6. `T_U43_06_UNIVERSAL_TARGET_RESOLVER_PROCEDURAL_TRAVEL_SEPARATION`:
    - Separação entre seleção (U4.3) e viagem contínua (U4.4).
@@ -108,28 +89,32 @@ Arquivo de testes: `tests/procedural-galaxy-map.test.ts`
    - Busca por nome canônico, ID procedural, sintaxe de coordenadas de célula (`c:x,y,z`) e prefixo de designação (`DM-PG`).
 8. `T_U43_08_COSMOLOGY_AND_GALAXY_MAP_RENDERERS`:
    - Zoom contínuo e clamping de zoom ($[4, 120] \text{ Mpc}$).
+   - Amostragem multiescala em 120 Mpc via `discoverVisibleRegion`.
+   - Coordenadas BigInt extremas ($2^{64}$ e $-(2^{53}+1)$) sem loops sem progresso nem perda de precisão.
    - Panning com rebase de célula central através de fronteiras.
    - Adaptação morfológica em `GalaxyMapRenderer` para galáxias elípticas e espirais.
+9. `T_U43_09_STREAMING_CONTEXT_CONTRACT_AND_BUDGET`:
+   - Validação dos contratos de tipo de `SpatialContext` e `StreamingContext` com campo opcional `cosmological`.
 
 ---
 
-## 5. Arquivos Alterados e Novos no U4.3
+## 5. Arquivos Alterados no U4.3.1
 
-| Arquivo | Estado | Responsabilidade no U4.3 |
+| Arquivo | Estado | Mudanças no U4.3.1 |
 | :--- | :--- | :--- |
-| `src/world/galaxy/ProceduralGalaxyDiscovery.ts` | **Novo** | Autoridade de streaming e busca de galáxias procedurais com cache LRU limitado e `ManagedSubsystem`. |
-| `src/world/travel/UniversalTargetCatalog.ts` | Modificado | Integração da descoberta procedural, resolução de chaves galácticas e cache bounded de alvos. |
-| `src/world/travel/UniversalTargetResolver.ts` | Modificado | Cálculo de distância cosmológica e separação estrita da capacidade de viagem para U4.4. |
-| `src/ui/map/MapRenderers.ts` | Modificado | `CosmologyMapRenderer` multi-escala procedural e `GalaxyMapRenderer` adaptativo à morfologia. |
-| `src/ui/map/UniversalMapPanel.ts` | Modificado | Zoom/pan interativo na cosmologia, ficha estendida de alvo procedural e busca integrada. |
-| `tests/procedural-galaxy-map.test.ts` | **Novo** | Suíte de testes unitários para streaming, catálogo e renderizadores do mapa. |
-| `docs/world/15-status.md` | Modificado | Atualização do status arquitetural consolidado para o checkpoint U4.3. |
-| `docs/world/40-status-U4.3-PROCEDURAL-COSMIC-MAP.md` | **Novo** | Documento técnico de especificação e evidência da fase U4.3. |
+| `src/world/providers/WorldProvider.ts` | Modificado | Adicionado campo opcional `cosmological` a `SpatialContext` e `StreamingContext`. |
+| `src/world/galaxy/ProceduralGalaxyDiscovery.ts` | Modificado | Removida interface ManagedSubsystem; corrigido raio zero; adicionado `discoverVisibleRegion`; blindagem de aliases canônicos em `findGalaxyById`. |
+| `src/world/travel/UniversalTargetCatalog.ts` | Modificado | Suporte a prefixo `galaxy/` em `find()`; resolução em cache frio; cache bidirecional. |
+| `src/world/travel/UniversalTargetResolver.ts` | Modificado | Reordenação de resolução procedural antes de globalPositionM; cálculo cosmológico exato de distância. |
+| `src/ui/map/MapRenderers.ts` | Modificado | Eliminação de loops Float64 absolutos na grade; integração de `discoverVisibleRegion` para zoom até 120 Mpc. |
+| `tests/procedural-galaxy-map.test.ts` | Modificado | Correção do import de `SolarSystem`; cobertura para raio 0, cache frio, BigInt extremo, zoom 120 Mpc e contrato de streaming. |
+| `docs/world/15-status.md` | Modificado | Atualização do status consolidado para U4.3.1. |
+| `docs/world/40-status-U4.3-PROCEDURAL-COSMIC-MAP.md` | Modificado | Relatório técnico completo do patch U4.3.1. |
 
 ---
 
-## 6. Fronteira Funcional com Fases Subsequentes
+## 6. Fronteira Funcional com U4.4
 
-- **U4.3 (Concluído neste commit):** Descoberta, exploração no mapa, busca, seleção de alvos procedurais e renderização morfológica esquemática.
-- **U4.4 (Próxima fase):** Trânsito contínuo por hipercruzeiro intergaláctico até galáxias procedurais, desaceleração assintótica, materialização em tempo de execução via `GalaxyMaterializer` e handoff de chegada.
-- **BH0–BH2:** Buracos negros relativísticos, lentes gravitacionais e horizontes continuam estritamente bloqueados.
+- **U4.3.1 (Concluído neste patch):** Descoberta procedural determinística, mapa cosmológico interativo, busca multiescala, seleção de alvos em cache frio e travamento no HUD.
+- **U4.4 (Próxima fase - bloqueada até validação do CI):** Hipercruzeiro contínuo intergaláctico até galáxias procedurais, desaceleração, handoff para LODs de partículas GPU (`GalaxyMaterializer`) e chegada.
+- **BH0–BH2:** Buracos negros relativísticos e horizontes permanecem estritamente bloqueados.

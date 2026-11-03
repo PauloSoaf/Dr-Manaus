@@ -37,8 +37,6 @@ import {
   cosmologicalPositionM,
 } from './ProceduralGalaxyGenerator';
 import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
-import type { ManagedSubsystem, ManagedDemand, ManagedStats } from '../streaming/ManagedSubsystem';
-import type { StreamingContext } from '../providers/WorldProvider';
 
 /** Default universe seed derived from ASCII 'DRMANAUS' */
 export const DEFAULT_UNIVERSE_SEED = 0x4452_4d41_4e41_5553n;
@@ -77,14 +75,15 @@ export interface ParsedGalaxyId {
 
 /** Parses a procedural galaxy ID (`galaxy_c{x}_{y}_{z}_{idx}`) or canonical identifier. */
 export function parseGalaxyId(id: string): ParsedGalaxyId | undefined {
+  const cleanId = id.startsWith('galaxy/') ? decodeURIComponent(id.slice(7)) : id;
   // Canonical Local Group entities
-  if (id === 'milky_way') return { cell: { x: 0n, y: 0n, z: 0n }, index: 0 };
-  if (id === 'andromeda') return { cell: { x: 0n, y: 0n, z: 0n }, index: 1 };
-  if (id === 'triangulum') return { cell: { x: 0n, y: 0n, z: 0n }, index: 2 };
-  if (id === 'large_magellanic_cloud' || id === 'lmc') return { cell: { x: 0n, y: 0n, z: 0n }, index: 3 };
-  if (id === 'small_magellanic_cloud' || id === 'smc') return { cell: { x: 0n, y: 0n, z: 0n }, index: 4 };
+  if (cleanId === 'milky_way') return { cell: { x: 0n, y: 0n, z: 0n }, index: 0 };
+  if (cleanId === 'andromeda') return { cell: { x: 0n, y: 0n, z: 0n }, index: 1 };
+  if (cleanId === 'triangulum') return { cell: { x: 0n, y: 0n, z: 0n }, index: 2 };
+  if (cleanId === 'large_magellanic_cloud' || cleanId === 'lmc') return { cell: { x: 0n, y: 0n, z: 0n }, index: 3 };
+  if (cleanId === 'small_magellanic_cloud' || cleanId === 'smc') return { cell: { x: 0n, y: 0n, z: 0n }, index: 4 };
 
-  const match = /^galaxy_c(-?\d+)_(-?\d+)_(-?\d+)_(\d+)$/.exec(id);
+  const match = /^galaxy_c(-?\d+)_(-?\d+)_(-?\d+)_(\d+)$/.exec(cleanId);
   if (!match) return undefined;
   try {
     const index = Number(match[4]);
@@ -133,13 +132,11 @@ const PRECOMPUTED_OFFSETS_R1 = computeConcentricOffsets(1);
 const PRECOMPUTED_OFFSETS_R2 = computeConcentricOffsets(2);
 const PRECOMPUTED_OFFSETS_R3 = computeConcentricOffsets(3);
 
-export class ProceduralGalaxyDiscovery implements ManagedSubsystem {
+export class ProceduralGalaxyDiscovery {
   readonly id = 'procedural-galaxy-discovery';
 
   private readonly generator: ProceduralGalaxyGenerator;
   private readonly cellCache = new Map<string, readonly ProceduralGalaxyDescriptor[]>();
-  private pendingWorkCount = 0;
-  private grantedWorkMs = 0;
 
   constructor(
     readonly universeSeed: bigint = DEFAULT_UNIVERSE_SEED,
@@ -206,8 +203,15 @@ export class ProceduralGalaxyDiscovery implements ManagedSubsystem {
     radiusCells: number = 1,
     maxGalaxies: number = DEFAULT_MAX_REGION_GALAXIES,
   ): readonly ProceduralGalaxyDescriptor[] {
+    if (maxGalaxies <= 0) return Object.freeze([]);
+
     const r = Math.max(0, Math.min(3, Math.floor(radiusCells)));
-    const offsets = r <= 1
+    if (r === 0) {
+      const cellGalaxies = this.discoverCell(centerCell);
+      return Object.freeze(cellGalaxies.slice(0, maxGalaxies));
+    }
+
+    const offsets = r === 1
       ? PRECOMPUTED_OFFSETS_R1
       : r === 2
         ? PRECOMPUTED_OFFSETS_R2
@@ -235,30 +239,102 @@ export class ProceduralGalaxyDiscovery implements ManagedSubsystem {
   }
 
   /**
+   * Adaptive multi-scale discovery for cosmological map viewport rendering.
+   *
+   * For close zoom (<= 16 Mpc), queries 3D neighbourhood cells in radius 1..3.
+   * For distant zoom (> 16 Mpc up to 120 Mpc), samples visible cosmological 2D plane (z = centerCell.z)
+   * with deterministic striding and LOD decimation (1 galaxy per sampled cell), preventing main-thread
+   * hitching while providing full panoramic visual coverage across the wide field of view.
+   */
+  discoverVisibleRegion(
+    centerCell: BigInt3,
+    zoomMpc: number,
+    maxGalaxies: number = DEFAULT_MAX_REGION_GALAXIES,
+  ): readonly ProceduralGalaxyDescriptor[] {
+    if (maxGalaxies <= 0) return Object.freeze([]);
+
+    if (zoomMpc <= 16) {
+      const radius = Math.max(1, Math.min(3, Math.ceil(zoomMpc / (2 * COSMOLOGICAL_CELL_SIZE_MPC))));
+      return this.discoverRegion(centerCell, radius, maxGalaxies);
+    }
+
+    // Distant 2D planar viewport sampling
+    const spanMpc = zoomMpc * 0.6;
+    const spanCells = Math.max(1, Math.ceil(spanMpc / COSMOLOGICAL_CELL_SIZE_MPC));
+    const stride = Math.max(1, Math.ceil(spanCells / 4));
+
+    const results: ProceduralGalaxyDescriptor[] = [];
+
+    // Prioritize center cell
+    const centerGalaxies = this.discoverCell(centerCell);
+    for (const g of centerGalaxies) {
+      results.push(g);
+      if (results.length >= maxGalaxies) return Object.freeze(results);
+    }
+
+    // Sample concentric square rings with stride
+    for (let r = 1; r <= spanCells; r += stride) {
+      for (let dx = -r; dx <= r; dx += stride) {
+        for (let dy = -r; dy <= r; dy += stride) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+
+          const targetCell: BigInt3 = {
+            x: centerCell.x + BigInt(dx),
+            y: centerCell.y + BigInt(dy),
+            z: centerCell.z,
+          };
+
+          const cellGalaxies = this.discoverCell(targetCell);
+          if (cellGalaxies.length > 0) {
+            results.push(cellGalaxies[0]);
+            if (results.length >= maxGalaxies) {
+              return Object.freeze(results);
+            }
+          }
+        }
+      }
+    }
+
+    return Object.freeze(results);
+  }
+
+  /**
    * Resolves a galaxy descriptor by canonical or procedural identifier.
    *
    * Pure deterministic resolution: does not require prior spatial exploration.
+   * Rejects forged procedural aliases for canonical astronomical entities.
    */
   findGalaxyById(id: string): ProceduralGalaxyDescriptor | undefined {
-    const parsed = parseGalaxyId(id);
+    const cleanId = id.startsWith('galaxy/') ? decodeURIComponent(id.slice(7)) : id;
+    const parsed = parseGalaxyId(cleanId);
     if (!parsed) return undefined;
 
     // Fast check: is it in the cell cache already?
     const cellKey = cosmologicalCellKey(parsed.cell);
     const cached = this.cellCache.get(cellKey);
+    let candidate: ProceduralGalaxyDescriptor | undefined;
+
     if (cached) {
-      const found = cached.find((g) => g.id === id || (g.indexInCell === parsed.index));
-      if (found) return found;
+      candidate = cached.find((g) => g.indexInCell === parsed.index);
     }
 
-    // Check if the index is within the deterministic population of the cell
-    if (!this.generator.isGalaxyIndexPopulated(this.universeSeed, parsed.cell, parsed.index)) {
-      return undefined;
+    if (!candidate) {
+      // Check if the index is within the deterministic population of the cell
+      if (!this.generator.isGalaxyIndexPopulated(this.universeSeed, parsed.cell, parsed.index)) {
+        return undefined;
+      }
+      candidate = this.generator.generateGalaxy(this.universeSeed, parsed.cell, parsed.index);
     }
 
-    // Generate directly
-    const desc = this.generator.generateGalaxy(this.universeSeed, parsed.cell, parsed.index);
-    return desc;
+    if (!candidate) return undefined;
+
+    // Reject forged / inconsistent procedural aliases for canonical entities
+    // E.g. cleanId = 'galaxy_c0_0_0_0' vs candidate.id = 'milky_way'
+    if (candidate.id === cleanId) return candidate;
+    if (cleanId === 'lmc' && candidate.id === 'large_magellanic_cloud') return candidate;
+    if (cleanId === 'smc' && candidate.id === 'small_magellanic_cloud') return candidate;
+
+    return undefined;
   }
 
   /**
@@ -331,44 +407,5 @@ export class ProceduralGalaxyDiscovery implements ManagedSubsystem {
     }
 
     return Object.freeze([...canonicalResults, ...proceduralMatches].slice(0, limit));
-  }
-
-  /* ======================================================================== */
-  /* ManagedSubsystem Protocol (GlobalStreamingScheduler integration)          */
-  /* ======================================================================== */
-
-  covers(context: StreamingContext): boolean {
-    return context.cosmological !== undefined;
-  }
-
-  plan(context: StreamingContext): readonly ManagedDemand[] {
-    if (!context.cosmological) return [];
-    const cell = context.cosmological.cell;
-    const key = cosmologicalCellKey(cell);
-    if (!this.cellCache.has(key)) {
-      return [
-        {
-          id: `galaxy-cell/${key}`,
-          pending: 1,
-          estimatedMs: 0.2,
-          critical: true,
-        },
-      ];
-    }
-    return [];
-  }
-
-  advance(budgetMs: number): void {
-    this.grantedWorkMs = budgetMs;
-    // Cell generation is light and synchronous; no unmonitored async spikes.
-    this.pendingWorkCount = 0;
-  }
-
-  stats(): ManagedStats {
-    return {
-      id: this.id,
-      pending: this.pendingWorkCount,
-      grantedMs: this.grantedWorkMs,
-    };
   }
 }

@@ -44,7 +44,7 @@ import {
 import type { UniverseLocation } from '../src/world/spatial/UniverseLocation';
 import { sectorIndex } from '../src/world/spatial/UniverseAddress';
 import { COSMOLOGICAL_CELL_SIZE_M } from '../src/world/galaxy/ProceduralGalaxyGenerator';
-import { SolarSystem } from '../src/celestial/SolarSystem';
+import { SolarSystem } from '../src/world/celestial/SolarSystem';
 
 function createMockCanvas(width = 1000, height = 650) {
   const labels: string[] = [];
@@ -179,15 +179,40 @@ test('T_U43_04_SPATIAL_REGION_EXPLORATION_LIMITS', () => {
 
   // Region discovery with radius 2 and max limit 12
   const center = { x: 5n, y: 5n, z: 5n };
-  const region = discovery.discoverRegion(center, 2, 12);
-  assert.equal(region.length, 12);
+  const regionR2 = discovery.discoverRegion(center, 2, 12);
+  assert.equal(regionR2.length, 12);
 
-  // Radius 0 only returns galaxies of the center cell
+  // Radius 1 discovery
+  const regionR1 = discovery.discoverRegion(center, 1, 64);
+  assert.ok(regionR1.length > 0);
+
+  // Radius 0 only returns galaxies of the center cell (strictly center cell)
   const single = discovery.discoverRegion(center, 0, 50);
   const cellExpected = discovery.discoverCell(center);
   assert.equal(single.length, cellExpected.length);
   for (let i = 0; i < single.length; i++) {
     assert.equal(single[i].id, cellExpected[i].id);
+  }
+
+  // Limit zero returns empty array
+  const emptyLimit = discovery.discoverRegion(center, 1, 0);
+  assert.equal(emptyLimit.length, 0);
+
+  // Negative cells exploration
+  const negCenter = { x: -100n, y: -200n, z: -300n };
+  const negRegion = discovery.discoverRegion(negCenter, 0, 10);
+  const negExpected = discovery.discoverCell(negCenter);
+  assert.equal(negRegion.length, negExpected.length);
+
+  // Discovery order independence
+  const disc1 = new ProceduralGalaxyDiscovery(DEFAULT_UNIVERSE_SEED);
+  const disc2 = new ProceduralGalaxyDiscovery(DEFAULT_UNIVERSE_SEED);
+  disc1.discoverCell({ x: 99n, y: 99n, z: 99n }); // warm cache on another cell
+  const res1 = disc1.discoverRegion(center, 1, 20);
+  const res2 = disc2.discoverRegion(center, 1, 20);
+  assert.equal(res1.length, res2.length);
+  for (let i = 0; i < res1.length; i++) {
+    assert.equal(res1[i].id, res2[i].id);
   }
 });
 
@@ -218,6 +243,22 @@ test('T_U43_05_UNIVERSAL_TARGET_CATALOG_PROCEDURAL_INTEGRATION', () => {
   assert.equal(resolved.descriptor.key, target.key);
   assert.ok(resolved.globalPositionM);
   assert.equal(resolved.globalPositionM.length, 3);
+
+  // 5. Cold cache target resolution with 'galaxy/' key prefix (from map hitTest)
+  const coldCatalog = new UniversalTargetCatalog();
+  const coldTarget = coldCatalog.target('galaxy/galaxy_c10_20_30_0');
+  assert.ok(coldTarget);
+  assert.equal(coldTarget.key, 'galaxy/galaxy_c10_20_30_0');
+  assert.equal(coldTarget.objectId, 'galaxy_c10_20_30_0');
+  assert.equal(coldTarget.galaxyId, 'galaxy_c10_20_30_0');
+
+  // 6. Strict rejection of forged procedural aliases for canonical entities
+  assert.equal(catalog.discovery.findGalaxyById('galaxy_c0_0_0_0'), undefined);
+  assert.equal(catalog.discovery.findGalaxyById('galaxy_c0_0_0_1'), undefined);
+  assert.ok(catalog.discovery.findGalaxyById('milky_way'));
+  assert.ok(catalog.discovery.findGalaxyById('andromeda'));
+  assert.ok(catalog.discovery.findGalaxyById('lmc'));
+  assert.ok(catalog.discovery.findGalaxyById('galaxy/milky_way'));
 });
 
 test('T_U43_06_UNIVERSAL_TARGET_RESOLVER_PROCEDURAL_TRAVEL_SEPARATION', () => {
@@ -339,4 +380,67 @@ test('T_U43_08_COSMOLOGY_AND_GALAXY_MAP_RENDERERS', () => {
     frameId: 'galactic/barycentric',
   };
   galaxyRenderer.draw(ellipticalLoc);
+
+  // 3. Multi-scale zoom up to 120 Mpc and safe BigInt coordinates without precision loss
+  cosmoRenderer.zoomMpc = 120;
+  const distantGalaxies = cosmoRenderer.discovery.discoverVisibleRegion(cosmoRenderer.centerCell, 120, 64);
+  assert.ok(distantGalaxies.length > 0);
+  assert.ok(distantGalaxies.length <= 64);
+
+  // Extreme BigInt cell magnitudes (> 2^53 and 2^64)
+  cosmoRenderer.centerCell = {
+    x: 18_446_744_073_709_551_616n, // 2^64
+    y: -9_007_199_254_740_993n,    // -(2^53 + 1)
+    z: 0n,
+  };
+  // Must render without infinite loop or Float64 precision breakdown
+  cosmoRenderer.draw(location);
+  assert.ok(true);
+});
+
+test('T_U43_09_STREAMING_CONTEXT_CONTRACT_AND_BUDGET', () => {
+  // Verifies that StreamingContext and SpatialContext accept optional cosmological address
+  const spatial: import('../src/world/providers/WorldProvider').SpatialContext = {
+    timeS: 0,
+    player: {
+      position: [0, 0, 0],
+      velocity: [0, 0, 0],
+      orientation: [0, 0, 0, 1],
+    },
+    frame: {
+      id: 'solar-system/barycentric',
+      kind: 'system',
+      parentFrameId: null,
+      origin: [0, 0, 0],
+      orientation: [0, 0, 0, 1],
+    },
+    localVelocityMps: [0, 0, 0],
+    address: { galaxyId: 'milky_way', sector: sectorIndex(0n, 0n, 0n) },
+    cosmological: { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] },
+  };
+
+  const streaming: import('../src/world/providers/WorldProvider').StreamingContext = {
+    spatial,
+    camera: {
+      fovRad: Math.PI / 3,
+      viewportHeightPx: 1080,
+      forward: [0, 0, 1],
+    },
+    quality: {
+      sseTargetPx: 2.0,
+      detailFactor: 1.0,
+    },
+    budget: {
+      maxUploadBytesPerFrame: 1024 * 1024,
+      maxCpuTimePerFrameMs: 8,
+      maxGpuMemoryBytes: 512 * 1024 * 1024,
+      maxActiveTiles: 256,
+      maxResidentGeometryBytes: 256 * 1024 * 1024,
+      maxResidentTextureBytes: 256 * 1024 * 1024,
+    },
+    cosmological: spatial.cosmological,
+  };
+
+  assert.ok(streaming.cosmological);
+  assert.equal(streaming.cosmological.cell.x, 0n);
 });

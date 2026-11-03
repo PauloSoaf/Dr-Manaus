@@ -8,7 +8,7 @@ import { sectorIndex, sectorKey, sectorSeed, type UniverseAddress, type SectorIn
 import { PARSEC_M, type Vec3 } from '../spatial/units';
 import { createUniversalTarget, isUniverseAddress, universalTargetKey, type UniversalTargetDescriptor, type UniversalNavigationTarget, type TargetSource } from './UniversalNavigationTarget';
 import { ProceduralGalaxyDiscovery } from '../galaxy/ProceduralGalaxyDiscovery';
-import { cosmologicalPositionM } from '../galaxy/ProceduralGalaxyGenerator';
+import { cosmologicalPositionM, isCellInFloatDomain } from '../galaxy/ProceduralGalaxyGenerator';
 
 export const SOLAR_TARGET_ADDRESS: UniverseAddress = Object.freeze({ galaxyId:'milky_way', sector:Object.freeze(sectorIndex(0n,0n,0n)), systemId:'sol' });
 const names: Readonly<Record<string,string>> = { sun:'Sol', mercury:'Mercúrio', venus:'Vênus', earth:'Terra', moon:'Lua', mars:'Marte', jupiter:'Júpiter', saturn:'Saturno', uranus:'Urano', neptune:'Netuno' };
@@ -53,13 +53,21 @@ export class UniversalTargetCatalog {
   }
   get descriptors(): readonly UniversalTargetDescriptor[] { return [...this.entries.values()].map(e=>e.descriptor); }
   find(query: string): UniversalTargetDescriptor | undefined {
+    const rawId = query.startsWith('galaxy/') ? decodeURIComponent(query.slice(7)) : query;
     const direct = this.entries.get(query)?.descriptor
+      ?? this.entries.get(rawId)?.descriptor
       ?? this.proceduralGalaxies.get(query)?.descriptor
-      ?? this.descriptors.find(d=>d.objectId===query || d.displayName.toLowerCase()===query.toLowerCase());
+      ?? this.proceduralGalaxies.get(rawId)?.descriptor
+      ?? this.descriptors.find(d =>
+        d.objectId === query ||
+        d.objectId === rawId ||
+        d.displayName.toLowerCase() === query.toLowerCase() ||
+        d.displayName.toLowerCase() === rawId.toLowerCase()
+      );
     if (direct) return direct;
 
     // Check procedural galaxy resolution via discovery
-    const galaxyDesc = this.discovery.findGalaxyById(query);
+    const galaxyDesc = this.discovery.findGalaxyById(rawId);
     if (galaxyDesc) {
       const target = createUniversalTarget({
         kind: 'galaxy',
@@ -67,17 +75,18 @@ export class UniversalTargetCatalog {
         objectId: galaxyDesc.id,
         galaxyId: galaxyDesc.id,
       });
-      const pos = cosmologicalPositionM(galaxyDesc.cosmologicalAddress);
+      const pos = isCellInFloatDomain(galaxyDesc.cell) ? cosmologicalPositionM(galaxyDesc.cosmologicalAddress) : undefined;
       const entry: CatalogTarget = { descriptor: target, globalPositionM: pos };
       this.proceduralGalaxies.set(target.key, entry);
-      if (this.proceduralGalaxies.size > 128) {
+      this.proceduralGalaxies.set(galaxyDesc.id, entry);
+      if (this.proceduralGalaxies.size > 256) {
         this.proceduralGalaxies.delete(this.proceduralGalaxies.keys().next().value!);
       }
       return target;
     }
 
     // Search query fallback in discovery (designation or coords)
-    const matches = this.discovery.search(query);
+    const matches = this.discovery.search(rawId);
     if (matches.length > 0) {
       const match = matches[0];
       const target = createUniversalTarget({
@@ -86,9 +95,10 @@ export class UniversalTargetCatalog {
         objectId: match.id,
         galaxyId: match.id,
       });
-      const pos = cosmologicalPositionM(match.cosmologicalAddress);
+      const pos = isCellInFloatDomain(match.cell) ? cosmologicalPositionM(match.cosmologicalAddress) : undefined;
       const entry: CatalogTarget = { descriptor: target, globalPositionM: pos };
       this.proceduralGalaxies.set(target.key, entry);
+      this.proceduralGalaxies.set(match.id, entry);
       return target;
     }
 
@@ -144,9 +154,10 @@ export class UniversalTargetCatalog {
             galaxyId: desc.id,
           });
           if (canonical.key !== t.key) return;
-          const pos = cosmologicalPositionM(desc.cosmologicalAddress);
+          const pos = isCellInFloatDomain(desc.cell) ? cosmologicalPositionM(desc.cosmologicalAddress) : undefined;
           const resolved: CatalogTarget = { descriptor: canonical, globalPositionM: pos };
           this.proceduralGalaxies.set(canonical.key, resolved);
+          this.proceduralGalaxies.set(desc.id, resolved);
           return resolved;
         }
       }
