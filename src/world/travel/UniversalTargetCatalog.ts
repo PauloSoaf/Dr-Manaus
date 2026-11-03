@@ -7,6 +7,8 @@ import { generateSystem, type ProceduralSystem } from '../celestial/SystemGenera
 import { sectorIndex, sectorKey, sectorSeed, type UniverseAddress, type SectorIndex } from '../spatial/UniverseAddress';
 import { PARSEC_M, type Vec3 } from '../spatial/units';
 import { createUniversalTarget, isUniverseAddress, universalTargetKey, type UniversalTargetDescriptor, type UniversalNavigationTarget, type TargetSource } from './UniversalNavigationTarget';
+import { ProceduralGalaxyDiscovery } from '../galaxy/ProceduralGalaxyDiscovery';
+import { cosmologicalPositionM } from '../galaxy/ProceduralGalaxyGenerator';
 
 export const SOLAR_TARGET_ADDRESS: UniverseAddress = Object.freeze({ galaxyId:'milky_way', sector:Object.freeze(sectorIndex(0n,0n,0n)), systemId:'sol' });
 const names: Readonly<Record<string,string>> = { sun:'Sol', mercury:'Mercúrio', venus:'Vênus', earth:'Terra', moon:'Lua', mars:'Marte', jupiter:'Júpiter', saturn:'Saturno', uranus:'Urano', neptune:'Netuno' };
@@ -15,15 +17,18 @@ export interface ProceduralTargetDescriptor { readonly star: GeneratedStar; read
 
 /** Descriptor authority, independent of provider allocation. No render objects or player mutations. */
 export class UniversalTargetCatalog {
+  readonly discovery: ProceduralGalaxyDiscovery;
   private readonly entries = new Map<string,CatalogTarget>();
   private readonly procedural = new Map<string,ProceduralTargetDescriptor>();
+  private readonly proceduralGalaxies = new Map<string,CatalogTarget>();
   private readonly sectors = new Map<string,readonly GeneratedStar[]>();
-  constructor(solar: CelestialSystemRuntime = new SolarSystem()) {
+  constructor(solar: CelestialSystemRuntime = new SolarSystem(), discovery?: ProceduralGalaxyDiscovery) {
+    this.discovery = discovery ?? new ProceduralGalaxyDiscovery();
     this.add({kind:'system',displayName:'Sol · Sistema Solar',objectId:'sol',galaxyId:'milky_way',systemId:'sol',address:SOLAR_TARGET_ADDRESS});
     for (const body of solar.bodies) this.add({ kind:'body', displayName:names[body.id]??body.name, objectId:body.id,
       galaxyId:'milky_way', systemId:'sol', bodyId:body.id, address:{...SOLAR_TARGET_ADDRESS,bodyId:body.id} });
     for (const galaxy of LOCAL_GROUP_CATALOG) {
-      this.add({ kind:'galaxy', displayName:galaxy.id==='milky_way'?'Milky Way':'Andromeda', objectId:galaxy.id, galaxyId:galaxy.id }, galaxy.positionM);
+      this.add({ kind:'galaxy', displayName:galaxy.name ?? (galaxy.id==='milky_way'?'Milky Way':'Andromeda'), objectId:galaxy.id, galaxyId:galaxy.id }, galaxy.positionM);
       const bh = galaxy.centralBlackHole;
       if (bh) this.add({ kind:'black-hole', displayName:bh.id==='sgra'?'Sagittarius A*':'M31 SMBH', objectId:bh.id, galaxyId:galaxy.id,
         address:{galaxyId:galaxy.id,sector:sectorIndex(0n,0n,0n)} },bh.positionM);
@@ -48,7 +53,46 @@ export class UniversalTargetCatalog {
   }
   get descriptors(): readonly UniversalTargetDescriptor[] { return [...this.entries.values()].map(e=>e.descriptor); }
   find(query: string): UniversalTargetDescriptor | undefined {
-    return this.entries.get(query)?.descriptor ?? this.descriptors.find(d=>d.objectId===query || d.displayName.toLowerCase()===query.toLowerCase());
+    const direct = this.entries.get(query)?.descriptor
+      ?? this.proceduralGalaxies.get(query)?.descriptor
+      ?? this.descriptors.find(d=>d.objectId===query || d.displayName.toLowerCase()===query.toLowerCase());
+    if (direct) return direct;
+
+    // Check procedural galaxy resolution via discovery
+    const galaxyDesc = this.discovery.findGalaxyById(query);
+    if (galaxyDesc) {
+      const target = createUniversalTarget({
+        kind: 'galaxy',
+        displayName: galaxyDesc.name,
+        objectId: galaxyDesc.id,
+        galaxyId: galaxyDesc.id,
+      });
+      const pos = cosmologicalPositionM(galaxyDesc.cosmologicalAddress);
+      const entry: CatalogTarget = { descriptor: target, globalPositionM: pos };
+      this.proceduralGalaxies.set(target.key, entry);
+      if (this.proceduralGalaxies.size > 128) {
+        this.proceduralGalaxies.delete(this.proceduralGalaxies.keys().next().value!);
+      }
+      return target;
+    }
+
+    // Search query fallback in discovery (designation or coords)
+    const matches = this.discovery.search(query);
+    if (matches.length > 0) {
+      const match = matches[0];
+      const target = createUniversalTarget({
+        kind: 'galaxy',
+        displayName: match.name,
+        objectId: match.id,
+        galaxyId: match.id,
+      });
+      const pos = cosmologicalPositionM(match.cosmologicalAddress);
+      const entry: CatalogTarget = { descriptor: target, globalPositionM: pos };
+      this.proceduralGalaxies.set(target.key, entry);
+      return target;
+    }
+
+    return undefined;
   }
   target(query: string, source: TargetSource = 'hud', timeS = 0): UniversalNavigationTarget | undefined {
     const descriptor = this.find(query);
@@ -78,7 +122,7 @@ export class UniversalTargetCatalog {
   resolve(t: UniversalNavigationTarget): CatalogTarget | undefined {
     try {
       if(universalTargetKey(t)!==t.key)return;
-      const entry=this.entries.get(t.key);
+      const entry=this.entries.get(t.key) ?? this.proceduralGalaxies.get(t.key);
       if(entry){
         // A valid key alone cannot authorize a forged location under a curated identity.
         const expected=createUniversalTarget(entry.descriptor).address, actual=createUniversalTarget(t).address;
@@ -90,6 +134,22 @@ export class UniversalTargetCatalog {
         }
         return entry;
       }
+      if (t.kind === 'galaxy' && t.galaxyId) {
+        const desc = this.discovery.findGalaxyById(t.galaxyId);
+        if (desc) {
+          const canonical = createUniversalTarget({
+            kind: 'galaxy',
+            displayName: desc.name,
+            objectId: desc.id,
+            galaxyId: desc.id,
+          });
+          if (canonical.key !== t.key) return;
+          const pos = cosmologicalPositionM(desc.cosmologicalAddress);
+          const resolved: CatalogTarget = { descriptor: canonical, globalPositionM: pos };
+          this.proceduralGalaxies.set(canonical.key, resolved);
+          return resolved;
+        }
+      }
       const a=t.address;if(!a || !isUniverseAddress(a) || !a.systemId || !['body','star','system'].includes(t.kind))return;
       const canonical=this.proceduralTarget(a.galaxyId,a.sector,a.systemId,t.kind as 'body'|'star'|'system',a.bodyId);
       if(canonical?.key!==t.key)return;
@@ -98,3 +158,4 @@ export class UniversalTargetCatalog {
     } catch { return; }
   }
 }
+

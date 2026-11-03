@@ -1,6 +1,27 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.2.1 Correção do CI, Hardening de Materiais TSL e Alocação Sob Demanda de Galáxias (2026-11-02)
+## Current checkpoint — U4.3 Streaming Espacial e Mapa Universal Procedural (2026-11-03)
+
+Baseline at `9fab30fcd114170d4ac3754cadc13dbab9166730` (U4.2.3 aprovado integralmente no GitHub Actions Run 41577361396 com 638/638 regressões, 1.506/1.506 testes gerais e build de produção Vite aprovado). Implementados os sistemas de streaming espacial determinístico, catálogo universal procedural e renderização interativa do mapa cósmico:
+1. `ProceduralGalaxyDiscovery.ts`: streaming determinístico de galáxias particionadas em células cosmológicas de 2.0 Mpc (`BigInt3`), com cache LRU limitado (`maxCachedCells = 128`), suporte a coordenadas arbitrariamente grandes (> 2^53) e negativas, exploração esférica radial concêntrica (`discoverRegion`) com teto orçamentário (`maxGalaxies = 64`), e integração `ManagedSubsystem` para compatibilidade com `GlobalStreamingScheduler`.
+2. `UniversalTargetCatalog.ts`: integração da descoberta procedural, permitindo busca e resolução determinística de alvos galácticos (`kind: 'galaxy'`, `objectId: id`, `galaxyId: id`) com chave estável `galaxy/...`, resolução de posições globais métricas dentro do domínio Float64 e cache LRU dedicado, preservando estritamente todas as entidades canônicas do Grupo Local (Via Láctea, Andrômeda, Triângulo, LMC, SMC) e alvos solares.
+3. `UniversalTargetResolver.ts`: separação estrita de autoridade de trânsito (U4.3 seleção vs. U4.4 viagem). Galáxias procedurais são resolvidas com `domain: 'cosmological'` e `travelCapability: 'cosmological-future'` com rótulo descritivo na UI (*"Navegação intergaláctica procedural disponível em U4.4"*), enquanto alvos canônicos existentes mantêm hipercruzeiro intergaláctico ativo. Cálculo preciso de distância relativa intercelular.
+4. `MapRenderers.ts`:
+   - `CosmologyMapRenderer`: substituição de pontos estáticos por mapa cosmológico funcional com grade de células de 2 Mpc, identificadores de células, ícones diferenciados por morfologia (espiral, espiral barrada, elíptica com excentricidade real, lenticular e irregular), destaque de entidades canônicas e galáxia do jogador, zoom multiescala (4 a 120 Mpc) e translação espacial contínua (pan) com rebaseamento de células centrais, e teste de impacto (`hitTest`) para seleção direta no canvas.
+   - `GalaxyMapRenderer`: adaptação dinâmica da renderização visual esquemática da galáxia aos parâmetros morfológicos reais (número de braços, pitch angle, barra central orientada, classe espectral e contornos esferoidais em elípticas).
+5. `UniversalMapPanel.ts`: zoom com roda do mouse e drag-to-pan no nível cósmico, integração do campo de busca para identificadores procedurais, coordenadas de células (`c:x,y,z`) e designações (`DM-PG ...`), e ficha detalhada de alvo de navegação com morfologia, diâmetro, população estelar estimada e coordenadas cosmológicas.
+6. 8 novos testes de unidade adicionados em `tests/procedural-galaxy-map.test.ts`. U4.4 (trânsito contínuo e handoff de chegada a galáxias procedurais) e BH0-BH2 permanecem bloqueados.
+Evidence: [40-status-U4.3-PROCEDURAL-COSMIC-MAP.md](40-status-U4.3-PROCEDURAL-COSMIC-MAP.md).
+
+## Previous checkpoint — U4.2.3 Estabilização do CI e Validação Morfológica (2026-11-03)
+
+Baseline at `4d6823424e3e2a79d1d9b1ff435392691d7c950c` (U4.2.2). Resolução das falhas estatísticas e de cache:
+1. `T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION`: asserção corrigida para refletir a concentração planar no disco galáctico (>= 90% em |Y| <= 0.25, RMS vertical < 0.15) permitindo a presença física do halo esferoidal externo.
+2. `T_U421_01_CACHE_IDENTITY_COLLISION_RESISTANCE_AND_LRU`: distinção entre a Via Láctea canônica na célula (0,0,0) (semente fixa imutável 0x4d494c4b59574159n) e células procedurais, comprovando diferenciação por semente, parâmetros morfológicos e evicção LRU.
+Aprovado integralmente no GitHub Actions Run 41577361396: Typecheck SUCCESS; 638/638 regressões permanentes; 1.506/1.506 testes gerais; build de produção Vite SUCCESS. Publicado no commit `9fab30fcd114170d4ac3754cadc13dbab9166730`.
+Evidence: [39-status-U4.2-GPU-GALAXY-RENDERING.md](39-status-U4.2-GPU-GALAXY-RENDERING.md).
+
+## Previous checkpoint — U4.2.1 Correção do CI, Hardening de Materiais TSL e Alocação Sob Demanda de Galáxias (2026-11-02)
 
 Baseline at `b2f52dd44a32662759902e3aee5255a7b6174156` (U4.2, CI falhou em TS2322). Implementadas as correções de integridade arquitetural e de tipos para renderização visual GPU:
 1. Resolução definitiva do TS2322 em `GalaxyMorphologyRenderer.ts` encapsulando cores com TSL `color(...)` em nós nodais.
