@@ -18,8 +18,9 @@ export function clearGalaxyEntryCache(): void {
 /** Check cached entry status in O(1) without triggering sector or star generation. */
 export function peekProceduralGalaxyEntry(galaxyId: string, seed: bigint): boolean | undefined {
   const key = entryCacheKey(seed, galaxyId);
-  if (!resolvedEntryCache.has(key)) return undefined;
-  return resolvedEntryCache.get(key) !== null;
+  const cached = resolvedEntryCache.get(key);
+  if (cached === undefined) return undefined;
+  return cached !== null;
 }
 
 /** Stable production entry: a populated disc system about 20 kly from M31. */
@@ -42,8 +43,9 @@ export function andromedaEntryDescriptor(catalog = new UniversalTargetCatalog())
 export function hasProceduralGalaxyEntry(galaxyId: string, catalog = new UniversalTargetCatalog()): boolean {
   const seed = catalog.discovery.universeSeed;
   const key = entryCacheKey(seed, galaxyId);
-  if (resolvedEntryCache.has(key)) {
-    return resolvedEntryCache.get(key) !== null;
+  const cached = resolvedEntryCache.get(key);
+  if (cached !== undefined) {
+    return cached !== null;
   }
   try {
     return !!proceduralGalaxyEntryDescriptor(galaxyId, catalog);
@@ -58,11 +60,11 @@ export function proceduralGalaxyEntryDescriptor(galaxyId: string, catalog = new 
   setProceduralUniverseSeed(seed);
 
   const key = entryCacheKey(seed, galaxyId);
-  if (resolvedEntryCache.has(key)) {
-    const cached = resolvedEntryCache.get(key);
-    if (cached === null) {
-      throw Error(`No populated and landable entry system in procedural galaxy ${galaxyId}`);
-    }
+  const cached = resolvedEntryCache.get(key);
+  if (cached === null) {
+    throw Error(`No populated and landable entry system in procedural galaxy ${galaxyId}`);
+  }
+  if (cached !== undefined) {
     return cached;
   }
 

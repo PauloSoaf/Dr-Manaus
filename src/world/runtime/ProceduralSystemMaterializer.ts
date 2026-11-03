@@ -49,16 +49,17 @@ export class ProceduralSystemMaterializer {
 
   prepare(target: UniversalNavigationTarget): PreparedSystemSession {
     const start=performance.now(),a=target.address;
-    if(!a || !isUniverseAddress(a) || !knownGalaxyRuntime(a.galaxyId) || !a.systemId
+    const uSeed = this.catalog.discovery.universeSeed;
+    if(!a || !isUniverseAddress(a) || !knownGalaxyRuntime(a.galaxyId, uSeed) || !a.systemId
       || !['star','system','body'].includes(target.kind) || !this.catalog.resolve(target))
       throw new Error('TEST: endereço procedural de galáxia conhecida requerido');
-    const galaxyResources=this.galaxies?.prepare(a.galaxyId);
+    const galaxyResources=this.galaxies?.prepare(a.galaxyId, uSeed);
     try {
     const systemStart=performance.now();
     const descriptor=this.catalog.proceduralDescriptor(a.galaxyId,a.sector,a.systemId);
     if(!descriptor)throw new Error('Sistema procedural desconhecido');
     this.timings.descriptor=performance.now()-systemStart;
-    const t=performance.now(),runtime=new ProceduralSystemRuntime(descriptor.system,this.universe.time);
+    const t=performance.now(),runtime=new ProceduralSystemRuntime(descriptor.system,this.universe.time,uSeed);
     this.timings.runtime=performance.now()-t;
     const profileStart=performance.now();
     this.checkpoint('profiles');
@@ -110,13 +111,13 @@ export class ProceduralSystemMaterializer {
       session.resources.install();
       session.runtime.registerFrames(u.frames);
       committed=true;
-      u.installSystem(session.runtime,session.descriptor.address,session.arrivalM);
+      u.installSystem(session.runtime,session.descriptor.address,session.arrivalM,this.catalog.discovery.universeSeed);
       session.resources.activate();
     } catch(error) {
       session.dispose();
       for(const [id,frame] of previous) {if(frame)u.frames.register(frame);else u.frames.remove(id);}
       if(committed){
-        u.restoreSystem(snapshot.runtime,snapshot.address,snapshot.pose,snapshot.velocity);
+        u.restoreSystem(snapshot.runtime,snapshot.address,snapshot.pose,snapshot.velocity,this.catalog.discovery.universeSeed);
         if(travelFrame)u.frames.register(travelFrame);
         u.renderSpace.setOrigin(renderOrigin);
         (old?.resources??this.solarResources).activate();

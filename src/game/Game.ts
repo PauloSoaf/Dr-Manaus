@@ -1151,7 +1151,7 @@ export class Game {
 
     try {
       const isAndromeda = targetGalaxyId === 'andromeda';
-      const targetRuntime = knownGalaxyRuntime(targetGalaxyId);
+      const targetRuntime = knownGalaxyRuntime(targetGalaxyId, this.universalTargetCatalog.discovery.universeSeed);
       if (!targetRuntime) return false;
 
       const newPos: [number, number, number] = isAndromeda

@@ -1,24 +1,26 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.4.4 Hardening de Performance e Integridade da Viagem (2026-11-03)
+## Current checkpoint — U4.4.5 Correção do CI e da Identidade Multissemente (2026-11-03)
 
-Baseline auditado do U4.4.3 no commit `cc07b1c04b97d665c353b8c8d58513986494d6ca` aprovado integralmente no CI oficial (GitHub Actions Run 41662450492: Typecheck SUCCESS, 638/638 regressões permanentes, 1.533/1.533 testes gerais, build Vite em 1,28s). O patch U4.4.4 implementa o hardening definitivo de performance no loop de HUD/renderização e isolamento estrito de contexto multissemente:
-1. `UniversalTargetResolver.ts`:
-   - Eliminação da busca síncrona de até 13 setores estelares no loop de renderização/HUD a cada frame (`validate()` / `resolve()`).
-   - Resolução de capacidade de viagem agora utiliza consulta $O(1)$ sem geração (`peekProceduralGalaxyEntry(galaxyId, seed)`), separando a apresentação leve da preparação efetiva da rota em `createTravelPlan()`.
-2. `GalaxyEntryResolver.ts`:
-   - Contrato de identidade do cache de entrada corrigido: indexado por `${seed.toString(16)}:${galaxyId}`.
-   - Implementado cache negativo: galáxias confirmadas sem sistema de entrada válido nos setores candidatos determinísticos são memorizadas como `null`, prevenindo repetição de varredura estelar a cada frame.
-   - Sincronização explícita de semente do catálogo antes de qualquer consulta ao cache ou geração de setores.
-3. `GalaxyCoordinates.ts`, `GalaxyRuntime.ts`, `StarSector.ts` e `UniversalTravelPlan.ts`:
-   - Parametrização explícita de `universeSeed`: definições procedurais e runtimes são indexados por `${seed.toString(16)}:${id}`, permitindo que instâncias distintas de catálogo com diferentes sementes coexistam sem colisões, invalidações concorrentes ou corrupção do universo ativo durante uma viagem.
-   - Galáxias canônicas (Via Láctea, Andrômeda) mantêm identidade imutável independente de semente.
+Baseline auditado do U4.4.4 no commit `6beec63c57675eccb0fa270862354885b97a3671` reprovou no CI oficial (GitHub Actions Run `41679047476`: erro TS2322 em `GalaxyEntryResolver.ts`). O patch U4.4.5 corrige o narrowing estrito de tipos, elimina a confusão conceitual entre `universeSeed` e `galaxySeed` e alinha materialização, runtimes e setores estelares:
+1. `GalaxyEntryResolver.ts`:
+   - Correção do erro TS2322 via narrowing defensivo estrito distinguindo explicitamente os 3 estados do cache de entrada: ausente (`undefined`), falha determinística (`null`) e sucesso (`ProceduralTargetDescriptor`).
+2. `GalaxyCoordinates.ts`, `GalaxyRuntime.ts` e `GalaxyDefinition.ts`:
+   - Separação formal e imutável entre a semente universal (`universeSeed`) e a semente derivada da galáxia (`galaxySeed = descriptor.seed`).
+   - `GalaxyDefinition` e `GalaxyRuntime` preservam a propriedade `universeSeed`.
+   - Caches de definições e runtimes indexados consistentemente por `(universeSeed, id)`, eliminando perda de cache e regeneração desnecessária.
+   - `GalaxyRuntime.generateSector()` repassa deterministicamente a semente universal correta para `generateStarSector`, e não a semente derivada.
+3. `StarSectorProvider.ts`, `GalaxyMaterializer.ts`, `ProceduralSystemMaterializer.ts` e `UniverseRuntime.ts`:
+   - Propagação de `universeSeed` por todo o pipeline de streaming, materialização e commit de sistemas: a sessão preparada preserva sua semente e morfologia mesmo se consultas de fundo a catálogos com outras sementes ocorrerem durante o voo.
 4. `tests/procedural-travel.test.ts`:
-   - `T_U44_17`: validação de cache negativo com contadores determinísticos de geração (0 gerações adicionais em 100 frames simulados).
-   - `T_U44_18`: isolamento de instâncias intercaladas de catálogo sob sementes distintas.
-   - `T_U44_19`: validação de 0 gerações estelares na validação contínua de alvos do HUD (120 frames a 60 FPS).
-   - `T_U44_20`: garantia de preservação de identidade do destino preparado durante o voo, mesmo com consultas a sementes estrangeiras em segundo plano.
+   - `T_U44_17`: reformulado com fixture determinística estrita (sem depender de aleatoriedade na população das primeiras galáxias descobertas), verificando busca inicial, cache negativo e 100 queries subsequentes com 0 gerações estelares.
+   - `T_U44_18`: reforçado com asserções de reuso exato de instâncias em cache quente sob a mesma `universeSeed` e isolamento morfológico por setor.
+   - `T_U44_20`: reforçado com verificação de integridade da população estelar e retenção exata da `universeSeed` na chegada.
 Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.4 Hardening de Performance e Integridade da Viagem (2026-11-03)
+
+Baseline auditado do U4.4.3 no commit `cc07b1c04b97d665c353b8c8d58513986494d6ca` aprovado integralmente no CI oficial (GitHub Actions Run 41662450492: Typecheck SUCCESS, 638/638 regressões permanentes, 1.533/1.533 testes gerais, build Vite em 1,28s). O patch U4.4.4 implementou o desacoplamento de busca de setores no loop de HUD/renderização e cache negativo.
 
 ## Previous checkpoint — U4.4.3 Desbloqueio do CI e Integridade de Seeds (2026-11-03)
 

@@ -1,5 +1,6 @@
 import type { UniversalTransitState } from '../travel/UniversalTravelController';
 import { knownGalaxyRuntime, type GalaxyRuntime } from '../galaxy/GalaxyRuntime';
+import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import { SolarSystem, SOLAR_SYSTEM_FRAME } from '../celestial/SolarSystem';
 import { bodyFixedToGeodetic, bodyGeodeticToFixed, EARTH } from '../planet/PlanetBody';
 import { bodyProfile } from '../celestial/CelestialBodyProfile';
@@ -133,8 +134,9 @@ export class UniverseRuntime {
   }
 
   /** Synchronous commit only after a materializer has prepared and installed resources/frames. */
-  installSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, position: Vec3): void {
-    const galaxy=knownGalaxyRuntime(address.galaxyId);if(!galaxy)throw Error('Galáxia desconhecida');
+  installSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, position: Vec3, universeSeed?: bigint): void {
+    const seed = universeSeed ?? (runtime instanceof ProceduralSystemRuntime ? runtime.universeSeed : this.activeGalaxy.universeSeed);
+    const galaxy=knownGalaxyRuntime(address.galaxyId, seed);if(!galaxy)throw Error('Galáxia desconhecida');
     this.activeGalaxy=galaxy;this.activeSystem=runtime;this.address=address;
     this.setPlayerPose(runtime.systemFrameId,position);
     this.playerPose.orientation=[0,0,0,1];
@@ -143,8 +145,9 @@ export class UniverseRuntime {
     this.updateSystemPose([...position],[0,0,0],0);
     this.scheduler.invalidate();
   }
-  restoreSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, saved: SpatialPose, velocity: Vec3): void {
-    const galaxy=knownGalaxyRuntime(address.galaxyId);if(!galaxy)throw Error('Galáxia desconhecida');
+  restoreSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, saved: SpatialPose, velocity: Vec3, universeSeed?: bigint): void {
+    const seed = universeSeed ?? (runtime instanceof ProceduralSystemRuntime ? runtime.universeSeed : this.activeGalaxy.universeSeed);
+    const galaxy=knownGalaxyRuntime(address.galaxyId, seed);if(!galaxy)throw Error('Galáxia desconhecida');
     this.activeGalaxy=galaxy;this.activeSystem=runtime;this.address=address;
     copyPose(this.playerPose,saved);
     for(let i=0;i<3;i++)this.velocity[i]=velocity[i];

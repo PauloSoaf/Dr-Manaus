@@ -40,11 +40,13 @@ export class GalaxyMaterializer {
     }
   }
 
-  prepare(id:string):SystemResources {
+  prepare(id:string, universeSeed?: bigint):SystemResources {
     const old=this.current;
-    if(old?.galaxy.id===id)return {install:()=>{},activate:()=>{this.current=old;this.parent.add(old.root);},dispose:()=>{}};
+    if(old?.galaxy.id===id && (universeSeed===undefined || old.galaxy.universeSeed===universeSeed)) {
+      return {install:()=>{},activate:()=>{this.current=old;this.parent.add(old.root);},dispose:()=>{}};
+    }
     const start=performance.now();this.checkpoint('galaxy');
-    const galaxy=knownGalaxyRuntime(id);if(!galaxy)throw Error('Galáxia desconhecida');
+    const galaxy=knownGalaxyRuntime(id, universeSeed);if(!galaxy)throw Error('Galáxia desconhecida');
     this.timings.runtime=performance.now()-start;
     const root=new Group();root.name='galaxy-session/'+id;
     let sectors:StarSectorProvider|undefined,bh:BlackHoleProvider|undefined;
@@ -58,7 +60,7 @@ export class GalaxyMaterializer {
       sectors?.dispose();bh?.dispose();for(const g of externals)g.dispose();root.removeFromParent();root.clear();
     };
     try {
-      const t=performance.now();this.checkpoint('star-sectors');sectors=new StarSectorProvider(root,{galaxyId:id});
+      const t=performance.now();this.checkpoint('star-sectors');sectors=new StarSectorProvider(root,{galaxyId:id, universeSeed: galaxy.universeSeed ?? universeSeed});
       this.timings.starSectors=performance.now()-t;
       const ext=performance.now();
       for(const def of LOCAL_GROUP_CATALOG) {

@@ -16,9 +16,10 @@ function galaxyDefCacheKey(seed: bigint, id: string): string {
   return `${seed.toString(16)}:${id}`;
 }
 
-export function registerProceduralGalaxyDefinition(def: GalaxyDefinition, seed: bigint = activeUniverseSeed): void {
-  const effectiveSeed = def.proceduralMorphology?.seed ?? seed;
-  proceduralGalaxyDefinitions.set(galaxyDefCacheKey(effectiveSeed, def.id), def);
+export function registerProceduralGalaxyDefinition(def: GalaxyDefinition, universeSeed: bigint = activeUniverseSeed): void {
+  const effectiveUniverseSeed = def.universeSeed ?? universeSeed;
+  def.universeSeed = effectiveUniverseSeed;
+  proceduralGalaxyDefinitions.set(galaxyDefCacheKey(effectiveUniverseSeed, def.id), def);
   if (proceduralGalaxyDefinitions.size > 512) {
     proceduralGalaxyDefinitions.delete(proceduralGalaxyDefinitions.keys().next().value!);
   }
@@ -76,6 +77,7 @@ export function galaxyDefinition(id: string, universeSeed: bigint = activeUniver
 
   const res = gen.tryToGalaxyDefinition(desc);
   if (res.ok) {
+    res.definition.universeSeed = universeSeed;
     registerProceduralGalaxyDefinition(res.definition, universeSeed);
     return res.definition;
   }
@@ -94,6 +96,7 @@ export function galaxyDefinition(id: string, universeSeed: bigint = activeUniver
     densityProfile: 'procedural',
     densityScale: desc.densityScale,
     proceduralMorphology: desc,
+    universeSeed,
   };
   registerProceduralGalaxyDefinition(fallbackDef, universeSeed);
   return fallbackDef;

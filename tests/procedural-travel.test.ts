@@ -518,47 +518,66 @@ test('T_U44_16_CUSTOM_SEED_CONSISTENCY_AND_AUTHORITY', () => {
 
 test('T_U44_17_NEGATIVE_ENTRY_CACHING_PREVENTS_REPEATED_SEARCHES', () => {
   clearGalaxyEntryCache();
-  const discovery = new ProceduralGalaxyDiscovery(0x1234_5678n);
-  const catalog = new UniversalTargetCatalog(undefined, discovery);
-  const galaxies = discovery.discoverRegion({ x: 1n, y: 2n, z: 3n }, 3, 20);
+  clearGalaxyRuntimes();
+  clearProceduralGalaxyDefinitions();
 
-  // Find a galaxy without a landable entry system in deterministic candidates
-  let entrylessGalaxyId: string | undefined;
-  for (const g of galaxies) {
-    if (!hasProceduralGalaxyEntry(g.id, catalog)) {
-      entrylessGalaxyId = g.id;
-      break;
-    }
-  }
-  assert.ok(entrylessGalaxyId, 'Must find at least one entryless galaxy in region');
+  const seedA = 0x1234_5678_9ABn;
+  const seedB = 0x9876_5432_10Fn;
+  const discoveryA = new ProceduralGalaxyDiscovery(seedA);
+  const catalogA = new UniversalTargetCatalog(undefined, discoveryA);
 
-  // Verify negative cache status
-  assert.equal(peekProceduralGalaxyEntry(entrylessGalaxyId, discovery.universeSeed), false);
-
-  // Instrument runtime to count sector generation calls
-  const runtime = knownGalaxyRuntime(entrylessGalaxyId, discovery.universeSeed)!;
-  let generateSectorCalls = 0;
-  const originalGenerate = runtime.generateSector.bind(runtime);
-  runtime.generateSector = (sector, opts) => {
-    generateSectorCalls++;
-    return originalGenerate(sector, opts);
+  // Deterministic fixture: a procedural galaxy defined with no landable stars in candidate sectors
+  const entrylessId = 'galaxy_c999_999_999_0';
+  const entrylessDef: GalaxyDefinition = {
+    id: entrylessId,
+    name: 'Entryless Fixture Galaxy',
+    addressOriginM: [0, 0, 0],
+    type: 'irregular',
+    diameterLy: 50_000,
+    thicknessLy: 1_000,
+    positionM: [1e20, 1e20, 1e20],
+    densityProfile: 'procedural',
+    universeSeed: seedA,
   };
+  registerProceduralGalaxyDefinition(entrylessDef, seedA);
 
-  // Simulate 100 frames of HUD/validation queries on the entryless galaxy
+  const entrylessRuntime = new GalaxyRuntime(entrylessDef, seedA);
+  let generateSectorCalls = 0;
+  // Controlled deterministic sector generator returning 0 candidate stars
+  entrylessRuntime.generateSector = (sector) => {
+    generateSectorCalls++;
+    return { galaxyId: entrylessId, sector, seed: 0n, stars: [] };
+  };
+  registerGalaxyRuntime(entrylessRuntime, seedA);
+
+  // 1. First query performs the initial search over the 13 candidate sectors
+  assert.equal(hasProceduralGalaxyEntry(entrylessId, catalogA), false);
+  assert.equal(generateSectorCalls, 13, 'Initial search must inspect exactly the 13 candidate sectors');
+
+  // 2. Failure is stored in negative cache
+  assert.equal(peekProceduralGalaxyEntry(entrylessId, seedA), false);
+
+  // 3. One hundred subsequent queries do NOT generate any new sectors (0 additional calls)
   for (let i = 0; i < 100; i++) {
-    const result = hasProceduralGalaxyEntry(entrylessGalaxyId, catalog);
+    const result = hasProceduralGalaxyEntry(entrylessId, catalogA);
     assert.equal(result, false);
   }
+  assert.equal(generateSectorCalls, 13, 'Cached negative entry must never trigger new sector generation');
 
-  // Exactly 0 sector generations must occur across all 100 queries due to negative caching
-  assert.equal(generateSectorCalls, 0, 'Cached negative entry must never trigger sector generation');
-
-  // proceduralGalaxyEntryDescriptor throws cached error immediately
+  // proceduralGalaxyEntryDescriptor throws cached error immediately without generating sectors
   assert.throws(
-    () => proceduralGalaxyEntryDescriptor(entrylessGalaxyId!, catalog),
+    () => proceduralGalaxyEntryDescriptor(entrylessId, catalogA),
     /No populated and landable entry system/,
   );
-  assert.equal(generateSectorCalls, 0, 'Direct descriptor resolution on negative-cached galaxy must not generate sectors');
+  assert.equal(generateSectorCalls, 13);
+
+  // 4. A different universe seed has an independent cache (not cached for seedB)
+  assert.equal(peekProceduralGalaxyEntry(entrylessId, seedB), undefined, 'Seed B must have independent cache');
+
+  // 5. Negative cache on entrylessId does not prevent valid galaxies from resolving
+  const validGalaxyId = 'galaxy_c10_20_30_0';
+  assert.equal(hasProceduralGalaxyEntry(validGalaxyId, catalogA), true, 'Valid galaxy must resolve normally');
+  assert.equal(peekProceduralGalaxyEntry(validGalaxyId, seedA), true);
 });
 
 test('T_U44_18_INTERLEAVED_MULTI_SEED_CATALOG_ISOLATION', () => {
@@ -570,30 +589,49 @@ test('T_U44_18_INTERLEAVED_MULTI_SEED_CATALOG_ISOLATION', () => {
   const catalogB = new UniversalTargetCatalog(undefined, discoveryB);
   const testGalaxyId = 'galaxy_c10_20_30_0';
 
-  // Interleaved resolution:
+  // 1. Initial resolution under seed A
   const targetA = catalogA.find(testGalaxyId)!;
+  assert.ok(targetA);
+  const defA1 = galaxyDefinition(testGalaxyId, seedA)!;
+  const runtimeA1 = knownGalaxyRuntime(testGalaxyId, seedA)!;
+  assert.equal(runtimeA1.definition, defA1);
+  assert.equal(runtimeA1.universeSeed, seedA);
+
+  // 2. Resolution under seed B
   const targetB = catalogB.find(testGalaxyId)!;
-  assert.ok(targetA && targetB);
+  assert.ok(targetB);
+  const defB1 = galaxyDefinition(testGalaxyId, seedB)!;
+  const runtimeB1 = knownGalaxyRuntime(testGalaxyId, seedB)!;
+  assert.equal(runtimeB1.definition, defB1);
+  assert.equal(runtimeB1.universeSeed, seedB);
 
-  const defA = galaxyDefinition(testGalaxyId, seedA)!;
-  const defB = galaxyDefinition(testGalaxyId, seedB)!;
-  assert.notEqual(defA.diameterLy, defB.diameterLy, 'Morphology must differ between seeds');
+  // Cross-seed identity validation: different universal seeds produce different morphologies and isolated runtimes
+  assert.notEqual(defA1.diameterLy, defB1.diameterLy, 'Morphology diameter must differ across universe seeds');
+  assert.notEqual(runtimeA1, runtimeB1, 'Runtimes must be isolated by universe seed');
 
-  const runtimeA = knownGalaxyRuntime(testGalaxyId, seedA)!;
-  const runtimeB = knownGalaxyRuntime(testGalaxyId, seedB)!;
-  assert.notEqual(runtimeA, runtimeB, 'Runtimes must be isolated by seed');
-  assert.equal(runtimeA.definition, defA);
-  assert.equal(runtimeB.definition, defB);
+  // 3. Return to seed A: verify warm cache reuses the exact same definition and runtime instances without regeneration
+  const defA2 = galaxyDefinition(testGalaxyId, seedA)!;
+  const runtimeA2 = knownGalaxyRuntime(testGalaxyId, seedA)!;
+  assert.equal(defA2, defA1, 'Cached galaxy definition must be reused identically under same universe seed');
+  assert.equal(runtimeA2, runtimeA1, 'Cached galaxy runtime must be reused identically under same universe seed');
 
-  // Repeated interleaved queries across both catalogs without cross-poisoning
-  for (let i = 0; i < 5; i++) {
-    const qA = catalogA.find(testGalaxyId);
-    const qB = catalogB.find(testGalaxyId);
-    assert.equal(qA?.displayName, targetA.displayName);
-    assert.equal(qB?.displayName, targetB.displayName);
-    assert.equal(knownGalaxyRuntime(testGalaxyId, seedA)?.definition, defA);
-    assert.equal(knownGalaxyRuntime(testGalaxyId, seedB)?.definition, defB);
-  }
+  // 4. Return to seed B: verify warm cache reuses seed B instances
+  const defB2 = galaxyDefinition(testGalaxyId, seedB)!;
+  const runtimeB2 = knownGalaxyRuntime(testGalaxyId, seedB)!;
+  assert.equal(defB2, defB1, 'Cached galaxy definition must be reused identically under same universe seed');
+  assert.equal(runtimeB2, runtimeB1, 'Cached galaxy runtime must be reused identically under same universe seed');
+
+  // 5. Verify sectors generated from each runtime conform to their respective morphology without cross-pollution
+  const sectorZero = sectorIndex(0n, 0n, 0n);
+  const sectorA = runtimeA1.generateSector(sectorZero);
+  const sectorB = runtimeB1.generateSector(sectorZero);
+  assert.equal(sectorA.galaxyId, testGalaxyId);
+  assert.equal(sectorB.galaxyId, testGalaxyId);
+  // Compare with direct generation using explicit universe seeds
+  const expectedSectorA = generateStarSector(testGalaxyId, sectorZero, { universeSeed: seedA });
+  const expectedSectorB = generateStarSector(testGalaxyId, sectorZero, { universeSeed: seedB });
+  assert.equal(sectorA.stars.length, expectedSectorA.stars.length);
+  assert.equal(sectorB.stars.length, expectedSectorB.stars.length);
 });
 
 test('T_U44_19_HUD_PER_FRAME_VALIDATION_ZERO_HEAVY_GENERATION', () => {
@@ -629,25 +667,52 @@ test('T_U44_20_PREPARED_DESTINATION_IDENTITY_PRESERVED_DURING_TRAVEL', () => {
   const procGalaxyId = 'galaxy_c10_20_30_0';
   const target = f.catalog.target(procGalaxyId)!;
   assert.ok(target);
+  const primarySeed = f.catalog.discovery.universeSeed;
 
-  // Start travel: preparation resolves the entry system once and caches it
+  // 1. Start travel: preparation resolves the entry system and builds the travel plan
   assert.equal(f.c.start(target, safety), 'started');
   const plan = f.c.state!.plan;
   const resolvedStarId = plan.resolvedDestination.systemId;
   assert.ok(resolvedStarId);
 
-  // Advance flight partway
+  // Capture prepared destination details and stellar population before background seed disruption
+  const origDef = galaxyDefinition(procGalaxyId, primarySeed)!;
+  const origRuntime = knownGalaxyRuntime(procGalaxyId, primarySeed)!;
+  const origSector = origRuntime.generateSector(plan.resolvedDestination.address!.sector);
+  const origStar = origSector.stars.find(s => s.id === resolvedStarId)!;
+  assert.ok(origStar, 'Prepared star must exist in original sector generation');
+
+  // Advance flight partway into cruise phase
   f.c.update(5);
   assert.equal(f.c.state!.plan.resolvedDestination.systemId, resolvedStarId);
 
-  // Now query a different catalog with a different seed in the background
-  const foreignDiscovery = new ProceduralGalaxyDiscovery(0xDEAD_BEEFn);
+  // 2. Query a foreign catalog with a completely different seed in the background
+  const foreignSeed = 0xDEAD_BEEF_CAFE_0001n;
+  const foreignDiscovery = new ProceduralGalaxyDiscovery(foreignSeed);
   const foreignCatalog = new UniversalTargetCatalog(undefined, foreignDiscovery);
-  foreignCatalog.find('galaxy_c10_20_30_0');
+  foreignCatalog.find(procGalaxyId);
+  const foreignDef = galaxyDefinition(procGalaxyId, foreignSeed)!;
+  assert.notEqual(foreignDef.diameterLy, origDef.diameterLy, 'Foreign catalog must have distinct morphology');
 
-  // Complete the flight: verify travel arrives at the EXACT originally prepared destination
+  // 3. Complete the flight: verify handoff uses the originally prepared session
   finish(f);
   assert.equal(f.u.activeGalaxy.id, procGalaxyId);
+  assert.equal(f.u.activeGalaxy.universeSeed, primarySeed, 'Active galaxy must preserve original universeSeed');
+  assert.equal(f.u.activeGalaxy.definition.diameterLy, origDef.diameterLy, 'Active galaxy must retain original morphology');
   assert.equal(f.u.address.systemId, resolvedStarId);
+
+  // Confirm identity of system and stellar population
+  assert.equal(f.u.activeSystem.bodies[0].id, origStar.id);
+  assert.equal(f.u.activeSystem.bodies[0].massKg > 0, true);
+
+  // 4. Safe return to Sol and verify absence of provider leaks
+  const solTarget = f.catalog.target('sol')!;
+  assert.equal(f.c.start(solTarget, safety), 'started');
+  finish(f);
+  assert.equal(f.u.activeGalaxy.id, 'milky_way');
+  assert.equal(f.u.address.systemId, 'sol');
+
+  const sectorProviders = f.u.providers.all.filter(p => p.id.startsWith('galaxy/star-sectors'));
+  assert.equal(sectorProviders.length, 1, 'Only one star sector provider should remain active after return');
 });
 

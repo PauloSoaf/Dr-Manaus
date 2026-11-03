@@ -24,6 +24,8 @@ export interface GalaxyDefinition {
   centralBlackHole?: BlackHoleDefinition;
   /** Attached for procedural galaxies so GalaxyRuntime evaluates their specific morphology. */
   proceduralMorphology?: ProceduralGalaxyDescriptor;
+  /** The universe seed under which this procedural galaxy definition was generated. */
+  universeSeed?: bigint;
 }
 
 export const LOCAL_GROUP_CATALOG: GalaxyDefinition[] = [
