@@ -26,7 +26,6 @@ import type { UniverseLocation } from '../spatial/UniverseLocation';
 import { galaxyCosmologicalAddress } from '../galaxy/GalaxyCoordinates';
 import { generateStarSector } from '../celestial/StarSector';
 import { generateSystem } from '../celestial/SystemGenerator';
-import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { RenderSpaceService } from '../spatial/RenderSpaceService';
 import { createRenderOrigin } from '../spatial/RenderOrigin';
@@ -246,7 +245,9 @@ export class UniverseRuntime {
     const loc: UniverseLocation = {
       address,mode:'anchored',
       frameId: this.playerPose.frame,
-      cosmological: galaxyCosmologicalAddress(this.activeGalaxy.id) ?? { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] },
+      cosmological: this.activeGalaxy.definition.proceduralMorphology?.cosmologicalAddress
+        ?? galaxyCosmologicalAddress(this.activeGalaxy.id, this.activeGalaxy.universeSeed)
+        ?? { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] },
     };
     
     if (this.playerPose.frame === this.activeSystem.systemFrameId) {

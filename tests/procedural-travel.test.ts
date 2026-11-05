@@ -16,6 +16,7 @@ import {
 import { NavigationTargetState } from '../src/world/travel/NavigationLock';
 import { ProceduralSystemMaterializer, safeSystemArrivalM } from '../src/world/runtime/ProceduralSystemMaterializer';
 import { GalaxyMaterializer } from '../src/world/galaxy/GalaxyMaterializer';
+import { GalaxyProvider } from '../src/world/providers/GalaxyProvider';
 import { knownGalaxyRuntime, registerGalaxyRuntime, clearGalaxyRuntimes } from '../src/world/galaxy/GalaxyRuntime';
 import { galaxyDefinition, addressSeparationM, galaxyCosmologicalAddress, galaxyLocalPositionM, clearProceduralGalaxyDefinitions } from '../src/world/galaxy/GalaxyCoordinates';
 import { generateStarSector, STARS_PER_SECTOR_BASE } from '../src/world/celestial/StarSector';
@@ -715,4 +716,135 @@ test('T_U44_20_PREPARED_DESTINATION_IDENTITY_PRESERVED_DURING_TRAVEL', () => {
   const sectorProviders = f.u.providers.all.filter(p => p.id.startsWith('galaxy/star-sectors'));
   assert.equal(sectorProviders.length, 1, 'Only one star sector provider should remain active after return');
 });
+
+test('T_U44_21_ACTIVE_GALAXY_LOCATION_AFTER_FOREIGN_CATALOG_QUERY', () => {
+  const f = createTestFixture();
+  const seedA = f.catalog.discovery.universeSeed;
+  const procGalaxyId = 'galaxy_c10_20_30_0';
+  const target = f.catalog.target(procGalaxyId)!;
+  assert.ok(target);
+
+  // 1. Travel to procedural galaxy under Seed A
+  assert.equal(f.c.start(target, safety), 'started');
+  finish(f);
+  assert.equal(f.u.activeGalaxy.id, procGalaxyId);
+  assert.equal(f.u.activeGalaxy.universeSeed, seedA);
+
+  const locA = f.u.location;
+  assert.equal(locA.mode, 'anchored');
+  assert.ok(locA.cosmological);
+  const cellA = locA.cosmological.cell;
+  assert.equal(cellA.x, 10n);
+  assert.equal(cellA.y, 20n);
+  assert.equal(cellA.z, 30n);
+  const defA = f.u.activeGalaxy.definition;
+
+  // 2. Query a completely foreign catalog under Seed B in the background
+  const seedB = 0x9999_8888_7777_6666n;
+  const discoveryB = new ProceduralGalaxyDiscovery(seedB);
+  const catalogB = new UniversalTargetCatalog(undefined, discoveryB);
+  const targetB = catalogB.find(procGalaxyId);
+  assert.ok(targetB);
+  const defB = galaxyDefinition(procGalaxyId, seedB)!;
+  assert.notEqual(defB.diameterLy, defA.diameterLy);
+
+  // 3. Verify UniverseRuntime.location and activeGalaxy still report Seed A state
+  const locAfter = f.u.location;
+  assert.equal(locAfter.cosmological.cell.x, 10n);
+  assert.equal(locAfter.cosmological.cell.y, 20n);
+  assert.equal(locAfter.cosmological.cell.z, 30n);
+  assert.deepEqual(locAfter.cosmological.localMpc, locA.cosmological.localMpc);
+  assert.equal(f.u.activeGalaxy.universeSeed, seedA);
+  assert.equal(f.u.activeGalaxy.definition.diameterLy, defA.diameterLy);
+
+  // 4. Return to Sol safely
+  const solTarget = f.catalog.target('sol')!;
+  assert.equal(f.c.start(solTarget, safety), 'started');
+  finish(f);
+  assert.equal(f.u.activeGalaxy.id, 'milky_way');
+  assert.equal(f.u.address.systemId, 'sol');
+});
+
+test('T_U44_22_GALAXY_PROVIDER_PRESENTATION_ORIENTATION_MULTI_SEED', () => {
+  const seedA = 0x1111_2222_3333_4444n;
+  const seedB = 0x5555_6666_7777_8888n;
+  const root = new Group();
+
+  const defAndromeda = LOCAL_GROUP_CATALOG.find(g => g.id === 'andromeda')!;
+  assert.ok(defAndromeda);
+
+  const providerA = new GalaxyProvider(root, { galaxy: defAndromeda, universeSeed: seedA });
+  const providerB = new GalaxyProvider(root, { galaxy: defAndromeda, universeSeed: seedB });
+
+  assert.equal(providerA.universeSeed, seedA);
+  assert.equal(providerB.universeSeed, seedB);
+
+  // Address in procedural galaxy under seed A vs seed B
+  const addressA: import('../src/world/spatial/UniverseAddress').UniverseAddress = {
+    galaxyId: 'galaxy_c10_20_30_0',
+    sector: sectorIndex(0n, 0n, 0n),
+    systemId: 'star_0',
+  };
+
+  const camPos: [number, number, number] = [0, 0, 0];
+  const altitudeM = 50_000_000;
+
+  // Update providerA with seedA context
+  providerA.update(addressA, camPos, altitudeM, [0, 0, 0], (v) => v, undefined, seedA);
+
+  // Update providerB with seedB context
+  providerB.update(addressA, camPos, altitudeM, [0, 0, 0], (v) => v, undefined, seedB);
+
+  // Both providers computed valid positions
+  assert.ok(providerA.group.visible);
+  assert.ok(providerB.group.visible);
+
+  // Clean up
+  providerA.dispose();
+  providerB.dispose();
+});
+
+test('T_U44_23_ROLLBACK_PRESERVES_ORIGIN_UNIVERSE_SEED', () => {
+  const f = createTestFixture();
+  const seedA = f.catalog.discovery.universeSeed;
+  const procGalaxyId = 'galaxy_c10_20_30_0';
+  const targetA = f.catalog.target(procGalaxyId)!;
+  assert.ok(targetA);
+
+  // 1. Travel and install destination under Seed A
+  assert.equal(f.c.start(targetA, safety), 'started');
+  finish(f);
+  assert.equal(f.u.activeGalaxy.id, procGalaxyId);
+  assert.equal(f.u.activeGalaxy.universeSeed, seedA);
+  const originDef = f.u.activeGalaxy.definition;
+  const originSystemId = f.u.address.systemId;
+
+  // 2. Prepare a new travel session under Seed B that will fail during activation
+  const seedB = 0xCAFE_BABE_1234_5678n;
+  const discoveryB = new ProceduralGalaxyDiscovery(seedB);
+  const catalogB = new UniversalTargetCatalog(undefined, discoveryB);
+  const targetB = catalogB.target(procGalaxyId)!;
+  assert.ok(targetB);
+
+  const failResources = {
+    install: () => {},
+    activate: () => { throw new Error('Simulated hardware failure during system activation'); },
+    dispose: () => {},
+  };
+  const matB = new ProceduralSystemMaterializer(f.u, catalogB, failResources, () => failResources, undefined, f.g);
+
+  // Prepare session with failing activation
+  const sessionB = matB.prepare(targetB);
+  assert.throws(
+    () => matB.install(sessionB, false),
+    /Simulated hardware failure during system activation/
+  );
+
+  // 3. Verify rollback restored origin system under Seed A perfectly
+  assert.equal(f.u.activeGalaxy.id, procGalaxyId);
+  assert.equal(f.u.activeGalaxy.universeSeed, seedA, 'Rollback must restore origin universeSeed');
+  assert.equal(f.u.activeGalaxy.definition.diameterLy, originDef.diameterLy, 'Origin morphology must be preserved');
+  assert.equal(f.u.address.systemId, originSystemId, 'Origin system address must be restored');
+});
+
 

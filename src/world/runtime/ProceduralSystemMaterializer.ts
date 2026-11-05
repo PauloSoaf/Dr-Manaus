@@ -32,7 +32,7 @@ export interface PreparedSystemSession {
   readonly ready: boolean;
   dispose(): void;
 }
-interface SolarSnapshot { address: UniverseAddress; pose: SpatialPose; velocity: Vec3; }
+interface SolarSnapshot { address: UniverseAddress; pose: SpatialPose; velocity: Vec3; universeSeed?: bigint; }
 /** One live generated system. Descriptor cache belongs to U0; no visited-world serialization. */
 export class ProceduralSystemMaterializer {
   current?: PreparedSystemSession;
@@ -99,7 +99,8 @@ export class ProceduralSystemMaterializer {
   install(session: PreparedSystemSession,qa=true): void {
     if(!session.ready || this.installed.has(session))throw new Error('Sistema não preparado ou já instalado');
     const start=performance.now(),u=this.universe,old=this.current;
-    const snapshot={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps};
+    const originSeed=u.activeGalaxy.universeSeed ?? (u.activeSystem instanceof ProceduralSystemRuntime ? u.activeSystem.universeSeed : undefined);
+    const snapshot={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps,universeSeed:originSeed};
     const renderOrigin=u.renderSpace.currentOrigin;
     const travelFrame=u.frames.has(TRAVEL_VIEW_FRAME)?u.frames.get(TRAVEL_VIEW_FRAME):undefined;
     const previous=new Map(session.frames.ids.map(id=>[id,u.frames.has(id)?u.frames.get(id):undefined]));
@@ -117,7 +118,7 @@ export class ProceduralSystemMaterializer {
       session.dispose();
       for(const [id,frame] of previous) {if(frame)u.frames.register(frame);else u.frames.remove(id);}
       if(committed){
-        u.restoreSystem(snapshot.runtime,snapshot.address,snapshot.pose,snapshot.velocity,this.catalog.discovery.universeSeed);
+        u.restoreSystem(snapshot.runtime,snapshot.address,snapshot.pose,snapshot.velocity,snapshot.universeSeed);
         if(travelFrame)u.frames.register(travelFrame);
         u.renderSpace.setOrigin(renderOrigin);
         (old?.resources??this.solarResources).activate();
@@ -147,13 +148,14 @@ export class ProceduralSystemMaterializer {
     const u=this.universe,galaxy=this.galaxies?.prepareSolarReturn();let disposed=false,complete=false;
     return {get ready(){return !disposed;},dispose:()=>{if(!complete&&!disposed){disposed=true;galaxy?.dispose();}},commit:()=>{
       if(disposed||complete)throw Error('Solar destination unavailable');
-      const old=this.current,snapshot={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps};
+      const originSeed=u.activeGalaxy.universeSeed ?? (u.activeSystem instanceof ProceduralSystemRuntime ? u.activeSystem.universeSeed : undefined);
+      const old=this.current,snapshot={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps,universeSeed:originSeed};
       const origin=u.renderSpace.currentOrigin,view=u.frames.has(TRAVEL_VIEW_FRAME)?u.frames.get(TRAVEL_VIEW_FRAME):undefined;
       try {
         galaxy?.install();u.solarSystem.update(u.time);u.solarSystem.registerFrames(u.frames);
         u.installSystem(u.solarSystem,SOLAR_TARGET_ADDRESS,safeSystemArrivalM(u.solarSystem));
         galaxy?.activate();this.solarResources.activate();
-      }catch(e){galaxy?.dispose();u.restoreSystem(snapshot.runtime,snapshot.address,snapshot.pose,snapshot.velocity);
+      }catch(e){galaxy?.dispose();u.restoreSystem(snapshot.runtime,snapshot.address,snapshot.pose,snapshot.velocity,snapshot.universeSeed);
         if(view)u.frames.register(view);u.renderSpace.setOrigin(origin);old?.resources.activate();throw e;}
       galaxy?.complete?.();complete=true;
       if(old){old.dispose();this.removeFrames(old);}
@@ -172,15 +174,16 @@ export class ProceduralSystemMaterializer {
     const saved=this.solarSnapshot;
     if(!saved)return;
     const start=performance.now(),old=this.current;
-    const u=this.universe,previous={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps};
+    const originSeed=u.activeGalaxy.universeSeed ?? (u.activeSystem instanceof ProceduralSystemRuntime ? u.activeSystem.universeSeed : undefined);
+    const u=this.universe,previous={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps,universeSeed:originSeed};
     const renderOrigin=u.renderSpace.currentOrigin,view=u.frames.has(TRAVEL_VIEW_FRAME)?u.frames.get(TRAVEL_VIEW_FRAME):undefined;
     const galaxyResources=this.galaxies?.prepareSolarReturn();
     try {
       galaxyResources?.install();u.solarSystem.update(u.time);
-      u.restoreSystem(u.solarSystem,saved.address,saved.pose,saved.velocity);
+      u.restoreSystem(u.solarSystem,saved.address,saved.pose,saved.velocity,saved.universeSeed);
       galaxyResources?.activate();this.solarResources.activate();
     }catch(error){
-      galaxyResources?.dispose();u.restoreSystem(previous.runtime,previous.address,previous.pose,previous.velocity);
+      galaxyResources?.dispose();u.restoreSystem(previous.runtime,previous.address,previous.pose,previous.velocity,previous.universeSeed);
       if(view)u.frames.register(view);u.renderSpace.setOrigin(renderOrigin);
       old?.resources.activate();throw error;
     }

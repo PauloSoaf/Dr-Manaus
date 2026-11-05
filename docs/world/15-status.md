@@ -1,8 +1,29 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.4.5 Correção do CI e da Identidade Multissemente (2026-11-03)
+## Current checkpoint — U4.4.6 Correção do CI e Fechamento do Contrato Multissemente (2026-11-05)
 
-Baseline auditado do U4.4.4 no commit `6beec63c57675eccb0fa270862354885b97a3671` reprovou no CI oficial (GitHub Actions Run `41679047476`: erro TS2322 em `GalaxyEntryResolver.ts`). O patch U4.4.5 corrige o narrowing estrito de tipos, elimina a confusão conceitual entre `universeSeed` e `galaxySeed` e alinha materialização, runtimes e setores estelares:
+Baseline auditado do U4.4.5 no commit `9d52c851dad6c482eb4cc63bf7379f95a69ee3d2` reprovou no CI oficial (GitHub Actions Run `41692307028`: dois erros TS2300 em `UniverseRuntime.ts` por import duplicado de `ProceduralSystemRuntime`). O patch U4.4.6 corrige o bloqueio de compilação e fecha os contratos pendentes de propagação de semente e integridade espacial:
+1. `UniverseRuntime.ts`:
+   - Remoção do import duplicado de `ProceduralSystemRuntime`, sanando os erros TS2300.
+   - O getter `location.cosmological` agora consulta prioritariamente a morfologia cosmológica da galáxia ativa (`this.activeGalaxy.definition.proceduralMorphology?.cosmologicalAddress`) ou repassa `this.activeGalaxy.universeSeed` a `galaxyCosmologicalAddress()`, blindando as coordenadas cosmológicas contra poluição por consultas de catálogo de fundo.
+2. `GalaxyProvider.ts` e `GalaxyMaterializer.ts`:
+   - `GalaxyProviderOptions` e método `update()` agora recebem e preservam o contexto `universeSeed`.
+   - `GalaxyMaterializer.prepare()` instancia `GalaxyProvider` com `universeSeed` contextual da galáxia ativa, e `GalaxyMaterializer.update()` repassa `session.galaxy.universeSeed` para cálculo consistente de posição do observador, delta intergaláctico e orientação de galáxias externas.
+3. `ProceduralSystemMaterializer.ts`:
+   - Captura estrita da semente de origem (`originSeed = u.activeGalaxy.universeSeed ?? ...`) no snapshot pré-commit de `install()`, `prepareTravel()` e `returnToSolar()`.
+   - Rollback transacional repassa deterministicamente a semente original do snapshot a `u.restoreSystem()`, garantindo que falhas parciais durante a materialização não restaurem a sessão com a semente do destino.
+4. `UniversalTravelPlan.ts`:
+   - `travelAnchor()` aceita `universeSeed?: bigint` e contextualiza `observerGlobalPositionM()`.
+   - `createTravelPlan()` vincula a `originSeed` da galáxia ativa ao anchor de origem e a `uSeed` do catálogo de destino ao anchor de chegada, mantendo a coerência da rota.
+5. `tests/procedural-travel.test.ts`:
+   - `T_U44_21`: valida estabilidade de `UniverseRuntime.location` e morfologia da galáxia ativa após consultas de fundo a catálogos com sementes estrangeiras, além do retorno seguro ao Sol.
+   - `T_U44_22`: valida a correta orientação e posicionamento visual em `GalaxyProvider` sob diferentes sementes universais.
+   - `T_U44_23`: valida rollback de emergência mantendo com exatidão a semente universal da galáxia de origem e seu sistema estelar.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.5 Correção do CI e da Identidade Multissemente (2026-11-03)
+
+Baseline auditado do U4.4.4 no commit `6beec63c57675eccb0fa270862354885b97a3671` reprovou no CI oficial (GitHub Actions Run `41679047476`: erro TS2322 em `GalaxyEntryResolver.ts`). O patch U4.4.5 corrigiu o narrowing estrito de tipos, eliminou a confusão conceitual entre `universeSeed` e `galaxySeed` e alinhou materialização, runtimes e setores estelares.
 1. `GalaxyEntryResolver.ts`:
    - Correção do erro TS2322 via narrowing defensivo estrito distinguindo explicitamente os 3 estados do cache de entrada: ausente (`undefined`), falha determinística (`null`) e sucesso (`ProceduralTargetDescriptor`).
 2. `GalaxyCoordinates.ts`, `GalaxyRuntime.ts` e `GalaxyDefinition.ts`:

@@ -65,7 +65,7 @@ export class GalaxyMaterializer {
       const ext=performance.now();
       for(const def of LOCAL_GROUP_CATALOG) {
         if(def.id!==id) {
-          externals.push(new GalaxyProvider(root,{galaxy:def,qualityPreset:this.qualityPreset}));
+          externals.push(new GalaxyProvider(root,{galaxy:def,qualityPreset:this.qualityPreset, universeSeed: galaxy.universeSeed ?? universeSeed}));
         }
       }
       this.timings.externalGalaxies=performance.now()-ext;
@@ -109,7 +109,7 @@ export class GalaxyMaterializer {
     session.starSectorProvider.group.quaternion.setFromRotationMatrix(rotation);
     session.centralBlackHole?.group.quaternion.setFromRotationMatrix(rotation);
     const camCtx = cameraContext ? { fovDeg: cameraContext.fov, viewportHeightPx: cameraContext.viewportHeightPx } : undefined;
-    for (const g of session.externalGalaxies) g.update(address, [...cameraPosition], altitudeM, offset, toRender, camCtx);
+    for (const g of session.externalGalaxies) g.update(address, [...cameraPosition], altitudeM, offset, toRender, camCtx, session.galaxy.universeSeed);
     session.centralBlackHole?.update(address, [...cameraPosition], altitudeM, offset, toRender);
   }
 }

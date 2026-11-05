@@ -16,6 +16,8 @@ export interface GalaxyCameraContext {
 
 export interface GalaxyProviderOptions {
   galaxy: GalaxyDefinition;
+  /** Active universe seed context under which observer and active galaxy are evaluated. */
+  universeSeed?: bigint;
   /** Altitude above which this galaxy is rendered as a macro structure. */
   minAltitudeM?: number;
   /** Visual quality tier controlling particle allocation. */
@@ -46,15 +48,18 @@ export class GalaxyProvider {
 
   readonly group = new Group();
   readonly morphologyRenderer: GalaxyMorphologyRenderer;
+  readonly universeSeed?: bigint;
 
-  private readonly options: Required<GalaxyProviderOptions>;
+  private readonly options: Omit<Required<GalaxyProviderOptions>, 'universeSeed'> & { universeSeed?: bigint };
   private readonly orientationMatrix = new Matrix4();
   private readonly axes = [new Vector3(), new Vector3(), new Vector3()];
 
   constructor(parent: Object3D, options: GalaxyProviderOptions) {
     this.id = `galaxy-macro/${options.galaxy.id}`;
+    this.universeSeed = options.universeSeed ?? options.galaxy.universeSeed;
     this.options = {
       galaxy: options.galaxy,
+      universeSeed: this.universeSeed,
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 0)),
       qualityPreset: options.qualityPreset ?? 'High',
       maxParticles: options.maxParticles ?? 0,
@@ -104,8 +109,10 @@ export class GalaxyProvider {
     sectorOffsetM: Vec3 = [0, 0, 0],
     toRenderDirection: (v: Vec3) => Vec3 = (v) => v,
     cameraContext?: GalaxyCameraContext,
+    universeSeed?: bigint,
   ): void {
-    const delta = globalTargetDeltaM(address, sectorOffsetM, this.options.galaxy.positionM);
+    const effectiveUniverseSeed = universeSeed ?? this.universeSeed;
+    const delta = globalTargetDeltaM(address, sectorOffsetM, this.options.galaxy.positionM, effectiveUniverseSeed);
     this.group.visible =
       address.galaxyId !== this.options.galaxy.id &&
       altitudeM >= this.options.minAltitudeM &&
@@ -120,7 +127,11 @@ export class GalaxyProvider {
       return;
     }
 
-    const active = galaxyDefinition(address.galaxyId)!;
+    const active = galaxyDefinition(address.galaxyId, effectiveUniverseSeed);
+    if (!active) {
+      this.group.visible = false;
+      return;
+    }
     const direction = toRenderDirection(
       orientGalaxyVector(active, delta.map((v) => v / distance) as Vec3, true),
     );
