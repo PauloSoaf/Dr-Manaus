@@ -94,39 +94,39 @@ export function computeFlightOrientation(
     // Too slow for aerodynamic flight alignment, or fully recovered. Stand at the facing yaw.
     tmpQTarget.copy(tmpQUpright);
   } else {
-    // Main flight alignment
+    // Main flight alignment: local +Y (Head) points towards velocity
     tmpDir.copy(velocity).normalize();
 
-    // The chest should point down
-    // Project worldDown onto the plane perpendicular to the flight direction.
-    // chest = worldDown - direction * dot(worldDown, direction)
-    const dotDown = worldDown.dot(tmpDir);
-    tmpChest.copy(worldDown).addScaledVector(tmpDir, -dotDown);
-
-    if (tmpChest.lengthSq() < 1e-6) {
-      // We are flying exactly straight up or straight down.
-      // Use the previous chest orientation projected onto the new plane.
-      prevChest.set(0, 0, -1).applyQuaternion(currentOrientation);
+    // Stable lateral right axis (+X)
+    const hLen = Math.hypot(tmpDir.x, tmpDir.z);
+    const steep = Math.abs(tmpDir.y) > 0.985; // within ~10 degrees of vertical
+    if (!steep && hLen > 1e-4) {
+      const invH = 1 / hLen;
+      tmpRight.set(-tmpDir.z * invH, 0, tmpDir.x * invH);
+    } else {
+      // Near vertical (steep climb/dive): preserve previous frame's stable lateral axis
+      prevChest.set(1, 0, 0).applyQuaternion(currentOrientation);
       const dotPrev = prevChest.dot(tmpDir);
-      tmpChest.copy(prevChest).addScaledVector(tmpDir, -dotPrev);
-
-      if (tmpChest.lengthSq() < 1e-6) {
-        // Fallback if still degenerate (e.g. character was upside down somehow)
-        tmpChest.set(0, 0, -1).applyAxisAngle(worldUp, finite(facingYaw));
-        const dotFallback = tmpChest.dot(tmpDir);
-        tmpChest.addScaledVector(tmpDir, -dotFallback);
+      tmpRight.copy(prevChest).addScaledVector(tmpDir, -dotPrev);
+      if (tmpRight.lengthSq() < 1e-4) {
+        // Deterministic fallback to camera/facing yaw
+        tmpRight.set(Math.cos(facingYaw), 0, -Math.sin(facingYaw));
+        const dotFace = tmpRight.dot(tmpDir);
+        tmpRight.addScaledVector(tmpDir, -dotFace);
       }
     }
+    if (tmpRight.lengthSq() < 1e-6) {
+      tmpRight.set(1, 0, 0);
+    } else {
+      tmpRight.normalize();
+    }
 
-    tmpChest.normalize();
-
-    // Now we have:
-    // targetY = tmpDir (head)
-    // targetZ = -tmpChest (back, since chest is -Z)
-    // targetX = targetY x targetZ (right)
-    tmpRight.crossVectors(tmpDir, tmpChest).negate().normalize(); // tmpDir is +Y, -tmpChest is +Z. cross(Y, Z) = X.
-
-    targetZ.copy(tmpChest).negate();
+    // targetY = Head (+Y)
+    // targetX = Right (+X)
+    // targetZ = Back (+Z) = Right x Head
+    // Chest (-Z) = -targetZ
+    targetZ.crossVectors(tmpRight, tmpDir).normalize();
+    tmpChest.copy(targetZ).negate();
 
     tmpMatrix.makeBasis(tmpRight, tmpDir, targetZ);
     tmpQAero.setFromRotationMatrix(tmpMatrix);
@@ -146,13 +146,13 @@ export function computeFlightOrientation(
     case 'fast': response = 10; break;
     case 'super': response = 14; break;
     case 'mega': response = 18; break;
+    case 'interplanetary': response = 20; break;
   }
   response += lift * 6;
 
-  // Smooth approach to target orientation using slerp
+  // Smooth approach to target orientation using slerp with finite/shortest-path guards
   const t = 1 - Math.exp(-Math.max(0, finite(dt)) * response);
 
-  // Choose shortest path for slerp
   if (outQuaternion.dot(tmpQTarget) < 0) {
     tmpQTarget.x *= -1;
     tmpQTarget.y *= -1;
@@ -160,11 +160,16 @@ export function computeFlightOrientation(
     tmpQTarget.w *= -1;
   }
   outQuaternion.slerp(tmpQTarget, t);
+  if (!Number.isFinite(outQuaternion.x + outQuaternion.y + outQuaternion.z + outQuaternion.w)) {
+    outQuaternion.copy(tmpQUpright);
+  }
 
   // Apply bank if provided. An upright body does not bank, so it fades out with the recovery.
-  const banking = finite(bank) * (1 - lift);
+  // Pure vertical ascent must not randomly roll or accumulate noise.
+  const verticalFactor = Math.abs(tmpDir.y);
+  const bankFade = Math.max(0, 1 - smoothstep(0.7, 0.95, verticalFactor));
+  const banking = finite(bank) * (1 - lift) * bankFade;
   if (Math.abs(banking) > 0.01) {
-    // In local space, banking is rotating around +Y (the head axis).
     tmpBankAxis.set(0, 1, 0).applyQuaternion(outQuaternion);
     bankQ.setFromAxisAngle(tmpBankAxis, -banking * 0.4);
     outQuaternion.premultiply(bankQ);

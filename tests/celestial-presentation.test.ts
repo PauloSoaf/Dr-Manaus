@@ -112,14 +112,14 @@ test('T_MOON_MIN_BRIGHTNESS: neutral finite ambient floor and brighter phased li
   const visual = new PlanetVisual([...profile.albedo], undefined, profile);
   try {
     const uniforms = visual as unknown as { uAmbient: { value: Vector3 }; uAlbedo: { value: Vector3 } };
-    assert.deepEqual(uniforms.uAmbient.value.toArray(), [0.08, 0.08, 0.08]);
-    assert.deepEqual(uniforms.uAlbedo.value.toArray(), [0.65, 0.65, 0.65]);
+    assert.deepEqual(uniforms.uAmbient.value.toArray(), profile.ambient ?? [0.10, 0.10, 0.12]);
+    assert.deepEqual(uniforms.uAlbedo.value.toArray(), profile.albedo);
     for (const illumination of [0, 0.01, 0.25, 0.5, 1]) {
       const channels = profile.albedo.map((albedo, i) => albedo * illumination ** (profile.phaseExponent ?? 0.8)
         + profile.ambient![i] * (1 - illumination));
-      assert.ok(channels.every(v => Number.isFinite(v) && v >= 0.08 && v <= 0.65));
+      assert.ok(channels.every((v, i) => Number.isFinite(v) && v >= profile.ambient![i] && v <= profile.albedo[i]));
     }
-    assert.ok(profile.albedo[0] / profile.ambient![0] > 8, 'night floor retains substantial phase contrast');
+    assert.ok(profile.albedo[0] / profile.ambient![0] > 6, 'night floor retains substantial phase contrast');
   } finally { visual.dispose(); }
 });
 

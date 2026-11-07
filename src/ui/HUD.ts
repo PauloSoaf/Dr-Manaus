@@ -8,6 +8,7 @@ import type { QualityPreset } from '../core/config';
 import type { TimeKind, WeatherKind } from '../core/types';
 import { CityMap } from './CityMap';
 import { UniversalMapPanel } from './map/UniversalMapPanel';
+import { PlanetMap3DRenderer } from './map/PlanetMap3DRenderer';
 import type { UniverseLocation } from '../world/spatial/UniverseLocation';
 import { sectorIndex } from '../world/spatial/UniverseAddress';
 import { icon, POWERS } from './icons';
@@ -66,6 +67,13 @@ export interface HUDFlightTelemetry {
   /** The engaged warp step and its label, for a readout that says which gear is in. */
   readonly warpStep?: number;
   readonly warpLabel?: string;
+  readonly cosmicTier?: string;
+  readonly proximityGatingActive?: boolean;
+  readonly gatedBodyId?: string;
+  readonly landingIntentActive?: boolean;
+  readonly landingBlockedReason?: string;
+  readonly emergencyStopActive?: boolean;
+  readonly emergencyStopReason?: 'speed-guard' | 'ccd-contact';
 }
 
 export interface HUDPresentation {
@@ -163,15 +171,15 @@ const choice=(id:string,label:string,options:readonly (readonly [string,string])
   `<label>${label}<select id="${id}">${options.map(([value,text])=>`<option value="${value}">${text}</option>`).join('')}</select></label>`;
 const PAUSE_TABS=[['audio','Áudio'],['video','Vídeo'],['world','Mundo'],['controls','Controles'],['progress','Progresso']] as const;
 const CONTROLS: readonly (readonly [string,string])[]=[
-  ['F5','Câmera: atrás / ombro / primeira pessoa / frente / olhar para trás'],['X','Alternar energia / combate'],
+  ['F5','Câmera: atrás / ombro / primeira pessoa / frente / olhar para trás'],['X','Alternar energia / combate (solo) · Freio de emergência (espaço)'],
   ['Clique (combate)','Sequência: jab / direto / uppercut'],['Botão direito (combate)','Sequência: chute frontal / lateral / circular'],
   ['Espaço (solo)','Pulo duplo / parkour'],['Shift (solo)','Correr'],['B (solo)','Impulso / Super — em voo local'],
   ['Z (solo)','Rolamento de esquiva'],['Z (no ar)','Dash aéreo'],
   ['Clique olhando para baixo (no ar)','Soco meteoro: cratera e destruição em massa'],
-  ['W A S D','Mover'],['Mouse','Olhar ao redor'],['F (planeta)','Voar / pousar'],['Espaço','Subir'],
-  ['Ctrl','Descer'],['Shift (planeta)','Voo rápido'],['V (planeta)','Armar Mega / Interplanetário (duplo toque) · depois B'],['F (espaço)','Pousar no corpo próximo: captura e desce sozinho'],['Shift (espaço)','Boost cósmico'],['B (espaço)','Warp · cada toque dobra (1c, 2c, 4c…)'],['X (espaço)','Freio · desengata o warp'],['Mouse','Direção de voo'],
-  ['L','Ligar / desligar laser continuo'],['Clique / 1','Emitir energia'],['E','Teleportar à mira'],['Q','Onda de choque'],['R','Reconstruir matéria'],
-  ['G','Alternar tamanho até 1 km'],['C','Criar ecos temporários'],['T','Percepção temporal'],
+  ['W A S D','Mover'],['Mouse','Olhar ao redor / Direção de voo'],['F (planeta)','Voar / alternar levitação'],['Espaço','Subir'],
+  ['Ctrl','Descer'],['Shift (voo)','Acelerar voo (Mega / Interplanetário ao subir)'],['Espaço + Shift (voo)','Decolar para o espaço (sem necessidade de duplo V)'],['V (planeta)','Armar Mega / Interplanetário manual (opcional)'],['F (espaço)','Pousar no corpo próximo: captura e desce sozinho'],['Shift (espaço)','Boost / propulsão cósmica'],['Roda do Mouse (espaço)','Aumentar / reduzir marcha de warp'],['C (espaço)','Alternar Modo Cósmico (Convencional / Interestelar / Intergaláctico)'],['Q (espaço)','Freio progressivo cósmico'],['X (espaço)','Freio de emergência cósmico (corta warp)'],['B (espaço)','Warp · aumenta marcha (ou Shift+B para reduzir)'],
+  ['L','Ligar / desligar laser continuo'],['Clique / 1','Emitir energia'],['E','Teleportar à mira'],['Q (solo)','Onda de choque'],['R','Reconstruir matéria'],
+  ['G','Alternar tamanho até 1 km'],['C (solo)','Criar ecos temporários'],['T','Percepção temporal'],
   ['Tab / Shift+Tab (espaço)','Travar alvo / próximo / anterior'],['P (espaço)','Piloto automático: ligar / desligar'],['Backspace (espaço)','Liberar alvo e cancelar piloto'],['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
 ];
 export class HUD {
@@ -333,8 +341,12 @@ export class HUD {
     align: 'ALINHE-SE AO DESTINO',
     acceleration: 'ACELERANDO',
     cruise: 'COSMIC CRUISE',
+    'cosmic-cruise': 'VOO CÓSMICO LIVRE',
+    'interstellar': 'VOO INTERESTELAR',
+    'intergalactic': 'VOO INTERGALÁCTICO',
     braking: 'FRENAGEM',
     approach: 'APROXIMAÇÃO',
+    'emergency-stop': 'PARADA DE EMERGÊNCIA',
     'landing-capture': 'POUSO · CAPTURA', 'landing-hold': 'POUSO · AGUARDANDO SUPERFÍCIE',
   };
 
@@ -350,8 +362,8 @@ export class HUD {
     const block=$('#cruise-block');
     if(state.location.transit){block.hidden=false;block.innerHTML=hypercruiseTelemetry(state.location.transit,state.flight?.universalTarget?.target.displayName);return;}
     const flight=state.flight;
-    // Shown for a target *or* an engaged warp: the gear matters even with nowhere chosen.
-    if(!flight||(!flight.universalTarget&&!flight.targetBodyId&&!flight.warpStep)){block.hidden=true;return;}
+    // Shown for a target, an engaged warp, or in space / cosmic tier: the gear matters even with nowhere chosen.
+    if(!flight||(!flight.universalTarget&&!flight.targetBodyId&&!flight.warpStep&&state.presentationDomain!=='orbital'&&(!flight.cosmicTier||flight.cosmicTier==='conventional'))){block.hidden=true;return;}
     block.hidden=false;
     const speed=formatSpeed(flight.speedMps);
     const accel=Math.abs(flight.accelerationMps2)>=1000
@@ -360,6 +372,9 @@ export class HUD {
     block.innerHTML=`<b>${HUD.CRUISE_PHASES[flight.phase]??flight.phase}</b>`
       +`<span>GALÁXIA ATUAL<i>${formatGalaxyName(state.location?.address.galaxyId)}</i></span><span>SISTEMA ATUAL<i>${this.lastSystemBodies.find(b=>!b.parentId)?.name??state.location?.address.systemId??'—'}</i></span><span>SETOR<i>${state.location?Object.values(state.location.address.sector).join(','):'—'}</i></span><span>LOCK<i>${flight.lockActive?'ATIVO':'—'}</i></span><span>PILOTO<i>${flight.autopilotActive?'ATIVO':'MANUAL'}</i></span>`
       +(flight.warpLabel?`<span>WARP<i class="warp">${flight.warpLabel}</i></span>`:'')
+      +(flight.cosmicTier&&flight.cosmicTier!=='conventional'?`<span>MODO CÓSMICO<i>${flight.cosmicTier.toUpperCase()}</i></span>`:'')
+      +(flight.proximityGatingActive?`<span style="color:#f59e0b">FREIO PROXIMIDADE<i>${flight.gatedBodyId?flight.gatedBodyId.toUpperCase():'ATIVO'}</i></span>`:'')
+      +(flight.landingIntentActive?`<span style="color:${flight.landingBlockedReason==='ready'||flight.landingBlockedReason==='CAPTURA'?'#a7f3d0':'#f59e0b'}">POUSO (F)<i>${flight.landingBlockedReason?flight.landingBlockedReason.toUpperCase():'ATIVO'}</i></span>`:'')
       +`<span>DESTINO<i>${flight.targetName??flight.targetBodyId??'—'}</i></span>`
       +(flight.universalTarget?`<span>TIPO<i>${flight.universalTarget.target.kind.replaceAll('-',' ').toUpperCase()}</i></span><span>GALÁXIA DO ALVO<i>${formatGalaxyName(flight.universalTarget.target.galaxyId)}</i></span><span>VIAGEM<i>${travelCapabilityLabel(flight.universalTarget.travelCapability)}</i></span>`:'')
       +`<span>${flight.photosphereClearanceM===undefined?'DISTÂNCIA':'FOTOSFERA'}<i>${flight.distanceToTargetM===undefined?'—':formatDistance(flight.photosphereClearanceM??flight.distanceToTargetM)}</i></span>`
@@ -419,7 +434,23 @@ export class HUD {
     $('#coordinates').textContent=presentation.coordinates;
     $('#mission-title').textContent=state.title;$('#mission-objective').textContent=state.objective;$('#mission-type').textContent=state.stage>=4?'EXPLORAÇÃO LIVRE':'CAPÍTULO 01';
     const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':(!localMissionActive?'(Fora do alcance de Manaus)':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`);
-    $('#control-hint').textContent=state.hint;
+    const hintEl = $('#control-hint');
+    if (presentation.domain === 'orbital') {
+      const flight = state.flight;
+      if (flight?.proximityGatingActive) {
+        hintEl.innerHTML = `<span style="color:#f59e0b"><kbd>Freio Proximidade</kbd> Reduza a marcha ou afaste-se do corpo</span>`;
+      } else if (flight?.landingIntentActive) {
+        hintEl.innerHTML = `<kbd>F</kbd> Cancelar pouso <i></i><span>${flight.landingBlockedReason ? 'Bloqueio: ' + flight.landingBlockedReason : 'Descendo para o solo'}</span>`;
+      } else if (state.nearbyBody?.id === 'sun' || flight?.targetBodyId === 'sun') {
+        hintEl.innerHTML = `<kbd>F</kbd> Pousar/Decolar Fotosfera <i></i><kbd>C</kbd> Escala Cósmica <i></i><kbd>Scroll</kbd>/<kbd>B</kbd> Warp <i></i><kbd>Q</kbd>/<kbd>X</kbd> Freio <i></i><kbd>P</kbd> Piloto`;
+      } else {
+        hintEl.innerHTML = `<kbd>C</kbd> Escala Cósmica <i></i><kbd>Scroll</kbd>/<kbd>B</kbd> Warp <i></i><kbd>Q</kbd> Freio <i></i><kbd>X</kbd> Freio Emergência <i></i><kbd>F</kbd> Pousar <i></i><kbd>P</kbd> Piloto`;
+      }
+    } else if (state.district === 'FOTOSFERA') {
+      hintEl.innerHTML = `<kbd>F</kbd> Levitar <i></i><kbd>Espaço + Shift</kbd> Decolar p/ Espaço <i></i><kbd>W A S D</kbd> Mover`;
+    } else {
+      hintEl.textContent = state.hint;
+    }
     const tierLabel=$('#flight-tier-label');tierLabel.textContent=state.flightLabel??'';tierLabel.hidden=!state.flightLabel;
     for(const badge of document.querySelectorAll<HTMLElement>('#flight-modes b')){const mode=badge.dataset.mode!;badge.classList.toggle('on',mode===state.speedMode);badge.classList.toggle('armed',(mode==='mega'&&state.megaMode&&state.speedMode!=='mega')||(mode==='interplanetary'&&state.interplanetaryMode&&state.speedMode!=='interplanetary'));}
     // The orbital band only appears once the atmosphere has actually started to thin.
@@ -460,5 +491,11 @@ export class HUD {
         this.universalMap.update(state.location, state.position, state.destination, this.lastSystemBodies, this.lastFlight, state.targetCatalog);
       }
     }
+  }
+
+  get isMapOpen(): boolean { return this.openPanel === 'map'; }
+  get universalMapLevel(): string { return this.universalMap.currentLevel; }
+  get mapRenderer3D(): PlanetMap3DRenderer | undefined {
+    return this.universalMap.renderers.planet;
   }
 }

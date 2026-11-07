@@ -3,12 +3,13 @@ import { float, mix, positionLocal, smoothstep, uniform } from 'three/tsl';
 import { SPACE } from '../core/config';
 import { spaceFactorFor } from './SpaceLayer';
 import type { TimeKind, WeatherKind } from '../core/types';
+import { LOCAL_SUN_ELEVATION_RAD, NIGHT_FILL_INTENSITY, localLightPlan } from './SolarElevation';
 /** Colours are parsed once: `update` runs every frame and must never re-parse a CSS string. */
 const TIMES: Record<TimeKind, { top: Color; horizon: Color; zenith: Color; glow: Color; sun: Color; warm: number; intensity: number; elevation: number; azimuth: number; hour: string }> = {
   Morning: { top: new Color('#4d86ad'), horizon: new Color('#f7dcb2'), zenith: new Color('#1e4f84'), glow: new Color('#ffb877'), sun: new Color('#ffdab2'), warm: .9, intensity: 3, elevation: .27, azimuth: -2.4, hour: '06:24' },
   Noon: { top: new Color('#4e8bb2'), horizon: new Color('#cfdfdd'), zenith: new Color('#1b5896'), glow: new Color('#ffe9c4'), sun: new Color('#fff4d8'), warm: .25, intensity: 3.7, elevation: 1.1, azimuth: -1.35, hour: '12:00' },
   'Golden Hour': { top: new Color('#6e969f'), horizon: new Color('#f3c095'), zenith: new Color('#274d6d'), glow: new Color('#ff9e52'), sun: new Color('#ffcc94'), warm: 1, intensity: 3.1, elevation: .19, azimuth: -1.06, hour: '17:42' },
-  Night: { top: new Color('#05101f'), horizon: new Color('#122a3f'), zenith: new Color('#01030b'), glow: new Color('#20456b'), sun: new Color('#91b5d7'), warm: .3, intensity: .42, elevation: .55, azimuth: 1.45, hour: '21:16' },
+  Night: { top: new Color('#05101f'), horizon: new Color('#122a3f'), zenith: new Color('#01030b'), glow: new Color('#20456b'), sun: new Color('#91b5d7'), warm: .3, intensity: NIGHT_FILL_INTENSITY, elevation: LOCAL_SUN_ELEVATION_RAD.Night, azimuth: 1.45, hour: '21:16' },
 };
 const RAIN = { top: new Color('#5e727b'), horizon: new Color('#a0ada8'), zenith: new Color('#465a63'), glow: new Color('#8e9ca0'), warm: .15 };
 const CLOUD_DAY = new Color('#eadac8'), CLOUD_RAIN = new Color('#7c8d92'), CLOUD_NIGHT = new Color('#263743');
@@ -26,6 +27,11 @@ export class Atmosphere {
   readonly ambient = new HemisphereLight('#d5e5df', '#665c44', 2.3);
   /** Unit vector from the player toward the sun. SpaceLayer needs it to place its disc and limb glow. */
   readonly sunDirection = new Vector3(0, 1, 0);
+  /** Direction of the scene's directional light. Equals the sun above the horizon; a faint fill at night. */
+  readonly lightDirection = new Vector3(0, 1, 0);
+  /** Local sun elevation of the current preset; negative at night. */
+  sunElevationRad = 0;
+  sunAboveLocalHorizon = true;
   private top = uniform(new Color(TIMES['Golden Hour'].top));
   private horizon = uniform(new Color(TIMES['Golden Hour'].horizon));
   private zenith = uniform(new Color(TIMES['Golden Hour'].zenith));
@@ -96,11 +102,17 @@ export class Atmosphere {
     this.sun.intensity += ((rain ? .7 : state.intensity) * (1 + this.spaceBlend * .3) - this.sun.intensity) * blend;
     this.ambient.intensity += ((this.time === 'Night' ? .75 : rain ? 1.6 : 2.05) * (1 - this.spaceBlend * .45) - this.ambient.intensity) * blend;
     this.sky.position.copy(playerLocal);
+    const plan = localLightPlan(this.time);
+    this.sunElevationRad = plan.sunElevationRad; this.sunAboveLocalHorizon = plan.sunUp;
     const flat = Math.cos(state.elevation);
     this.sunDirection.set(flat * Math.sin(state.azimuth), Math.sin(state.elevation), flat * Math.cos(state.azimuth)).normalize();
     this.sunAxis.value.copy(this.sunDirection);
-    // A fixed light distance keeps every hour inside the same shadow frustum, unlike a fixed height.
-    this.temp.copy(this.sunDirection).multiplyScalar(620);
+    // The scene light is not the Sun when it is below the horizon: it is a faint fill lifted above
+    // the horizon so it never lights surfaces from below. A fixed light distance keeps every hour
+    // inside the same shadow frustum, unlike a fixed height.
+    const lightFlat = Math.cos(plan.lightElevationRad);
+    this.lightDirection.set(lightFlat * Math.sin(state.azimuth), Math.sin(plan.lightElevationRad), lightFlat * Math.cos(state.azimuth)).normalize();
+    this.temp.copy(this.lightDirection).multiplyScalar(620);
     this.sun.position.copy(playerLocal).add(this.temp); this.sun.target.position.copy(playerLocal);
     this.clouds.position.set(playerLocal.x, 0, playerLocal.z);
     this.clouds.visible = !this.planetaryView && this.altitude < SPACE.karman && this.weather !== 'clear';

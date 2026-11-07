@@ -39,12 +39,12 @@ export function generateSystem(starId: string, starSeed: bigint, properties: num
   bodies.push({ id:starId,name:starName,equatorialRadiusM:starRadiusM,polarRadiusM:starRadiusM,
     massKg:starMassKg,rotationPeriodS:2.14e6,frameId:starId+'-fixed',
     stellar:{temperatureK:star.temperatureK,luminositySolar:star.luminositySolar,spectralClass:star.spectralClass},
-    profile:{bodyClass:'star',hasSolidSurface:false,canLand:false,hasAtmosphere:false,
+    profile:{bodyClass:'star',hasSolidSurface:false,canLand:false,landingMode:'none',hasAtmosphere:false,
       supportsVolumeDestruction:false,surfaceKind:'none',visual:{albedo:stellarAlbedo(star.temperatureK),
         solarGlow:{innerScale:2,outerScale:5},labelPriority:10}} });
   let currentOrbitM=Math.max(5e10,starRadiusM*12);
   const solid=(moon:boolean,icy:boolean):CelestialBodyProfile=>({
-    bodyClass:moon?(icy?'icy-moon':'rocky-moon'):'rocky',hasSolidSurface:true,canLand:true,
+    bodyClass:moon?(icy?'icy-moon':'rocky-moon'):'rocky',hasSolidSurface:true,canLand:true,landingMode:'surface',
     hasAtmosphere:!moon && nextFloat()>.7,supportsVolumeDestruction:false,surfaceKind:'synthetic-base',
     visual:{albedo:icy?[.65,.78,.86]:[.3+nextFloat()*.45,.2+nextFloat()*.4,.15+nextFloat()*.35],
       minimumVisiblePx:2,labelPriority:moon?4:6} });

@@ -71,5 +71,5 @@ export interface DoubleJumpState {
   direction: FlipDirection;
 }
 
-export type FlightPoseName = 'hover' | 'takeoff' | 'cruise' | 'fast' | 'super' | 'mega' | 'braking' | 'dash';
+export type FlightPoseName = 'hover' | 'takeoff' | 'cruise' | 'fast' | 'super' | 'mega' | 'interplanetary' | 'braking' | 'dash';
 export type LandingTier = 'soft' | 'hard' | 'super' | 'titan';

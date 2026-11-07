@@ -91,8 +91,8 @@ function controls(f:ReturnType<typeof fixture>){
   const d=new TravelDomain();d.enterSystem({systemId:f.u.address.systemId!,positionM:f.u.player.position,velocityMps:[0,0,0]});
   Object.assign(game,{universalTravelController:f.c,universe:f.u,travelDomain:d,curvedColliders:[],colliders:[],
     player:{position:new Vector3(),velocity:new Vector3(),state:'Flight',interplanetaryMode:true},warpStep:0,
-    input:{held:()=>false,consume:(key:string)=>{consumed.push(key);return edges.delete(key);}},
-    landingIntent:{active:false,cancel:()=>{}},hud:{notify:()=>{}},navigation:{current:undefined},
+    input:{enabled:true,held:()=>false,consume:(key:string)=>{if(game.input.enabled===false)return false;consumed.push(key);return edges.delete(key);}},
+    landingIntent:{active:false,cancel:()=>{}},hud:{notify:()=>{},panelOpen:false},navigation:{current:undefined},
     landingMotion:()=>({radialSpeedMps:0,tangentialSpeedMps:0}),surfaceClearanceM:()=>1e12,
     currentGameplaySpeedMps:()=>0,surfaceReadyForLanding:()=>false,maintainLandingIntent:()=>{},
     requestLanding:()=>{throw Error('Landing must be blocked');}});
@@ -100,6 +100,8 @@ function controls(f:ReturnType<typeof fixture>){
 }
 check('B_WARP_DISABLED_IN_HYPERCRUISE',()=>{const f=fixture(),g=controls(f);start(f);g.edges.add('KeyB');g.edges.add('KeyF');g.game.updateTravelDomain(1/60);assert.equal(g.game.warpStep,0);assert.ok(g.consumed.includes('KeyB')&&g.consumed.includes('KeyF'));assert.equal(g.edges.size,0);});
 check('B_WARP_RESTORED_AFTER_ARRIVAL',()=>{const f=fixture();start(f,mw());finish(f);const g=controls(f);g.edges.add('KeyB');g.game.updateTravelDomain(1/60);assert.equal(g.game.warpStep,1);});
+check('B_WARP_BLOCKED_WHEN_INPUT_DISABLED',()=>{const f=fixture();start(f,mw());finish(f);const g=controls(f);g.game.input.enabled=false;g.edges.add('KeyB');g.game.updateTravelDomain(1/60);assert.equal(g.game.warpStep,0);});
+check('B_WARP_BLOCKED_WHEN_PANEL_OPEN',()=>{const f=fixture();start(f,mw());finish(f);const g=controls(f);g.game.hud.panelOpen=true;g.edges.add('KeyB');g.game.updateTravelDomain(1/60);assert.equal(g.game.warpStep,0);});
 check('NO_LOCAL_PHYSICS_IN_TRANSIT',()=>{const f=fixture();start(f);f.u.streamingEnabled=true;f.u.scheduler.update=()=>{throw Error('Streaming in transit');};assert.doesNotThrow(()=>f.u.updateStreaming(1/60));const g=controls(f);assert.equal(g.game.manausSimulationActive,false);const pose=structuredClone(f.u.player);f.c.update(8);assert.deepEqual(f.u.player,pose);});
 check('LOCAL_PHYSICS_RESTORED',()=>{const f=fixture();start(f);finish(f);start(f,target('sol'));finish(f);const g=controls(f);f.u.setPlayerPose(MANAUS_FRAME_ID,[38,2.2,12]);g.d.reset();assert.equal(g.game.manausSimulationActive,true);});
 check('GLOBAL_EPOCH_CONTINUES',()=>{const f=fixture(),time=f.u.time;start(f);f.c.update(20);assert.equal(f.u.time,time+20);assert.equal(f.u.solarSystem.time,f.u.time);});

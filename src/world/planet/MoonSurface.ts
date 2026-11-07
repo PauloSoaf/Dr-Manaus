@@ -19,8 +19,8 @@ export function moonHeightAt(direction: Vec3): number {
 export function moonColourAt(direction: Vec3, out: [number, number, number]): [number, number, number] {
   const srgb = lunarAlbedo01(direction);
   const linear = srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
-  // A modest gameplay readability floor; mapped maria/rays remain in their actual locations.
-  const grey = 0.04 + linear * 0.85;
+  // Bright grey lunar surface preserving maria and highlands/rays contrast for daytime/space readability.
+  const grey = Math.min(0.88, 0.35 + linear * 1.6);
   out[0] = grey; out[1] = grey; out[2] = grey;
   return out;
 }

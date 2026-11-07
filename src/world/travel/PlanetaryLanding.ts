@@ -142,9 +142,12 @@ export function landingCaptureStep(relVel: [number, number, number], offset: Vec
   const n: Vec3 = distance > 0 ? [offset[0] / distance, offset[1] / distance, offset[2] / distance] : [0, 1, 0];
   const gap = clearanceM - landingHoldClearanceM(surfaceReady, returnAltitudeM);
   const approaching = gap > LANDING_POLICY.holdPositionToleranceM;
+  const speedCap = gap > 100_000
+    ? Math.min(2_000_000, Math.max(LANDING_SPEED_LIMITS.approachCaptureSpeedMps, gap / 8))
+    : LANDING_SPEED_LIMITS.approachCaptureSpeedMps;
   const a = LANDING_POLICY.minBrakeMps2;
   const inward = approaching
-    ? Math.min(LANDING_SPEED_LIMITS.approachCaptureSpeedMps, Math.sqrt(2 * a * gap * 0.35), gap / 1.5)
+    ? Math.min(speedCap, Math.sqrt(2 * a * gap * 0.35), gap / 1.5)
     : 0;
   const delta: Vec3 = [-n[0] * inward - relVel[0], -n[1] * inward - relVel[1], -n[2] * inward - relVel[2]];
   const change = Math.hypot(delta[0], delta[1], delta[2]);

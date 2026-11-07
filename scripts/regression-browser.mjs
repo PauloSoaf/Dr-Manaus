@@ -8,6 +8,7 @@ const runners = [
   ['Solar / Sun / landing / D1 / U1', 'scripts/space-hardening-browser.mjs'],
   ['U2 Andromeda', 'scripts/galaxy-runtime-browser.mjs'],
   ['U3 production hypercruise', 'scripts/hypercruise-browser.mjs'],
+  ['P0 planetary polish', 'scripts/planetary-polish-browser.mjs'],
 ];
 const results = [];
 await mkdir('artifacts', { recursive: true });

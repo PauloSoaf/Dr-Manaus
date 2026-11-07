@@ -1,6 +1,254 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U3 Universal Hypercruise (2026-10-09)
+## Current checkpoint — U4.4.7 Desbloqueio do CI e Segurança Transacional dos Providers (2026-11-07)
+
+Baseline auditado do U4.4.6 no commit `491d6a429d09e33f9bc4785e8d4b4adbf803a470` reprovou no CI oficial (GitHub Actions Run `42054100700`: 6 erros TS2448/TS2454 em `ProceduralSystemMaterializer.ts` pelo uso da variável `u` antes de sua declaração em `returnToSolar()`). O patch U4.4.7 corrige a compilação, elimina o risco de colisão de provedores em trocas multissemente e fecha os contratos de rota:
+1. `ProceduralSystemMaterializer.ts`:
+   - Corrigida a ordem de inicialização em `returnToSolar()`: declaração de `const u = this.universe` realizada antes de qualquer referência a `u`, sanando integralmente os erros TS2448/TS2454.
+2. `StarSectorProvider.ts` e `GalaxyMaterializer.ts`:
+   - Função `starSectorProviderId(galaxyId, universeSeed)` implementada para qualificar o ID de provedores procedurais com a semente universal (`galaxy/star-sectors/${galaxyId}/${universeSeed.toString(16)}`), mantendo IDs canônicos para a Via Láctea (`galaxy/star-sectors`) e Andrômeda (`galaxy/star-sectors/andromeda`).
+   - Elimina qualquer colisão em `ProviderRegistry.register()` durante trocas de galáxias com mesma chave nominal e sementes diferentes, viabilizando o commit em duas fases e o rollback atômico com preservação do provedor original.
+   - `GalaxyMaterializer.install()` valida com segurança a presença do provedor antes do registro.
+3. `GalaxyCoordinates.ts` e `UniversalTravelPlan.ts`:
+   - `addressSeparationM()` expandido com suporte a `AddressSeparationOptions` (`{ originSeed, destinationSeed }`), permitindo que a métrica de rota, coordenadas cosmológicas e offsets locais de origem e destino sejam avaliados sob suas respectivas autoridades de semente.
+4. `tests/procedural-travel.test.ts`:
+   - `T_U44_22`: instrumentado com validação de distância no proxy esférico de 20 km, normalização estrita de quaternion e teste de independência absoluta contra mutações de catálogo em segundo plano.
+   - `T_U44_23`: reforçado com checkpoints de instrumentação em cada fase (`prepare`, `install`, `activation`, `rollback`), comprovação de que a falha simulada ocorre especificamente na ativação sem bloqueio por colisão de IDs, verificação de preservação do provedor e cena original pós-rollback, e validação de troca bem-sucedida com aposentadoria controlada do provedor anterior.
+   - `T_U44_24`: teste determinístico de cálculo de distância e duração de viagem entre universos procedurais com sementes distintas.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.6 Correção do CI e Fechamento do Contrato Multissemente (2026-11-05)
+
+Baseline auditado do U4.4.5 no commit `9d52c851dad6c482eb4cc63bf7379f95a69ee3d2` reprovou no CI oficial (GitHub Actions Run `41692307028`: dois erros TS2300 em `UniverseRuntime.ts` por import duplicado de `ProceduralSystemRuntime`). O patch U4.4.6 corrigiu o bloqueio de compilação e fechou os contratos de propagação de semente e integridade espacial.
+1. `UniverseRuntime.ts`:
+   - Remoção do import duplicado de `ProceduralSystemRuntime`, sanando os erros TS2300.
+   - O getter `location.cosmological` agora consulta prioritariamente a morfologia cosmológica da galáxia ativa (`this.activeGalaxy.definition.proceduralMorphology?.cosmologicalAddress`) ou repassa `this.activeGalaxy.universeSeed` a `galaxyCosmologicalAddress()`, blindando as coordenadas cosmológicas contra poluição por consultas de catálogo de fundo.
+2. `GalaxyProvider.ts` e `GalaxyMaterializer.ts`:
+   - `GalaxyProviderOptions` e método `update()` agora recebem e preservam o contexto `universeSeed`.
+   - `GalaxyMaterializer.prepare()` instancia `GalaxyProvider` com `universeSeed` contextual da galáxia ativa, e `GalaxyMaterializer.update()` repassa `session.galaxy.universeSeed` para cálculo consistente de posição do observador, delta intergaláctico e orientação de galáxias externas.
+3. `ProceduralSystemMaterializer.ts`:
+   - Captura estrita da semente de origem (`originSeed = u.activeGalaxy.universeSeed ?? ...`) no snapshot pré-commit de `install()`, `prepareTravel()` e `returnToSolar()`.
+   - Rollback transacional repassa deterministicamente a semente original do snapshot a `u.restoreSystem()`, garantindo que falhas parciais durante a materialização não restaurem a sessão com a semente do destino.
+4. `UniversalTravelPlan.ts`:
+   - `travelAnchor()` aceita `universeSeed?: bigint` e contextualiza `observerGlobalPositionM()`.
+   - `createTravelPlan()` vincula a `originSeed` da galáxia ativa ao anchor de origem e a `uSeed` do catálogo de destino ao anchor de chegada, mantendo a coerência da rota.
+5. `tests/procedural-travel.test.ts`:
+   - `T_U44_21`: valida estabilidade de `UniverseRuntime.location` e morfologia da galáxia ativa após consultas de fundo a catálogos com sementes estrangeiras, além do retorno seguro ao Sol.
+   - `T_U44_22`: valida a correta orientação e posicionamento visual em `GalaxyProvider` sob diferentes sementes universais.
+   - `T_U44_23`: valida rollback de emergência mantendo com exatidão a semente universal da galáxia de origem e seu sistema estelar.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.5 Correção do CI e da Identidade Multissemente (2026-11-03)
+
+Baseline auditado do U4.4.4 no commit `6beec63c57675eccb0fa270862354885b97a3671` reprovou no CI oficial (GitHub Actions Run `41679047476`: erro TS2322 em `GalaxyEntryResolver.ts`). O patch U4.4.5 corrigiu o narrowing estrito de tipos, eliminou a confusão conceitual entre `universeSeed` e `galaxySeed` e alinhou materialização, runtimes e setores estelares.
+1. `GalaxyEntryResolver.ts`:
+   - Correção do erro TS2322 via narrowing defensivo estrito distinguindo explicitamente os 3 estados do cache de entrada: ausente (`undefined`), falha determinística (`null`) e sucesso (`ProceduralTargetDescriptor`).
+2. `GalaxyCoordinates.ts`, `GalaxyRuntime.ts` e `GalaxyDefinition.ts`:
+   - Separação formal e imutável entre a semente universal (`universeSeed`) e a semente derivada da galáxia (`galaxySeed = descriptor.seed`).
+   - `GalaxyDefinition` e `GalaxyRuntime` preservam a propriedade `universeSeed`.
+   - Caches de definições e runtimes indexados consistentemente por `(universeSeed, id)`, eliminando perda de cache e regeneração desnecessária.
+   - `GalaxyRuntime.generateSector()` repassa deterministicamente a semente universal correta para `generateStarSector`, e não a semente derivada.
+3. `StarSectorProvider.ts`, `GalaxyMaterializer.ts`, `ProceduralSystemMaterializer.ts` e `UniverseRuntime.ts`:
+   - Propagação de `universeSeed` por todo o pipeline de streaming, materialização e commit de sistemas: a sessão preparada preserva sua semente e morfologia mesmo se consultas de fundo a catálogos com outras sementes ocorrerem durante o voo.
+4. `tests/procedural-travel.test.ts`:
+   - `T_U44_17`: reformulado com fixture determinística estrita (sem depender de aleatoriedade na população das primeiras galáxias descobertas), verificando busca inicial, cache negativo e 100 queries subsequentes com 0 gerações estelares.
+   - `T_U44_18`: reforçado com asserções de reuso exato de instâncias em cache quente sob a mesma `universeSeed` e isolamento morfológico por setor.
+   - `T_U44_20`: reforçado com verificação de integridade da população estelar e retenção exata da `universeSeed` na chegada.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.4 Hardening de Performance e Integridade da Viagem (2026-11-03)
+
+Baseline auditado do U4.4.3 no commit `cc07b1c04b97d665c353b8c8d58513986494d6ca` aprovado integralmente no CI oficial (GitHub Actions Run 41662450492: Typecheck SUCCESS, 638/638 regressões permanentes, 1.533/1.533 testes gerais, build Vite em 1,28s). O patch U4.4.4 implementou o desacoplamento de busca de setores no loop de HUD/renderização e cache negativo.
+
+## Previous checkpoint — U4.4.3 Desbloqueio do CI e Integridade de Seeds (2026-11-03)
+
+Baseline auditado do U4.4.2 no commit `d08159e33d528252622d3f7347987c66de2bd044` reprovou no CI oficial (GitHub Actions Run 41659664895) com erro TS2304 em `UniversalTargetCatalog.ts` (`Cannot find name 'LOCAL_GROUP_CATALOG'`). O patch U4.4.3 corrigiu a compilação e foi aprovado integralmente no GitHub Actions Run 41662450492 (1.533/1.533 testes).
+1. `UniversalTargetCatalog.ts`:
+   - Restaurado o import de `LOCAL_GROUP_CATALOG` de `../celestial/GalaxyDefinition`, eliminando o bloqueio de compilação TS2304.
+   - Sincronização automática de semente: método `syncSeed()` ativa deterministicamente a semente da descoberta em `find()`, `resolve()`, `proceduralDescriptor()` e `proceduralTarget()`.
+2. `GalaxyCoordinates.ts`, `GalaxyRuntime.ts` e `GalaxyEntryResolver.ts`:
+   - Padrão de observador desacoplado `onProceduralUniverseSeedChanged`: alterações de semente ativam invalidação síncrona de `proceduralGalaxyDefinitions`, `clearGalaxyRuntimes()` e `clearGalaxyEntryCache()`.
+   - Elimina qualquer risco de reaproveitamento incorreto de morfologias entre sementes distintas (Seed A $\rightarrow$ Seed B $\rightarrow$ Seed A), preservando as galáxias canônicas da Via Láctea e Andrômeda.
+3. `GalaxyEntryResolver.ts` e `UniversalTargetResolver.ts`:
+   - Cache delimitado $O(1)$ de resoluções de entrada em `resolvedEntryCache` com limpeza automática em mudança de semente.
+   - `UniversalTargetResolver` agora valida a existência real de sistema de entrada via `hasProceduralGalaxyEntry(t.galaxyId, this.catalog)` antes de marcar `capability = 'intergalactic'`, evitando indicar hypercruise disponível para alvos que falhariam no planejamento de rota.
+4. `tests/procedural-travel.test.ts`:
+   - `T_U44_03`: asserção calibrada para respeitar formalmente o teto de 2.000 estrelas por setor (`Math.min(2000, ...)`).
+   - `T_U44_15`: validação mista em região de galáxias procedurais, comprovando que sistemas resolvidos cumprem todos os requisitos de planetas rochosos pousáveis e galáxias sem entrada produzem erro controlado.
+   - `T_U44_16`: teste exaustivo de ciclo Seed A $\rightarrow$ Seed B $\rightarrow$ Seed A com duas instâncias de catálogo, comprovando invalidação e regeneração fiel de parâmetros e integridade das galáxias canônicas.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.2 Correção do CI e Integridade da Viagem Procedural (2026-11-03)
+
+Baseline auditado do U4.4.1 no commit `e46d10d29ae6789ba7c7e7d47d19d30e935d3352` reprovou no CI oficial (GitHub Actions Run 41653156652) com dois erros TS2305 em `GalaxyCoordinates.ts`. O patch U4.4.2 corrige a raiz do bloqueio de compilação e implementa o reforço dos contratos de densidade estelar, coordenadas cosmológicas ativas, métrica de separação e segurança de entrada procedural:
+1. `GalaxyCoordinates.ts`:
+   - Correção dos imports de `parseGalaxyId` e `DEFAULT_UNIVERSE_SEED` provenientes de `./ProceduralGalaxyDiscovery`.
+   - Sincronização explícita de autoridade de semente (`setProceduralUniverseSeed`, `getProceduralUniverseSeed`, `clearProceduralGalaxyDefinitions`) eliminando discrepâncias morfológicas entre catálogo e coordenadas.
+   - Cálculo métrico de separação intergaláctica `addressSeparationM(a, ao, b, bo)` estendido para considerar os deslocamentos locais tridimensionais no sistema de saída e sistema de chegada (`localA` e `localB`), respeitando setor, offset submétrico e orientação intrínseca de ambas as galáxias ($\vec{r}_{total} = \vec{r}_{sep} + \vec{r}_{localB} - \vec{r}_{localA}$).
+2. `StarSector.ts`:
+   - Eliminação da duplicação de escala de densidade estelar em `generateStarSector`: `evaluateProceduralDensity` já incorpora intrinsecamente `descriptor.densityScale`. O gerador agora aplica unicamente o modificador opcional por setor (`options.densityScale`), preservando a normalização física de `STARS_PER_SECTOR_BASE`.
+3. `UniverseRuntime.ts`:
+   - `location.cosmological` atualizado para utilizar a autoridade `galaxyCosmologicalAddress(this.activeGalaxy.id)`: Andrômeda passa a reportar com fidelidade suas coordenadas cosmológicas reais (`localMpc: [0, 0.767, 0]`), preservando a Via Láctea (`[0, 0, 0]`), Triângulo e galáxias procedurais ativas.
+4. `GalaxyEntryResolver.ts`:
+   - Resolução determinística ampliada para 13 setores estratégicos (eixos cardeais a ~20% do raio galáctico, diagonais simétricas e núcleo central).
+   - Reforço do contrato de exploração segura: rejeição estrita de estrelas sem planetas (`planetCount <= 0`) e garantia de corpos sólidos com superfície passível de pouso (`canLand`), lançando erro controlado se nenhum sistema satisfizer os requisitos em vez de fabricar destinos fictícios.
+5. `UniversalTargetCatalog.ts` e `ProceduralGalaxyDiscovery.ts`:
+   - Implementado método `getGalaxyDefinition` em `ProceduralGalaxyDiscovery` e registro imediato de definições descobertas em `registerProceduralGalaxyDefinition`, unificando a autoridade de dados do catálogo e das coordenadas.
+6. `tests/procedural-travel.test.ts`:
+   - Tipagem estrita completa das fixtures sem uso de `any`.
+   - Suíte expandida para 16 testes abrangendo asserções de telemetria cosmológica em Andrômeda, validação unitária de ausência de dupla escala de densidade, sensibilidade métrica a offsets locais e validação de chegada segura em galáxias espirais, barradas, elípticas e irregulares com sementes customizadas.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.1 Viagem Real para Galáxias Procedurais (2026-11-03)
+
+Baseline auditado do U4.3.2 no commit `b842cc8020779e90eac51366289766db63bb4e51` aprovado integralmente no GitHub Actions Run 41641242398 (Typecheck SUCCESS, 638/638 regressões permanentes, 1.517/1.517 testes gerais, build Vite aprovado em 1.13s). O patch U4.4.1 estabelece a primeira rota vertical completa de viagem intergaláctica para galáxias procedurais com retorno seguro ao Sol:
+1. `GalaxyCoordinates.ts` e `GalaxyRuntime.ts`:
+   - Registro dinâmico de `GalaxyDefinition` e `GalaxyRuntime` para galáxias procedurais a partir do gerador procedural (`ProceduralGalaxyGenerator`), com preservação formal das identidades canônicas da Via Láctea e Andrômeda.
+   - Cache delimitado LRU de definições e runtimes, garantindo determimismo e ausência de vazamento de memória sob exploração massiva.
+   - Cálculo de separação intergaláctica cosmológica em `addressSeparationM(a, ao, b, bo)` utilizando `cosmologicalSeparationVectorM`. Delimitação segura: distâncias superiores a 1024 células cósmicas (~2 Gpc) retornam `undefined` impedindo planejamento de voo com coordenadas imprecisas.
+2. `StarSector.ts`:
+   - Integração de morfologia procedural em `generateStarSector()`: densidade de estrelas agora avalia `evaluateProceduralDensity(galDef.proceduralMorphology, galacticCentrePosM) * densityScale` quando a galáxia possui morfologia gerada (bulbo, barra, disco e braços espirais), em vez de recorrer ao perfil da Via Láctea.
+3. `GalaxyEntryResolver.ts`:
+   - Implementada resolução determinística de sistema de entrada `proceduralGalaxyEntryDescriptor(galaxyId, catalog)`: busca ordenada em raio de 20% do disco galáctico por sistemas com estrelas de sequência principal e planetas rochosos passíveis de pouso.
+   - Resolução em `GalaxyEntryResolver.resolve()` convertendo alvos galácticos procedurais em alvos estelares de entrada.
+4. `UniversalTargetCatalog.ts` e `UniversalTargetResolver.ts`:
+   - `proceduralDescriptor` estendido para gerar e resolver sistemas em qualquer galáxia procedural conhecida.
+   - Alvos galácticos procedurais alcançáveis ($\le 1024$ células) promovidos de `'cosmological-future'` para a capacidade de viagem real `'intergalactic'`.
+5. `UniverseRuntime.ts`:
+   - `location.cosmological` atualizado para reportar o endereço cosmológico real da galáxia ativa do jogador.
+6. `ProceduralSystemMaterializer.ts` e `GalaxyMaterializer.ts`:
+   - Handoff transacional e ciclo completo de materialização/instalação/descarte sem duplicidade de provedores nem vazamentos durante viagens repetidas.
+   - Retorno seguro ao Sistema Solar via `prepareSolarReturn()`.
+7. `tests/procedural-travel.test.ts`:
+   - Nova suíte com 14 testes cobrindo registro dinâmico, morfologia estelar, destino de entrada, plano de rota, transações atômicas, segurança de chegada, retorno ao Sol, cancelamento/retomada, rollback em falhas, limites BigInt e integridade de HUD.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.3.2 Finalização Visual e Integridade do Mapa Cósmico (2026-11-03)
+
+Baseline auditado do U4.3.1 no commit `5c806af6abe95d84d5d1cf8a44a58173adbf33f3` aprovado integralmente no GitHub Actions Run 41585363753 (Typecheck SUCCESS, 638/638 regressões permanentes, 1.515/1.515 testes gerais, build Vite aprovado). O patch U4.3.2 finaliza o mapa cósmico com integridade espacial, simetria e robustez vetorial para a fase U4.4:
+1. `ProceduralGalaxyDiscovery.ts`:
+   - Amostragem 4-quadrantes simétrica em `discoverVisibleRegion()`: reformulada com anéis concêntricos subdivididos em níveis ordenados (axial, cantos e intermediários) com simetria rotacional de 90°, eliminando o truncamento de bordas positivas (+x, +y) e garantindo distribuição homogênea em escalas de 16 a 120 Mpc.
+   - Proteção estrita contra erros de decodificação de URI em `parseGalaxyId()`.
+2. `MapRenderers.ts` (`CosmologyMapRenderer`):
+   - Extensão da grade cosmológica calculada dinamicamente a partir das dimensões reais da viewport (`spanCellsX` e `spanCellsY`), cobrindo o canvas até as bordas mesmo em zoom máximo de 120 Mpc.
+   - Orçamento e decimação independente: linhas e rótulos decimados sob zoom distante (`stepX`, `stepY`) para preservar legibilidade sem poluição visual.
+   - Cache de resultados de descoberta por chave de visualização (`centerCell` + `zoomMpc`), eliminando chamadas repetitivas de descoberta em quadros ociosos, e cálculo $O(1)$ de deslocamento de células em pan.
+3. `UniversalTargetResolver.ts`:
+   - Alinhamento de referencial vetorial: `logicalPosition.positionM` no frame `cosmological-relative` agora expressa estritamente o vetor relativo de separação do observador até o alvo (`sepVec`), em vez da posição absoluta cosmológica em relação à origem (0,0,0).
+   - Suporte a observadores em referenciais locais do Grupo Local (Via Láctea `[0,0,0]`, Andrômeda `[0, 0.767, 0]` Mpc, Triângulo `[0, 0.84, 0]` Mpc) e coordenadas cosmológicas arbitrárias.
+   - Para distâncias superiores ao domínio seguro Float64 (> 1024 células / ~2 Gpc), `positionM` retorna explicitamente `undefined` enquanto `distanceM` fornece a aproximação em ordem de magnitude, impedindo que o planejador de viagem do U4.4 tente vetorizações incorretas.
+4. `UniversalTargetCatalog.ts`:
+   - Proteção de `decodeURIComponent` em `find(query)` contra entradas malformadas.
+5. `tests/procedural-galaxy-map.test.ts`:
+   - Adicionados testes `T_U43_10` (simetria espacial dos 4 quadrantes em 16, 32, 64 e 120 Mpc) e `T_U43_11` (integridade de posição relativa, observadores em múltiplos referenciais e proteção contra entradas malformadas).
+Evidence: [40-status-U4.3-PROCEDURAL-COSMIC-MAP.md](40-status-U4.3-PROCEDURAL-COSMIC-MAP.md).
+
+## Previous checkpoint — U4.3.1 Correção de CI e Integração Funcional do Mapa Cosmológico (2026-11-03)
+
+Baseline auditado do U4.3 no commit `0dc9c0070ece4bb9548dd6807dca7647ab31a21f` reprovou no GitHub Actions Run 41580919276 com três erros TS2339 (`Property 'cosmological' does not exist on type 'StreamingContext'`). Sanado no commit `5c806af6abe95d84d5d1cf8a44a58173adbf33f3` com aprovação integral no Run 41585363753 (638/638 regressões, 1.515/1.515 testes gerais, build Vite aprovado).
+Evidence: [40-status-U4.3-PROCEDURAL-COSMIC-MAP.md](40-status-U4.3-PROCEDURAL-COSMIC-MAP.md).
+
+## Previous checkpoint — U4.2.3 Estabilização do CI e Validação Morfológica (2026-11-03)
+
+Baseline at `4d6823424e3e2a79d1d9b1ff435392691d7c950c` (U4.2.2). Resolução das falhas estatísticas e de cache:
+1. `T_U42_02_MORPHOLOGY_DEPENDENT_DISTRIBUTION`: asserção corrigida para refletir a concentração planar no disco galáctico (>= 90% em |Y| <= 0.25, RMS vertical < 0.15) permitindo a presença física do halo esferoidal externo.
+2. `T_U421_01_CACHE_IDENTITY_COLLISION_RESISTANCE_AND_LRU`: distinção entre a Via Láctea canônica na célula (0,0,0) (semente fixa imutável 0x4d494c4b59574159n) e células procedurais, comprovando diferenciação por semente, parâmetros morfológicos e evicção LRU.
+Aprovado integralmente no GitHub Actions Run 41577361396: Typecheck SUCCESS; 638/638 regressões permanentes; 1.506/1.506 testes gerais; build de produção Vite SUCCESS. Publicado no commit `9fab30fcd114170d4ac3754cadc13dbab9166730`.
+Evidence: [39-status-U4.2-GPU-GALAXY-RENDERING.md](39-status-U4.2-GPU-GALAXY-RENDERING.md).
+
+## Previous checkpoint — U4.2.1 Correção do CI, Hardening de Materiais TSL e Alocação Sob Demanda de Galáxias (2026-11-02)
+
+Baseline at `b2f52dd44a32662759902e3aee5255a7b6174156` (U4.2, CI falhou em TS2322). Implementadas as correções de integridade arquitetural e de tipos para renderização visual GPU:
+1. Resolução definitiva do TS2322 em `GalaxyMorphologyRenderer.ts` encapsulando cores com TSL `color(...)` em nós nodais.
+2. Adoção de `PointsNodeMaterial` com conexão efetiva dos atributos de buffer `size` e `dust` via nós de sombreamento GPU (`sizeNode`, `colorNode`, `opacityNode`), suportando variações contínuas de diâmetro e luminosidade estelar com extinção de poeira equatorial em um único draw call.
+3. Alocação progressiva sob demanda (lazy LOD): LOD0 (impostor mínimo) construído inicialmente, com LOD1 e LOD2 gerados estritamente na transição de aproximação, impedindo alocação antecipada de buffers de partículas.
+4. Propagação bidirecional de presets de qualidade (`Low`, `Medium`, `High`, `Ultra`) a partir de `RendererManager` e `Game.applySettings` através de `GalaxyMaterializer` e `GalaxyProvider`.
+5. Projeção angular LOD recalculada com FOV vertical efetivo da câmera (padrão 58°) e dimensões reais da viewport, com tratamento de observador interno ao envelope forçando LOD2.
+6. Blindagem de identidade de cache com `buildPointCloudCacheKey` incorporando versão do gerador `v2`, semente BigInt e parâmetros morfológicos, e política de capacidade máxima LRU (16 entradas) com descarte GPU.
+5 novos testes de contrato (totalizando 13 testes em `tests/galaxy-morphology-renderer.test.ts`). U4.2.1 pronto para validação em pipeline (não registrado como aprovado antes do CI). U4.3 (mapa/gameplay) e BH0-BH2 permanecem bloqueados.
+Evidence: [39-status-U4.2-GPU-GALAXY-RENDERING.md](39-status-U4.2-GPU-GALAXY-RENDERING.md).
+
+## Previous checkpoint — U4.2 Renderização Visual GPU de Galáxias Procedurais e Arquitetura Multi-Escala TSL (2026-11-02)
+
+Commit `b2f52dd44a32662759902e3aee5255a7b6174156`. Implementou componentes de GPU e 3 níveis de detalhe multi-escala, mas reprovado no GitHub Actions Run 41395945582 devido a erro de compilação TS2322 em `GalaxyMorphologyRenderer.ts:208` (`colorNode = coreColor`). Substituído e sanado pelo patch U4.2.1.
+Evidence: [39-status-U4.2-GPU-GALAXY-RENDERING.md](39-status-U4.2-GPU-GALAXY-RENDERING.md).
+
+## Previous checkpoint — U4.1.2 Correção do Contrato Matemático de Separação Cosmológica (2026-11-02)
+
+Baseline at `5b889b0681581876e6f17787d13376a1006f745f` (U4.1.1). Corrigida a asserção matemática em `T_U411_01_COSMOLOGICAL_CELL_SPATIAL_IDENTITY`:
+1. Diagnóstico do CI: falha única na asserção de `T_U411_01` (exigia `deltaX > 30 Mpc` para células separadas por 20 Mpc nominais).
+2. Correção analítica: comparação direta de `defB.positionM[0] - defA.positionM[0]` contra `Number(cellB.x - cellA.x) * COSMOLOGICAL_CELL_SIZE_M + (galB.localCellMpc[0] - galA.localCellMpc[0]) * MPC_M` com tolerância relativa Float64 $< 10^{-14}$.
+3. Cobertura estendida: sinal de separação, células negativas, igualdade de offsets locais em células distintas, compatibilidade vetorial e preservação de BigInt.
+Oficialmente aprovado no GitHub Actions Run 41393301279: Typecheck SUCCESS; regressões permanentes 638/638 PASS; testes gerais 1.491/1.491 PASS; produção build Vite SUCCESS. Publicado no commit `bc530a7e3115f7bad715cb63f821fd47862dd633`.
+Evidence: [38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md](38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md).
+
+## Previous checkpoint — U4.1.1 Hardening de Coordenadas, Identidade e Integração Galáctica (2026-11-02)
+
+Baseline at `d1def8c4e06eceb8e0a0ab8ddd0f706d46fb717d` (U4.1). Hardening pós-aprovação do gerador procedural de galáxias:
+1. Identidade espacial correta entre células cosmológicas no adaptador legado via `cosmologicalPositionM()`, limiar explícito de domínio Float64 (`COSMOLOGICAL_FLOAT_DOMAIN_MAX_CELLS = 1024n`) e recusa explícita sem posições falsas (`tryToGalaxyDefinition()`).
+2. Eliminação de aliasing por truncamento de $2^{64}$ em `hashCosmologicalCell()` através de codificação canônica bijetiva de BigInt (sinal + comprimento LEB128 + magnitude) com finalizador SplitMix64 (`GALAXY_GENERATOR_VERSION = 2`).
+3. Preservação de morfologia específica no runtime consumidor: adicionado `'procedural'` a `GalaxyDensityProfile` e campo `proceduralMorphology` a `GalaxyDefinition`, integrando `GalaxyRuntime.densityAtLocal()` à fonte única `evaluateProceduralDensity()`.
+4. Auditoria de alegações de desempenho (vazão sob demanda sem alegações não instrumentadas de memória) e designação procedural estrita (`DM-PG ...`).
+GitHub Actions Run 41390693792: Typecheck SUCCESS; regressões permanentes 638/638 PASS; testes gerais 1.490/1.491 PASS (1 falha de expectativa matemática no teste novo T_U411_01); Vite build SKIPPED. Publicado no commit `5b889b0681581876e6f17787d13376a1006f745f`.
+Evidence: [38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md](38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md).
+
+## Previous checkpoint — U4.1 Deterministic Procedural Galaxy Generator (2026-11-02)
+
+Baseline at `22ba21ead896e1049999e94b43922f5d7c59767f` (P0.5.11). Implemented `ProceduralGalaxyGenerator.ts` providing deterministic mathematical generation of galactic descriptors across cosmological cell grids (`BigInt3`, 2.0 Mpc cells) using 64-bit integer FNV-1a hashing and 64-bit xorshift PRNG without `Math.random` or global state. Models complete Hubble sequence morphology (E0-E7, S0, Sa-Sc, SBa-SBc, Irr) with 3D analytic stellar density functions: soft-core Hernquist-inspired bulge (strictly non-singular at r=0), triaxial central bar, double exponential thin/thick disk, logarithmic spiral arms with envelope maximum (strictly M_arms >= 0.25 > 0), and diffuse stellar halo. Preserves canonical Local Group entities (`milky_way`, `andromeda`, `triangulum`, `lmc`, `smc`).
+Officially verified in GitHub Actions Run 41388592245: Typecheck SUCCESS; permanent regression gate 638/638 PASS; general unit tests 1,486/1,486 PASS; Vite production build SUCCESS. Published at commit `d1def8c4e06eceb8e0a0ab8ddd0f706d46fb717d`.
+Evidence: [38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md](38-status-U4.1-PROCEDURAL-GALAXY-GENERATOR.md).
+
+## Previous checkpoint — P0.5.11 Interstellar Cruise Restoration & Flight Phase Semantics (2026-11-01)
+
+Baseline at `97d96a1606cd6e08cf3521acd48f1b53a53c2062` (P0.5.10). Resolved the flight phase regression in `T_P0B_SOLAR_SYSTEM_TO_INTERSTELLAR_SPACE_WASD` (where interstellar cruise at 1,000c was misclassified as `braking`) by separating the steady-state cruise speed governor from proximity-induced deceleration. In steady-state warp cruise, net acceleration is zero and flight phase remains `cosmic-cruise`; proximity deceleration is only applied and flagged when an obstacle envelope actively bounds velocity. Added comprehensive unit test covering the six distinct flight regimes (`T_P0511_INTERSTELLAR_CRUISE_PHASE_AND_SPEED_GOVERNOR_SEMANTICS`). Audited technical references, clearly distinguishing real-world control principles from gameplay FTL mechanics.
+Officially verified in GitHub Actions Run 41385860673: Typecheck SUCCESS; permanent regression gate 638/638 PASS; general unit tests 1,476/1,476 PASS; Vite production build SUCCESS. Published at commit `22ba21ead896e1049999e94b43922f5d7c59767f`.
+Evidence: [37-status-P0.5.11-CRUISE-PHASE-AND-BRAKING-SEMANTICS.md](37-status-P0.5.11-CRUISE-PHASE-AND-BRAKING-SEMANTICS.md) and [36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md](36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md).
+
+## Previous checkpoint — P0.5.10 Gated Body Selection & Aerospace Reference Audit (2026-10-30)
+
+Baseline at `42e21bdf813d1b65c0615f78107ecb1ee2bd9542` (P0.5.9). Resolved the single telemetry attribution divergence in `T_P0B_PROXIMITY_SPEED_GATING_PREVENTS_TUNNELING` (where Mars was reported instead of Earth) by separating structural state channels (`throttleGatedBodyId` vs `decelGatedBodyId`), calculating obstacle-relative radial velocities, and establishing a deterministic telemetry priority hierarchy. Added unit tests for multi-body catalogue order invariance (`T_P0510_GATED_BODY_IDENTIFICATION_INDEPENDENT_OF_OBSTACLE_ORDER`). Audited and corrected technical literature citations (expunged spurious SP-8007; cited Stevens et al. 2015, Battin 1999, and NASA SP-8015).
+All 638/638 permanent regression gate tests preserved.
+Evidence: [36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md](36-status-P0.5.10-GATED-BODY-SELECTION-AND-SOURCE-AUDIT.md), [35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md](35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md), and [34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md](34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md).
+
+## Previous checkpoint — P0.5.9 Proximity Throttle Gating & Full Suite Restoration (2026-10-30)
+
+Baseline at `08d14d2c5de1ca43c143d004469f07566ff3dbe1` (P0.5.8). Resolved the excessive speed tunneling failure by implementing fly-by-wire throttle limiter authority before applying commanded warp acceleration near celestial envelopes. All 638/638 permanent regression gate tests preserved.
+Evidence: [35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md](35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md).
+
+## Previous checkpoint — P0.2 Fidelity Hardening & Robustness Hotfix (2026-10-21)
+
+Baseline at `4c05785df32eade281a2bd4f1a4361ef33fcc299`. Resolved all 5 fidelity and robustness issues, including audit hotfix:
+multi-segment continental and globe river rendering without spurious connections (`EarthRiverLayer.getRiverLines`),
+spherical geodetic SLERP interpolation with orbital LOD contrast tiers (`EarthContinentalRiverRenderer.ts`),
+resilient WebGL initialization with DOM canvas replacement fallback preventing browser context clashes (`PlanetMap3DRenderer.ts`),
+photosphere spherical clearance and terminal landing envelope clamp (`BodyNavigation.ts`, `Game.ts`),
+and autonomous end-to-end solar landing, surface locomotion and takeoff test cycle without shortcuts driven purely by player controllers (`sun-approach.test.ts`).
+Permanent regression gate at 635/635 PASS; full unit test suite at 1,424/1,424 PASS; impact-fidelity 24/24 PASS; build clean.
+Evidence: [32-status-P0.2-FIDELITY-HARDENING.md](32-status-P0.2-FIDELITY-HARDENING.md).
+STOP after P0.2; U4/BH0 remain strictly blocked pending manual gameplay evaluation.
+
+## Previous checkpoint — P0.1 Final Hardening: Geographic Fidelity & 3D Earth Presentation (2026-10-15)
+
+P0 baseline at `68af476eb02380a86abeb43c9d314dd6d2162757`. Resolved all 8 fidelity and hardening issues:
+reproducible offline Natural Earth river geodata pipeline (`build-earth-rivers.mjs`), body-fixed continental
+Amazon river renderer on orbital EarthGlobe (`EarthContinentalRiverRenderer.ts`), genuine Three.js WebGL/WebGPU
+spherical 3D Earth map (`PlanetMap3DRenderer.ts`), canonical geodetic Manaus anchor alignment, unified solar
+photosphere landing criteria (`isLandableBody()`), enhanced Manaus orbital LOD with spherical occlusion, and
+stable procedural flight pose bone transforms.
+Permanent regression gate at 629/629 PASS; full unit test suite at 1,417/1,417 PASS; impact-fidelity 24/24 PASS; build clean.
+Evidence: [31-status-P0.1-FINAL-HARDENING.md](31-status-P0.1-FINAL-HARDENING.md).
+STOP after P0.1; U4/BH0 remain separate work pending manual operator acceptance.
+
+## Previous checkpoint — P0 Planetary Presentation + Earth Map + Flight Polish (2026-10-15)
+
+U3 accepted at `225e99507856e4508c558bc94e56c0b07d0d5d1c`. Implemented: solar elevation and day/night transitions,
+occlusion testing and space ambient floor, lunar earthshine (phase floor 0.14), singularity-free 3D flight orientation,
+procedural aerodynamic flight pose blending, solar photosphere landing (tangent plane ENU heightfield), offline 3D Earth globe
+with Natural Earth rivers and geodetic markers, Manaus Tier C far orbital presentation with continuous cross-fade and local mesh culling,
+and 18 F3 diagnostic metrics. Permanent regression gate maintained at 610/610 PASS; full repository suite at 1,390/1,390 PASS.
+Evidence: [30-status-P0-PLANETARY-POLISH.md](30-status-P0-PLANETARY-POLISH.md). STOP after P0; U4/BH0 remain separate work.
+
+## Previous checkpoint — U3 Universal Hypercruise (2026-10-09)
 
 U2 accepted at `64eb0210fda8a111af6cd1cf3d8743f59c362ba8`. Implemented: permanent regression
 gate, immutable travel plans, anchored/transit authority, interstellar/intergalactic production P,
@@ -1085,3 +1333,53 @@ Known gap: `tsconfig.json` includes only `src`, so `npm run typecheck` does not 
 A test in this checkpoint called `RoadNetwork.update(Vector3, 0)` against a `(x, z, speed)`
 signature and failed at runtime instead of compile time. Including `tests` currently surfaces 314
 pre-existing errors, mostly a missing `node` entry in `compilerOptions.types`.
+
+---
+
+## Checkpoint P0.2: Fidelity Hardening, River Segments, WebGL Robustness & Sun E2E
+
+- **Baseline**: `22e765d5b86d92c5a9acd9d434348cfe7c11b10f`, `feat/universe-map`.
+- **Rios Continentais Independentes**: Corrigida omissão de afluentes secundários em `EarthContinentalRiverRenderer` e `PlanetMap3DRenderer`. Extração de todos os segmentos independentes com `EarthRiverLayer.getRiverLines` e renderização de linhas sem conexões artificiais entre bacias.
+- **Interpolação Geodésica por SLERP**: Substituída interpolação linear ingênua por SLERP geodésico na esfera unitária, prevenindo que rios cortem por dentro do planeta.
+- **Robustez de WebGL & Fallback 2D**: `PlanetMap3DRenderer` agora só ativa `mode = 'gpu-3d'` se a criação do `WebGLRenderer` for bem-sucedida. Falhas ou indisponibilidade de contexto ativam automaticamente `mode = '2d-fallback'` com render 2D completo (globo, continentes, rios e marcadores de Manaus/jogador).
+- **Cobertura de Testes do Mapa 3D**: Expandido `tests/earth-map-3d.test.ts` com testes de fallback sem WebGL, fallback em exceção do construtor, rios multisegmentados, redimensionamento de canvas e orientação canônica de Manaus.
+- **Pouso Solar End-to-End**: Criado teste de integração `T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE` em `tests/sun-approach.test.ts` cobrindo o ciclo completo: acionamento real de `KeyF` -> ativação da intenção -> aproximação -> handoff para fotosfera (`sun/local-enu`, gravidade 9.8 m/s², distrito FOTOSFERA) -> caminhada local na superfície -> decolagem vertical com retorno a voo interplanetário.
+- **Gates**: `npm run typecheck` (0 erros), `npm run test:regression` (635/635 pass), `npm run check:impact-fidelity` (24/24 pass), `npm test` (1.424/1.424 pass), `npm run build` (sucesso).
+- **Bloqueio**: U4 e BH0–BH2 continuam estritamente bloqueados.
+
+---
+
+## Checkpoint P0.5.8: CCD Physical Collision Restoration & Flight Assistance Decoupling
+
+- **Baseline**: `22296770dcc266b8668c5f7da6751f1b179a6803`, `feat/universe-map`.
+- **Causa Raiz Corrigida**: Removido clamp prematuro pré-CCD (`newSpeed = Math.min(newSpeed, proximitySpeedCapMps(0))`) em `CosmicFlight.ts` que truncava o raio de sweep de colisão contínua para 20 km/s antes da detecção física, suprimindo o contato no Sol e nos planetas e degradando a energia de impactos catastróficos.
+- **Desacoplamento de Voo Cósmico**: Gating de velocidade por proximidade restrito estritamente a voos cósmicos superluminais (`isCosmic || currentRelSpeed > 256 * LIGHT_SPEED_MPS`), permitindo testes e voos manuais com velocidades físicas completas.
+- **Detecção Contínua Pura (CCD)**: Restabelecido o cálculo do vetor de trajetória real para `sweepSegmentSphere`, garantindo emissão correta de `CelestialContact` com velocidade pré-impacto real, absorção inelástica sem ricochete na fotosfera, ausência de tunelamento e acionamento de `emergencyStopActive = true` com razão `'ccd-contact'`.
+- **Documentação de Engenharia**: Elaborado documento [docs/world/34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md](file:///c:/Projetos/Dr-Manaus/docs/world/34-status-P0.5.8-CCD-PHYSICS-RESTORATION.md) com análise detalhada, fluxo de dados, fórmulas matemáticas e matriz de testes.
+
+---
+
+## Checkpoint U4.2.2: Resolução do CI (TS2339), Alinhamento Geométrico Coplanar e Cache GPU com Contagem de Referências
+
+- **Baseline**: `7d828974e3ff24e433911ebf34a9ed593c29dca4`, `feat/universe-map`.
+- **Causa Raiz TypeScript Corrigida**: Substituída a referência inválida `descriptor.hubbleType` por `descriptor.morphology` em `GalaxyPointCloudProvider.buildPointCloudCacheKey`, satisfazendo estritamente a tipagem estática de `ProceduralGalaxyDescriptor`.
+- **Alinhamento Coplanar dos LODs**: Rotação de -90° em torno de X (`rotateX(-Math.PI / 2)`) em `lod0Geometry` e `lod1DiscGeometry`. Agora LOD 0 (impostor quad), LOD 1 (disco intermediário) e LOD 2 (nuvem de partículas) compartilham estritamente o mesmo plano equatorial galáctico X-Z com vetor normal ao longo de +Y, eliminando rotações aparentes de 90° e popping visual nas fronteiras de histerese.
+- **Pré-Aquecimento Preditivo de LOD 2**: Implementado gatilho anti-stuttering síncrono em `GalaxyMorphologyRenderer.update` ao atingir 60% do limiar de transição em LOD 1 (`projectedPx >= lodThreshold12 * 0.6`). O buffer GPU de partículas é construído e alocado no cache antes da transição efetiva, tornando a entrada em LOD 2 uma operação $O(1)$.
+- **Cache LRU Seguro com Contagem de Referências**: Adicionado gerenciamento de ciclo de vida com `retain`/`release` em `GalaxyPointCloudProvider`. Geometrias ativas em cena (`refCount > 0`) jamais sofrem descarte (`.dispose()`) ao ocorrer evicção da tabela LRU.
+- **Propagação de Viewport Real**: `Game.ts` e `GalaxyMaterializer.ts` propagam a altura real do canvas (`renderer.domElement.clientHeight || window.innerHeight`) e o FOV vertical efetivo da `PerspectiveCamera`.
+- **Correção de Fixtures e Cobertura de Testes**: Corrigida a fixture `nearbySatellite` com todos os campos obrigatórios de `GalaxyDefinition`; adicionados testes `T_U422_01_COPLANAR_XZ_ORIENTATION_AND_PREDICTIVE_PREHEATING` e `T_U422_02_REFERENCE_COUNTED_CACHE_AND_SAFE_EVICTION` em `tests/galaxy-morphology-renderer.test.ts` (15 testes no total).
+- **Servidor Dev na Porta 9999**: Configurado `vite.config.ts` e `package.json` para escutar na porta 9999 via `0.0.0.0:9999`, liberando a porta 5173 para uso simultâneo conforme solicitação explícita do operador.
+- **Bloqueio**: U4.3 e BH0–BH2 continuam estritamente bloqueados até validação oficial do CI no GitHub Actions.
+
+---
+
+## Checkpoint U4.2.3: Ajuste de Contratos Estatísticos Morfológicos, Invariância Canônica e Validação do Cache GPU
+
+- **Baseline**: `4d6823424e3e2a79d1d9b1ff435392691d7c950c`, `feat/universe-map`.
+- **Causa Raiz 1 (Morfologia Espiral - T_U42_02)**: O teste anterior exigia `mwMaxAbsY < 0.5` absoluto para todas as 5.000 partículas. Porém, o gerador procedural modela legitimamente o halo esferoidal estelar ($z = r_{\text{halo}} \cos(\theta) \times 0.82$, atingindo até $1.025$ para estrelas externas do halo, ~1.8% do total). O contrato foi corrigido com métricas estatísticas rigorosas: concentração planar do disco ($\ge 90\%$ com $|Y| \le 0.25$), espessura RMS vertical do disco ($RMS < 0.15$), fração de estrelas externas do halo ($< 5\%$) e contraste claro contra galáxias elípticas ($RMS_{\text{ell}} > 1.5 \times RMS_{\text{mw}}$, dominância de populações avermelhadas $R > B$ em $> 85\%$).
+- **Causa Raiz 2 (Invariância Canônica vs Procedural - T_U421_01)**: O teste anterior supunha que fornecer sementes universais distintas para `cell (0, 0, 0)` no índice 0 produziria descritores com sementes diferentes. Por contrato do U4.1, a célula `(0, 0, 0)` no índice 0 é a Via Láctea canônica com seed estática (`0x4d494c4b59574159n`). O teste foi reformulado para validar: (1) invariância de chave da Via Láctea canônica perante diferentes sementes universais; (2) unicidade e diferenciação de chaves em células procedurais com sementes distintas; (3) diferenciação por dimensões visuais (`diameterLy`) e presets de qualidade; (4) reutilização $O(1)$ de buffers e limite de evicção LRU em 3 entradas.
+- **Modelo de Pré-Aquecimento LOD2**: Documentado com precisão que `preheatLod2()` opera sincronamente no frame loop ao atingir 60% da transição de LOD1, antecipando a alocação para tornar a transição $O(1)$. Streaming assíncrono em worker permanece planejado para uma passagem futura de performance.
+- **Porta 9999**: Preservada a configuração em `package.json` e `vite.config.ts`, atendendo à solicitação explícita do operador devido à ocupação prévia da porta 5173 por outra aplicação de desenvolvimento.
+- **Bloqueio**: U4.3 e BH0–BH2 continuam estritamente bloqueados até validação oficial do CI no GitHub Actions.
+
+

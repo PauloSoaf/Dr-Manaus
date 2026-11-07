@@ -1,6 +1,7 @@
 export class InputController {
   enabled = true;
   readonly mouseDelta = { x: 0, y: 0 };
+  readonly mouseWheel = { deltaY: 0 };
   private readonly keys = new Set<string>();
   private readonly edges = new Set<string>();
   private dragging = false;
@@ -17,6 +18,11 @@ export class InputController {
     window.addEventListener('keyup', (event) => this.keys.delete(event.code), options);
     window.addEventListener('blur', () => this.clear(), options);
     canvas.addEventListener('contextmenu', (event) => event.preventDefault(), options);
+    canvas.addEventListener('wheel', (event) => {
+      if (!this.enabled) return;
+      event.preventDefault();
+      this.mouseWheel.deltaY += event.deltaY;
+    }, options);
     canvas.addEventListener('pointerdown', (event) => {
       if (!this.enabled) return;
       const code = `Mouse${event.button}`;
@@ -50,7 +56,12 @@ export class InputController {
     this.edges.delete(code);
     return active;
   }
-  endFrame(): void { this.edges.clear(); this.mouseDelta.x = this.mouseDelta.y = 0; }
-  clear(): void { this.keys.clear(); this.edges.clear(); this.mouseDelta.x = this.mouseDelta.y = 0; }
+  consumeWheelDelta(): number {
+    const delta = this.mouseWheel.deltaY;
+    this.mouseWheel.deltaY = 0;
+    return delta;
+  }
+  endFrame(): void { this.edges.clear(); this.mouseDelta.x = this.mouseDelta.y = 0; this.mouseWheel.deltaY = 0; }
+  clear(): void { this.keys.clear(); this.edges.clear(); this.mouseDelta.x = this.mouseDelta.y = 0; this.mouseWheel.deltaY = 0; }
   dispose(): void { this.controller.abort(); this.clear(); }
 }

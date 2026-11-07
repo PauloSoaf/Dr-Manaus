@@ -46,11 +46,24 @@ export interface StarSectorProviderOptions {
   maxStarsPerSector?: number;
   /** Below this altitude the galaxy is not drawn: there is a sky and a planet in the way. */
   minAltitudeM?: number;
+  universeSeed?: bigint;
 }
 
 interface SectorPayload {
   readonly content: StarSectorContent;
   readonly geometry: BufferGeometry;
+}
+
+export function starSectorProviderId(galaxyId?: string, universeSeed?: bigint): string {
+  if (!galaxyId || galaxyId === 'milky_way' || galaxyId === 'milky-way') {
+    return 'galaxy/star-sectors';
+  }
+  if (galaxyId === 'andromeda' || galaxyId === 'triangulum' || galaxyId === 'large-magellanic-cloud' || galaxyId === 'small-magellanic-cloud') {
+    return 'galaxy/star-sectors/' + galaxyId;
+  }
+  return universeSeed !== undefined
+    ? `galaxy/star-sectors/${galaxyId}/${universeSeed.toString(16)}`
+    : `galaxy/star-sectors/${galaxyId}`;
 }
 
 export class StarSectorProvider implements WorldProvider {
@@ -62,13 +75,13 @@ export class StarSectorProvider implements WorldProvider {
   private readonly material: PointsMaterial;
   /** Keyed by tile key, and each entry remembers its own sector so nothing has to be parsed. */
   private readonly sectors = new Map<string, { readonly mesh: Points; readonly sector: SectorIndex }>();
-  private readonly options: Required<StarSectorProviderOptions>;
+  private readonly options: Omit<Required<StarSectorProviderOptions>, 'universeSeed'> & { universeSeed?: bigint };
   private altitudeM = 0;
   /** The sector the last plan was centred on, so recentring needs no context of its own. */
   private centreSector: SectorIndex = sectorIndex(0, 0, 0);
 
   constructor(parent: Object3D, options: StarSectorProviderOptions = {}) {
-    this.id=options.galaxyId && options.galaxyId!=='milky_way' ? 'galaxy/star-sectors/'+options.galaxyId : 'galaxy/star-sectors';
+    this.id = starSectorProviderId(options.galaxyId, options.universeSeed);
     this.group.name = 'galaxy';
     this.group.visible = false;
     parent.add(this.group);
@@ -77,6 +90,7 @@ export class StarSectorProvider implements WorldProvider {
       ringSectors: Math.max(0, Math.round(finite(options.ringSectors, DEFAULT_RING))),
       maxStarsPerSector: Math.max(1, Math.round(finite(options.maxStarsPerSector, DEFAULT_MAX_STARS))),
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 200_000)),
+      universeSeed: options.universeSeed,
     };
     this.material = new PointsMaterial({
       size: 1.4, sizeAttenuation: false, vertexColors: true,
@@ -142,6 +156,7 @@ export class StarSectorProvider implements WorldProvider {
     // Generated, not fetched. The same sector gives the same stars on every machine, forever.
     const content = generateStarSector(this.options.galaxyId, sector, {
       maxStars: this.options.maxStarsPerSector,
+      universeSeed: this.options.universeSeed,
     });
     const geometry = buildSectorGeometry(content);
     const bytes = content.stars.length * 6 * 4;

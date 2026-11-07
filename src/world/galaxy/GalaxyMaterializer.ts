@@ -6,6 +6,7 @@ import { BlackHoleProvider } from '../providers/BlackHoleProvider';
 import type { UniverseRuntime } from '../runtime/UniverseRuntime';
 import type { SystemResources } from '../runtime/ProceduralSystemMaterializer';
 import { knownGalaxyRuntime, type GalaxyRuntime } from './GalaxyRuntime';
+import type { QualityPreset } from '../../core/config';
 
 export interface GalaxySession {
   readonly galaxy:GalaxyRuntime;
@@ -24,14 +25,28 @@ export class GalaxyMaterializer {
   private readonly viewBasis=new Matrix4();
   private readonly axes=[new Vector3(),new Vector3(),new Vector3()];
   readonly timings:Record<string,number>={};
-  constructor(readonly universe:UniverseRuntime,private readonly parent:Object3D,
-    private readonly checkpoint:(stage:GalaxyStage)=>void=()=>{}) {}
+  constructor(
+    readonly universe:UniverseRuntime,
+    private readonly parent:Object3D,
+    private readonly checkpoint:(stage:GalaxyStage)=>void=()=>{},
+    private qualityPreset:QualityPreset='High',
+  ) {}
 
-  prepare(id:string):SystemResources {
+  /** Updates quality preset across the active materializer and resident external galaxies. */
+  setQuality(preset:QualityPreset):void {
+    this.qualityPreset=preset;
+    for(const g of this.current?.externalGalaxies??[]) {
+      g.setQuality(preset);
+    }
+  }
+
+  prepare(id:string, universeSeed?: bigint):SystemResources {
     const old=this.current;
-    if(old?.galaxy.id===id)return {install:()=>{},activate:()=>{this.current=old;this.parent.add(old.root);},dispose:()=>{}};
+    if(old?.galaxy.id===id && (universeSeed===undefined || old.galaxy.universeSeed===universeSeed)) {
+      return {install:()=>{},activate:()=>{this.current=old;this.parent.add(old.root);},dispose:()=>{}};
+    }
     const start=performance.now();this.checkpoint('galaxy');
-    const galaxy=knownGalaxyRuntime(id);if(!galaxy)throw Error('Galáxia desconhecida');
+    const galaxy=knownGalaxyRuntime(id, universeSeed);if(!galaxy)throw Error('Galáxia desconhecida');
     this.timings.runtime=performance.now()-start;
     const root=new Group();root.name='galaxy-session/'+id;
     let sectors:StarSectorProvider|undefined,bh:BlackHoleProvider|undefined;
@@ -45,9 +60,14 @@ export class GalaxyMaterializer {
       sectors?.dispose();bh?.dispose();for(const g of externals)g.dispose();root.removeFromParent();root.clear();
     };
     try {
-      const t=performance.now();this.checkpoint('star-sectors');sectors=new StarSectorProvider(root,{galaxyId:id});
+      const t=performance.now();this.checkpoint('star-sectors');sectors=new StarSectorProvider(root,{galaxyId:id, universeSeed: galaxy.universeSeed ?? universeSeed});
       this.timings.starSectors=performance.now()-t;
-      const ext=performance.now();for(const def of LOCAL_GROUP_CATALOG)if(def.id!==id)externals.push(new GalaxyProvider(root,{galaxy:def}));
+      const ext=performance.now();
+      for(const def of LOCAL_GROUP_CATALOG) {
+        if(def.id!==id) {
+          externals.push(new GalaxyProvider(root,{galaxy:def,qualityPreset:this.qualityPreset, universeSeed: galaxy.universeSeed ?? universeSeed}));
+        }
+      }
       this.timings.externalGalaxies=performance.now()-ext;
       const b=performance.now();this.checkpoint('black-hole');
       if(galaxy.centralBlackHole)bh=new BlackHoleProvider(root,{galaxyId:id,blackHole:galaxy.centralBlackHole});
@@ -57,7 +77,13 @@ export class GalaxyMaterializer {
       get ready(){return !disposed;},dispose};
     this.timings.prepare=performance.now()-start;
     return {
-      install:()=>{if(disposed||complete||this.current!==old)throw Error('Preparação de galáxia obsoleta');installStart=performance.now();this.checkpoint('install');this.universe.providers.register(sectors!);},
+      install:()=>{
+        if(disposed||complete||this.current!==old)throw Error('Preparação de galáxia obsoleta');
+        installStart=performance.now();this.checkpoint('install');
+        if(!this.universe.providers.get(sectors!.id)){
+          this.universe.providers.register(sectors!);
+        }
+      },
       activate:()=>{
         if(!complete)this.checkpoint('activate');if(!session.ready)throw Error('Sessão de galáxia descartada');
         if(this.universe.address.galaxyId!==id)throw Error('Galáxia e endereço incoerentes');
@@ -75,16 +101,21 @@ export class GalaxyMaterializer {
   }
   /** Used after a prepared Solar restoration commits; the same saved Solar origin belongs to U1. */
   prepareSolarReturn():SystemResources{return this.prepare('milky_way');}
-  update(cameraPosition:readonly [number,number,number],altitudeM:number):void {
-    const session=this.current;if(!session)return;
-    const address=this.universe.address,offset=this.universe.location.sectorOffsetM??[0,0,0];
+  update(
+    cameraPosition:readonly [number,number,number],
+    altitudeM:number,
+    cameraContext?: { fov?: number; aspect?: number; viewportHeightPx?: number },
+  ): void {
+    const session = this.current; if (!session) return;
+    const address = this.universe.address, offset = this.universe.location.sectorOffsetM ?? [0, 0, 0];
     session.starSectorProvider.recentre(cameraPosition);
-    const toRender=(v:import('../spatial/units').Vec3)=>this.universe.frames.convertDirection(this.universe.activeSystem.systemFrameId,this.universe.renderSpace.currentOrigin.frame,v);
-    for(let i=0;i<3;i++){const basis:import('../spatial/units').Vec3=[0,0,0];basis[i]=1;this.axes[i].set(...toRender(basis));}
-    const rotation=this.viewBasis.makeBasis(this.axes[0],this.axes[1],this.axes[2]);
+    const toRender = (v: import('../spatial/units').Vec3) => this.universe.frames.convertDirection(this.universe.activeSystem.systemFrameId, this.universe.renderSpace.currentOrigin.frame, v);
+    for (let i = 0; i < 3; i++) { const basis: import('../spatial/units').Vec3 = [0, 0, 0]; basis[i] = 1; this.axes[i].set(...toRender(basis)); }
+    const rotation = this.viewBasis.makeBasis(this.axes[0], this.axes[1], this.axes[2]);
     session.starSectorProvider.group.quaternion.setFromRotationMatrix(rotation);
     session.centralBlackHole?.group.quaternion.setFromRotationMatrix(rotation);
-    for(const g of session.externalGalaxies)g.update(address,[...cameraPosition],altitudeM,offset,toRender);
-    session.centralBlackHole?.update(address,[...cameraPosition],altitudeM,offset,toRender);
+    const camCtx = cameraContext ? { fovDeg: cameraContext.fov, viewportHeightPx: cameraContext.viewportHeightPx } : undefined;
+    for (const g of session.externalGalaxies) g.update(address, [...cameraPosition], altitudeM, offset, toRender, camCtx, session.galaxy.universeSeed);
+    session.centralBlackHole?.update(address, [...cameraPosition], altitudeM, offset, toRender);
   }
 }

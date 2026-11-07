@@ -17,6 +17,7 @@ import { enuBasis } from '../spatial/ENU';
 import { faceUvToDirection } from './CubeSphere';
 import { PlanetVolumeSurfaceMask } from '../../rendering/PlanetVolumeSurfaceMask';
 import {earthDirectLightNode,earthNightAmbientNode} from '../../rendering/PlanetVolumeLighting';
+import { EarthContinentalRiverRenderer } from './EarthContinentalRiverRenderer';
 
 export function parseTileKey(key: string): PlanetTileAddress | undefined {
   const parts = key.split(':');
@@ -252,6 +253,7 @@ export class EarthGlobe {
   private altitudeM = 0;
 
   readonly manausSurfaceAnchor = new Group();
+  readonly riverRenderer: EarthContinentalRiverRenderer;
 
   constructor(parent: Object3D) {
     this.group.name = 'earth-globe';
@@ -289,6 +291,9 @@ export class EarthGlobe {
     this.atmosphereMesh.frustumCulled = false;
     this.atmosphereMesh.renderOrder = 2;
     this.surfaceGroup.add(this.atmosphereMesh);
+
+    this.riverRenderer = new EarthContinentalRiverRenderer();
+    this.surfaceGroup.add(this.riverRenderer.group);
   }
 
   private initCoarseFallback(): void {
@@ -319,6 +324,7 @@ export class EarthGlobe {
       throw new Error(`Invariant violation: Astronomical coordinate [${positionM.join(', ')}] reached EarthGlobe Mesh.position. Must use camera-relative rendering.`);
     }
     this.altitudeM = altitudeM;
+    this.riverRenderer.update(altitudeM);
     this.group.position.set(positionM[0], positionM[1], positionM[2]);
     if (orientation) {
       this.group.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
@@ -452,11 +458,13 @@ export class EarthGlobe {
   set visible(visible: boolean) {
     this.surfaceGroup.visible = visible;
     this.atmosphereMesh.visible = visible && this.altitudeM >= 20_000;
+    this.riverRenderer.visible = visible;
   }
   get visible(): boolean { return this.surfaceGroup.visible; }
 
   set opacity(opacity: number) {
     this.uSurfaceOpacity.value = Math.max(0, Math.min(1, opacity));
+    this.riverRenderer.opacity = this.uSurfaceOpacity.value;
   }
 
   get opacity(): number { return this.uSurfaceOpacity.value; }
@@ -536,6 +544,7 @@ export class EarthGlobe {
     this.material.dispose();
     this.atmosphereMaterial.dispose();
     this.atmosphereMesh.geometry.dispose();
+    this.riverRenderer.dispose();
     this.group.removeFromParent();
     this.triangles = 0;
     this.fallbackTriangles = 0;
