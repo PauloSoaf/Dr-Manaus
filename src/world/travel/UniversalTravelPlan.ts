@@ -12,6 +12,7 @@ export interface TravelAnchor {
   readonly offsetM:Vec3;
   /** Metadata only. Never copied into a render transform or physics pose. */
   readonly globalPositionM?:Vec3;
+  readonly universeSeed?:bigint;
 }
 export interface UniversalTravelPlan {
   readonly id:string;
@@ -26,8 +27,9 @@ export interface UniversalTravelPlan {
   readonly arrivalPolicy:'safe-system-corridor';
   readonly finalBodyTarget?:UniversalNavigationTarget;
 }
-export const sameSystem=(a:UniverseAddress,b:UniverseAddress)=>a.galaxyId===b.galaxyId
-  && a.systemId===b.systemId && sectorsEqual(a.sector,b.sector);
+export const sameSystem=(a:UniverseAddress,b:UniverseAddress,seedA?:bigint,seedB?:bigint)=>a.galaxyId===b.galaxyId
+  && a.systemId===b.systemId && sectorsEqual(a.sector,b.sector)
+  && (seedA === undefined || seedB === undefined || seedA === seedB);
 const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
 export function hypercruiseDuration(distanceM:number,domain:UniversalTravelDomain):number {
   const ly=distanceM/LIGHT_YEAR_M;
@@ -38,7 +40,7 @@ export function travelAnchor(address:UniverseAddress,offsetM:Vec3,universeSeed?:
   const a=Object.freeze({...address,sector:Object.freeze({...address.sector})});
   const global=observerGlobalPositionM(a,offsetM,universeSeed);
   return Object.freeze({address:a,offsetM:Object.freeze([...offsetM]) as unknown as Vec3,
-    globalPositionM:global?Object.freeze(global) as Vec3:undefined});
+    globalPositionM:global?Object.freeze(global) as Vec3:undefined,universeSeed});
 }
 export function createTravelPlan(u:UniverseRuntime,catalog:UniversalTargetCatalog,
   requested:UniversalNavigationTarget,id:string,origin?:TravelAnchor):UniversalTravelPlan {
@@ -50,7 +52,8 @@ export function createTravelPlan(u:UniverseRuntime,catalog:UniversalTargetCatalo
   const resolved=new GalaxyEntryResolver(catalog).resolve(requested),a=resolved.address;
   if(!a||!isUniverseAddress(a)||!a.systemId) throw Error('Destination needs a canonical system address');
   const offset:Vec3=a.systemId==='sol'?[0,0,0]:catalog.proceduralDescriptor(a.galaxyId,a.sector,a.systemId)!.star.offsetM;
-  const destination=travelAnchor(a,offset,uSeed),domain=actualOrigin.address.galaxyId===a.galaxyId?'interstellar':'intergalactic';
+  const destination=travelAnchor(a,offset,uSeed);
+  const domain=(actualOrigin.address.galaxyId===a.galaxyId && actualOrigin.universeSeed===uSeed)?'interstellar':'intergalactic';
   const distance=addressSeparationM(actualOrigin.address,actualOrigin.offsetM,a,offset,{ originSeed, destinationSeed: uSeed });
   if(!Number.isFinite(distance)||distance===undefined||distance<=0) throw Error('Destination distance unavailable');
   return Object.freeze({id,origin:actualOrigin,destination,requestedTarget:createUniversalTarget(requested,requested.source,requested.selectedAtS,requested.mode),

@@ -80,8 +80,11 @@ export class GalaxyMaterializer {
       install:()=>{
         if(disposed||complete||this.current!==old)throw Error('Preparação de galáxia obsoleta');
         installStart=performance.now();this.checkpoint('install');
-        if(!this.universe.providers.get(sectors!.id)){
+        const existing = this.universe.providers.get(sectors!.id);
+        if (!existing) {
           this.universe.providers.register(sectors!);
+        } else if (existing !== sectors) {
+          throw new Error(`Conflito de provider: "${sectors!.id}" já registrado por outra instância.`);
         }
       },
       activate:()=>{

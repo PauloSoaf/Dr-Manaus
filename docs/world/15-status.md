@@ -1,6 +1,21 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.4.7 Desbloqueio do CI e Segurança Transacional dos Providers (2026-11-07)
+## Current checkpoint — U4.4.8 Correção dos 3 Testes e Integridade Transacional (2026-11-07)
+
+Baseline auditado do U4.4.7 no commit `13452196b3cef9c82688e3091a5121a88b29ced8` ultrapassou com sucesso a compilação TypeScript e a suíte de 638 regressões permanentes, reprovando em 3 testes específicos do U4.4 (GitHub Actions Run `42392441997`: 1.538/1.541 aprovados). O patch U4.4.8 corrige os três testes respeitando a integridade dos contratos de runtime, blinda o registro de provedores e fecha a diferenciação de sementes nos planos de viagem:
+1. `tests/procedural-travel.test.ts`:
+   - `T_U44_17`: adicionados os imports faltantes `registerProceduralGalaxyDefinition`, `GalaxyRuntime` e `type GalaxyDefinition`, sanando o `ReferenceError`.
+   - `T_U44_23`: o alvo galáctico de destino sob Seed B agora é resolvido via `GalaxyEntryResolver.resolve()` antes da preparação em `ProceduralSystemMaterializer.prepare()`, fornecendo o `systemId` exigido pelo contrato do materializador.
+   - `T_U44_24`: inicialização da galáxia de origem sob Seed A através do fluxo real de materialização (`ProceduralSystemMaterializer.install()`), garantindo o alinhamento de `universe.address.galaxyId` antes da ativação e planejamento de rota.
+2. `GalaxyMaterializer.ts`:
+   - Guarda estrita em `install()`: se já existir um provedor registrado com o mesmo ID mas for uma instância diferente (`existing !== sectors`), lança erro explícito de conflito de provider em vez de ignorar silenciosamente.
+3. `UniversalTravelPlan.ts` e `UniversalTravelController.ts`:
+   - `TravelAnchor` agora inclui `universeSeed?: bigint`.
+   - `sameSystem()` agora avalia opcionalmente `seedA` e `seedB`, tratando galáxias com mesmo ID mas sob sementes distintas como domínios intergalácticos e prevenindo atalhos incorretos de `same-system`.
+   - Avaliação de domínio (`interstellar` vs `intergalactic`) em `createTravelPlan()` agora exige correspondência da `universeSeed`.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.7 Desbloqueio do CI e Segurança Transacional dos Providers (2026-11-07)
 
 Baseline auditado do U4.4.6 no commit `491d6a429d09e33f9bc4785e8d4b4adbf803a470` reprovou no CI oficial (GitHub Actions Run `42054100700`: 6 erros TS2448/TS2454 em `ProceduralSystemMaterializer.ts` pelo uso da variável `u` antes de sua declaração em `returnToSolar()`). O patch U4.4.7 corrige a compilação, elimina o risco de colisão de provedores em trocas multissemente e fecha os contratos de rota:
 1. `ProceduralSystemMaterializer.ts`:

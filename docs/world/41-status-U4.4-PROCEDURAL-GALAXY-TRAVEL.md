@@ -1,3 +1,44 @@
+# DR-MANAUS | Checkpoint U4.4.8 — Correção dos 3 Testes e Integridade Transacional
+
+**Data:** 07 de novembro de 2026  
+**Repositório:** PauloSoaf/Dr-Manaus  
+**Branch:** `feat/universe-map`  
+**Baseline auditado (U4.4.7):** `13452196b3cef9c82688e3091a5121a88b29ced8`  
+**CI Oficial U4.4.7:** GitHub Actions Run `42392441997` (FAILURE: TypeScript PASS, 638/638 regressões permanentes PASS, 3 falhas nos testes gerais: 1.538/1.541)  
+**Falhas confirmadas no U4.4.7:**
+- `T_U44_17`: `ReferenceError: registerProceduralGalaxyDefinition is not defined`
+- `T_U44_23`: `Error: TEST: endereço procedural de galáxia conhecida requerido`
+- `T_U44_24`: `Error: Galáxia e endereço incoerentes`  
+**Último Baseline Verde:** `cc07b1c04b97d665c353b8c8d58513986494d6ca` (U4.4.3, Run `41662450492`)  
+**Patch Atual:** U4.4.8  
+
+---
+
+## 1. Auditoria e Diagnóstico da Reprovação do U4.4.7
+
+O commit `13452196b3cef9c82688e3091a5121a88b29ced8` ultrapassou com sucesso o Typecheck e a suíte completa de 638 testes de regressões permanentes, expondo 3 falhas de runtime na suíte geral:
+
+1. **`T_U44_17` — Ausência de Imports de Suporte:**
+   - O teste determinístico invocava `registerProceduralGalaxyDefinition`, `GalaxyRuntime` e tipava `GalaxyDefinition` sem que esses símbolos tivessem sido importados em `tests/procedural-travel.test.ts`.
+   - **Correção:** Inclusão dos imports nominais de `GalaxyCoordinates`, `GalaxyRuntime` e `GalaxyDefinition`.
+
+2. **`T_U44_23` — Violação de Contrato em `ProceduralSystemMaterializer.prepare()`:**
+   - O teste passava um alvo de galáxia cru (`targetB = catalogB.target(procGalaxyId)!`, com `kind: 'galaxy'` e sem `systemId`) diretamente para `ProceduralSystemMaterializer.prepare()`.
+   - O contrato do materializador exige alvos no nível de sistema ou corpo celeste (`kind in ['star', 'system', 'body']` e `systemId` preenchido). No fluxo real de gameplay, alvos galácticos sempre passam antes por resolução de ponto de entrada.
+   - **Correção:** Resolução prévia do alvo galáctico através de `new GalaxyEntryResolver(catalogB).resolve(targetB)`, passando o descritor resolvido (`resolvedTargetB`) para `prepare()`.
+
+3. **`T_U44_24` — Invariante de Ativação em `GalaxyMaterializer.activate()`:**
+   - `GalaxyMaterializer.activate()` possui a asserção de integridade `if (this.universe.address.galaxyId !== id) throw Error('Galáxia e endereço incoerentes')`.
+   - O teste tentava chamar `activate()` manualmente com a galáxia em `'milky_way'`, sem executar a transição de sistema estelar correspondente.
+   - **Correção:** Inicialização da galáxia de origem sob Seed A através do fluxo real do materializador (`ProceduralSystemMaterializer.install()`), alinhando o endereço cósmico do universo antes de calcular a rota trans-semente.
+
+4. **Hardening Adicional:**
+   - **Guarda de Colisão de Providers (`GalaxyMaterializer.ts`):** `install()` agora checa se já existe um provedor registrado com o mesmo ID. Se for a mesma instância, a chamada é idempotente; se for uma instância diferente (`existing !== sectors`), lança erro explícito de colisão.
+   - **Diferenciação de Sementes em `sameSystem()` (`UniversalTravelPlan.ts` e `UniversalTravelController.ts`):** A função `sameSystem()` agora aceita e compara `seedA` e `seedB`. Galáxias com mesma identificação e setor sob sementes distintas não são consideradas o mesmo sistema estelar.
+   - **Domínio Intergaláctico sob Sementes Distintas (`UniversalTravelPlan.ts`):** A classificação do domínio como `'interstellar'` agora exige igualdade estrita entre `actualOrigin.universeSeed` e `uSeed`.
+
+---
+
 # DR-MANAUS | Checkpoint U4.4.7 — Desbloqueio do CI e Segurança Transacional dos Providers
 
 **Data:** 07 de novembro de 2026  

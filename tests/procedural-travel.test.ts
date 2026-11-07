@@ -17,12 +17,19 @@ import { NavigationTargetState } from '../src/world/travel/NavigationLock';
 import { ProceduralSystemMaterializer, safeSystemArrivalM } from '../src/world/runtime/ProceduralSystemMaterializer';
 import { GalaxyMaterializer } from '../src/world/galaxy/GalaxyMaterializer';
 import { GalaxyProvider } from '../src/world/providers/GalaxyProvider';
-import { knownGalaxyRuntime, registerGalaxyRuntime, clearGalaxyRuntimes } from '../src/world/galaxy/GalaxyRuntime';
-import { galaxyDefinition, addressSeparationM, galaxyCosmologicalAddress, galaxyLocalPositionM, clearProceduralGalaxyDefinitions } from '../src/world/galaxy/GalaxyCoordinates';
+import { GalaxyRuntime, knownGalaxyRuntime, registerGalaxyRuntime, clearGalaxyRuntimes } from '../src/world/galaxy/GalaxyRuntime';
+import {
+  galaxyDefinition,
+  registerProceduralGalaxyDefinition,
+  addressSeparationM,
+  galaxyCosmologicalAddress,
+  galaxyLocalPositionM,
+  clearProceduralGalaxyDefinitions,
+} from '../src/world/galaxy/GalaxyCoordinates';
 import { generateStarSector, STARS_PER_SECTOR_BASE } from '../src/world/celestial/StarSector';
 import { sectorIndex, sectorKey } from '../src/world/spatial/UniverseAddress';
 import { LIGHT_YEAR_M } from '../src/world/spatial/units';
-import { LOCAL_GROUP_CATALOG } from '../src/world/celestial/GalaxyDefinition';
+import { LOCAL_GROUP_CATALOG, type GalaxyDefinition } from '../src/world/celestial/GalaxyDefinition';
 import { ProceduralGalaxyDiscovery, DEFAULT_UNIVERSE_SEED } from '../src/world/galaxy/ProceduralGalaxyDiscovery';
 import { COSMOLOGICAL_CELL_SIZE_M, evaluateProceduralDensity } from '../src/world/galaxy/ProceduralGalaxyGenerator';
 import { UniversalTargetResolver } from '../src/world/travel/UniversalTargetResolver';
@@ -862,6 +869,12 @@ test('T_U44_23_ROLLBACK_PRESERVES_ORIGIN_UNIVERSE_SEED', () => {
   const targetB = catalogB.target(procGalaxyId)!;
   assert.ok(targetB);
 
+  // Resolve entry system in galaxy under Seed B (ProceduralSystemMaterializer requires a system-level target)
+  const entryResolverB = new GalaxyEntryResolver(catalogB);
+  const resolvedTargetB = entryResolverB.resolve(targetB);
+  assert.ok(resolvedTargetB);
+  assert.ok(resolvedTargetB.address?.systemId);
+
   let checkpointPrepare = false;
   let checkpointInstall = false;
   let checkpointActivationFailed = false;
@@ -885,7 +898,7 @@ test('T_U44_23_ROLLBACK_PRESERVES_ORIGIN_UNIVERSE_SEED', () => {
   );
 
   // Prepare session under Seed B
-  const sessionB = matB.prepare(targetB);
+  const sessionB = matB.prepare(resolvedTargetB);
   assert.ok(sessionB.ready);
   assert.equal(checkpointPrepare, true);
   const sessionBProviderId = sessionB.runtime.universeSeed
@@ -924,7 +937,7 @@ test('T_U44_23_ROLLBACK_PRESERVES_ORIGIN_UNIVERSE_SEED', () => {
     dispose: () => {},
   };
   const matBWorking = new ProceduralSystemMaterializer(f.u, catalogB, workingResources, () => workingResources, undefined, f.g);
-  const sessionBWorking = matBWorking.prepare(targetB);
+  const sessionBWorking = matBWorking.prepare(resolvedTargetB);
   matBWorking.install(sessionBWorking, false);
 
   assert.equal(successInstalled, true);
@@ -948,23 +961,50 @@ test('T_U44_24_CROSS_SEED_TRAVEL_PLAN_CALCULATION', () => {
   const targetB = catalogB.target(galaxyB)!;
   assert.ok(targetB);
 
-  const u = new UniverseRuntime();
-  const root = new Group();
-  const g = new GalaxyMaterializer(u, root);
-  const initial = g.prepare(galaxyA, seedA);
-  initial.install();
-  initial.activate();
-  initial.complete?.();
+  const f = createTestFixture();
 
-  const plan = createTravelPlan(u, catalogB, targetB, 'cross-seed-route');
+  // 1. Install procedural system in Galaxy A under Seed A using the real entry resolution & materialization handoff
+  const targetA = catalogA.target(galaxyA)!;
+  assert.ok(targetA);
+  const entryResolverA = new GalaxyEntryResolver(catalogA);
+  const resolvedTargetA = entryResolverA.resolve(targetA);
+  const matA = new ProceduralSystemMaterializer(
+    f.u,
+    catalogA,
+    { install: () => {}, activate: () => {}, dispose: () => {} },
+    () => ({ install: () => {}, activate: () => {}, dispose: () => {} }),
+    undefined,
+    f.g,
+  );
+  const sessionA = matA.prepare(resolvedTargetA);
+  matA.install(sessionA, false);
+
+  assert.equal(f.u.address.galaxyId, galaxyA);
+  assert.equal(f.u.activeGalaxy.universeSeed, seedA);
+  assert.ok(f.u.address.systemId);
+
+  // 2. Plan cross-seed route from Galaxy A (Seed A) to Galaxy B (Seed B)
+  const plan = createTravelPlan(f.u, catalogB, targetB, 'cross-seed-route');
   assert.ok(plan.logicalDistanceM > 0, 'Cross-seed route must produce valid positive distance');
   assert.ok(Number.isFinite(plan.durationS) && plan.durationS > 0, 'Cross-seed route must have finite duration');
   assert.equal(plan.origin.address.galaxyId, galaxyA);
+  assert.equal(plan.origin.universeSeed, seedA);
   assert.equal(plan.destination.address.galaxyId, galaxyB);
+  assert.equal(plan.destination.universeSeed, seedB);
+  assert.equal(plan.domain, 'intergalactic');
 
-  initial.dispose();
-  g.current?.dispose();
-  u.dispose();
+  const expectedDistance = addressSeparationM(
+    plan.origin.address,
+    plan.origin.offsetM,
+    plan.destination.address,
+    plan.destination.offsetM,
+    { originSeed: seedA, destinationSeed: seedB },
+  );
+  assert.equal(plan.logicalDistanceM, expectedDistance);
+
+  sessionA.dispose();
+  f.g.current?.dispose();
+  f.u.dispose();
 });
 
 
