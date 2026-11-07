@@ -1,3 +1,54 @@
+# DR-MANAUS | Checkpoint U4.4.9 — Recuperação das Regressões U2/U3 e Reutilização Correta de Sessões
+
+**Data:** 07 de novembro de 2026  
+**Repositório:** PauloSoaf/Dr-Manaus  
+**Branch:** `feat/universe-map`  
+**Baseline auditado (U4.4.8):** `60eff2731fb61d82f4dbcd5ca7841283c41477b9`  
+**CI Oficial U4.4.8:** GitHub Actions Run `42394939637` (FAILURE: TypeScript PASS, Regressões permanentes 627/638 — 11 falhas em U2/U3)  
+**Último Baseline Verde:** `cc07b1c04b97d665c353b8c8d58513986494d6ca` (U4.4.3, Run `41662450492`)  
+**Patch Atual:** U4.4.9  
+
+---
+
+## 1. Diagnóstico da Causa Raiz das 11 Regressões no U4.4.8
+
+No commit `60eff2731fb61d82f4dbcd5ca7841283c41477b9`, a guarda contra colisão de provedores adicionada em `GalaxyMaterializer.install()` expôs um defeito de equivalência de sessão em `GalaxyMaterializer.prepare()`:
+- A sessão inicial da Via Láctea (`g.prepare('milky_way')`) ou de Andrômeda possuia `old.galaxy.universeSeed === undefined`.
+- Quando `ProceduralSystemMaterializer.prepare(target)` preparava um sistema procedural dentro da Via Láctea ou de Andrômeda, chamava `this.galaxies?.prepare(a.galaxyId, uSeed)` passando `uSeed = DEFAULT_UNIVERSE_SEED` explicitamente.
+- A condição `if (old?.galaxy.id === id && (universeSeed === undefined || old.galaxy.universeSeed === universeSeed))` avaliava `false` (`undefined !== 0x44524d414e415553n`).
+- Como consequência, `GalaxyMaterializer.prepare()` deixava de reutilizar a sessão canônica ativa e instanciava um segundo `StarSectorProvider` com o mesmo ID canônico (`galaxy/star-sectors` ou `galaxy/star-sectors/andromeda`).
+- Isso causou diretamente as 11 falhas:
+  1. Os 2 testes de U2 (`U2 QA transports retain one Solar snapshot across U1 and U2 transitions` e `T_U2_U1_MILKY_WAY_PROCEDURAL_REGRESSION`) falharam imediatamente ao lançar `Conflito de provider: "galaxy/star-sectors" já registrado por outra instância`.
+  2. Os 9 testes de U3 (`T_U3_BODY_TARGET_FINAL_COSMIC_FLIGHT`, `T_U3_MW_PROCEDURAL_INTERSTELLAR`, `T_U3_PROCEDURAL_TO_SOL`, `T_U3_PROCEDURAL_A_TO_B`, `T_U3_ANDROMEDA_INTERSTELLAR`, `T_U3_B_WARP_RESTORED_AFTER_ARRIVAL`, `T_U3_B_WARP_BLOCKED_WHEN_INPUT_DISABLED`, `T_U3_B_WARP_BLOCKED_WHEN_PANEL_OPEN`, `T_U3_REPEAT_TRAVEL_NO_LEAK`) capturaram essa mesma exceção dentro do bloco `try { this.prepared!.commit(); } catch (e) { s.preparationError = String(e); s.phase = 'arrival-hold'; ... }` de `UniversalTravelController.update()`, retendo a viagem indefinidamente em `arrival-hold` até estourar o limite de iterações de `finish(f)`.
+
+---
+
+## 2. Correções Implementadas no Patch U4.4.9
+
+### 2.1 Identidade Normalizada Canônica vs. Procedural (`GalaxyDefinition.ts` e `GalaxyRuntime.ts`)
+- Exportada `isCanonicalGalaxyId(id?: string): boolean` para identificar galáxias canônicas (`milky_way`, `andromeda`, etc.).
+- Para galáxias canônicas, `GalaxyRuntime.universeSeed` é sempre `undefined` e as instâncias singleton canônicas são preservadas mesmo quando `clearGalaxyRuntimes()` limpa runtimes procedurais.
+- Implementada `sameGalaxyIdentity(a, id, universeSeed)`:
+  - Se `a?.id !== id`, retorna `false`.
+  - Se `isCanonicalGalaxyId(id)` for `true`, retorna `true` (a identidade canônica independe de `universeSeed`).
+  - Se for galáxia procedural, compara a semente universal efetiva (`effectiveRuntimeSeed === effectiveTargetSeed`).
+
+### 2.2 Contrato de Reutilização de Sessão e Colisão de Providers (`GalaxyMaterializer.ts` e `StarSectorProvider.ts`)
+- `GalaxyMaterializer.prepare(id, universeSeed)` reutiliza `old` se e somente se `old?.ready && sameGalaxyIdentity(old.galaxy, id, universeSeed)`.
+- Sessões descartadas (`!old.ready`) jamais são reutilizadas, e handles reutilizados verificam `!old.ready || this.current !== old` em `install()` e `!old.ready` em `activate()`.
+- `StarSectorProvider` mantém IDs canônicos (`galaxy/star-sectors` e `galaxy/star-sectors/andromeda`) sem sufixo de seed, e qualifica IDs procedurais por `universeSeed`.
+- A proteção contra colisão em `GalaxyMaterializer.install()` permanece ativa e rigorosa contra instâncias distintas não autorizadas.
+
+### 2.3 Revisão de `sameSystem` e Planos de Viagem (`UniversalTravelPlan.ts` e `GalaxyCoordinates.ts`)
+- `sameSystem(a, b, seedA, seedB)` retorna `true` para o mesmo sistema em galáxias canônicas independentemente de `seedA`/`seedB`, e exige igualdade estrita (`seedA !== undefined && seedB !== undefined && seedA === seedB`) quando sementes são informadas para galáxias procedurais.
+- `travelAnchor`, `createTravelPlan` e `addressSeparationM` tratam galáxias canônicas de forma invariante à seed universal, preservando integralmente a classificação `interstellar`/`intergalactic` de U2/U3.
+
+### 2.4 Novos Testes de Contrato (`tests/procedural-travel.test.ts`)
+- **`T_U44_25_GALAXY_SESSION_REUSE_AND_PROVIDER_COLLISION_CONTRACTS`:** cobre os cenários A–F (reuso da Via Láctea com seed explícita, reuso de Andrômeda sob outra seed, reuso procedural Seed A $\rightarrow$ Seed A, troca transacional Seed A $\rightarrow$ Seed B, não-reuso de sessão descartada e bloqueio de colisão por provider não autorizado).
+- **`T_U44_26_CANONICAL_AND_MULTI_SEED_HYPERCRUISE_REGRESSION_CONTRACTS`:** cobre os cenários G–J e `sameSystem` (Hypercruise Terra-Andrômeda, ciclo Sol $\rightarrow$ procedural Via Láctea $\rightarrow$ Sol, 5 ciclos completos multi-perna sem vazamento, rollback de ativação com retry e invariância de `sameSystem`).
+
+---
+
 # DR-MANAUS | Checkpoint U4.4.8 — Correção dos 3 Testes e Integridade Transacional
 
 **Data:** 07 de novembro de 2026  

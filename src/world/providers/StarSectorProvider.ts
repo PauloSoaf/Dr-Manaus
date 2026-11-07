@@ -2,6 +2,7 @@ import {
   AdditiveBlending, BufferGeometry, Color, Float32BufferAttribute, Group, type Object3D, Points,
   PointsMaterial,
 } from 'three/webgpu';
+import { isCanonicalGalaxyId } from '../celestial/GalaxyDefinition';
 import { generateStarSector, type StarSectorContent } from '../celestial/StarSector';
 import { SECTOR_SIZE_M, type SectorIndex, sectorIndex } from '../spatial/UniverseAddress';
 import { finite } from '../spatial/units';
@@ -58,7 +59,7 @@ export function starSectorProviderId(galaxyId?: string, universeSeed?: bigint): 
   if (!galaxyId || galaxyId === 'milky_way' || galaxyId === 'milky-way') {
     return 'galaxy/star-sectors';
   }
-  if (galaxyId === 'andromeda' || galaxyId === 'triangulum' || galaxyId === 'large-magellanic-cloud' || galaxyId === 'small-magellanic-cloud') {
+  if (isCanonicalGalaxyId(galaxyId)) {
     return 'galaxy/star-sectors/' + galaxyId;
   }
   return universeSeed !== undefined
@@ -81,7 +82,8 @@ export class StarSectorProvider implements WorldProvider {
   private centreSector: SectorIndex = sectorIndex(0, 0, 0);
 
   constructor(parent: Object3D, options: StarSectorProviderOptions = {}) {
-    this.id = starSectorProviderId(options.galaxyId, options.universeSeed);
+    const effectiveSeed = isCanonicalGalaxyId(options.galaxyId) ? undefined : options.universeSeed;
+    this.id = starSectorProviderId(options.galaxyId, effectiveSeed);
     this.group.name = 'galaxy';
     this.group.visible = false;
     parent.add(this.group);
@@ -90,7 +92,7 @@ export class StarSectorProvider implements WorldProvider {
       ringSectors: Math.max(0, Math.round(finite(options.ringSectors, DEFAULT_RING))),
       maxStarsPerSector: Math.max(1, Math.round(finite(options.maxStarsPerSector, DEFAULT_MAX_STARS))),
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 200_000)),
-      universeSeed: options.universeSeed,
+      universeSeed: effectiveSeed,
     };
     this.material = new PointsMaterial({
       size: 1.4, sizeAttenuation: false, vertexColors: true,

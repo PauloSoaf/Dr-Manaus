@@ -1,11 +1,11 @@
 import { Group, Matrix4, Vector3, type Object3D } from 'three/webgpu';
-import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
+import { LOCAL_GROUP_CATALOG, isCanonicalGalaxyId } from '../celestial/GalaxyDefinition';
 import { StarSectorProvider } from '../providers/StarSectorProvider';
 import { GalaxyProvider } from '../providers/GalaxyProvider';
 import { BlackHoleProvider } from '../providers/BlackHoleProvider';
 import type { UniverseRuntime } from '../runtime/UniverseRuntime';
 import type { SystemResources } from '../runtime/ProceduralSystemMaterializer';
-import { knownGalaxyRuntime, type GalaxyRuntime } from './GalaxyRuntime';
+import { knownGalaxyRuntime, sameGalaxyIdentity, type GalaxyRuntime } from './GalaxyRuntime';
 import type { QualityPreset } from '../../core/config';
 
 export interface GalaxySession {
@@ -42,8 +42,18 @@ export class GalaxyMaterializer {
 
   prepare(id:string, universeSeed?: bigint):SystemResources {
     const old=this.current;
-    if(old?.galaxy.id===id && (universeSeed===undefined || old.galaxy.universeSeed===universeSeed)) {
-      return {install:()=>{},activate:()=>{this.current=old;this.parent.add(old.root);},dispose:()=>{}};
+    if(old?.ready && sameGalaxyIdentity(old.galaxy, id, universeSeed)) {
+      return {
+        install:()=>{
+          if(!old.ready || this.current!==old)throw Error('Preparação de galáxia obsoleta');
+        },
+        activate:()=>{
+          if(!old.ready)throw Error('Sessão de galáxia descartada');
+          if(this.universe.address.galaxyId!==id)throw Error('Galáxia e endereço incoerentes');
+          this.current=old;this.parent.add(old.root);
+        },
+        dispose:()=>{},
+      };
     }
     const start=performance.now();this.checkpoint('galaxy');
     const galaxy=knownGalaxyRuntime(id, universeSeed);if(!galaxy)throw Error('Galáxia desconhecida');
@@ -60,12 +70,13 @@ export class GalaxyMaterializer {
       sectors?.dispose();bh?.dispose();for(const g of externals)g.dispose();root.removeFromParent();root.clear();
     };
     try {
-      const t=performance.now();this.checkpoint('star-sectors');sectors=new StarSectorProvider(root,{galaxyId:id, universeSeed: galaxy.universeSeed ?? universeSeed});
+      const effectiveSeed = isCanonicalGalaxyId(id) ? undefined : (galaxy.universeSeed ?? universeSeed);
+      const t=performance.now();this.checkpoint('star-sectors');sectors=new StarSectorProvider(root,{galaxyId:id, universeSeed: effectiveSeed});
       this.timings.starSectors=performance.now()-t;
       const ext=performance.now();
       for(const def of LOCAL_GROUP_CATALOG) {
         if(def.id!==id) {
-          externals.push(new GalaxyProvider(root,{galaxy:def,qualityPreset:this.qualityPreset, universeSeed: galaxy.universeSeed ?? universeSeed}));
+          externals.push(new GalaxyProvider(root,{galaxy:def,qualityPreset:this.qualityPreset, universeSeed: effectiveSeed}));
         }
       }
       this.timings.externalGalaxies=performance.now()-ext;

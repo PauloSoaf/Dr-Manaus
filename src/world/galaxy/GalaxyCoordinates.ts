@@ -1,4 +1,4 @@
-import { LOCAL_GROUP_CATALOG, type GalaxyDefinition } from '../celestial/GalaxyDefinition';
+import { LOCAL_GROUP_CATALOG, isCanonicalGalaxyId, type GalaxyDefinition } from '../celestial/GalaxyDefinition';
 import { SECTOR_SIZE_M, separationM, type SectorIndex, type UniverseAddress, type CosmologicalAddress } from '../spatial/UniverseAddress';
 import type { Vec3 } from '../spatial/units';
 import {
@@ -159,7 +159,7 @@ export function addressSeparationM(
   const originSeed = typeof universeSeed === 'object' && universeSeed !== null ? universeSeed.originSeed : universeSeed;
   const destinationSeed = typeof universeSeed === 'object' && universeSeed !== null ? universeSeed.destinationSeed : universeSeed;
 
-  if (a.galaxyId === b.galaxyId && originSeed === destinationSeed) {
+  if (a.galaxyId === b.galaxyId && (isCanonicalGalaxyId(a.galaxyId) || originSeed === destinationSeed)) {
     return separationM({ sector: a.sector, offsetM: ao }, { sector: b.sector, offsetM: bo });
   }
 

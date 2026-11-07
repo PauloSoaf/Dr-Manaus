@@ -79,3 +79,15 @@ export const LOCAL_GROUP_CATALOG: GalaxyDefinition[] = [
     }
   }
 ];
+
+export function isCanonicalGalaxyId(id?: string): boolean {
+  if (!id) return true;
+  return id === 'milky_way'
+    || id === 'milky-way'
+    || id === 'andromeda'
+    || id === 'triangulum'
+    || id === 'large-magellanic-cloud'
+    || id === 'small-magellanic-cloud'
+    || LOCAL_GROUP_CATALOG.some(g => g.id === id);
+}
+

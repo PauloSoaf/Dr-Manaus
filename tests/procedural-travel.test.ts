@@ -4,7 +4,7 @@ import { Group } from 'three/webgpu';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../src/world/travel/UniversalTargetCatalog';
 import { UniversalTravelController, type PreparedTravelDestination } from '../src/world/travel/UniversalTravelController';
-import { createTravelPlan, hypercruiseDuration, type UniversalTravelPlan } from '../src/world/travel/UniversalTravelPlan';
+import { createTravelPlan, hypercruiseDuration, sameSystem, type UniversalTravelPlan } from '../src/world/travel/UniversalTravelPlan';
 import {
   GalaxyEntryResolver,
   andromedaEntryDescriptor,
@@ -17,6 +17,7 @@ import { NavigationTargetState } from '../src/world/travel/NavigationLock';
 import { ProceduralSystemMaterializer, safeSystemArrivalM } from '../src/world/runtime/ProceduralSystemMaterializer';
 import { GalaxyMaterializer } from '../src/world/galaxy/GalaxyMaterializer';
 import { GalaxyProvider } from '../src/world/providers/GalaxyProvider';
+import { StarSectorProvider } from '../src/world/providers/StarSectorProvider';
 import { GalaxyRuntime, knownGalaxyRuntime, registerGalaxyRuntime, clearGalaxyRuntimes } from '../src/world/galaxy/GalaxyRuntime';
 import {
   galaxyDefinition,
@@ -25,6 +26,7 @@ import {
   galaxyCosmologicalAddress,
   galaxyLocalPositionM,
   clearProceduralGalaxyDefinitions,
+  setProceduralUniverseSeed,
 } from '../src/world/galaxy/GalaxyCoordinates';
 import { generateStarSector, STARS_PER_SECTOR_BASE } from '../src/world/celestial/StarSector';
 import { sectorIndex, sectorKey } from '../src/world/spatial/UniverseAddress';
@@ -71,6 +73,7 @@ test.afterEach(() => {
     f.g.current?.dispose();
     f.u.dispose();
   }
+  setProceduralUniverseSeed(DEFAULT_UNIVERSE_SEED);
 });
 
 function until(f: ReturnType<typeof createTestFixture>, predicate: () => boolean, dt = 1 / 60) {
@@ -926,7 +929,7 @@ test('T_U44_23_ROLLBACK_PRESERVES_ORIGIN_UNIVERSE_SEED', () => {
   const afterRollbackProviderCount = f.u.providers.all.filter(p => p.id.startsWith('galaxy/star-sectors')).length;
   assert.equal(afterRollbackProviderCount, 1, 'Exactly one star sector provider must be registered after rollback');
   assert.equal(f.g.current?.root.parent, f.root, 'Original visual group must remain attached to scene graph');
-  assert.equal(f.u.playerPose.frame, f.u.activeSystem.systemFrameId, 'Floating origin and player frame must be intact');
+  assert.equal(f.u.player.frame, f.u.activeSystem.systemFrameId, 'Floating origin and player frame must be intact');
 
   // 4. Test successful installation of the same galaxy with Seed B
   let successInstalled = false;
@@ -1001,10 +1004,187 @@ test('T_U44_24_CROSS_SEED_TRAVEL_PLAN_CALCULATION', () => {
     { originSeed: seedA, destinationSeed: seedB },
   );
   assert.equal(plan.logicalDistanceM, expectedDistance);
-
-  sessionA.dispose();
-  f.g.current?.dispose();
-  f.u.dispose();
 });
+
+test('T_U44_25_GALAXY_SESSION_REUSE_AND_PROVIDER_COLLISION_CONTRACTS', () => {
+  const f = createTestFixture();
+  const initialMwSession = f.g.current!;
+  assert.ok(initialMwSession);
+  assert.equal(initialMwSession.galaxy.id, 'milky_way');
+  assert.equal(initialMwSession.galaxy.universeSeed, undefined);
+
+  // A. Active Milky Way prepared with explicit default seed reuses the exact same session
+  const mwReused = f.g.prepare('milky_way', DEFAULT_UNIVERSE_SEED);
+  mwReused.install();
+  mwReused.activate();
+  mwReused.complete?.();
+  assert.equal(f.g.current, initialMwSession, 'Canonical Milky Way session must be reused when prepared with explicit seed');
+  assert.equal(f.g.current!.root, initialMwSession.root);
+  assert.equal(f.g.current!.starSectorProvider, initialMwSession.starSectorProvider);
+  assert.equal(f.u.providers.size, 1);
+
+  // B. Active Andromeda prepared under another seed preserves canonical identity and reuses session
+  const andromedaEntry = andromedaEntryDescriptor(f.catalog);
+  const andromedaTarget = f.catalog.proceduralTarget('andromeda', andromedaEntry.address.sector, andromedaEntry.star.id, 'system')!;
+  const sessionAndromedaSys = f.m.prepare(andromedaTarget);
+  f.m.install(sessionAndromedaSys, false);
+  const andromedaSession = f.g.current!;
+  assert.equal(andromedaSession.galaxy.id, 'andromeda');
+  assert.equal(andromedaSession.galaxy, knownGalaxyRuntime('andromeda'));
+  assert.equal(andromedaSession.galaxy.universeSeed, undefined);
+
+  const foreignSeed = 0x7777_8888_9999_0000n;
+  const andromedaReused = f.g.prepare('andromeda', foreignSeed);
+  andromedaReused.install();
+  andromedaReused.activate();
+  andromedaReused.complete?.();
+  assert.equal(f.g.current, andromedaSession, 'Canonical Andromeda session must be reused regardless of seed');
+  assert.equal(f.g.current!.galaxy, knownGalaxyRuntime('andromeda'));
+
+  // C. Procedural galaxy Seed A -> same procedural galaxy Seed A reuses session without new instance
+  const seedA = f.catalog.discovery.universeSeed;
+  const procGalaxyId = 'galaxy_c10_20_30_0';
+  const procTargetA = new GalaxyEntryResolver(f.catalog).resolve(f.catalog.target(procGalaxyId)!);
+  const procSessionSysA = f.m.prepare(procTargetA);
+  f.m.install(procSessionSysA, false);
+  const procGalaxySessionA = f.g.current!;
+  assert.equal(procGalaxySessionA.galaxy.id, procGalaxyId);
+  assert.equal(procGalaxySessionA.galaxy.universeSeed, seedA);
+
+  const procReusedA = f.g.prepare(procGalaxyId, seedA);
+  procReusedA.install();
+  procReusedA.activate();
+  procReusedA.complete?.();
+  assert.equal(f.g.current, procGalaxySessionA, 'Procedural galaxy with same seed must reuse active session');
+  assert.equal(f.g.current!.starSectorProvider, procGalaxySessionA.starSectorProvider);
+
+  // D. Procedural galaxy Seed A -> same procedural galaxy Seed B creates new session & provider with transactional handoff
+  const seedB = 0xBBBB_CCCC_DDDD_EEEEn;
+  const catalogB = new UniversalTargetCatalog(undefined, new ProceduralGalaxyDiscovery(seedB));
+  const procTargetB = new GalaxyEntryResolver(catalogB).resolve(catalogB.target(procGalaxyId)!);
+  const matB = new ProceduralSystemMaterializer(
+    f.u,
+    catalogB,
+    { install: () => {}, activate: () => {}, dispose: () => {} },
+    () => ({ install: () => {}, activate: () => {}, dispose: () => {} }),
+    undefined,
+    f.g,
+  );
+  const procSessionSysB = matB.prepare(procTargetB);
+  matB.install(procSessionSysB, false);
+  const procGalaxySessionB = f.g.current!;
+  assert.notEqual(procGalaxySessionB, procGalaxySessionA, 'Different procedural seed must allocate a new GalaxySession');
+  assert.equal(procGalaxySessionB.galaxy.universeSeed, seedB);
+  assert.notEqual(procGalaxySessionB.starSectorProvider.id, procGalaxySessionA.starSectorProvider.id);
+  assert.equal(procGalaxySessionA.ready, false, 'Old Seed A session must be retired after commit');
+  assert.equal(f.u.providers.get(procGalaxySessionA.starSectorProvider.id), undefined);
+  assert.equal(f.u.providers.get(procGalaxySessionB.starSectorProvider.id), procGalaxySessionB.starSectorProvider);
+
+  // E. Disposed session cannot be reused
+  const staleReuseHandle = f.g.prepare(procGalaxyId, seedB);
+  procGalaxySessionB.dispose();
+  assert.equal(procGalaxySessionB.ready, false);
+  assert.throws(() => staleReuseHandle.install(), /obsoleta|descartada/);
+  assert.throws(() => staleReuseHandle.activate(), /descartada/);
+
+  const freshHandle = f.g.prepare(procGalaxyId, seedB);
+  freshHandle.install();
+  freshHandle.activate();
+  freshHandle.complete?.();
+  assert.notEqual(f.g.current, procGalaxySessionB, 'Disposed session must never be reused by subsequent prepare()');
+  assert.equal(f.g.current!.ready, true);
+
+  // F. Unauthorized provider with same ID rejected on install
+  const rogueGroup = new Group();
+  const rogueProvider = new StarSectorProvider(rogueGroup, { galaxyId: 'andromeda' });
+  f.u.providers.register(rogueProvider);
+  const conflictingPrep = f.g.prepare('andromeda');
+  assert.throws(
+    () => conflictingPrep.install(),
+    /Conflito de provider: "galaxy\/star-sectors\/andromeda"/,
+  );
+  conflictingPrep.dispose();
+  f.u.providers.unregister(rogueProvider.id);
+  rogueProvider.dispose();
+});
+
+test('T_U44_26_CANONICAL_AND_MULTI_SEED_HYPERCRUISE_REGRESSION_CONTRACTS', () => {
+  const f = createTestFixture();
+  const baselineFrames = f.u.frames.size;
+  const baselineProviders = f.u.providers.size;
+
+  const mwProc = f.catalog.proceduralTarget('milky_way', sectorIndex(17n, -2n, 4n), 'milky_way/17,-2,4/0', 'system')!;
+  const solTarget = f.catalog.target('sol')!;
+  const andromedaTarget = f.catalog.target('andromeda')!;
+  const procGalaxyTarget = f.catalog.target('galaxy_c10_20_30_0')!;
+
+  // G. Hypercruise Earth/Sol -> Andromeda completes arrival and clears transit state
+  assert.equal(f.c.start(andromedaTarget, safety), 'started');
+  finish(f);
+  assert.equal(f.c.active, false);
+  assert.equal(f.u.locationMode, 'anchored');
+  assert.equal(f.u.activeGalaxy.id, 'andromeda');
+
+  // Return to Sol
+  assert.equal(f.c.start(solTarget, safety), 'started');
+  finish(f);
+
+  // H. Milky Way -> Milky Way procedural system -> Sol restores all Solar resources
+  const mwSessionBefore = f.g.current;
+  assert.equal(f.c.start(mwProc, safety), 'started');
+  finish(f);
+  assert.equal(f.u.activeGalaxy.id, 'milky_way');
+  assert.equal(f.u.address.systemId, mwProc.systemId);
+  assert.equal(f.g.current, mwSessionBefore, 'Intra-Milky-Way hypercruise must reuse the Milky Way galaxy session');
+
+  assert.equal(f.c.start(solTarget, safety), 'started');
+  finish(f);
+  assert.equal(f.u.activeGalaxy.id, 'milky_way');
+  assert.equal(f.u.activeSystem, f.u.solarSystem);
+  assert.equal(f.u.address.systemId, 'sol');
+  assert.equal(f.u.providers.get('galaxy/star-sectors'), f.g.current!.starSectorProvider);
+
+  // I. Five full multi-leg cycles preserve bounded providers, frames and scene roots
+  for (let cycle = 0; cycle < 5; cycle++) {
+    for (const dest of [mwProc, solTarget, andromedaTarget, procGalaxyTarget, solTarget]) {
+      assert.equal(f.c.start(dest, safety), 'started');
+      finish(f);
+    }
+    assert.equal(f.u.frames.size, baselineFrames, `Frame count must not leak on cycle ${cycle}`);
+    assert.equal(f.u.providers.size, baselineProviders, `Provider count must not leak on cycle ${cycle}`);
+    assert.equal(f.root.children.length, 1, `Scene root child count must remain 1 on cycle ${cycle}`);
+  }
+
+  // J. Activation failure rolls back cleanly and subsequent retry succeeds
+  const origInstallSystem = f.u.installSystem.bind(f.u);
+  let failOnce = true;
+  f.u.installSystem = (...args) => {
+    origInstallSystem(...args);
+    if (failOnce) throw new Error('Simulated post-install activation error');
+  };
+  assert.equal(f.c.start(procGalaxyTarget, safety), 'started');
+  until(f, () => !!f.c.state?.preparationError);
+  assert.equal(f.u.activeGalaxy.id, 'milky_way');
+  assert.equal(f.u.activeSystem, f.u.solarSystem);
+  assert.equal(f.u.providers.size, baselineProviders);
+  failOnce = false;
+  assert.equal(f.c.start(procGalaxyTarget, safety), 'resumed');
+  finish(f);
+  assert.equal(f.u.activeGalaxy.id, 'galaxy_c10_20_30_0');
+
+  // Verify sameSystem contract for canonical vs procedural galaxies
+  const seedA = 0x1111n;
+  const seedB = 0x2222n;
+  assert.equal(
+    sameSystem(SOLAR_TARGET_ADDRESS, SOLAR_TARGET_ADDRESS, seedA, seedB),
+    true,
+    'Canonical galaxies must never be differentiated by seeds in sameSystem',
+  );
+  const procAddr = { galaxyId: 'galaxy_c10_20_30_0', sector: sectorIndex(0n, 0n, 0n), systemId: 's0' };
+  assert.equal(sameSystem(procAddr, procAddr, seedA, seedA), true);
+  assert.equal(sameSystem(procAddr, procAddr, seedA, seedB), false, 'Procedural galaxies with different seeds are distinct systems');
+  assert.equal(sameSystem(procAddr, procAddr, seedA, undefined), false, 'Mismatched optional seed must not shortcut procedural identity');
+});
+
 
 

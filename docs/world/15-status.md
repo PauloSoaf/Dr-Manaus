@@ -1,6 +1,24 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.4.8 Correção dos 3 Testes e Integridade Transacional (2026-11-07)
+## Current checkpoint — U4.4.9 Recuperação das Regressões U2/U3 e Reutilização Correta de Sessões (2026-11-07)
+
+Baseline auditado do U4.4.8 no commit `60eff2731fb61d82f4dbcd5ca7841283c41477b9` passou no TypeScript, mas reprovou no gate permanente de regressões (GitHub Actions Run `42394939637`: 627/638 aprovadas, 11 falhas em transições U2/U3 por `Conflito de provider: "galaxy/star-sectors" já registrado por outra instância`). O patch U4.4.9 restaura a equivalência de identidade das sessões canônicas, preserva a segurança contra colisões e restabelece as 11 regressões:
+1. `GalaxyDefinition.ts` e `GalaxyRuntime.ts`:
+   - Implementada a função `isCanonicalGalaxyId(id)` para distinguir galáxias canônicas (`milky_way`, `andromeda`, etc.) de galáxias procedurais.
+   - `GalaxyRuntime` mantém `universeSeed = undefined` para galáxias canônicas e preserva suas instâncias singleton em `clearGalaxyRuntimes()`.
+   - Implementada `sameGalaxyIdentity(runtime, id, universeSeed)`: retorna `true` para a mesma entidade canônica independentemente da `universeSeed` informada na chamada, e compara a semente universal efetiva para galáxias procedurais.
+2. `GalaxyMaterializer.ts` e `StarSectorProvider.ts`:
+   - `GalaxyMaterializer.prepare()` reutiliza a sessão ativa somente quando `old?.ready && sameGalaxyIdentity(old.galaxy, id, universeSeed)`, impedindo a criação duplicada de `StarSectorProvider` para `milky_way` e `andromeda` quando `ProceduralSystemMaterializer.prepare()` repassa `DEFAULT_UNIVERSE_SEED`, e bloqueando o reuso de sessões descartadas (`!old.ready`).
+   - O handle de sessão reutilizada valida `old.ready` e `this.current === old` em `install()` e `activate()`.
+   - Mantida intacta a proteção contra colisão de provedores não autorizados em `GalaxyMaterializer.install()`.
+3. `UniversalTravelPlan.ts` e `GalaxyCoordinates.ts`:
+   - `sameSystem()`, `travelAnchor()`, `createTravelPlan()` e `addressSeparationM()` respeitam `isCanonicalGalaxyId`: galáxias canônicas nunca são artificialmente diferenciadas por sementes, enquanto galáxias procedurais exigem correspondência estrita de `universeSeed` (sem atalhos por `undefined` parcial).
+4. `tests/procedural-travel.test.ts`:
+   - `T_U44_25`: contrato completo de reutilização de sessões (Via Láctea com seed explícita, Andrômeda sob outra seed, procedural Seed A $\rightarrow$ Seed A, procedural Seed A $\rightarrow$ Seed B, rejeição de sessão descartada e bloqueio de colisão de provider não autorizado).
+   - `T_U44_26`: regressão de Hypercruise (Terra $\rightarrow$ Andrômeda, Via Láctea $\rightarrow$ sistema procedural $\rightarrow$ Sol, 5 ciclos completos sem vazamento de providers/frames/roots, rollback de ativação com retry e invariância de `sameSystem`).
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.8 Correção dos 3 Testes e Integridade Transacional (2026-11-07)
 
 Baseline auditado do U4.4.7 no commit `13452196b3cef9c82688e3091a5121a88b29ced8` ultrapassou com sucesso a compilação TypeScript e a suíte de 638 regressões permanentes, reprovando em 3 testes específicos do U4.4 (GitHub Actions Run `42392441997`: 1.538/1.541 aprovados). O patch U4.4.8 corrige os três testes respeitando a integridade dos contratos de runtime, blinda o registro de provedores e fecha a diferenciação de sementes nos planos de viagem:
 1. `tests/procedural-travel.test.ts`:
