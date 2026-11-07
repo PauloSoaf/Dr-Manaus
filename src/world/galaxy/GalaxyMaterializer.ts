@@ -77,7 +77,13 @@ export class GalaxyMaterializer {
       get ready(){return !disposed;},dispose};
     this.timings.prepare=performance.now()-start;
     return {
-      install:()=>{if(disposed||complete||this.current!==old)throw Error('Preparação de galáxia obsoleta');installStart=performance.now();this.checkpoint('install');this.universe.providers.register(sectors!);},
+      install:()=>{
+        if(disposed||complete||this.current!==old)throw Error('Preparação de galáxia obsoleta');
+        installStart=performance.now();this.checkpoint('install');
+        if(!this.universe.providers.get(sectors!.id)){
+          this.universe.providers.register(sectors!);
+        }
+      },
       activate:()=>{
         if(!complete)this.checkpoint('activate');if(!session.ready)throw Error('Sessão de galáxia descartada');
         if(this.universe.address.galaxyId!==id)throw Error('Galáxia e endereço incoerentes');

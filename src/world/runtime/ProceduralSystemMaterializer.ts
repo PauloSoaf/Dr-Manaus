@@ -173,9 +173,9 @@ export class ProceduralSystemMaterializer {
   returnToSolar(): void {
     const saved=this.solarSnapshot;
     if(!saved)return;
-    const start=performance.now(),old=this.current;
+    const start=performance.now(),u=this.universe,old=this.current;
     const originSeed=u.activeGalaxy.universeSeed ?? (u.activeSystem instanceof ProceduralSystemRuntime ? u.activeSystem.universeSeed : undefined);
-    const u=this.universe,previous={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps,universeSeed:originSeed};
+    const previous={runtime:u.activeSystem,address:u.address,pose:clonePose(u.player),velocity:u.localVelocityMps,universeSeed:originSeed};
     const renderOrigin=u.renderSpace.currentOrigin,view=u.frames.has(TRAVEL_VIEW_FRAME)?u.frames.get(TRAVEL_VIEW_FRAME):undefined;
     const galaxyResources=this.galaxies?.prepareSolarReturn();
     try {

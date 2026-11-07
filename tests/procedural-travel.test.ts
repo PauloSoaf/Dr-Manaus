@@ -789,15 +789,46 @@ test('T_U44_22_GALAXY_PROVIDER_PRESENTATION_ORIENTATION_MULTI_SEED', () => {
   const camPos: [number, number, number] = [0, 0, 0];
   const altitudeM = 50_000_000;
 
-  // Update providerA with seedA context
+  // 1. Update providerA with seedA context
   providerA.update(addressA, camPos, altitudeM, [0, 0, 0], (v) => v, undefined, seedA);
 
-  // Update providerB with seedB context
+  // 2. Update providerB with seedB context
   providerB.update(addressA, camPos, altitudeM, [0, 0, 0], (v) => v, undefined, seedB);
 
   // Both providers computed valid positions
   assert.ok(providerA.group.visible);
   assert.ok(providerB.group.visible);
+
+  // Verify presentation coordinates and proxy distance
+  const posA = providerA.group.position;
+  const distA = Math.hypot(posA.x, posA.y, posA.z);
+  assert.ok(Math.abs(distA - 20_000) < 1, 'Provider proxy position must be on 20km sphere');
+
+  // Verify quaternion validity (normalized unit quaternion)
+  const quatA = providerA.group.quaternion;
+  const quatLenA = Math.hypot(quatA.x, quatA.y, quatA.z, quatA.w);
+  assert.ok(Math.abs(quatLenA - 1) < 1e-4, 'Orientation quaternion must be normalized');
+
+  // 3. Independence from background global seed mutations:
+  // Query a completely foreign catalog under Seed C in background
+  const seedC = 0x9999_7777_5555_3333n;
+  const discoveryC = new ProceduralGalaxyDiscovery(seedC);
+  const catalogC = new UniversalTargetCatalog(undefined, discoveryC);
+  catalogC.find('galaxy_c10_20_30_0');
+  galaxyDefinition('galaxy_c10_20_30_0', seedC);
+
+  // Re-run update on providerA with its seedA context
+  const posBefore = posA.clone();
+  const quatBefore = quatA.clone();
+  providerA.update(addressA, camPos, altitudeM, [0, 0, 0], (v) => v, undefined, seedA);
+
+  assert.equal(providerA.group.position.x, posBefore.x);
+  assert.equal(providerA.group.position.y, posBefore.y);
+  assert.equal(providerA.group.position.z, posBefore.z);
+  assert.equal(providerA.group.quaternion.x, quatBefore.x);
+  assert.equal(providerA.group.quaternion.y, quatBefore.y);
+  assert.equal(providerA.group.quaternion.z, quatBefore.z);
+  assert.equal(providerA.group.quaternion.w, quatBefore.w);
 
   // Clean up
   providerA.dispose();
@@ -818,33 +849,122 @@ test('T_U44_23_ROLLBACK_PRESERVES_ORIGIN_UNIVERSE_SEED', () => {
   assert.equal(f.u.activeGalaxy.universeSeed, seedA);
   const originDef = f.u.activeGalaxy.definition;
   const originSystemId = f.u.address.systemId;
+  const originProvider = f.g.current!.starSectorProvider;
+  assert.ok(originProvider);
+  assert.equal(f.u.providers.get(originProvider.id), originProvider);
+  const origProviderCount = f.u.providers.all.filter(p => p.id.startsWith('galaxy/star-sectors')).length;
+  assert.equal(origProviderCount, 1);
 
-  // 2. Prepare a new travel session under Seed B that will fail during activation
+  // 2. Prepare a new travel session for the SAME galaxy under Seed B with instrumented checkpoints
   const seedB = 0xCAFE_BABE_1234_5678n;
   const discoveryB = new ProceduralGalaxyDiscovery(seedB);
   const catalogB = new UniversalTargetCatalog(undefined, discoveryB);
   const targetB = catalogB.target(procGalaxyId)!;
   assert.ok(targetB);
 
-  const failResources = {
-    install: () => {},
-    activate: () => { throw new Error('Simulated hardware failure during system activation'); },
-    dispose: () => {},
-  };
-  const matB = new ProceduralSystemMaterializer(f.u, catalogB, failResources, () => failResources, undefined, f.g);
+  let checkpointPrepare = false;
+  let checkpointInstall = false;
+  let checkpointActivationFailed = false;
+  let checkpointRollbackDispose = false;
 
-  // Prepare session with failing activation
+  const failResources = {
+    install: () => { checkpointInstall = true; },
+    activate: () => {
+      checkpointActivationFailed = true;
+      throw new Error('Simulated hardware failure during system activation');
+    },
+    dispose: () => { checkpointRollbackDispose = true; },
+  };
+  const matB = new ProceduralSystemMaterializer(
+    f.u,
+    catalogB,
+    failResources,
+    () => failResources,
+    (stage) => { if (stage === 'profiles') checkpointPrepare = true; },
+    f.g
+  );
+
+  // Prepare session under Seed B
   const sessionB = matB.prepare(targetB);
+  assert.ok(sessionB.ready);
+  assert.equal(checkpointPrepare, true);
+  const sessionBProviderId = sessionB.runtime.universeSeed
+    ? `galaxy/star-sectors/${procGalaxyId}/${sessionB.runtime.universeSeed.toString(16)}`
+    : `galaxy/star-sectors/${procGalaxyId}`;
+
+  // Install must reach the simulated activation failure specifically, NOT blocked by provider ID collision
   assert.throws(
     () => matB.install(sessionB, false),
     /Simulated hardware failure during system activation/
   );
+  assert.equal(checkpointInstall, true, 'Resource installation must succeed prior to activation');
+  assert.equal(checkpointActivationFailed, true, 'Activation failure must trigger at activation phase');
+  assert.equal(checkpointRollbackDispose, true, 'Rollback must trigger dispose on failed resources');
 
   // 3. Verify rollback restored origin system under Seed A perfectly
   assert.equal(f.u.activeGalaxy.id, procGalaxyId);
   assert.equal(f.u.activeGalaxy.universeSeed, seedA, 'Rollback must restore origin universeSeed');
   assert.equal(f.u.activeGalaxy.definition.diameterLy, originDef.diameterLy, 'Origin morphology must be preserved');
   assert.equal(f.u.address.systemId, originSystemId, 'Origin system address must be restored');
+
+  // Verify provider registry state: original provider is still registered and active, failed provider is removed
+  assert.equal(f.u.providers.get(originProvider.id), originProvider, 'Original star sector provider must remain registered');
+  assert.equal(f.u.providers.get(sessionBProviderId), undefined, 'Failed session provider must be cleaned up');
+  const afterRollbackProviderCount = f.u.providers.all.filter(p => p.id.startsWith('galaxy/star-sectors')).length;
+  assert.equal(afterRollbackProviderCount, 1, 'Exactly one star sector provider must be registered after rollback');
+  assert.equal(f.g.current?.root.parent, f.root, 'Original visual group must remain attached to scene graph');
+  assert.equal(f.u.playerPose.frame, f.u.activeSystem.systemFrameId, 'Floating origin and player frame must be intact');
+
+  // 4. Test successful installation of the same galaxy with Seed B
+  let successInstalled = false;
+  let successActivated = false;
+  const workingResources = {
+    install: () => { successInstalled = true; },
+    activate: () => { successActivated = true; },
+    dispose: () => {},
+  };
+  const matBWorking = new ProceduralSystemMaterializer(f.u, catalogB, workingResources, () => workingResources, undefined, f.g);
+  const sessionBWorking = matBWorking.prepare(targetB);
+  matBWorking.install(sessionBWorking, false);
+
+  assert.equal(successInstalled, true);
+  assert.equal(successActivated, true);
+  assert.equal(f.u.activeGalaxy.universeSeed, seedB, 'Successful switch must commit Seed B');
+  const postSuccessProviderCount = f.u.providers.all.filter(p => p.id.startsWith('galaxy/star-sectors')).length;
+  assert.equal(postSuccessProviderCount, 1, 'Only one provider registered after successful commit');
+  assert.equal(f.u.providers.get(originProvider.id), undefined, 'Old Seed A provider must be retired after commit');
+});
+
+test('T_U44_24_CROSS_SEED_TRAVEL_PLAN_CALCULATION', () => {
+  const seedA = 0x1234_5678_9ABC_DEF0n;
+  const seedB = 0xFEDC_BA98_7654_3210n;
+  const discoveryA = new ProceduralGalaxyDiscovery(seedA);
+  const catalogA = new UniversalTargetCatalog(undefined, discoveryA);
+  const discoveryB = new ProceduralGalaxyDiscovery(seedB);
+  const catalogB = new UniversalTargetCatalog(undefined, discoveryB);
+
+  const galaxyA = 'galaxy_c10_20_30_0';
+  const galaxyB = 'galaxy_c40_50_60_1';
+  const targetB = catalogB.target(galaxyB)!;
+  assert.ok(targetB);
+
+  const u = new UniverseRuntime();
+  const root = new Group();
+  const g = new GalaxyMaterializer(u, root);
+  const initial = g.prepare(galaxyA, seedA);
+  initial.install();
+  initial.activate();
+  initial.complete?.();
+
+  const plan = createTravelPlan(u, catalogB, targetB, 'cross-seed-route');
+  assert.ok(plan.logicalDistanceM > 0, 'Cross-seed route must produce valid positive distance');
+  assert.ok(Number.isFinite(plan.durationS) && plan.durationS > 0, 'Cross-seed route must have finite duration');
+  assert.equal(plan.origin.address.galaxyId, galaxyA);
+  assert.equal(plan.destination.address.galaxyId, galaxyB);
+
+  initial.dispose();
+  g.current?.dispose();
+  u.dispose();
 });
 
 

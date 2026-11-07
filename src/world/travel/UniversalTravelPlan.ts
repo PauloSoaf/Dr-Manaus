@@ -51,7 +51,7 @@ export function createTravelPlan(u:UniverseRuntime,catalog:UniversalTargetCatalo
   if(!a||!isUniverseAddress(a)||!a.systemId) throw Error('Destination needs a canonical system address');
   const offset:Vec3=a.systemId==='sol'?[0,0,0]:catalog.proceduralDescriptor(a.galaxyId,a.sector,a.systemId)!.star.offsetM;
   const destination=travelAnchor(a,offset,uSeed),domain=actualOrigin.address.galaxyId===a.galaxyId?'interstellar':'intergalactic';
-  const distance=addressSeparationM(actualOrigin.address,actualOrigin.offsetM,a,offset,uSeed);
+  const distance=addressSeparationM(actualOrigin.address,actualOrigin.offsetM,a,offset,{ originSeed, destinationSeed: uSeed });
   if(!Number.isFinite(distance)||distance===undefined||distance<=0) throw Error('Destination distance unavailable');
   return Object.freeze({id,origin:actualOrigin,destination,requestedTarget:createUniversalTarget(requested,requested.source,requested.selectedAtS,requested.mode),
     resolvedDestination:createUniversalTarget(resolved,resolved.source,resolved.selectedAtS,resolved.mode),domain,logicalDistanceM:distance,

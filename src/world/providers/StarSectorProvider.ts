@@ -54,6 +54,18 @@ interface SectorPayload {
   readonly geometry: BufferGeometry;
 }
 
+export function starSectorProviderId(galaxyId?: string, universeSeed?: bigint): string {
+  if (!galaxyId || galaxyId === 'milky_way' || galaxyId === 'milky-way') {
+    return 'galaxy/star-sectors';
+  }
+  if (galaxyId === 'andromeda' || galaxyId === 'triangulum' || galaxyId === 'large-magellanic-cloud' || galaxyId === 'small-magellanic-cloud') {
+    return 'galaxy/star-sectors/' + galaxyId;
+  }
+  return universeSeed !== undefined
+    ? `galaxy/star-sectors/${galaxyId}/${universeSeed.toString(16)}`
+    : `galaxy/star-sectors/${galaxyId}`;
+}
+
 export class StarSectorProvider implements WorldProvider {
   readonly id:string;
   /** Below everything. A star is the last thing that should win an argument about the ground. */
@@ -69,7 +81,7 @@ export class StarSectorProvider implements WorldProvider {
   private centreSector: SectorIndex = sectorIndex(0, 0, 0);
 
   constructor(parent: Object3D, options: StarSectorProviderOptions = {}) {
-    this.id=options.galaxyId && options.galaxyId!=='milky_way' ? 'galaxy/star-sectors/'+options.galaxyId : 'galaxy/star-sectors';
+    this.id = starSectorProviderId(options.galaxyId, options.universeSeed);
     this.group.name = 'galaxy';
     this.group.visible = false;
     parent.add(this.group);

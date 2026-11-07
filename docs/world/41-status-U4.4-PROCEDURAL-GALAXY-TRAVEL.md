@@ -1,3 +1,68 @@
+# DR-MANAUS | Checkpoint U4.4.7 — Desbloqueio do CI e Segurança Transacional dos Providers
+
+**Data:** 07 de novembro de 2026  
+**Repositório:** PauloSoaf/Dr-Manaus  
+**Branch:** `feat/universe-map`  
+**Baseline auditado (U4.4.6):** `491d6a429d09e33f9bc4785e8d4b4adbf803a470`  
+**CI Oficial U4.4.6:** GitHub Actions Run `42054100700` (FAILURE: 6 erros TS2448/TS2454 em `src/world/runtime/ProceduralSystemMaterializer.ts(177)` por uso de `u` antes de sua declaração em `returnToSolar()`)  
+**Último Baseline Verde:** `cc07b1c04b97d665c353b8c8d58513986494d6ca` (U4.4.3, Run `41662450492`)  
+**Patch Atual:** U4.4.7  
+
+---
+
+## 1. Auditoria e Diagnóstico da Reprovação do U4.4.6
+
+O commit `491d6a429d09e33f9bc4785e8d4b4adbf803a470` falhou no Typecheck do GitHub Actions com os erros:
+- `TS2448: Block-scoped variable 'u' used before its declaration.` (linha 177)
+- `TS2454: Variable 'u' is used before being assigned.` (linha 177)
+
+Além da correção imediata de inicialização de variáveis, a auditoria identificou um potencial bloqueio transacional ao tentar substituir ou transicionar sessões de uma mesma galáxia procedural sob sementes distintas:
+1. **P0 — Colisão de IDs no `ProviderRegistry`:**
+   - `StarSectorProvider.id` utilizava apenas `galaxy/star-sectors/${galaxyId}`.
+   - Quando uma nova sessão da mesma galáxia sob outra semente era instalada antes do descarte da anterior (padrão de commit em duas fases), `ProviderRegistry.register()` rejeitava o provedor por ID duplicado.
+   - Isso impedia o teste `T_U44_23` de atingir a falha simulada de ativação.
+2. **P1 — Resolução Métrica de Rotas Multissemente (`GalaxyCoordinates.ts`):**
+   - `addressSeparationM()` recebia uma única semente universal, forçando origem e destino a adotarem a mesma semente na avaliação morfológica e cosmológica.
+3. **P1 — Reforço dos Testes de Apresentação e Rollback:**
+   - `T_U44_22` requeria validação geométrica estrita do proxy de 20 km e invariância contra mutações de catálogo em segundo plano.
+   - `T_U44_23` requeria instrumentação detalhada de checkpoints para comprovar a falha específica no estágio de ativação e a integridade completa dos provedores e cena pós-rollback.
+
+---
+
+## 2. Correções Implementadas no Patch U4.4.7
+
+### 2.1 Ordem de Declaração em `ProceduralSystemMaterializer.ts`
+- Declarado `const u = this.universe` antes de qualquer cálculo de `originSeed` em `returnToSolar()`, sanando todos os 6 diagnósticos TS2448/TS2454.
+
+### 2.2 Qualificação de Identidade em `StarSectorProvider.ts` e `GalaxyMaterializer.ts`
+- Implementada a função `starSectorProviderId(galaxyId, universeSeed)`:
+  - Para `milky_way`: `galaxy/star-sectors`.
+  - Para `andromeda` e canônicas: `galaxy/star-sectors/${galaxyId}`.
+  - Para procedurais: `galaxy/star-sectors/${galaxyId}/${universeSeed.toString(16)}`.
+- Isso garante IDs estritamente distintos durante a transição entre sementes diferentes da mesma galáxia, permitindo que a nova sessão seja instalada sem conflito no `ProviderRegistry`, enquanto a sessão antiga permanece ativa e disponível para rollback atômico em caso de falha.
+- Adicionada guarda defensiva `if (!this.universe.providers.get(sectors!.id))` em `GalaxyMaterializer.install()`.
+
+### 2.3 Suporte a Sementes Distintas em `GalaxyCoordinates.ts` e `UniversalTravelPlan.ts`
+- Introduzida a interface `AddressSeparationOptions { originSeed?: bigint; destinationSeed?: bigint }`.
+- `addressSeparationM()` agora avalia o ponto de partida `a` com `originSeed` e o destino `b` com `destinationSeed`, calculando os vetores cosmológicos e deslocamentos locais de cada galáxia sob sua respectiva autoridade de semente.
+- `createTravelPlan()` repassa `{ originSeed, destinationSeed: uSeed }`.
+
+---
+
+## 3. Matriz de Testes Expandida (24 testes)
+
+1. **`T_U44_22_GALAXY_PROVIDER_PRESENTATION_ORIENTATION_MULTI_SEED`:**
+   - Comprova visibilidade, posicionamento na esfera proxy de 20 km ($r = 20.000\text{ m}$), normalização do quaternion de orientação ($\|\mathbf{q}\| = 1$) e invariância absoluta perante mutações de catálogo em background.
+2. **`T_U44_23_ROLLBACK_PRESERVES_ORIGIN_UNIVERSE_SEED`:**
+   - Instrumentação de checkpoints para cada etapa: `prepare`, `install`, `activationFailed`, `rollback`.
+   - Comprova que a falha ocorre exclusivamente na fase de ativação simulada (sem colisão prévia no `ProviderRegistry`).
+   - Valida que o provedor original de Seed A permanece registrado e ativo, que o provedor de Seed B é descartado, que a geometria original continua anexada ao grafo de cena e que o frame do jogador permanece íntegro.
+   - Valida uma instalação subsequente com sucesso sob Seed B, confirmando que o provedor anterior é aposentado e exatamente 1 provedor de setores permanece registrado.
+3. **`T_U44_24_CROSS_SEED_TRAVEL_PLAN_CALCULATION`:**
+   - Comprova cálculo métrico de distância e duração para viagens entre galáxias procedurais sob sementes distintas.
+
+---
+
 # DR-MANAUS | Checkpoint U4.4.6 — Correção do CI e Fechamento do Contrato Multissemente
 
 **Data:** 05 de novembro de 2026  

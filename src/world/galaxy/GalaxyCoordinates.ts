@@ -144,11 +144,27 @@ export function galaxyCosmologicalAddress(galaxyId: string, universeSeed?: bigin
   return undefined;
 }
 
-export function addressSeparationM(a:UniverseAddress,ao:Vec3,b:UniverseAddress,bo:Vec3,universeSeed?:bigint):number|undefined {
-  if(a.galaxyId===b.galaxyId)return separationM({sector:a.sector,offsetM:ao},{sector:b.sector,offsetM:bo});
+export interface AddressSeparationOptions {
+  originSeed?: bigint;
+  destinationSeed?: bigint;
+}
 
-  const cosmoA = galaxyCosmologicalAddress(a.galaxyId, universeSeed);
-  const cosmoB = galaxyCosmologicalAddress(b.galaxyId, universeSeed);
+export function addressSeparationM(
+  a: UniverseAddress,
+  ao: Vec3,
+  b: UniverseAddress,
+  bo: Vec3,
+  universeSeed?: bigint | AddressSeparationOptions,
+): number | undefined {
+  const originSeed = typeof universeSeed === 'object' && universeSeed !== null ? universeSeed.originSeed : universeSeed;
+  const destinationSeed = typeof universeSeed === 'object' && universeSeed !== null ? universeSeed.destinationSeed : universeSeed;
+
+  if (a.galaxyId === b.galaxyId && originSeed === destinationSeed) {
+    return separationM({ sector: a.sector, offsetM: ao }, { sector: b.sector, offsetM: bo });
+  }
+
+  const cosmoA = galaxyCosmologicalAddress(a.galaxyId, originSeed);
+  const cosmoB = galaxyCosmologicalAddress(b.galaxyId, destinationSeed);
   if (cosmoA && cosmoB) {
     const sepVec = cosmologicalSeparationVectorM(cosmoA, cosmoB);
     if (!sepVec) {
@@ -157,8 +173,8 @@ export function addressSeparationM(a:UniverseAddress,ao:Vec3,b:UniverseAddress,b
     }
 
     // Include observer's local displacement in galaxy A and arrival system's local displacement in galaxy B
-    const defA = galaxyDefinition(a.galaxyId, universeSeed);
-    const defB = galaxyDefinition(b.galaxyId, universeSeed);
+    const defA = galaxyDefinition(a.galaxyId, originSeed);
+    const defB = galaxyDefinition(b.galaxyId, destinationSeed);
     const localA = defA ? orientGalaxyVector(defA, galaxyLocalPositionM(defA, a.sector, ao)) : [0, 0, 0] as Vec3;
     const localB = defB ? orientGalaxyVector(defB, galaxyLocalPositionM(defB, b.sector, bo)) : [0, 0, 0] as Vec3;
 
@@ -173,7 +189,8 @@ export function addressSeparationM(a:UniverseAddress,ao:Vec3,b:UniverseAddress,b
     return distM > 0 ? distM : undefined;
   }
 
-  const target=observerGlobalPositionM(b,bo,universeSeed),delta=target&&globalTargetDeltaM(a,ao,target,universeSeed);
-  return delta?Math.hypot(...delta):undefined;
+  const target = observerGlobalPositionM(b, bo, destinationSeed);
+  const delta = target && globalTargetDeltaM(a, ao, target, originSeed);
+  return delta ? Math.hypot(...delta) : undefined;
 }
 

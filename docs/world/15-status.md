@@ -1,8 +1,25 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.4.6 Correção do CI e Fechamento do Contrato Multissemente (2026-11-05)
+## Current checkpoint — U4.4.7 Desbloqueio do CI e Segurança Transacional dos Providers (2026-11-07)
 
-Baseline auditado do U4.4.5 no commit `9d52c851dad6c482eb4cc63bf7379f95a69ee3d2` reprovou no CI oficial (GitHub Actions Run `41692307028`: dois erros TS2300 em `UniverseRuntime.ts` por import duplicado de `ProceduralSystemRuntime`). O patch U4.4.6 corrige o bloqueio de compilação e fecha os contratos pendentes de propagação de semente e integridade espacial:
+Baseline auditado do U4.4.6 no commit `491d6a429d09e33f9bc4785e8d4b4adbf803a470` reprovou no CI oficial (GitHub Actions Run `42054100700`: 6 erros TS2448/TS2454 em `ProceduralSystemMaterializer.ts` pelo uso da variável `u` antes de sua declaração em `returnToSolar()`). O patch U4.4.7 corrige a compilação, elimina o risco de colisão de provedores em trocas multissemente e fecha os contratos de rota:
+1. `ProceduralSystemMaterializer.ts`:
+   - Corrigida a ordem de inicialização em `returnToSolar()`: declaração de `const u = this.universe` realizada antes de qualquer referência a `u`, sanando integralmente os erros TS2448/TS2454.
+2. `StarSectorProvider.ts` e `GalaxyMaterializer.ts`:
+   - Função `starSectorProviderId(galaxyId, universeSeed)` implementada para qualificar o ID de provedores procedurais com a semente universal (`galaxy/star-sectors/${galaxyId}/${universeSeed.toString(16)}`), mantendo IDs canônicos para a Via Láctea (`galaxy/star-sectors`) e Andrômeda (`galaxy/star-sectors/andromeda`).
+   - Elimina qualquer colisão em `ProviderRegistry.register()` durante trocas de galáxias com mesma chave nominal e sementes diferentes, viabilizando o commit em duas fases e o rollback atômico com preservação do provedor original.
+   - `GalaxyMaterializer.install()` valida com segurança a presença do provedor antes do registro.
+3. `GalaxyCoordinates.ts` e `UniversalTravelPlan.ts`:
+   - `addressSeparationM()` expandido com suporte a `AddressSeparationOptions` (`{ originSeed, destinationSeed }`), permitindo que a métrica de rota, coordenadas cosmológicas e offsets locais de origem e destino sejam avaliados sob suas respectivas autoridades de semente.
+4. `tests/procedural-travel.test.ts`:
+   - `T_U44_22`: instrumentado com validação de distância no proxy esférico de 20 km, normalização estrita de quaternion e teste de independência absoluta contra mutações de catálogo em segundo plano.
+   - `T_U44_23`: reforçado com checkpoints de instrumentação em cada fase (`prepare`, `install`, `activation`, `rollback`), comprovação de que a falha simulada ocorre especificamente na ativação sem bloqueio por colisão de IDs, verificação de preservação do provedor e cena original pós-rollback, e validação de troca bem-sucedida com aposentadoria controlada do provedor anterior.
+   - `T_U44_24`: teste determinístico de cálculo de distância e duração de viagem entre universos procedurais com sementes distintas.
+Evidence: [41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md](41-status-U4.4-PROCEDURAL-GALAXY-TRAVEL.md).
+
+## Previous checkpoint — U4.4.6 Correção do CI e Fechamento do Contrato Multissemente (2026-11-05)
+
+Baseline auditado do U4.4.5 no commit `9d52c851dad6c482eb4cc63bf7379f95a69ee3d2` reprovou no CI oficial (GitHub Actions Run `41692307028`: dois erros TS2300 em `UniverseRuntime.ts` por import duplicado de `ProceduralSystemRuntime`). O patch U4.4.6 corrigiu o bloqueio de compilação e fechou os contratos de propagação de semente e integridade espacial.
 1. `UniverseRuntime.ts`:
    - Remoção do import duplicado de `ProceduralSystemRuntime`, sanando os erros TS2300.
    - O getter `location.cosmological` agora consulta prioritariamente a morfologia cosmológica da galáxia ativa (`this.activeGalaxy.definition.proceduralMorphology?.cosmologicalAddress`) ou repassa `this.activeGalaxy.universeSeed` a `galaxyCosmologicalAddress()`, blindando as coordenadas cosmológicas contra poluição por consultas de catálogo de fundo.
