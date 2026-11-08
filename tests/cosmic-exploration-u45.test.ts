@@ -517,6 +517,38 @@ test('T_U45_13_14: Isolamento multissemente de proxies e ciclo completo Sol <-> 
     assert.equal(setup.universe.activeGalaxy.id, 'milky_way');
     assert.equal(setup.universe.address.systemId, 'sol');
 
+    // Cancellation in cruise -> emergency-deceleration -> coasting -> resume -> Andromeda arrival
+    const andromedaTarget = setup.catalog.target('andromeda')!;
+    assert.equal(setup.controller.start(andromedaTarget, SAFE_DEPARTURE), 'started');
+    setup.controller.update(7);
+    pres.update(setup.controller.state, camera, 0.1);
+    setup.controller.cancel();
+    for (let i = 0; i < 30 && setup.controller.state?.phase !== 'coasting'; i++) {
+      setup.controller.update(0.1);
+      pres.update(setup.controller.state, camera, 0.1);
+    }
+    assert.equal(setup.controller.state?.phase, 'coasting');
+    const coastTelemetry = hypercruiseTelemetry(setup.controller.state!);
+    assert.match(coastTelemetry, /PARADO EM TRÂNSITO/);
+
+    assert.equal(setup.controller.start(andromedaTarget, SAFE_DEPARTURE), 'resumed');
+    for (let i = 0; i < 400 && setup.controller.active; i++) {
+      setup.controller.update(0.2);
+      pres.update(setup.controller.state, camera, 0.2);
+    }
+    assert.equal(setup.controller.active, false);
+    assert.equal(setup.universe.activeGalaxy.id, 'andromeda');
+    pres.update(setup.controller.state, camera, 0.1);
+    assert.equal(pres.root.visible, false, 'Presentation root must hide cleanly once transit completes');
+
+    // Deterministic proxy descriptors across different seeds (seedA vs seedB vs seedA)
+    const proxyA1 = pres.ensureGalaxyProxy(procId, seedA);
+    const proxyB = pres.ensureGalaxyProxy(procId, seedB);
+    assert.notEqual(proxyA1, proxyB, 'Different universe seeds must produce distinct procedural proxy instances');
+    const descA = proxyA1.userData.descriptor;
+    const descB = proxyB.userData.descriptor;
+    assert.notEqual(descA.seed, descB.seed, 'Procedural galaxy descriptor seed must reflect universeSeed');
+
     pres.dispose();
   } finally {
     setup.dispose();
