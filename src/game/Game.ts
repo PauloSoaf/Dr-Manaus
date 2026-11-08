@@ -83,7 +83,8 @@ import { bodyProfile, bodyArrivalPolicy, supportsLanding, PHOTOSPHERE_GAMEPLAY_G
 import { NavigationTargetState, celestialLockCandidates, cycleNavigationTarget, type NavigationLock } from '../world/travel/NavigationLock';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../world/travel/UniversalTargetCatalog';
 import { UniversalTargetResolver, activeSystemTargetBodyId, intraSystemNavigationTarget, travelCapabilityLabel } from '../world/travel/UniversalTargetResolver';
-import { createUniversalTarget, type UniversalNavigationTarget, type TargetSource } from '../world/travel/UniversalNavigationTarget';
+import { createUniversalTarget, type UniversalNavigationTarget, type TargetSource, universalTargetKey } from '../world/travel/UniversalNavigationTarget';
+import { CosmicAtlasModel } from '../world/exploration/CosmicAtlasModel';
 import { CELESTIAL_LABEL_NAMES } from '../rendering/celestial/CelestialLabelLayer';
 import { PhotosphereGroundVisual } from '../rendering/celestial/PhotosphereGroundVisual';
 import { bodyExclusionEnvelopes, selectBodyDestination, resolveBodyDestination } from '../world/travel/BodyNavigation';
@@ -153,6 +154,10 @@ export class Game {
       prepare:plan=>this.systemMaterializer.prepareTravel(plan.resolvedDestination),
       arrived:plan=>{
         if(plan.finalBodyTarget){this.selectNavigationTarget(plan.finalBodyTarget);this.interplanetary.autopilot.engage();}
+        if(plan.resolvedDestination?.descriptor){
+          this.cosmicAtlas.markVisited(universalTargetKey(plan.resolvedDestination.descriptor));
+        }
+        this.cosmicAtlas.recordArrival(this.universe.location);
         this.hud.notify('Hypercruise concluído · chegada segura ao sistema');
       },
     });
@@ -189,6 +194,10 @@ export class Game {
   private targetCatalog?:UniversalTargetCatalog;
   get universalTargetCatalog():UniversalTargetCatalog { return this.targetCatalog??=new UniversalTargetCatalog(this.universe.solarSystem); }
   get universalTargetResolver():UniversalTargetResolver { return new UniversalTargetResolver(this.universalTargetCatalog,this.universe); }
+  private atlasInstance?: CosmicAtlasModel;
+  get cosmicAtlas(): CosmicAtlasModel {
+    return this.atlasInstance ??= new CosmicAtlasModel(this.universalTargetCatalog, this.save, this.universalTargetCatalog.discovery, this.universalTargetResolver);
+  }
   get universalNavigationTarget():UniversalNavigationTarget|undefined { return this.navigation?.current; }
   /** Read-only active-system compatibility projection. It is never a second target store. */
   get navigationLock(): NavigationLock | undefined {
@@ -281,12 +290,19 @@ export class Game {
   debugMaterializeSystem(target=this.universalNavigationTarget):boolean {
     if(!u1TestControlsEnabled() || !target)return false;
     if(target.galaxyId!==this.universe.address.galaxyId){this.hud.notify('Use U2 TEST para mudar de galáxia');return false;}
-    try {this.systemMaterializer.testArrival(target);this.hud.notify('U1 TEST ARRIVAL · sistema materializado');return true;}
+    try {
+      this.systemMaterializer.testArrival(target);
+      this.cosmicAtlas.recordArrival(this.universe.location);
+      this.hud.notify('U1 TEST ARRIVAL · sistema materializado');
+      return true;
+    }
     catch(error){this.hud.notify('U1 TEST · '+String(error));return false;}
   }
   debugReturnToSolar():void {
     if(!u1TestControlsEnabled())return;
-    this.systemMaterializer.returnToSolar();this.hud.notify('U1 TEST RETURN · Solar restaurado');
+    this.systemMaterializer.returnToSolar();
+    this.cosmicAtlas.recordArrival(this.universe.location);
+    this.hud.notify('U1 TEST RETURN · Solar restaurado');
   }
 
   debugEnterAndromeda():boolean {
@@ -297,12 +313,15 @@ export class Game {
       const target=selected?.galaxyId===d.address.galaxyId && selected.systemId===d.star.id && this.universalTargetCatalog.resolve(selected)
         ? selected:this.universalTargetCatalog.proceduralTarget(d.address.galaxyId,d.address.sector,d.star.id,'star',undefined,'map',this.universe.time)!;
       this.systemMaterializer.testArrival(target);this.selectNavigationTarget(target);
+      this.cosmicAtlas.recordArrival(this.universe.location);
       this.hud.notify('U2 TEST ARRIVAL · Andromeda');return true;
     }catch(error){this.hud.notify('U2 TEST · '+String(error));return false;}
   }
   debugReturnFromAndromeda():void {
     if(!u2TestControlsEnabled())return;
-    this.systemMaterializer.returnToSolar();this.hud.notify('U2 TEST RETURN · Milky Way / Sol');
+    this.systemMaterializer.returnToSolar();
+    this.cosmicAtlas.recordArrival(this.universe.location);
+    this.hud.notify('U2 TEST RETURN · Milky Way / Sol');
   }
 
   clearNavigationTarget(): void {
@@ -459,7 +478,7 @@ export class Game {
       damage:(point,radius,amount,deform)=>this.manausSimulationActive?this.destruction.damageAt(point,radius,amount,deform):0,prepare:destination=>this.manausSimulationActive?this.streamer.prepare(destination):Promise.resolve(),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
-    this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:(id,source)=>this.selectNavigationTarget(id,source),settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress()});
+    this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:(id,source)=>this.selectNavigationTarget(id,source),settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress(),atlas:this.cosmicAtlas});
     this.applySettings(this.save.data.settings);
     this.rendering.renderer.domElement.addEventListener('pointerdown',()=>{void this.audio.unlock();});
     window.addEventListener('keydown',()=>{void this.audio.unlock();},{once:true});
@@ -467,6 +486,7 @@ export class Game {
     window.addEventListener('keydown',event=>{if(event.code==='F3'){event.preventDefault();this.hud.toggleDebug();}if(event.code==='KeyM'){event.preventDefault();this.hud.togglePanel('map');}if(event.code==='KeyH'){event.preventDefault();this.hud.openPause('controls');}if(event.code==='Escape'){event.preventDefault();this.hud.togglePause();}});
   }
   async initialize(){
+    this.cosmicAtlas.recordArrival(this.universe.location);
     await this.rendering.initialize();
     await Promise.all([this.player.character.initializeAnimations(), this.powers.initializeCharacters()]);
     await this.streamer.initialize();

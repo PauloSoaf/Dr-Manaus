@@ -13,11 +13,29 @@ const RANGES: Record<string, readonly [number, number]> = {
   masterVolume: [0, 1], ambienceVolume: [0, 1], effectsVolume: [0, 1],
   fov: [50, 95], sensitivity: [.2, 3],
 };
-export interface SaveData { version: number; discovered: string[]; completed: string[]; settings: Settings }
-const defaults = (): SaveData => ({ version: 1, discovered: ['teatro'], completed: [], settings: {
+export interface SaveData {
+  version: number;
+  discovered: string[];
+  completed: string[];
+  settings: Settings;
+  favorites?: string[];
+  visitedTargets?: string[];
+}
+const defaults = (): SaveData => ({
+  version: 1,
+  discovered: ['teatro'],
+  completed: [],
+  settings: {
     quality: 'High', dynamicResolution: true, sound: true, time: 'Golden Hour', weather: 'clear', dayCycle: false,
     masterVolume: .7, ambienceVolume: .6, effectsVolume: .8, fov: 57, sensitivity: 1, invertY: false, shadows: true,
-  } });
+  },
+  favorites: [],
+  visitedTargets: [
+    'galaxy/milky_way',
+    'universe/milky_way/0,0,0/system/sol',
+    'universe/milky_way/0,0,0/system/sol/body/earth',
+  ],
+});
 export class SaveManager {
   data = defaults();
   constructor() {
@@ -27,6 +45,8 @@ export class SaveManager {
         const saved = raw as Partial<SaveData>;
         if (Array.isArray(saved.discovered)) this.data.discovered = saved.discovered.filter((v): v is string => typeof v === 'string');
         if (Array.isArray(saved.completed)) this.data.completed = saved.completed.filter((v): v is string => typeof v === 'string');
+        if (Array.isArray(saved.favorites)) this.data.favorites = saved.favorites.filter((v): v is string => typeof v === 'string');
+        if (Array.isArray(saved.visitedTargets)) this.data.visitedTargets = saved.visitedTargets.filter((v): v is string => typeof v === 'string');
         this.data.settings = { ...this.data.settings, ...saved.settings };
         if (!['Low', 'Medium', 'High', 'Ultra'].includes(this.data.settings.quality)) this.data.settings.quality = 'High';
         // A save written before these existed, or hand-edited, must not produce a silent or unusable game.
@@ -49,5 +69,28 @@ export class SaveManager {
   save() { try { localStorage.setItem('dr-manaus-v1', JSON.stringify(this.data)); } catch { /* Storage is optional. */ } }
   discover(id: string) { if (this.data.discovered.includes(id)) return false; this.data.discovered.push(id); this.save(); return true; }
   complete(id: string) { if (!this.data.completed.includes(id)) this.data.completed.push(id); this.save(); }
+  isFavorite(key: string): boolean { return this.data.favorites?.includes(key) ?? false; }
+  toggleFavorite(key: string): boolean {
+    if (!this.data.favorites) this.data.favorites = [];
+    const idx = this.data.favorites.indexOf(key);
+    let active = false;
+    if (idx >= 0) {
+      this.data.favorites.splice(idx, 1);
+      active = false;
+    } else {
+      this.data.favorites.push(key);
+      active = true;
+    }
+    this.save();
+    return active;
+  }
+  isVisited(key: string): boolean { return this.data.visitedTargets?.includes(key) ?? false; }
+  markVisited(key: string): boolean {
+    if (!this.data.visitedTargets) this.data.visitedTargets = [];
+    if (this.data.visitedTargets.includes(key)) return false;
+    this.data.visitedTargets.push(key);
+    this.save();
+    return true;
+  }
   reset() { this.data = defaults(); this.save(); }
 }

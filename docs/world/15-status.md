@@ -1,6 +1,29 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.1.3 Recuperação dos 3 Testes U4.5 e Finalização do Cosmic Exploration (2026-11-08)
+## Current checkpoint — U4.5.2 Atlas de Descobertas, Favoritos e Navegação Galáctica (2026-11-08)
+
+Baseline auditado do U4.5.1.3 no commit `721f70d44331ee36b9eb4e93d5e79854dba88886` (GitHub Actions Runs `42515552252` e `42515546294`: TypeScript PASS, 638/638 regressões permanentes aprovadas, 1.550/1.550 testes gerais aprovados, build Vite PASS). O patch U4.5.2 introduz o Atlas de Descobertas, persistência de favoritos, histórico de exploração e navegação integrada entre galáxias:
+1. `src/world/exploration/CosmicAtlasModel.ts`:
+   - Modelo central do Atlas Cósmico gerenciando galáxias descobertas (`discoveredGalaxies`), sistemas identificados (`identifiedSystems`), alvos visitados (`visitedTargets`) e favoritos (`favoriteKeys`).
+   - Regra estrita de visitação: nenhum destino é considerado visitado apenas por ser renderizado ou catalogado; somente presenças físicas no endereço (`recordArrival` ou chegada por `universalTravelController`) registram status visitado.
+   - Filtros dinâmicos por consulta textual (nome, designação procedural, id, coordenadas), morfologia galáctica (`spiral`, `barred-spiral`, `elliptical`, `irregular`), tipo de destino (`galaxy`, `system`, `body`) e status de navegação (`flyable`, `favorites`, `visited`).
+   - Paginação e virtualização de exibição com slicing em memória para evitar gargalos na DOM e sem materialização desnecessária de corpos 3D.
+2. `src/core/SaveManager.ts`:
+   - Extensão retrocompatível do formato de salvamento com campos `favorites?: string[]` e `visitedTargets?: string[]` inicializados com defaults seguros e validação de tipos primitivos (sem BigInt cru no JSON).
+   - Métodos utilitários `isFavorite(key)`, `toggleFavorite(key)`, `isVisited(key)` e `markVisited(key)`.
+3. `src/ui/map/UniversalMapPanel.ts`:
+   - Nível `atlas` integrado na barra de níveis de mapa e breadcrumb com renderizador de visão completa (`renderAtlasView`).
+   - Seletor de busca em tempo real, botões de filtro rápido (Tipo, Status, Morfologia, Ordenação) e estatísticas consolidadas do universo conhecido.
+   - Ações contextuais em cada cartão: favoritar (`★/☆`), localizar no mapa (transiciona para `cosmology`, `galaxy` ou `system`) e iniciar viagem interestelar/intergaláctica imediata via atalho `[P]` quando elegível.
+   - Cartão `#universal-target-card` atualizado com botão de alternância de favoritos e indicador visual de visitação.
+4. `src/game/Game.ts` e `src/ui/HUD.ts`:
+   - Registro de chegadas nos testes U1/U2 e no encerramento de Hypercruise (`arrived`).
+   - Sincronização do modelo Atlas entre a autoridade de viagens e os painéis de navegação.
+5. `tests/cosmic-atlas-u452.test.ts`:
+   - Suíte de 10 testes dedicados cobrindo integridade do modelo, estrita regra de visitação, ciclo de favoritos, filtros de morfologia/busca, virtualização, persistência segura e integração visual.
+Evidence: [43-status-U4.5.2-COSMIC-ATLAS.md](43-status-U4.5.2-COSMIC-ATLAS.md).
+
+## Previous checkpoint — U4.5.1.3 Recuperação dos 3 Testes U4.5 e Finalização do Cosmic Exploration (2026-11-08)
 
 Baseline auditado do U4.5.1.2 no commit `e0443368737b128ec97796d91995f7a928c644e2` (GitHub Actions Run `42497361760`: TypeScript PASS, 638/638 regressões permanentes aprovadas, 1.547/1.550 testes gerais com 3 falhas pontuais na suíte U4.5). O patch U4.5.1.3 resolve as 3 falhas sem alterar os módulos de viagem aprovados:
 1. `src/rendering/HypercruisePresentation.ts` e `tests/cosmic-exploration-u45.test.ts` (`T_U45_02_05_06`):
