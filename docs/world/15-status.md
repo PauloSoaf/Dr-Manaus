@@ -1,6 +1,18 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.1.2 Desbloqueio do CI e Fechamento da Integração Visual (2026-11-08)
+## Current checkpoint — U4.5.1.3 Recuperação dos 3 Testes U4.5 e Finalização do Cosmic Exploration (2026-11-08)
+
+Baseline auditado do U4.5.1.2 no commit `e0443368737b128ec97796d91995f7a928c644e2` (GitHub Actions Run `42497361760`: TypeScript PASS, 638/638 regressões permanentes aprovadas, 1.547/1.550 testes gerais com 3 falhas pontuais na suíte U4.5). O patch U4.5.1.3 resolve as 3 falhas sem alterar os módulos de viagem aprovados:
+1. `src/rendering/HypercruisePresentation.ts` e `tests/cosmic-exploration-u45.test.ts` (`T_U45_02_05_06`):
+   - Escala angular de proxies intergalácticos reformulada para curva progressiva estritamente monótona: `angular = Math.min(2.4, Math.max(0.04, 0.04 + 2.16 * Math.pow(rawRatio, 0.45)))`, eliminando o piso estático prematuro e garantindo aumento contínuo de escala aparente durante a aproximação. O teste valida o crescimento tanto na aproximação contínua da viagem quanto em rampa decrescente controlada.
+2. `tests/cosmic-exploration-u45.test.ts` (`T_U45_03_04`):
+   - Objetos Three.js pré-instanciados antes do isolamento de aleatoriedade, e filtro de stack em `Math.random` permitindo a geração legítima de UUIDs internos da biblioteca (`generateUUID` / `MathUtils`) sem permitir qualquer aleatoriedade global nos algoritmos de exploração. Adicionada verificação de determinismo bit-a-bit de `ProceduralGalaxyGenerator`.
+3. `tests/cosmic-exploration-u45.test.ts` e `src/ui/map/MapRenderers.ts` (`T_U45_07_08_09`):
+   - Mock Canvas 2D atualizado para registrar traços e geometrias no momento de `stroke()` e `fill()` sobre o caminho corrente (`currentSubpaths`), refletindo fielmente a cor no momento do traçado e localizando o retículo dourado de seleção (`#facc15`), vermelho atual (`#ef4444`) e ciano canônico (`#38bdf8`).
+   - `CosmologyMapRenderer` preserva `queryZoom = this.zoomMpc <= 16 ? this.zoomMpc : effectiveSpanMpc`, impedindo que o Local Group e galáxias vizinhas desapareçam por estratégias de pan residual.
+Evidence: [42-status-U4.5-COSMIC-EXPLORATION-EXPERIENCE.md](42-status-U4.5-COSMIC-EXPLORATION-EXPERIENCE.md).
+
+## Previous checkpoint — U4.5.1.2 Desbloqueio do CI e Fechamento da Integração Visual (2026-11-08)
 
 Baseline auditado do U4.5.1.1 no commit `fa4ef370fb68bd53f7e20cc11539fa00f828db6b` (GitHub Actions Run `42488393176`: 1 erro TS2304 em `HypercruisePresentation.ts(630,15)` por tipo não importado). O patch U4.5.1.2 corrige pontualmente a pendência e fecha os contratos visuais:
 1. `src/rendering/HypercruisePresentation.ts`:

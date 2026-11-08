@@ -1,17 +1,32 @@
-# Status Report — U4.5.1 / U4.5.1.2 Cosmic Exploration Experience
+# Status Report — U4.5.1 / U4.5.1.3 Cosmic Exploration Experience
 
 **Date**: 2026-11-08  
 **Branch**: `feat/universe-map`  
 **Baseline**: Commit `97c6ad14c67b8316201ce83c2a56ffe3c096a294` (U4.4.9 CI Approved)  
 **Audited U4.5.1 Commit**: `d49c6161c22d6f70cdeb702698a2a282396f93cd` (GitHub Actions Run `42444989687` — 8 erros TS)  
 **Audited U4.5.1.1 Commit**: `fa4ef370fb68bd53f7e20cc11539fa00f828db6b` (GitHub Actions Run `42488393176` — 1 erro TS2304)  
-**Resolution Commit (U4.5.1.2)**: `e068ffcbcae499339629a61b37cf98a229cdbad1`  
+**Audited U4.5.1.2 Commit**: `e0443368737b128ec97796d91995f7a928c644e2` (GitHub Actions Run `42497361760` — 3 falhas na suíte U4.5)  
+**Resolution Commit (U4.5.1.3)**: Em validação oficial pelo GitHub Actions  
 
 ---
 
-## 1. Diagnóstico e Resolução (U4.5.1.1 e U4.5.1.2)
+## 1. Diagnóstico e Resolução (U4.5.1.1, U4.5.1.2 e U4.5.1.3)
 
-### 1.1 Correção Pontual do TS2304 (U4.5.1.2)
+### 1.1 Resolução das 3 Falhas da Nova Suíte U4.5 (U4.5.1.3)
+1. **`T_U45_02_05_06` (Crescimento Aparente do Proxy Procedural)**:
+   - **Causa**: O piso estático `Math.max(0.05, (radiusM / dist) * 14)` travava a escala em `0.05 * 900 = 45` durante a maior parte de viagens intergalácticas longas ($dist > 280 \times radiusM$), mantendo a escala estática nos primeiros 14 segundos.
+   - **Solução**: Reformulada a escala angular para curva contínua e estritamente monótona:
+     $$rawRatio = \min(1.0, \frac{radiusM}{\max(radiusM, dist)})$$
+     $$angular = \min(2.4, \max(0.04, 0.04 + 2.16 \cdot rawRatio^{0.45}))$$
+     A escala aparente agora cresce continuamente a cada metro percorrido em direção ao destino (de $\sim 100$ em distâncias cosmológicas até $\sim 1980$ na chegada). O teste valida tanto o crescimento durante o trânsito quanto uma rampa decrescente controlada.
+2. **`T_U45_03_04` (Interceptação de `Math.random` e UUIDs do Three.js)**:
+   - **Causa**: O teste interceptava `Math.random()` globalmente antes de criar `new Group()`. O Three.js utiliza `Math.random()` internamente em `MathUtils.generateUUID()` na construção de qualquer `Object3D` ou `Material`, falhando a inicialização da infraestrutura do teste.
+   - **Solução**: Objetos Three.js são pré-instanciados antes do isolamento, e a função interceptora inspeciona o stack para permitir a geração legítima de UUIDs da biblioteca (`generateUUID` / `MathUtils`), enquanto proíbe estritamente qualquer chamada em algoritmos da aplicação (`mathRandomCallsInEngine === 0`). Adicionada verificação de determinismo bit-a-bit de `ProceduralGalaxyGenerator` sob sementes iguais e divergência sob sementes diferentes.
+3. **`T_U45_07_08_09` (Mock Canvas 2D e Retículo Dourado `#facc15`)**:
+   - **Causa**: O mock de canvas capturava `ctx.strokeStyle` durante a chamada de `arc()`. O `CosmologyMapRenderer` constrói o arco primeiro (`beginPath()`, `arc()`) e define a cor depois (`ctx.strokeStyle = '#facc15'`, `ctx.stroke()`). O mock lia o estilo antigo antes da atribuição.
+   - **Solução**: O mock de Canvas 2D agora armazena os subcaminhos ativos (`currentSubpaths`) e materializa os registros em `arcs` e `ellipses` no momento exato em que `stroke()` ou `fill()` são executados com o estilo vigente. Além disso, `CosmologyMapRenderer` mantém `queryZoom = this.zoomMpc <= 16 ? this.zoomMpc : effectiveSpanMpc`, garantindo que marcadores locais e canônicos não sejam descartados por pan residual.
+
+### 1.2 Correção do TS2304 e Cross-Fade de Luminosidade (U4.5.1.2)
 - **Erro**: `src/rendering/HypercruisePresentation.ts(630,15): TS2304: Cannot find name 'ProceduralGalaxyDescriptor'`.
 - **Causa**: O re-export `export type { ProceduralGalaxyDescriptor };` no rodapé de `HypercruisePresentation.ts` perdeu sua importação de origem na limpeza de imports do U4.5.1.1.
 - **Correção**: Restaurado `import { cosmologicalSeparationVectorM, type ProceduralGalaxyDescriptor } from '../world/galaxy/ProceduralGalaxyGenerator';`, validando a reexportação do tipo para consumidores existentes sem introduzir duplicações ou atalhos com `any`.

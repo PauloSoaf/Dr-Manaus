@@ -568,7 +568,8 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     const visibleKey = `${this.discovery.universeSeed.toString(16)}_${effectiveCenterCell.x}_${effectiveCenterCell.y}_${effectiveCenterCell.z}_${this.zoomMpc.toFixed(2)}_${panBucketX}_${panBucketY}`;
     if (this.cachedVisibleKey !== visibleKey) {
       this.cachedVisibleKey = visibleKey;
-      this.cachedGalaxies = this.discovery.discoverVisibleRegion(effectiveCenterCell, effectiveSpanMpc, 96);
+      const queryZoom = this.zoomMpc <= 16 ? this.zoomMpc : effectiveSpanMpc;
+      this.cachedGalaxies = this.discovery.discoverVisibleRegion(effectiveCenterCell, queryZoom, 96);
     }
     const galaxies = this.cachedGalaxies;
 

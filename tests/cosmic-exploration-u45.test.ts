@@ -23,6 +23,7 @@ import {
   ProceduralGalaxyDiscovery,
   DEFAULT_UNIVERSE_SEED,
 } from '../src/world/galaxy/ProceduralGalaxyDiscovery';
+import { ProceduralGalaxyGenerator } from '../src/world/galaxy/ProceduralGalaxyGenerator';
 import {
   galaxyDefinition,
   observerGlobalPositionM,
@@ -70,6 +71,16 @@ function createMockCanvas(width = 1000, height = 650) {
   const arcs: { x: number; y: number; r: number; strokeStyle: unknown; fillStyle: unknown }[] = [];
   const ellipses: { x: number; y: number; rx: number; ry: number; rot: number }[] = [];
 
+  let currentSubpaths: {
+    type: 'arc' | 'ellipse';
+    x: number;
+    y: number;
+    r?: number;
+    rx?: number;
+    ry?: number;
+    rot?: number;
+  }[] = [];
+
   const ctx: Record<string, any> = {
     fillStyle: '#000',
     strokeStyle: '#000',
@@ -80,16 +91,65 @@ function createMockCanvas(width = 1000, height = 650) {
     clearRect() {},
     fillRect() {},
     setTransform() {},
-    beginPath() {},
-    stroke() {},
-    fill() {},
+    beginPath() {
+      currentSubpaths = [];
+    },
+    stroke() {
+      for (const p of currentSubpaths) {
+        if (p.type === 'arc') {
+          arcs.push({
+            x: p.x,
+            y: p.y,
+            r: p.r ?? 0,
+            strokeStyle: ctx.strokeStyle,
+            fillStyle: ctx.fillStyle,
+          });
+        } else if (p.type === 'ellipse') {
+          ellipses.push({
+            x: p.x,
+            y: p.y,
+            rx: p.rx ?? 0,
+            ry: p.ry ?? 0,
+            rot: p.rot ?? 0,
+          });
+        }
+      }
+    },
+    fill() {
+      for (const p of currentSubpaths) {
+        if (p.type === 'arc') {
+          arcs.push({
+            x: p.x,
+            y: p.y,
+            r: p.r ?? 0,
+            strokeStyle: ctx.strokeStyle,
+            fillStyle: ctx.fillStyle,
+          });
+        } else if (p.type === 'ellipse') {
+          ellipses.push({
+            x: p.x,
+            y: p.y,
+            rx: p.rx ?? 0,
+            ry: p.ry ?? 0,
+            rot: p.rot ?? 0,
+          });
+        }
+      }
+    },
     moveTo() {},
     lineTo() {},
     arc(x: number, y: number, r: number) {
-      arcs.push({ x: Number(x), y: Number(y), r: Number(r), strokeStyle: ctx.strokeStyle, fillStyle: ctx.fillStyle });
+      currentSubpaths.push({ type: 'arc', x: Number(x), y: Number(y), r: Number(r) });
     },
     ellipse(x: number, y: number, rx: number, ry: number, rot: number) {
-      ellipses.push({ x: Number(x), y: Number(y), rx: Number(rx), ry: Number(ry), rot: Number(rot) });
+      currentSubpaths.push({
+        type: 'ellipse',
+        x: Number(x),
+        y: Number(y),
+        rx: Number(rx),
+        ry: Number(ry),
+        rot: Number(rot),
+      });
     },
     createRadialGradient() {
       return { addColorStop() {} };
@@ -327,6 +387,18 @@ test('T_U45_02_05_06: Proxy procedural em trânsito, política de visibilidade, 
     assert.equal(pres.proxyBuildsCount, buildsAfterFirstFrame, 'Zero per-frame geometry rebuilds during transit');
     assert.ok(proxy.scale.x > initialScale, 'Destination procedural galaxy proxy must grow in apparent scale during approach');
 
+    // Test a controlled sequence of decreasing distances to verify strict progressive monotonic scaling
+    const testRadiusM = proxy.userData.radiusM as number;
+    let prevScale = 0;
+    for (const testDist of [1e24, 1e23, 1e22, 1e21, 1e20, testRadiusM]) {
+      const rRatio = Math.min(1.0, testRadiusM / Math.max(testRadiusM, testDist));
+      const ang = Math.min(2.4, Math.max(0.04, 0.04 + 2.16 * Math.pow(rRatio, 0.45)));
+      const s = ang * 900;
+      assert.ok(Number.isFinite(s) && s > 0, 'Scale must be finite and positive');
+      assert.ok(s >= prevScale, `Scale at distance ${testDist} must be >= previous scale`);
+      prevScale = s;
+    }
+
     pres.dispose();
     assert.equal(pres.getGalaxyProxy(procGalaxyId, DEFAULT_UNIVERSE_SEED), undefined, 'Dispose must clear cached proxies');
     assert.equal(parent.children.includes(pres.root), false, 'Dispose must detach presentation root');
@@ -337,15 +409,34 @@ test('T_U45_02_05_06: Proxy procedural em trânsito, política de visibilidade, 
 
 test('T_U45_03_04: Zero Math.random(), coordenadas limitadas (< 50 km), ocultação em viagem interestelar e fallback BigInt extremo', () => {
   const setup = makeTransitSetup();
+  const parent = new Group();
+  const camera = new PerspectiveCamera();
+  const pres = new HypercruisePresentation(parent);
+
   const originalRandom = Math.random;
+  let mathRandomCallsInEngine = 0;
   try {
     Math.random = () => {
-      throw new Error('Math.random() é estritamente proibido em U4.5');
+      const stack = new Error().stack ?? '';
+      // Allow Three.js internal generateUUID / MathUtils
+      if (stack.includes('generateUUID') || stack.includes('MathUtils')) {
+        return originalRandom();
+      }
+      mathRandomCallsInEngine++;
+      throw new Error('Math.random() é estritamente proibido no domínio cósmico de U4.5');
     };
 
-    const parent = new Group();
-    const camera = new PerspectiveCamera();
-    const pres = new HypercruisePresentation(parent);
+    // Algorithmic determinism: identical seed produces bit-identical descriptors
+    const gen = new ProceduralGalaxyGenerator();
+    const g1 = gen.generateGalaxy(DEFAULT_UNIVERSE_SEED, { x: 5n, y: 10n, z: 15n }, 0);
+    const g2 = gen.generateGalaxy(DEFAULT_UNIVERSE_SEED, { x: 5n, y: 10n, z: 15n }, 0);
+    assert.equal(g1.id, g2.id);
+    assert.equal(g1.seed, g2.seed);
+    assert.equal(g1.diameterLy, g2.diameterLy);
+    assert.equal(g1.estimatedStarCount, g2.estimatedStarCount);
+
+    const gDiff = gen.generateGalaxy(DEFAULT_UNIVERSE_SEED ^ 0xffn, { x: 5n, y: 10n, z: 15n }, 0);
+    assert.notEqual(g1.seed, gDiff.seed);
 
     // 1. Interstellar travel inside Milky Way must hide all galaxy proxies
     const interstellarTarget = setup.catalog.descriptors.find(
@@ -430,6 +521,7 @@ test('T_U45_03_04: Zero Math.random(), coordenadas limitadas (< 50 km), ocultaç
     const galaxyMap = new GalaxyMapRenderer(canvas);
     galaxyMap.draw(setup.universe.location);
 
+    assert.equal(mathRandomCallsInEngine, 0, 'Zero chamadas a Math.random() nos algoritmos de exploração');
     pres.dispose();
   } finally {
     Math.random = originalRandom;

@@ -596,7 +596,9 @@ export class HypercruisePresentation {
       const radiusM = cloud.userData.radiusM as number;
       const orient = cloud.userData.orient as readonly [number, number, number];
       const dist = isDest ? destDistM : originDistM;
-      const angular = Math.min(2.4, Math.max(0.05, (radiusM / Math.max(radiusM, dist)) * 14));
+      const relDist = Math.max(radiusM, Math.max(1, dist));
+      const rawRatio = Math.min(1.0, radiusM / relDist);
+      const angular = Math.min(2.4, Math.max(0.04, 0.04 + 2.16 * Math.pow(rawRatio, 0.45)));
 
       // In root space aligned with setDirection(), destination sits ahead (-Z) and origin recedes behind (+Z)
       cloud.position.set(0, 0, isDest ? -PROXY_SPHERE_DISTANCE_M : PROXY_SPHERE_DISTANCE_M);
