@@ -6,7 +6,7 @@
 **Audited U4.5.1 Commit**: `d49c6161c22d6f70cdeb702698a2a282396f93cd` (GitHub Actions Run `42444989687` — 8 erros TS)  
 **Audited U4.5.1.1 Commit**: `fa4ef370fb68bd53f7e20cc11539fa00f828db6b` (GitHub Actions Run `42488393176` — 1 erro TS2304)  
 **Audited U4.5.1.2 Commit**: `e0443368737b128ec97796d91995f7a928c644e2` (GitHub Actions Run `42497361760` — 3 falhas na suíte U4.5)  
-**Resolution Commit (U4.5.1.3)**: Em validação oficial pelo GitHub Actions  
+**Resolution Commit (U4.5.1.3)**: `784ad5f3838dc34da84d39b56926cc295c608076`  
 
 ---
 
