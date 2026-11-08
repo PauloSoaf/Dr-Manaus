@@ -5,7 +5,7 @@
 **Baseline**: Commit `97c6ad14c67b8316201ce83c2a56ffe3c096a294` (U4.4.9 CI Approved)  
 **Audited U4.5.1 Commit**: `d49c6161c22d6f70cdeb702698a2a282396f93cd` (GitHub Actions Run `42444989687` — 8 erros TS)  
 **Audited U4.5.1.1 Commit**: `fa4ef370fb68bd53f7e20cc11539fa00f828db6b` (GitHub Actions Run `42488393176` — 1 erro TS2304)  
-**Resolution Commit (U4.5.1.2)**: `f92159239c8c4013720483130d3e24abe3cfe2d5`  
+**Resolution Commit (U4.5.1.2)**: `e068ffcbcae499339629a61b37cf98a229cdbad1`  
 
 ---
 
