@@ -20,7 +20,10 @@ import {
   orientGalaxyVector,
 } from '../world/galaxy/GalaxyCoordinates';
 import { DEFAULT_UNIVERSE_SEED } from '../world/galaxy/ProceduralGalaxyDiscovery';
-import { cosmologicalSeparationVectorM } from '../world/galaxy/ProceduralGalaxyGenerator';
+import {
+  cosmologicalSeparationVectorM,
+  type ProceduralGalaxyDescriptor,
+} from '../world/galaxy/ProceduralGalaxyGenerator';
 import { GalaxyPointCloudProvider, resolveGalaxyDescriptor } from '../world/galaxy/GalaxyPointCloudProvider';
 import { LIGHT_YEAR_M, type Vec3 } from '../world/spatial/units';
 import type { HypercruisePhase, UniversalTransitState } from '../world/travel/UniversalTravelController';

@@ -414,6 +414,12 @@ test('T_U45_03_04: Zero Math.random(), coordenadas limitadas (< 50 km), ocultaç
       });
     }
 
+    // Verify recovery after synthetic state: active proxies must strictly reflect the real intergalactic transit
+    const activeKeysReal = pres.getActiveProxyKeys();
+    assert.equal(activeKeysReal.length, 2, 'Must display exactly origin and destination proxies after synthetic test');
+    assert.ok(activeKeysReal.includes('milky_way'));
+    assert.ok(activeKeysReal.includes(proxyCacheKey(procGalaxyId, DEFAULT_UNIVERSE_SEED)));
+
     // 3. Map renderers at extreme BigInt cell (> Number.MAX_SAFE_INTEGER) without Math.random or NaN
     const { canvas, texts } = createMockCanvas(1000, 650);
     const cosmos = new CosmologyMapRenderer(canvas);

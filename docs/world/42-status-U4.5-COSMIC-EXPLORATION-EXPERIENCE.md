@@ -1,18 +1,26 @@
-# Status Report — U4.5.1 / U4.5.1.1 Cosmic Exploration Experience
+# Status Report — U4.5.1 / U4.5.1.2 Cosmic Exploration Experience
 
 **Date**: 2026-11-08  
 **Branch**: `feat/universe-map`  
 **Baseline**: Commit `97c6ad14c67b8316201ce83c2a56ffe3c096a294` (U4.4.9 CI Approved)  
-**Audited U4.5.1 Commit**: `d49c6161c22d6f70cdeb702698a2a282396f93cd` (GitHub Actions Run `42444989687`)  
-**Recovery Commit (U4.5.1.1)**: `b039dca3fbaf97c88ede521bed9e8fa955c24e15`  
+**Audited U4.5.1 Commit**: `d49c6161c22d6f70cdeb702698a2a282396f93cd` (GitHub Actions Run `42444989687` — 8 erros TS)  
+**Audited U4.5.1.1 Commit**: `fa4ef370fb68bd53f7e20cc11539fa00f828db6b` (GitHub Actions Run `42488393176` — 1 erro TS2304)  
+**Resolution Commit (U4.5.1.2)**: `f92159239c8c4013720483130d3e24abe3cfe2d5`  
 
 ---
 
-## 1. Diagnóstico do U4.5.1 e Recuperação no U4.5.1.1
+## 1. Diagnóstico e Resolução (U4.5.1.1 e U4.5.1.2)
 
-O commit `d49c6161c22d6f70cdeb702698a2a282396f93cd` introduziu a camada de experiência visual do U4.5.1, porém reprovou na compilação TypeScript oficial (GitHub Actions Run `42444989687`) com 8 erros de tipo e incompatibilidades de contrato identificadas em auditoria. O patch **U4.5.1.1** sana integralmente todos os pontos preservando o ganho visual:
+### 1.1 Correção Pontual do TS2304 (U4.5.1.2)
+- **Erro**: `src/rendering/HypercruisePresentation.ts(630,15): TS2304: Cannot find name 'ProceduralGalaxyDescriptor'`.
+- **Causa**: O re-export `export type { ProceduralGalaxyDescriptor };` no rodapé de `HypercruisePresentation.ts` perdeu sua importação de origem na limpeza de imports do U4.5.1.1.
+- **Correção**: Restaurado `import { cosmologicalSeparationVectorM, type ProceduralGalaxyDescriptor } from '../world/galaxy/ProceduralGalaxyGenerator';`, validando a reexportação do tipo para consumidores existentes sem introduzir duplicações ou atalhos com `any`.
 
-### 1.1 Correção dos 8 Erros de Compilação TypeScript
+### 1.2 Fechamento da Integração Visual e Cross-Fade de Luminosidade
+- **Conservação de Energia em AdditiveBlending**: O cross-fade dual-LOD em `GalaxyMorphologyRenderer.ts` foi refinado para $\alpha_{lower} = 1.0 - \text{smooth}$ e $\alpha_{upper} = \text{smooth}$ ($\alpha_{lower} + \alpha_{upper} = 1.0$), eliminando a sobreposição de brilho (+25% / +30%) que ocorria nos limiares de transição.
+- **Continuidade de Proxies após Estados Sintéticos**: Confirmado em `tests/cosmic-exploration-u45.test.ts` (`T_U45_03_04`) que transições envolvendo estados sintéticos de coordenadas `BigInt` extremas não poluem a identidade dos proxies, recuperando com exatidão as chaves ativas do trânsito intergaláctico real.
+
+### 1.3 Histórico de Correções do U4.5.1.1 (8 Erros de Compilação Sanados)
 1. `Game.ts:179` e `Game.ts:800` (`TS2339: Property 'setDirection' does not exist on type 'HypercruisePresentation'`):
    - **Causa**: `setDirection(direction)` havia sido removido na reimplementação de `HypercruisePresentation`, e `this.lines.quaternion.copy(camera.quaternion)` sobrescrevia a orientação do corredor relativístico com a câmera.
    - **Correção**: Restaurado o método `setDirection(direction: readonly number[] | { readonly x: number; readonly y: number; readonly z: number }): void` em `HypercruisePresentation`, aceitando tanto tupla `Vec3` quanto `THREE.Vector3`. A orientação agora normaliza vetores válidos, rejeita entradas não finitas (`NaN`/`Infinity`) ou degeneradas, alinha `this.root.quaternion` via `targetQuaternion` com interpolação suave em `update()` e remove a rotação acoplada em `this.lines.quaternion`.

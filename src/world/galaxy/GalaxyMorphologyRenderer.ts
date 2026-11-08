@@ -257,11 +257,11 @@ export class GalaxyMorphologyRenderer {
       if (safePx < bandEnd) {
         const t = Math.min(1, Math.max(0, (safePx - bandStart) / Math.max(1e-3, bandEnd - bandStart)));
         const smooth = t * t * (3 - 2 * t);
-        this.lod0Mesh.visible = true;
-        if (this.lod1Group) this.lod1Group.visible = true;
+        this.lod0Mesh.visible = smooth < 0.999;
+        if (this.lod1Group) this.lod1Group.visible = smooth > 0.001;
         if (this.lod2Group) this.lod2Group.visible = false;
-        this.uLod0Alpha.value = Math.max(0.05, 1.0 - smooth * 0.85);
-        this.uLod1Alpha.value = Math.max(0.25, smooth);
+        this.uLod0Alpha.value = Math.min(1.0, Math.max(0.0, 1.0 - smooth));
+        this.uLod1Alpha.value = Math.min(1.0, Math.max(0.0, smooth));
         this.uLod2Alpha.value = 0.0;
       } else {
         this.lod0Mesh.visible = false;
@@ -279,10 +279,10 @@ export class GalaxyMorphologyRenderer {
       if (safePx < bandEnd2 && this.lod1Group) {
         const t2 = Math.min(1, Math.max(0, (safePx - bandStart2) / Math.max(1e-3, bandEnd2 - bandStart2)));
         const smooth2 = t2 * t2 * (3 - 2 * t2);
-        this.lod1Group.visible = true;
-        if (this.lod2Group) this.lod2Group.visible = true;
-        this.uLod1Alpha.value = Math.max(0.05, 1.0 - smooth2 * 0.85);
-        this.uLod2Alpha.value = Math.max(0.3, smooth2);
+        this.lod1Group.visible = smooth2 < 0.999;
+        if (this.lod2Group) this.lod2Group.visible = smooth2 > 0.001;
+        this.uLod1Alpha.value = Math.min(1.0, Math.max(0.0, 1.0 - smooth2));
+        this.uLod2Alpha.value = Math.min(1.0, Math.max(0.0, smooth2));
       } else {
         if (this.lod1Group) this.lod1Group.visible = false;
         if (this.lod2Group) this.lod2Group.visible = true;
@@ -479,6 +479,9 @@ export class GalaxyMorphologyRenderer {
     if (this.lod2Group) {
       this.lod2Group.visible = activeLod === 2;
     }
+    this.uLod0Alpha.value = activeLod === 0 ? 1.0 : 0.0;
+    this.uLod1Alpha.value = activeLod === 1 ? 1.0 : 0.0;
+    this.uLod2Alpha.value = activeLod === 2 ? 1.0 : 0.0;
   }
 
   dispose(): void {

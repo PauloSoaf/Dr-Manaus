@@ -1,6 +1,17 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.1.1 Recuperação do CI e Correção dos Contratos Visuais do Cosmic Exploration (2026-11-08)
+## Current checkpoint — U4.5.1.2 Desbloqueio do CI e Fechamento da Integração Visual (2026-11-08)
+
+Baseline auditado do U4.5.1.1 no commit `fa4ef370fb68bd53f7e20cc11539fa00f828db6b` (GitHub Actions Run `42488393176`: 1 erro TS2304 em `HypercruisePresentation.ts(630,15)` por tipo não importado). O patch U4.5.1.2 corrige pontualmente a pendência e fecha os contratos visuais:
+1. `src/rendering/HypercruisePresentation.ts`:
+   - Restaurado o import de tipo `type ProceduralGalaxyDescriptor` a partir de `ProceduralGalaxyGenerator`, validando o re-export `export type { ProceduralGalaxyDescriptor };` e sanando o erro TS2304.
+2. `src/world/galaxy/GalaxyMorphologyRenderer.ts`:
+   - Refinado o cálculo de cross-fade dual-LOD em `update()` e `applyLodVisibility()`, garantindo conservação rigorosa de energia ($\alpha_{lower} + \alpha_{upper} = 1.0$) sem sobreposição luminosa espúria sob `AdditiveBlending`.
+3. `tests/cosmic-exploration-u45.test.ts`:
+   - Cobertura expandida em `T_U45_03_04` validando a recuperação da identidade dos proxies e das chaves ativas após transições com estados sintéticos de coordenadas extremas.
+Evidence: [42-status-U4.5-COSMIC-EXPLORATION-EXPERIENCE.md](42-status-U4.5-COSMIC-EXPLORATION-EXPERIENCE.md).
+
+## Previous checkpoint — U4.5.1.1 Recuperação do CI e Correção dos Contratos Visuais do Cosmic Exploration (2026-11-08)
 
 Baseline auditado do U4.5.1 no commit `d49c6161c22d6f70cdeb702698a2a282396f93cd` reprovou na compilação TypeScript oficial (GitHub Actions Run `42444989687`: 8 erros de tipo). O patch U4.5.1.1 sana todos os 8 erros de compilação e corrige os 6 problemas funcionais/arquiteturais identificados na auditoria:
 1. `src/rendering/HypercruisePresentation.ts`:
