@@ -154,8 +154,9 @@ export class Game {
       prepare:plan=>this.systemMaterializer.prepareTravel(plan.resolvedDestination),
       arrived:plan=>{
         if(plan.finalBodyTarget){this.selectNavigationTarget(plan.finalBodyTarget);this.interplanetary.autopilot.engage();}
-        if(plan.resolvedDestination?.descriptor){
-          this.cosmicAtlas.markVisited(universalTargetKey(plan.resolvedDestination.descriptor));
+        const destination = plan.resolvedDestination;
+        if(destination){
+          this.cosmicAtlas.markVisited(destination.key);
         }
         this.cosmicAtlas.recordArrival(this.universe.location);
         this.hud.notify('Hypercruise concluído · chegada segura ao sistema');

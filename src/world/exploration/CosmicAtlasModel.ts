@@ -12,7 +12,7 @@ import { ProceduralGalaxyDiscovery, DEFAULT_UNIVERSE_SEED } from '../galaxy/Proc
 import { LOCAL_GROUP_CATALOG, isCanonicalGalaxyId } from '../celestial/GalaxyDefinition';
 import { SaveManager } from '../../core/SaveManager';
 import { formatDistance, formatGalaxyName } from '../../ui/format';
-import { describeNavigationGuidance, type NavigationReadinessState } from '../../ui/map/UniversalMapPanel';
+import { describeNavigationGuidance, type NavigationReadinessState } from '../travel/NavigationGuidance';
 import type { UniverseLocation } from '../spatial/UniverseLocation';
 
 export type AtlasGalaxyMorphology = 'spiral' | 'barred-spiral' | 'elliptical' | 'irregular' | 'unknown';
@@ -271,8 +271,43 @@ export class CosmicAtlasModel {
   }
 
   getStatistics(currentGalaxyId?: string): CosmicAtlasStatistics {
-    const res = this.query({ limit: 10000 }, currentGalaxyId);
-    return res.statistics;
+    let proceduralCount = 0;
+    let canonicalCount = 0;
+    let galaxyCount = 0;
+    let systemCount = 0;
+
+    for (const desc of this.discoveredGalaxies.values()) {
+      galaxyCount++;
+      const isCanonical = desc.galaxyId ? isCanonicalGalaxyId(desc.galaxyId) : true;
+      if (isCanonical) canonicalCount++;
+      else proceduralCount++;
+    }
+
+    systemCount = this.identifiedSystems.size;
+
+    let flyableCount = 0;
+    const seed = this.discovery?.universeSeed ?? DEFAULT_UNIVERSE_SEED;
+    for (const desc of this.discoveredGalaxies.values()) {
+      const guidance = describeNavigationGuidance(
+        desc.galaxyId !== currentGalaxyId ? 'intergalactic' : 'intra-system',
+        desc.kind,
+        desc.galaxyId,
+        currentGalaxyId,
+        seed,
+      );
+      if (guidance.available) flyableCount++;
+    }
+
+    return {
+      totalKnown: this.discoveredGalaxies.size + this.identifiedSystems.size + this.catalog.descriptors.length,
+      totalGalaxies: galaxyCount,
+      proceduralGalaxies: proceduralCount,
+      canonicalGalaxies: canonicalCount,
+      totalSystems: systemCount,
+      visitedCount: this.visitedTargets.size,
+      favoritesCount: this.favoriteKeys.size,
+      flyableCount,
+    };
   }
 
   query(options: CosmicAtlasFilterOptions = {}, currentGalaxyId?: string): CosmicAtlasQueryResult {
@@ -285,9 +320,25 @@ export class CosmicAtlasModel {
     const offset = Math.max(0, options.offset ?? 0);
     const limit = Math.max(1, Math.min(100, options.limit ?? 30));
 
+    // Coordinate query recognition (c:x,y,z or cell:x,y,z or x,y,z)
+    const coordMatch = /^(?:c:?|cell:?)?\s*(-?\d+)[,_\s]+(-?\d+)[,_\s]+(-?\d+)$/i.exec(query);
+    let targetCell: { x: bigint; y: bigint; z: bigint } | undefined;
+    if (coordMatch) {
+      try {
+        targetCell = {
+          x: BigInt(coordMatch[1]),
+          y: BigInt(coordMatch[2]),
+          z: BigInt(coordMatch[3]),
+        };
+      } catch {
+        targetCell = undefined;
+      }
+    }
+
     // Dynamic discovery on query string
+    const queryDiscoveredKeys = new Set<string>();
     if (query.length >= 2 && this.discovery) {
-      const discovered = this.discovery.search(query, { x: 0n, y: 0n, z: 0n }, 12);
+      const discovered = this.discovery.search(query, { x: 0n, y: 0n, z: 0n }, 32);
       for (const g of discovered) {
         const desc: UniversalTargetDescriptor = {
           kind: 'galaxy',
@@ -296,6 +347,7 @@ export class CosmicAtlasModel {
           galaxyId: g.id,
         };
         const key = universalTargetKey(desc);
+        queryDiscoveredKeys.add(key);
         if (!this.discoveredGalaxies.has(key)) {
           this.discoveredGalaxies.set(key, desc);
         }
@@ -423,7 +475,28 @@ export class CosmicAtlasModel {
         const matchesId = entry.objectId.toLowerCase().includes(q);
         const matchesGalaxy = entry.galaxyId?.toLowerCase().includes(q) ?? false;
         const matchesKey = entry.key.toLowerCase().includes(q);
-        if (!matchesName && !matchesId && !matchesGalaxy && !matchesKey) continue;
+        const matchesDiscovered = queryDiscoveredKeys.has(entry.key);
+
+        let matchesCoord = false;
+        if (targetCell) {
+          if (galaxyMeta && galaxyMeta.cell.x === targetCell.x && galaxyMeta.cell.y === targetCell.y && galaxyMeta.cell.z === targetCell.z) {
+            matchesCoord = true;
+          } else if (entry.descriptor.address && 'cell' in entry.descriptor.address) {
+            const c = entry.descriptor.address.cell;
+            if (c.x === targetCell.x && c.y === targetCell.y && c.z === targetCell.z) {
+              matchesCoord = true;
+            }
+          } else if (entry.descriptor.address && 'sector' in entry.descriptor.address) {
+            const s = entry.descriptor.address.sector;
+            if (s.x === targetCell.x && s.y === targetCell.y && s.z === targetCell.z) {
+              matchesCoord = true;
+            }
+          }
+        }
+
+        if (!matchesName && !matchesId && !matchesGalaxy && !matchesKey && !matchesDiscovered && !matchesCoord) {
+          continue;
+        }
       }
 
       // Filter: Kind

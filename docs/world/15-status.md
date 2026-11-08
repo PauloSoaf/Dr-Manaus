@@ -1,6 +1,26 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.2 Atlas de Descobertas, Favoritos e Navegação Galáctica (2026-11-08)
+## Current checkpoint — U4.5.2.1 Recuperação do CI, Desacoplamento de Orientação e Estabilidade da DOM do Atlas (2026-11-08)
+
+Auditado após o CI do commit `b4ca622255d934259686ee2ce822e1487f72715d` (Run `42519003427` com 2 erros TS2339 em `Game.ts:157-158`). O patch corretivo U4.5.2.1 sana todos os erros e reforça a integridade arquitetural:
+1. `src/game/Game.ts`:
+   - Corrigido o acesso de tipo em `plan.resolvedDestination`: substituído `universalTargetKey(plan.resolvedDestination.descriptor)` por `destination.key`, pois `resolvedDestination` já é um `UniversalNavigationTarget` com chave própria (`key: string`).
+2. `src/world/travel/NavigationGuidance.ts`:
+   - Módulo desacoplado contendo `describeNavigationGuidance`, `NavigationReadinessState` e `NavigationGuidance`.
+   - Quebra o ciclo de dependência circular entre `UniversalMapPanel` e `CosmicAtlasModel`.
+   - `UniversalMapPanel.ts` re-exporta as funções e tipos para manter 100% de compatibilidade retroativa.
+3. `src/ui/map/UniversalMapPanel.ts`:
+   - Corrigida a ordem de inicialização no construtor: divisão entre `buildDomSkeleton()` (esqueleto DOM e bindings) e instanciação dos renderizadores e `atlasModel`, impedindo chamadas antecipadas a `updateCard()` antes de `this.renderers` existir.
+   - Otimização do ciclo de renderização do Atlas: adicionada a flag `atlasDirty` e cache de chave de endereço (`lastRecordedAddressKey`). O método `renderAtlasView()` não reconstrói o DOM a cada frame do loop do jogo, apenas em mudanças de endereço, filtros, buscas, favoritos ou seleção.
+   - Preservação do scroll (`scrollTop`), foco do campo de busca e cursor (`selectionStart`/`selectionEnd`) ao re-renderizar o Atlas.
+4. `src/world/exploration/CosmicAtlasModel.ts`:
+   - Busca por coordenadas procedurais (`c:0,0,0`, `cell:x,y,z`, `x,y,z`): comparação por igualdade exata de `BigInt` nas células e inclusão garantida das chaves descobertas dinamicamente (`queryDiscoveredKeys`).
+   - `getStatistics()` reescrito em $O(N)$ direto sobre os descritores em memória, sem disparar consultas artificiais com `limit: 10000`.
+5. `tests/cosmic-atlas-u452.test.ts`:
+   - Adicionados testes `T_U452_11_PANEL_FULL_CONSTRUCTOR_NO_CRASH` e `T_U452_12_ATLAS_UPDATE_DOM_STABILITY`, validando construtor real de `UniversalMapPanel` e garantia de não-reconstrução de DOM sem dirty flag.
+Evidence: [43-status-U4.5.2-COSMIC-ATLAS.md](43-status-U4.5.2-COSMIC-ATLAS.md).
+
+## Previous checkpoint — U4.5.2 Atlas de Descobertas, Favoritos e Navegação Galáctica (2026-11-08)
 
 Publicado no commit `fbf8a54`. Baseline auditado do U4.5.1.3 no commit `721f70d44331ee36b9eb4e93d5e79854dba88886` (GitHub Actions Runs `42515552252` e `42515546294`: TypeScript PASS, 638/638 regressões permanentes aprovadas, 1.550/1.550 testes gerais aprovados, build Vite PASS). O patch U4.5.2 introduz o Atlas de Descobertas, persistência de favoritos, histórico de exploração e navegação integrada entre galáxias:
 1. `src/world/exploration/CosmicAtlasModel.ts`:

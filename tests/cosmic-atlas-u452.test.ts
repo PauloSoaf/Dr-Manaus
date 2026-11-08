@@ -346,3 +346,219 @@ test('T_U452_10_EXPORT_IMPORT_STATE_CONSISTENCY', () => {
   }
 });
 
+function createMockElement(tagName = 'div'): any {
+  const children: any[] = [];
+  const listeners = new Map<string, Function[]>();
+  const element: any = {
+    tagName: tagName.toUpperCase(),
+    className: '',
+    style: {},
+    dataset: {},
+    value: '',
+    scrollTop: 0,
+    children,
+    parentElement: null,
+    setAttribute(attr: string, val: string) { element[attr] = val; },
+    getAttribute(attr: string) { return element[attr]; },
+    classList: {
+      toggle(cls: string, force?: boolean) {},
+      add(cls: string) {},
+      remove(cls: string) {},
+    },
+    addEventListener(evt: string, fn: Function) {
+      if (!listeners.has(evt)) listeners.set(evt, []);
+      listeners.get(evt)!.push(fn);
+    },
+    removeEventListener() {},
+    dispatchEvent(evt: any) {
+      const fns = listeners.get(evt.type) ?? [];
+      for (const fn of fns) fn(evt);
+    },
+    appendChild(child: any) {
+      children.push(child);
+      child.parentElement = element;
+      return child;
+    },
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600, right: 800, bottom: 600 }),
+    focus() {},
+    setSelectionRange() {},
+  };
+
+  if (tagName.toLowerCase() === 'canvas') {
+    element.getContext = (type: string) => {
+      if (type === '2d') {
+        return {
+          setTransform() {}, clearRect() {}, fillRect() {}, strokeRect() {},
+          beginPath() {}, stroke() {}, fill() {}, arc() {}, ellipse() {},
+          moveTo() {}, lineTo() {}, closePath() {}, save() {}, restore() {},
+          clip() {}, fillText() {}, strokeText() {},
+          measureText: (s: string) => ({ width: s.length * 8 }),
+          createRadialGradient: () => ({ addColorStop() {} }),
+          createLinearGradient: () => ({ addColorStop() {} }),
+          drawImage() {},
+          getImageData: () => ({ data: new Uint8ClampedArray(4) }),
+          putImageData() {},
+        };
+      }
+      return null;
+    };
+  }
+
+  let _innerHTML = '';
+  Object.defineProperty(element, 'innerHTML', {
+    get() { return _innerHTML; },
+    set(html: string) {
+      _innerHTML = html;
+      children.length = 0;
+      const idMatches = html.matchAll(/id=["']([^"']+)["']/g);
+      for (const m of idMatches) {
+        const tag = m[1].includes('canvas') || m[1].includes('map') ? 'canvas' : 'div';
+        const child = createMockElement(tag);
+        child.id = m[1];
+        children.push(child);
+      }
+      const btnMatches = html.matchAll(/<button([^>]*)>/g);
+      for (const b of btnMatches) {
+        const btn = createMockElement('button');
+        const mapLevelMatch = /data-map-level=["']([^"']+)["']/.exec(b[1]);
+        if (mapLevelMatch) btn.dataset.mapLevel = mapLevelMatch[1];
+        const favToggle = /data-target-fav-toggle=["']([^"']+)["']/.exec(b[1]);
+        if (favToggle) btn.dataset.targetFavToggle = favToggle[1];
+        const atlasFav = /data-atlas-toggle-fav=["']([^"']+)["']/.exec(b[1]);
+        if (atlasFav) btn.dataset.atlasToggleFav = atlasFav[1];
+        const atlasLoc = /data-atlas-locate=["']([^"']+)["']/.exec(b[1]);
+        if (atlasLoc) btn.dataset.atlasLocate = atlasLoc[1];
+        children.push(btn);
+      }
+    },
+  });
+
+  element.querySelector = (selector: string) => {
+    if (selector.startsWith('#')) {
+      const id = selector.slice(1);
+      return children.find(c => c.id === id) ?? null;
+    }
+    if (selector.startsWith('.')) {
+      return children.find(c => c.className?.includes(selector.slice(1))) ?? null;
+    }
+    return children[0] ?? null;
+  };
+
+  element.querySelectorAll = (selector: string) => {
+    if (selector.includes('[data-map-level]')) {
+      return children.filter(c => c.dataset?.mapLevel !== undefined);
+    }
+    if (selector.includes('[data-target-fav-toggle]')) {
+      return children.filter(c => c.dataset?.targetFavToggle !== undefined);
+    }
+    if (selector.includes('[data-atlas-toggle-fav]')) {
+      return children.filter(c => c.dataset?.atlasToggleFav !== undefined);
+    }
+    return children;
+  };
+
+  return element;
+}
+
+test('T_U452_11_PANEL_FULL_CONSTRUCTOR_NO_CRASH', () => {
+  const restoreStorage = mockStorage();
+  const prevDoc = (globalThis as any).document;
+  (globalThis as any).document = {
+    createElement: (tag: string) => createMockElement(tag),
+    activeElement: null,
+  };
+
+  try {
+    const container = createMockElement('div');
+    const initialLocation: UniverseLocation = {
+      address: {
+        galaxyId: 'milky_way',
+        sector: sectorIndex(0n, 0n, 0n),
+        systemId: 'sol',
+        bodyId: 'earth',
+      },
+      frameId: 'milky_way/sol/earth',
+    };
+
+    const panel = new UniversalMapPanel(
+      container,
+      initialLocation,
+      () => {},
+      () => {},
+      () => undefined,
+    );
+
+    assert.ok(panel.renderers);
+    assert.ok(panel.atlasModel);
+    assert.equal(panel.currentLevel, 'surface');
+    assert.equal(panel.atlasModel.isVisited('galaxy/milky_way'), true);
+
+    // Switch to atlas level
+    panel.setLevel('atlas');
+    assert.equal(panel.currentLevel, 'atlas');
+  } finally {
+    (globalThis as any).document = prevDoc;
+    restoreStorage();
+  }
+});
+
+test('T_U452_12_ATLAS_UPDATE_DOM_STABILITY', () => {
+  const restoreStorage = mockStorage();
+  const prevDoc = (globalThis as any).document;
+  (globalThis as any).document = {
+    createElement: (tag: string) => createMockElement(tag),
+    activeElement: null,
+  };
+
+  try {
+    const container = createMockElement('div');
+    const initialLocation: UniverseLocation = {
+      address: {
+        galaxyId: 'milky_way',
+        sector: sectorIndex(0n, 0n, 0n),
+        systemId: 'sol',
+        bodyId: 'earth',
+      },
+      frameId: 'milky_way/sol/earth',
+    };
+
+    const panel = new UniversalMapPanel(
+      container,
+      initialLocation,
+      () => {},
+      () => {},
+      () => undefined,
+    );
+
+    panel.setLevel('atlas');
+
+    let renderAtlasCount = 0;
+    const originalRenderAtlas = panel.renderAtlasView.bind(panel);
+    panel.renderAtlasView = () => {
+      renderAtlasCount++;
+      originalRenderAtlas();
+    };
+
+    // Update with same location: should NOT trigger renderAtlasView
+    const dummyVec = { x: 0, y: 0, z: 0 } as any;
+    panel.update(initialLocation, dummyVec, undefined, [], undefined, []);
+    assert.equal(renderAtlasCount, 0, 'Frame update without address/selection change must not rebuild atlas DOM');
+
+    // Update with new galaxy location: should trigger arrival & render
+    const newLocation: UniverseLocation = {
+      address: {
+        galaxyId: 'andromeda',
+        sector: sectorIndex(100n, 0n, 0n),
+        systemId: 'alpha',
+      },
+      frameId: 'andromeda/alpha',
+    };
+    panel.update(newLocation, dummyVec, undefined, [], undefined, []);
+    assert.equal(renderAtlasCount, 1, 'Address change must trigger atlas update');
+    assert.equal(panel.atlasModel.isVisited('galaxy/andromeda'), true);
+  } finally {
+    (globalThis as any).document = prevDoc;
+    restoreStorage();
+  }
+});
+

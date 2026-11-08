@@ -66,7 +66,20 @@
 
 ---
 
-## 4. Roteiro de Homologação Manual
+## 5. Patch Corretivo U4.5.2.1: Recuperação do CI e Estabilidade do Atlas
+
+- **Baseline auditado:** Commit `b4ca622255d934259686ee2ce822e1487f72715d` (CI Run `42519003427` reprovado com 2 erros TS2339).
+- **Problemas resolvidos:**
+  1. `Game.ts:157-158`: corrigido erro TS2339 (`Property 'descriptor' does not exist on type 'UniversalNavigationTarget'`) usando diretamente `destination.key`.
+  2. `UniversalMapPanel.ts`: ordem de inicialização do construtor corrigida. `buildDomSkeleton()` constrói o DOM primeiro; `renderers` e `atlasModel` são instanciados antes das primeiras chamadas a `updateCard()` e `updateBreadcrumb()`.
+  3. Desacoplamento de `describeNavigationGuidance` para `src/world/travel/NavigationGuidance.ts`, eliminando dependências circulares entre interface e modelo de exploração.
+  4. Estabilidade do DOM no Atlas Cósmico: introdução da flag `atlasDirty` e cache de endereço (`lastRecordedAddressKey`) para evitar reconstruções a cada frame, preservando `scrollTop`, foco de busca e intervalo de seleção de texto.
+  5. Busca por coordenadas celestes (`c:0,0,0`): unificação da busca procedural com comparação exata de coordenadas `BigInt3` e chave de descoberta.
+  6. Suíte `tests/cosmic-atlas-u452.test.ts` expandida com testes de construtor real e estabilidade da DOM.
+
+---
+
+## 6. Roteiro de Homologação Manual
 
 1. Abrir o jogo na porta 9999 (`http://localhost:9999`).
 2. Pressionar `M` para abrir o Mapa Universal.
@@ -78,3 +91,5 @@
 8. No painel lateral `#universal-target-card`, confirmar a presença do botão `★ FAVORITO` sincronizado.
 9. Recarregar a página (`F5`): confirmar persistência dos favoritos salvos via `SaveManager`.
 10. Testar filtros de tipo (`Galáxias`, `Sistemas`), filtros de status (`★ Favoritos`, `✓ Visitados`) e paginação (`Carregar mais`).
+
+

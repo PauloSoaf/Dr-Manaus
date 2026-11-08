@@ -8,8 +8,7 @@ import type { Vector3 } from 'three/webgpu';
 import { SurfaceMapRenderer, PlanetMapRenderer, PlanetMap3DRenderer, SystemMapRenderer, GalaxyMapRenderer, CosmologyMapRenderer } from './MapRenderers';
 import { UniverseCoordinates } from '../../world/spatial/UniverseCoordinates';
 import { universalTargetKey, type UniversalTargetDescriptor } from '../../world/travel/UniversalNavigationTarget';
-import { travelCapabilityLabel, type ResolvedUniversalTarget, type TravelCapability } from '../../world/travel/UniversalTargetResolver';
-import { peekProceduralGalaxyEntry } from '../../world/travel/GalaxyEntryResolver';
+import { travelCapabilityLabel, type ResolvedUniversalTarget } from '../../world/travel/UniversalTargetResolver';
 import { DEFAULT_UNIVERSE_SEED, type ProceduralGalaxyDiscovery } from '../../world/galaxy/ProceduralGalaxyDiscovery';
 import { isCanonicalGalaxyId } from '../../world/celestial/GalaxyDefinition';
 import {
@@ -20,133 +19,22 @@ import {
 } from '../../world/exploration/CosmicAtlasModel';
 import { UniversalTargetCatalog } from '../../world/travel/UniversalTargetCatalog';
 
+import {
+  describeNavigationGuidance,
+  type NavigationReadinessState,
+  type NavigationGuidance,
+} from '../../world/travel/NavigationGuidance';
+export {
+  describeNavigationGuidance,
+  type NavigationReadinessState,
+  type NavigationGuidance,
+} from '../../world/travel/NavigationGuidance';
+
 const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-
-export type NavigationReadinessState =
-  | 'confirmed'
-  | 'pending-validation'
-  | 'active-system'
-  | 'observational-only'
-  | 'unavailable';
-
-export interface NavigationGuidance {
-  readonly status: string;
-  readonly shortcutHint: string;
-  readonly available: boolean;
-  readonly readinessState: NavigationReadinessState;
-}
-
-export function describeNavigationGuidance(
-  capability: TravelCapability,
-  kind: string,
-  targetGalaxyId?: string,
-  currentGalaxyId?: string,
-  universeSeed: bigint = DEFAULT_UNIVERSE_SEED,
-): NavigationGuidance {
-  switch (capability) {
-    case 'intergalactic': {
-      if (kind === 'galaxy' && targetGalaxyId && !isCanonicalGalaxyId(targetGalaxyId)) {
-        const cached = peekProceduralGalaxyEntry(targetGalaxyId, universeSeed);
-        if (cached === true) {
-          return {
-            status: 'Rota intergaláctica pronta (sistema de entrada confirmado)',
-            shortcutHint: 'Atalho [P] · Iniciar Hypercruise Intergaláctico em voo espacial seguro',
-            available: true,
-            readinessState: 'confirmed',
-          };
-        }
-        if (cached === false) {
-          return {
-            status: 'Indisponível · Nenhum sistema de entrada pousável localizado nesta galáxia',
-            shortcutHint: 'Alvo catalogado apenas para observação cosmológica',
-            available: false,
-            readinessState: 'unavailable',
-          };
-        }
-        return {
-          status: 'Elegível para rota intergaláctica (aguardando validação de entrada)',
-          shortcutHint: 'Atalho [P] · Validar sistema de entrada e iniciar Hypercruise em voo espacial seguro',
-          available: true,
-          readinessState: 'pending-validation',
-        };
-      }
-      return {
-        status: 'Rota intergaláctica pronta (sistema de entrada confirmado)',
-        shortcutHint: 'Atalho [P] · Iniciar Hypercruise Intergaláctico em voo espacial seguro',
-        available: true,
-        readinessState: 'confirmed',
-      };
-    }
-    case 'interstellar':
-      return {
-        status: 'Rota interestelar disponível na galáxia ativa',
-        shortcutHint: 'Atalho [P] · Iniciar Hypercruise Interestelar em voo espacial seguro',
-        available: true,
-        readinessState: 'confirmed',
-      };
-    case 'solar':
-    case 'intra-system':
-      return {
-        status: 'Destino local no sistema planetário ativo',
-        shortcutHint: 'Use o piloto automático local / controles de voo no sistema ativo',
-        available: true,
-        readinessState: 'active-system',
-      };
-    case 'black-hole-future':
-      return {
-        status: 'Indisponível · Horizonte de eventos (aproximação extrema bloqueada)',
-        shortcutHint: 'Somente telemetria e referência gravitacional',
-        available: false,
-        readinessState: 'unavailable',
-      };
-    case 'cosmological-future':
-      if (kind === 'galaxy' && targetGalaxyId && targetGalaxyId === currentGalaxyId) {
-        return {
-          status: 'Você já está nesta galáxia · selecione um sistema estelar interno',
-          shortcutHint: 'Use a vista Galáxia ou Sistema para escolher um destino local',
-          available: false,
-          readinessState: 'active-system',
-        };
-      }
-      if (kind === 'galaxy') {
-        const cached =
-          targetGalaxyId && !isCanonicalGalaxyId(targetGalaxyId)
-            ? peekProceduralGalaxyEntry(targetGalaxyId, universeSeed)
-            : undefined;
-        if (cached === false) {
-          return {
-            status: 'Indisponível · Nenhum sistema de entrada pousável localizado nesta galáxia',
-            shortcutHint: 'Alvo catalogado apenas para observação cosmológica',
-            available: false,
-            readinessState: 'unavailable',
-          };
-        }
-        return {
-          status: 'Destino cosmológico observacional (além do domínio de conversão direta)',
-          shortcutHint: 'Alvo catalogado apenas para observação cosmológica',
-          available: false,
-          readinessState: 'observational-only',
-        };
-      }
-      return {
-        status: 'Destino cosmológico apenas observacional (estrutura de grande escala)',
-        shortcutHint: 'Selecione uma galáxia elegível para iniciar viagem intergaláctica',
-        available: false,
-        readinessState: 'observational-only',
-      };
-    default:
-      return {
-        status: 'Indisponível · Alvo sem rota de navegação ativa',
-        shortcutHint: 'Selecione outro destino no mapa ou catálogo',
-        available: false,
-        readinessState: 'unavailable',
-      };
-  }
-}
 
 export function renderUniversalTargetCardHtml(
   resolved: ResolvedUniversalTarget | undefined,
-  discovery: ProceduralGalaxyDiscovery,
+  discovery?: ProceduralGalaxyDiscovery,
   currentGalaxyId?: string,
   isFavorite = false,
   isVisited = false,
@@ -157,7 +45,7 @@ export function renderUniversalTargetCardHtml(
     return html;
   }
   const t = resolved.target;
-  const desc = t.galaxyId ? discovery.findGalaxyById(t.galaxyId) : undefined;
+  const desc = t.galaxyId && discovery ? discovery.findGalaxyById(t.galaxyId) : undefined;
   const isCanonical =
     desc?.isKnownAstronomicalEntity ?? (t.galaxyId ? isCanonicalGalaxyId(t.galaxyId) : true);
   const classification = isCanonical ? 'Canônica' : 'Procedural Sintética';
@@ -166,7 +54,7 @@ export function renderUniversalTargetCardHtml(
     t.kind,
     t.galaxyId,
     currentGalaxyId,
-    discovery.universeSeed,
+    discovery ? discovery.universeSeed : DEFAULT_UNIVERSE_SEED,
   );
   const cellText = desc
     ? `[${desc.cell.x}, ${desc.cell.y}, ${desc.cell.z}]`
@@ -238,8 +126,13 @@ export class UniversalMapPanel {
   /** Live bodies and cruise telemetry, fed by the HUD each refresh. */
   private bodies: readonly HUDBody[] = [];
   private flight?: HUDFlightTelemetry;
-  private targetCatalog:readonly UniversalTargetDescriptor[]=[];
+  private targetCatalog: readonly UniversalTargetDescriptor[] = [];
   private inTravel = false;
+
+  private lastRecordedAddressKey = '';
+  private lastAtlasSelectedKey?: string;
+  private lastAtlasGalaxyId?: string;
+  private atlasDirty = false;
 
   constructor(
     private readonly container: HTMLElement,
@@ -252,9 +145,11 @@ export class UniversalMapPanel {
     this.model = new MapNavigationModel(initialLocation);
     this.root = document.createElement('div');
     this.root.className = 'map-layout';
-    this.render();
-    container.innerHTML = '';
-    container.appendChild(this.root);
+    this.buildDomSkeleton();
+    if (container) {
+      container.innerHTML = '';
+      container.appendChild(this.root);
+    }
     
     const canvas = this.root.querySelector('#universal-canvas') as HTMLCanvasElement;
     this.renderers = {
@@ -262,10 +157,26 @@ export class UniversalMapPanel {
       planet: new PlanetMap3DRenderer(((this.root.querySelector('#planet-3d-canvas') as HTMLCanvasElement) ?? canvas)),
       system: new SystemMapRenderer(canvas),
       galaxy: new GalaxyMapRenderer(canvas),
-      cosmology: new CosmologyMapRenderer(canvas)
+      cosmology: new CosmologyMapRenderer(canvas),
     };
     this.atlasModel = atlasModel ?? new CosmicAtlasModel(new UniversalTargetCatalog(undefined, this.renderers.cosmology.discovery), undefined, this.renderers.cosmology.discovery);
+    this.lastRecordedAddressKey = this.getAddressKey(initialLocation.address);
     this.atlasModel.recordArrival(initialLocation);
+
+    this.bindCanvasListeners(canvas);
+
+    this.updateCard();
+    this.updateBreadcrumb();
+    this.updateCanvasVisibility();
+    this.updateScale();
+  }
+
+  private getAddressKey(address: UniverseLocation['address']): string {
+    return `${address.galaxyId || ''}:${address.sector.x},${address.sector.y},${address.sector.z}:${address.systemId || ''}:${address.bodyId || ''}:${address.childFrame || ''}`;
+  }
+
+  private bindCanvasListeners(canvas: HTMLCanvasElement): void {
+    if (!canvas || !canvas.addEventListener) return;
     let isDragging = false;
     let dragStartX = 0, dragStartY = 0;
     canvas.addEventListener('mousedown', event => {
@@ -276,41 +187,43 @@ export class UniversalMapPanel {
         canvas.style.cursor = 'grabbing';
       }
     });
-    window.addEventListener('mousemove', event => {
-      if (isDragging && this.currentLevel === 'cosmology') {
-        const dx = event.clientX - dragStartX;
-        const dy = event.clientY - dragStartY;
-        dragStartX = event.clientX;
-        dragStartY = event.clientY;
-        this.renderers.cosmology.pan(dx, dy);
-        this.drawMap();
-      } else if (this.currentLevel === 'cosmology' || this.currentLevel === 'galaxy') {
-        const rect = canvas.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
-          const prevHover = this.model.hoveredTargetKey;
-          const nextHover =
-            this.currentLevel === 'cosmology'
-              ? this.renderers.cosmology.updateHover(x, y)
-              : this.renderers.galaxy.markers.hitTest(x, y);
-          this.model.hoveredTargetKey = nextHover;
-          this.renderers.galaxy.hoveredTargetKey = nextHover;
-          canvas.style.cursor = nextHover
-            ? 'pointer'
-            : this.currentLevel === 'cosmology'
-              ? 'grab'
-              : 'default';
-          if (prevHover !== nextHover) this.drawMap();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mousemove', event => {
+        if (isDragging && this.currentLevel === 'cosmology') {
+          const dx = event.clientX - dragStartX;
+          const dy = event.clientY - dragStartY;
+          dragStartX = event.clientX;
+          dragStartY = event.clientY;
+          this.renderers.cosmology.pan(dx, dy);
+          this.drawMap();
+        } else if (this.currentLevel === 'cosmology' || this.currentLevel === 'galaxy') {
+          const rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0, width: 800, height: 600 };
+          const x = event.clientX - rect.left;
+          const y = event.clientY - rect.top;
+          if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+            const prevHover = this.model.hoveredTargetKey;
+            const nextHover =
+              this.currentLevel === 'cosmology'
+                ? this.renderers.cosmology.updateHover(x, y)
+                : this.renderers.galaxy.markers.hitTest(x, y);
+            this.model.hoveredTargetKey = nextHover;
+            this.renderers.galaxy.hoveredTargetKey = nextHover;
+            canvas.style.cursor = nextHover
+              ? 'pointer'
+              : this.currentLevel === 'cosmology'
+                ? 'grab'
+                : 'default';
+            if (prevHover !== nextHover) this.drawMap();
+          }
         }
-      }
-    });
-    window.addEventListener('mouseup', () => {
-      if (isDragging) {
-        isDragging = false;
-        canvas.style.cursor = this.currentLevel === 'cosmology' ? 'grab' : 'default';
-      }
-    });
+      });
+      window.addEventListener('mouseup', () => {
+        if (isDragging) {
+          isDragging = false;
+          canvas.style.cursor = this.currentLevel === 'cosmology' ? 'grab' : 'default';
+        }
+      });
+    }
 
     canvas.addEventListener('wheel', event => {
       if (this.currentLevel === 'system') {
@@ -319,19 +232,20 @@ export class UniversalMapPanel {
         this.drawMap();
       } else if (this.currentLevel === 'cosmology') {
         event.preventDefault();
-        const rect = canvas.getBoundingClientRect();
+        const rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0, width: 800, height: 600 };
         const cx = event.clientX - rect.left;
         const cy = event.clientY - rect.top;
         this.renderers.cosmology.changeZoom(event.deltaY, cx, cy);
         this.drawMap();
       }
     }, { passive: false });
+
     canvas.addEventListener('click', event => {
-      const rect = canvas.getBoundingClientRect();
-      const x=event.clientX-rect.left,y=event.clientY-rect.top;
-      const id = this.currentLevel==='system'?this.renderers.system.hitTest(x,y)
-        : this.currentLevel==='galaxy'?this.renderers.galaxy.markers.hitTest(x,y)
-        : this.currentLevel==='cosmology'?(this.renderers.cosmology.hitTest(x,y)??this.renderers.cosmology.markers.hitTest(x,y)):undefined;
+      const rect = canvas.getBoundingClientRect ? canvas.getBoundingClientRect() : { left: 0, top: 0, width: 800, height: 600 };
+      const x = event.clientX - rect.left, y = event.clientY - rect.top;
+      const id = this.currentLevel === 'system' ? this.renderers.system.hitTest(x, y)
+        : this.currentLevel === 'galaxy' ? this.renderers.galaxy.markers.hitTest(x, y)
+        : this.currentLevel === 'cosmology' ? (this.renderers.cosmology.hitTest(x, y) ?? this.renderers.cosmology.markers.hitTest(x, y)) : undefined;
       if (id) this.selectTarget(id);
     });
   }
@@ -347,6 +261,7 @@ export class UniversalMapPanel {
     this.updateBreadcrumb();
     this.updateCanvasVisibility();
     if (this.currentLevel === 'atlas') {
+      this.atlasDirty = false;
       this.renderAtlasView();
     } else if (this.currentLevel !== 'surface' || !this.model.location.frameId.includes('manaus')) {
       this.drawMap();
@@ -375,19 +290,37 @@ export class UniversalMapPanel {
     destination?: Vector3,
     bodies: readonly HUDBody[] = [],
     flight?: HUDFlightTelemetry,
-    targetCatalog:readonly UniversalTargetDescriptor[]=[],
+    targetCatalog: readonly UniversalTargetDescriptor[] = [],
   ) {
     this.bodies = bodies;
     this.flight = flight;
-    this.targetCatalog=targetCatalog;
-    this.atlasModel.recordArrival(location);
+    this.targetCatalog = targetCatalog;
+
+    const currentAddressKey = this.getAddressKey(location.address);
+    if (currentAddressKey !== this.lastRecordedAddressKey) {
+      this.lastRecordedAddressKey = currentAddressKey;
+      this.atlasModel.recordArrival(location);
+      this.atlasDirty = true;
+    }
+
     const selectedKey = flight?.universalTarget?.target.key;
+    if (selectedKey !== this.lastAtlasSelectedKey) {
+      this.lastAtlasSelectedKey = selectedKey;
+      this.atlasDirty = true;
+    }
+
+    const currentGalaxyId = location.address.galaxyId;
+    if (currentGalaxyId !== this.lastAtlasGalaxyId) {
+      this.lastAtlasGalaxyId = currentGalaxyId;
+      this.atlasDirty = true;
+    }
+
     this.model.selectedTargetKey = selectedKey;
     this.renderers.galaxy.selectedTargetKey = selectedKey;
     this.renderers.cosmology.selectedTargetKey = selectedKey;
     this.renderers.galaxy.markers.setTargets(targetCatalog);
     this.renderers.cosmology.markers.setTargets(targetCatalog);
-    const inTravel = !!location.systemPositionM||!!location.transit;
+    const inTravel = !!location.systemPositionM || !!location.transit;
     if (inTravel && !this.inTravel) this.selectedLevel = undefined;
     this.inTravel = inTravel;
     this.renderers.system.setBodies(bodies);
@@ -395,8 +328,9 @@ export class UniversalMapPanel {
     this.model.destination = destination;
     
     const loc = this.model.location;
-    if(loc.transit){this.currentLevel=loc.transit.plan.domain==='intergalactic'?'cosmology':'galaxy';}
-    else if (this.selectedLevel) {
+    if (loc.transit) {
+      this.currentLevel = loc.transit.plan.domain === 'intergalactic' ? 'cosmology' : 'galaxy';
+    } else if (this.selectedLevel) {
       this.currentLevel = this.selectedLevel;
     } else if (loc.cosmological || loc.address.galaxyId === 'cosmology' || loc.frameId.includes('cosmo')) {
       this.currentLevel = 'cosmology';
@@ -411,12 +345,14 @@ export class UniversalMapPanel {
     }
 
     this.updateCanvasVisibility();
-
     this.updateCard();
     this.updateBreadcrumb();
     
     if (this.currentLevel === 'atlas') {
-      this.renderAtlasView();
+      if (this.atlasDirty) {
+        this.atlasDirty = false;
+        this.renderAtlasView();
+      }
     } else if (this.currentLevel !== 'surface' || !loc.frameId.includes('manaus')) {
       this.drawMap();
     }
@@ -478,7 +414,7 @@ export class UniversalMapPanel {
     }
   }
 
-  private render() {
+  private buildDomSkeleton(): void {
     this.root.innerHTML = `
       <div class="map-levels"><div id="map-breadcrumb"></div><div class="map-level-buttons">${(['surface','planet','system','galaxy','cosmology','atlas'] as const).map((level,i) => `<button data-map-level="${level}">${['Superfície','Planeta','Sistema','Galáxia','Cosmos','Atlas'][i]}</button>`).join('')}</div></div>
       <div class="map-sidebar" style="width: 320px; border-right: 1px solid #333; padding: 1rem; overflow-y: auto;">
@@ -531,8 +467,8 @@ export class UniversalMapPanel {
           if (coordStatus) coordStatus.textContent = `Destino: ${target.kind}`;
           this.onTravel(val);
         } else {
-          const galaxyDesc = this.renderers.cosmology.discovery.findGalaxyById(val)
-            ?? (this.renderers.cosmology.discovery.search(val)[0]);
+          const galaxyDesc = this.renderers?.cosmology?.discovery?.findGalaxyById(val)
+            ?? (this.renderers?.cosmology?.discovery?.search(val)[0]);
           if (galaxyDesc) {
             const key = `galaxy/${encodeURIComponent(galaxyDesc.id)}`;
             this.selectTarget(key);
@@ -543,7 +479,10 @@ export class UniversalMapPanel {
         }
       };
     }
+  }
 
+  private render(): void {
+    this.buildDomSkeleton();
     this.updateCard();
     this.updateBreadcrumb();
   }
@@ -649,17 +588,17 @@ export class UniversalMapPanel {
 
     const resolved=this.flight?.universalTarget;
     const selectedKey = resolved?.target.key;
-    const isFav = selectedKey ? this.atlasModel.isFavorite(selectedKey) : false;
-    const isVis = selectedKey ? this.atlasModel.isVisited(selectedKey) : false;
-    html+=renderUniversalTargetCardHtml(resolved,this.renderers.cosmology.discovery,this.model.location.address.galaxyId,isFav,isVis);
+    const isFav = selectedKey ? (this.atlasModel?.isFavorite(selectedKey) ?? false) : false;
+    const isVis = selectedKey ? (this.atlasModel?.isVisited(selectedKey) ?? false) : false;
+    html+=renderUniversalTargetCardHtml(resolved,this.renderers?.cosmology?.discovery,this.model.location.address.galaxyId,isFav,isVis);
     if(this.currentLevel==='galaxy'||this.currentLevel==='cosmology'){
       html+=`<h3>GALÁXIA ATUAL · ${escapeHtml(formatGalaxyName(this.model.location.address.galaxyId))}</h3>`;
       html+='<h3>CATÁLOGO DE DESTINOS</h3><small>Marcadores esquemáticos · selecionar não inicia viagem</small>';
       for(const d of this.targetCatalog.filter(d=>this.currentLevel==='galaxy'
         ? ['galaxy','black-hole','system'].includes(d.kind) : ['galaxy','cluster','cosmic-anchor','observable-horizon','system'].includes(d.kind))){
         const key=universalTargetKey(d);
-        const favIcon = this.atlasModel.isFavorite(key) ? '★ ' : '';
-        const visIcon = this.atlasModel.isVisited(key) ? '✓ ' : '';
+        const favIcon = this.atlasModel?.isFavorite(key) ? '★ ' : '';
+        const visIcon = this.atlasModel?.isVisited(key) ? '✓ ' : '';
         html+=`<button class="map-body-target" data-universal-target="${escapeHtml(key)}" aria-pressed="${resolved?.target.key===key}">${favIcon}${visIcon}${escapeHtml(d.displayName)} · ${d.kind}${d.galaxyId===this.model.location.address.galaxyId?' · ATUAL':' · REMOTO'}</button>`;
       }
     }
@@ -686,10 +625,14 @@ export class UniversalMapPanel {
       button.onclick = (e) => {
         e.stopPropagation();
         const key = button.dataset.targetFavToggle;
-        if (key) {
+        if (key && this.atlasModel) {
           this.atlasModel.toggleFavorite(key);
           this.updateCard();
-          if (this.currentLevel === 'atlas') this.renderAtlasView();
+          if (this.currentLevel === 'atlas') {
+            this.renderAtlasView();
+          } else {
+            this.atlasDirty = true;
+          }
         }
       };
     });
@@ -709,6 +652,12 @@ export class UniversalMapPanel {
   renderAtlasView(): void {
     const container = this.root.querySelector('#atlas-view-container') as HTMLElement;
     if (!container) return;
+
+    const prevScrollTop = container.scrollTop;
+    const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+    const wasSearchFocused = activeEl?.id === 'atlas-search-input';
+    const selStart = wasSearchFocused ? (activeEl as HTMLInputElement).selectionStart : null;
+    const selEnd = wasSearchFocused ? (activeEl as HTMLInputElement).selectionEnd : null;
 
     const currentGalaxyId = this.model.location.address.galaxyId;
     const result = this.atlasModel.query(this.atlasFilter, currentGalaxyId);
@@ -830,6 +779,19 @@ export class UniversalMapPanel {
     }
 
     container.innerHTML = html;
+    container.scrollTop = prevScrollTop;
+
+    if (wasSearchFocused) {
+      const newInput = container.querySelector('#atlas-search-input') as HTMLInputElement;
+      if (newInput) {
+        newInput.focus();
+        if (selStart !== null && selEnd !== null) {
+          try {
+            newInput.setSelectionRange(selStart, selEnd);
+          } catch {}
+        }
+      }
+    }
 
     // Bind interactive handlers
     const searchInput = container.querySelector('#atlas-search-input') as HTMLInputElement;
@@ -837,11 +799,6 @@ export class UniversalMapPanel {
       searchInput.oninput = () => {
         this.atlasFilter = { ...this.atlasFilter, query: searchInput.value, offset: 0 };
         this.renderAtlasView();
-        const newInput = container.querySelector('#atlas-search-input') as HTMLInputElement;
-        if (newInput) {
-          newInput.focus();
-          newInput.selectionStart = newInput.selectionEnd = newInput.value.length;
-        }
       };
     }
 
