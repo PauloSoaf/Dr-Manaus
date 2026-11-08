@@ -5,6 +5,7 @@
 - **Patch:** U4.5.2
 - **Título:** Atlas de Descobertas, Favoritos e Navegação Galáctica
 - **Baseline Auditado:** `721f70d44331ee36b9eb4e93d5e79854dba88886` (CI 100% aprovado no GitHub Actions Runs `42515552252` e `42515546294`).
+- **Commit Publicado:** `fbf8a54`
 - **Branch de Trabalho:** `feat/universe-map`
 - **Repositório:** [https://github.com/PauloSoaf/Dr-Manaus](https://github.com/PauloSoaf/Dr-Manaus)
 

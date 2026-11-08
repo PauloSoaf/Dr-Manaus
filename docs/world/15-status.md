@@ -2,7 +2,7 @@
 
 ## Current checkpoint — U4.5.2 Atlas de Descobertas, Favoritos e Navegação Galáctica (2026-11-08)
 
-Baseline auditado do U4.5.1.3 no commit `721f70d44331ee36b9eb4e93d5e79854dba88886` (GitHub Actions Runs `42515552252` e `42515546294`: TypeScript PASS, 638/638 regressões permanentes aprovadas, 1.550/1.550 testes gerais aprovados, build Vite PASS). O patch U4.5.2 introduz o Atlas de Descobertas, persistência de favoritos, histórico de exploração e navegação integrada entre galáxias:
+Publicado no commit `fbf8a54`. Baseline auditado do U4.5.1.3 no commit `721f70d44331ee36b9eb4e93d5e79854dba88886` (GitHub Actions Runs `42515552252` e `42515546294`: TypeScript PASS, 638/638 regressões permanentes aprovadas, 1.550/1.550 testes gerais aprovados, build Vite PASS). O patch U4.5.2 introduz o Atlas de Descobertas, persistência de favoritos, histórico de exploração e navegação integrada entre galáxias:
 1. `src/world/exploration/CosmicAtlasModel.ts`:
    - Modelo central do Atlas Cósmico gerenciando galáxias descobertas (`discoveredGalaxies`), sistemas identificados (`identifiedSystems`), alvos visitados (`visitedTargets`) e favoritos (`favoriteKeys`).
    - Regra estrita de visitação: nenhum destino é considerado visitado apenas por ser renderizado ou catalogado; somente presenças físicas no endereço (`recordArrival` ou chegada por `universalTravelController`) registram status visitado.
