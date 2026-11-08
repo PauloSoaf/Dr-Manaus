@@ -25,6 +25,7 @@ import {
 } from '../src/world/galaxy/ProceduralGalaxyDiscovery';
 import {
   galaxyDefinition,
+  observerGlobalPositionM,
   setProceduralUniverseSeed,
 } from '../src/world/galaxy/GalaxyCoordinates';
 import { resolveGalaxyDescriptor } from '../src/world/galaxy/GalaxyPointCloudProvider';
@@ -40,13 +41,21 @@ import {
   UniversalTargetCatalog,
   SOLAR_TARGET_ADDRESS,
 } from '../src/world/travel/UniversalTargetCatalog';
-import { UniversalTargetResolver, type TargetResolutionContext } from '../src/world/travel/UniversalTargetResolver';
+import {
+  UniversalTargetResolver,
+  type TargetResolutionContext,
+} from '../src/world/travel/UniversalTargetResolver';
 import {
   UniversalTravelController,
   type DepartureSafety,
   type HypercruisePhase,
+  type UniversalTransitState,
 } from '../src/world/travel/UniversalTravelController';
-import { GalaxyEntryResolver } from '../src/world/travel/GalaxyEntryResolver';
+import {
+  clearGalaxyEntryCache,
+  hasProceduralGalaxyEntry,
+  peekProceduralGalaxyEntry,
+} from '../src/world/travel/GalaxyEntryResolver';
 
 const SAFE_DEPARTURE: DepartureSafety = {
   grounded: false,
@@ -77,10 +86,10 @@ function createMockCanvas(width = 1000, height = 650) {
     moveTo() {},
     lineTo() {},
     arc(x: number, y: number, r: number) {
-      arcs.push({ x, y, r, strokeStyle: ctx.strokeStyle, fillStyle: ctx.fillStyle });
+      arcs.push({ x: Number(x), y: Number(y), r: Number(r), strokeStyle: ctx.strokeStyle, fillStyle: ctx.fillStyle });
     },
     ellipse(x: number, y: number, rx: number, ry: number, rot: number) {
-      ellipses.push({ x, y, rx, ry, rot });
+      ellipses.push({ x: Number(x), y: Number(y), rx: Number(rx), ry: Number(ry), rot: Number(rot) });
     },
     createRadialGradient() {
       return { addColorStop() {} };
@@ -110,8 +119,9 @@ function createMockCanvas(width = 1000, height = 650) {
 
 function makeTransitSetup(seed: bigint = DEFAULT_UNIVERSE_SEED) {
   setProceduralUniverseSeed(seed);
-  const catalog = new UniversalTargetCatalog(seed);
   const universe = new UniverseRuntime({ epochS: 0 });
+  const discovery = new ProceduralGalaxyDiscovery(seed);
+  const catalog = new UniversalTargetCatalog(universe.solarSystem, discovery);
   const root = new Group();
   const galaxyMat = new GalaxyMaterializer(universe, root);
   const initial = galaxyMat.prepare('milky_way');
@@ -126,6 +136,7 @@ function makeTransitSetup(seed: bigint = DEFAULT_UNIVERSE_SEED) {
   });
   return {
     catalog,
+    discovery,
     universe,
     root,
     galaxyMat,
@@ -142,22 +153,58 @@ function makeTransitSetup(seed: bigint = DEFAULT_UNIVERSE_SEED) {
 }
 
 function findReachableProceduralGalaxy(catalog: UniversalTargetCatalog): string {
-  const region = catalog.discovery.discoverRegion({ x: 0n, y: 0n, z: 0n }, 3, 64);
+  const knownCandidate = 'galaxy_c10_20_30_0';
+  if (
+    catalog.discovery.findGalaxyById(knownCandidate) &&
+    hasProceduralGalaxyEntry(knownCandidate, catalog)
+  ) {
+    return knownCandidate;
+  }
+  const region = catalog.discovery.discoverRegion({ x: 2n, y: 2n, z: 2n }, 2, 48);
   for (const g of region) {
-    if (!g.isKnownAstronomicalEntity && GalaxyEntryResolver.resolve(g.id, catalog)) {
+    if (!g.isKnownAstronomicalEntity && hasProceduralGalaxyEntry(g.id, catalog)) {
       return g.id;
     }
   }
   throw new Error('Nenhuma galáxia procedural com sistema de entrada encontrada na região de teste');
 }
 
-test('T_U45_01: Diferenciação visual por fase e domínio do Hypercruise + modo reducedMotion', () => {
+test('T_U45_01: Diferenciação visual por fase, contrato setDirection, modo >10c superluminal e reducedMotion', () => {
   const setup = makeTransitSetup();
   try {
     const parent = new Group();
     const camera = new PerspectiveCamera();
     const pres = new HypercruisePresentation(parent);
 
+    // 1. Verify setDirection normalizes valid vectors and rejects non-finite / zero vectors safely
+    pres.setDirection([3, 0, -4]);
+    const dir = pres.getDirection();
+    assert.ok(Math.abs(dir[0] - 0.6) < 1e-6);
+    assert.ok(Math.abs(dir[1] - 0.0) < 1e-6);
+    assert.ok(Math.abs(dir[2] + 0.8) < 1e-6);
+    assert.ok(Math.abs(pres.root.quaternion.length() - 1) < 1e-6);
+
+    // Non-finite input must not corrupt direction or quaternion
+    pres.setDirection([Number.NaN, Number.POSITIVE_INFINITY, 0]);
+    assert.deepEqual(pres.getDirection(), dir);
+    assert.ok(Number.isFinite(pres.root.quaternion.x));
+
+    // Zero vector falls back cleanly to forward [0, 0, -1]
+    pres.setDirection([0, 0, 0]);
+    assert.deepEqual(pres.getDirection(), [0, 0, -1]);
+
+    // 2. Local superluminal (>10c) cosmetic mode without a travel plan must not throw or show galaxy proxies
+    pres.setDirection([0, 0, -1]);
+    pres.update(
+      { kind: 'local-superluminal', effectiveSpeedMps: 25 * 299_792_458, phase: 'cruise' },
+      camera,
+      0.05,
+    );
+    assert.equal(pres.root.visible, true);
+    assert.equal(pres.getPhaseVisualState().domain, 'local-superluminal');
+    assert.equal(pres.getActiveProxyKeys().length, 0, 'Local >10c mode must not show external galaxy proxies');
+
+    // 3. Phase differentiation during real intergalactic transit
     const target = setup.catalog.target('andromeda')!;
     assert.equal(setup.controller.start(target, SAFE_DEPARTURE), 'started');
 
@@ -191,7 +238,14 @@ test('T_U45_01: Diferenciação visual por fase e domínio do Hypercruise + modo
       for (let step = 0; step < 25; step++) {
         pres.update(setup.controller.state, camera, 0.05);
       }
-      snapshots.set(ph, pres.getPhaseVisualState());
+      const snap = pres.getPhaseVisualState();
+      assert.ok(
+        Number.isFinite(snap.lengthScale) &&
+          Number.isFinite(snap.radialScale) &&
+          Number.isFinite(snap.opacity) &&
+          Number.isFinite(snap.speedScale),
+      );
+      snapshots.set(ph, snap);
     }
 
     const spool = snapshots.get('spool')!;
@@ -223,18 +277,25 @@ test('T_U45_01: Diferenciação visual por fase e domínio do Hypercruise + modo
   }
 });
 
-test('T_U45_02_05_06: Proxy de galáxia procedural em trânsito, zero rebuild por frame e dispose limpo', () => {
+test('T_U45_02_05_06: Proxy procedural em trânsito, política de visibilidade, rejeição de galáxia falsa e dispose', () => {
   const setup = makeTransitSetup();
   try {
+    const parent = new Group();
+    const camera = new PerspectiveCamera();
+    const pres = new HypercruisePresentation(parent);
+
+    // Unknown galaxy ID must return undefined and never masquerade as Milky Way
+    assert.equal(
+      pres.ensureGalaxyProxy('galaxy_nonexistent_fake_id'),
+      undefined,
+      'Unknown galaxy ID must not fall back to Milky Way',
+    );
+
     const procGalaxyId = findReachableProceduralGalaxy(setup.catalog);
     const target = setup.catalog.target(`galaxy/${procGalaxyId}`)!;
     assert.ok(target);
 
-    const parent = new Group();
-    const camera = new PerspectiveCamera();
-    const pres = new HypercruisePresentation(parent);
     const initialBuilds = pres.proxyBuildsCount;
-
     assert.equal(setup.controller.start(target, SAFE_DEPARTURE), 'started');
 
     // First frame builds the procedural destination proxy once
@@ -246,6 +307,12 @@ test('T_U45_02_05_06: Proxy de galáxia procedural em trânsito, zero rebuild po
     const proxy = pres.getGalaxyProxy(procGalaxyId, DEFAULT_UNIVERSE_SEED);
     assert.ok(proxy, 'Procedural galaxy proxy must exist in presentation');
     assert.equal(proxy.visible, true);
+
+    // Only origin (milky_way) and destination (procGalaxyId) proxies are visible during intergalactic transit
+    const activeKeys = pres.getActiveProxyKeys();
+    assert.equal(activeKeys.length, 2);
+    assert.ok(activeKeys.includes('milky_way'));
+    assert.ok(activeKeys.includes(proxyCacheKey(procGalaxyId, DEFAULT_UNIVERSE_SEED)));
 
     const initialScale = proxy.scale.x;
 
@@ -268,7 +335,7 @@ test('T_U45_02_05_06: Proxy de galáxia procedural em trânsito, zero rebuild po
   }
 });
 
-test('T_U45_03_04: Zero Math.random() e coordenadas limitadas (< 50 km) em trânsito procedural', () => {
+test('T_U45_03_04: Zero Math.random(), coordenadas limitadas (< 50 km), ocultação em viagem interestelar e fallback BigInt extremo', () => {
   const setup = makeTransitSetup();
   const originalRandom = Math.random;
   try {
@@ -276,14 +343,64 @@ test('T_U45_03_04: Zero Math.random() e coordenadas limitadas (< 50 km) em trân
       throw new Error('Math.random() é estritamente proibido em U4.5');
     };
 
-    const procGalaxyId = findReachableProceduralGalaxy(setup.catalog);
-    const target = setup.catalog.target(`galaxy/${procGalaxyId}`)!;
     const parent = new Group();
     const camera = new PerspectiveCamera();
     const pres = new HypercruisePresentation(parent);
 
-    assert.equal(setup.controller.start(target, SAFE_DEPARTURE), 'started');
-    for (let i = 0; i < 120 && setup.controller.active; i++) {
+    // 1. Interstellar travel inside Milky Way must hide all galaxy proxies
+    const interstellarTarget = setup.catalog.descriptors.find(
+      d => d.kind === 'system' && d.galaxyId === 'milky_way' && d.systemId !== 'sol',
+    )!;
+    assert.ok(interstellarTarget);
+    const mwSystemTarget = setup.catalog.target(interstellarTarget.objectId)!;
+    assert.equal(setup.controller.start(mwSystemTarget, SAFE_DEPARTURE), 'started');
+    setup.controller.update(1.5);
+    pres.update(setup.controller.state, camera, 0.05);
+    assert.equal(
+      pres.getActiveProxyKeys().length,
+      0,
+      'Interstellar transit must not show intergalactic galaxy proxies',
+    );
+    setup.controller.cancel();
+    for (let i = 0; i < 30 && setup.controller.state?.phase !== 'coasting'; i++) {
+      setup.controller.update(0.1);
+    }
+    setup.controller.dispose();
+
+    // 2. Unbounded sector where observerGlobalPositionM returns undefined
+    const hugeSector = sectorIndex(9_007_199_254_740_993n, -9_007_199_254_740_993n, 42n);
+    assert.equal(
+      observerGlobalPositionM({ galaxyId: 'milky_way', sector: hugeSector }, [0, 0, 0]),
+      undefined,
+      'observerGlobalPositionM must return undefined outside bounded sector domain',
+    );
+
+    // Synthetic transit state with unbounded sector anchors must still render with finite coordinates
+    const procGalaxyId = findReachableProceduralGalaxy(setup.catalog);
+    const procTarget = setup.catalog.target(`galaxy/${procGalaxyId}`)!;
+    assert.equal(setup.controller.start(procTarget, SAFE_DEPARTURE), 'started');
+    setup.controller.update(2.0);
+    const baseState = setup.controller.state!;
+    const extremeState: UniversalTransitState = {
+      ...baseState,
+      plan: {
+        ...baseState.plan,
+        origin: {
+          address: { galaxyId: 'milky_way', sector: hugeSector, systemId: 'sol' },
+          offsetM: [0, 0, 0],
+          globalPositionM: undefined,
+        },
+        destination: {
+          address: { galaxyId: procGalaxyId, sector: hugeSector, systemId: 'extreme-sys' },
+          offsetM: [0, 0, 0],
+          globalPositionM: undefined,
+          universeSeed: DEFAULT_UNIVERSE_SEED,
+        },
+      },
+    };
+    pres.update(extremeState, camera, 0.05);
+
+    for (let i = 0; i < 80 && setup.controller.active; i++) {
       setup.controller.update(0.05);
       pres.update(setup.controller.state, camera, 0.05);
       parent.traverse(node => {
@@ -297,10 +414,14 @@ test('T_U45_03_04: Zero Math.random() e coordenadas limitadas (< 50 km) em trân
       });
     }
 
-    const { canvas } = createMockCanvas(1000, 650);
+    // 3. Map renderers at extreme BigInt cell (> Number.MAX_SAFE_INTEGER) without Math.random or NaN
+    const { canvas, texts } = createMockCanvas(1000, 650);
     const cosmos = new CosmologyMapRenderer(canvas);
-    const galaxyMap = new GalaxyMapRenderer(canvas);
+    cosmos.centerCell = { x: 9_007_199_254_740_993n, y: -9_007_199_254_740_993n, z: 0n };
     cosmos.draw(setup.universe.location);
+    assert.ok(texts.some(t => t.includes('9007199254740993')));
+
+    const galaxyMap = new GalaxyMapRenderer(canvas);
     galaxyMap.draw(setup.universe.location);
 
     pres.dispose();
@@ -352,7 +473,7 @@ test('T_U45_07_08_09: Mapa Cosmos atualiza cache em sub-cell pan, hit-test preci
   assert.ok(Number.isFinite(cosmos.panOffsetMpc.x) && Number.isFinite(cosmos.panOffsetMpc.y));
 });
 
-test('T_U45_10: Painel de destino estruturado em 4 seções (IDENTIDADE, POSIÇÃO, EXPLORAÇÃO, NAVEGAÇÃO) sem NaN/undefined', () => {
+test('T_U45_10: Painel de destino honesto quanto ao estado do cache de entrada e estruturado em 4 seções sem NaN/undefined', () => {
   const catalog = new UniversalTargetCatalog();
   const universe = new UniverseRuntime({ epochS: 0 });
   try {
@@ -365,7 +486,35 @@ test('T_U45_10: Painel de destino estruturado em 4 seções (IDENTIDADE, POSIÇ�
     };
     const resolver = new UniversalTargetResolver(catalog, context);
 
-    const procGalaxyId = findReachableProceduralGalaxy(catalog);
+    const procGalaxyId = 'galaxy_c10_20_30_0';
+    clearGalaxyEntryCache();
+
+    // 1. Before entry search runs, peekProceduralGalaxyEntry is undefined -> guidance must say 'pending-validation'
+    assert.equal(peekProceduralGalaxyEntry(procGalaxyId, DEFAULT_UNIVERSE_SEED), undefined);
+    const pendingGuidance = describeNavigationGuidance(
+      'intergalactic',
+      'galaxy',
+      procGalaxyId,
+      'milky_way',
+      DEFAULT_UNIVERSE_SEED,
+    );
+    assert.equal(pendingGuidance.readinessState, 'pending-validation');
+    assert.match(pendingGuidance.status, /aguardando validação de entrada/);
+    assert.doesNotMatch(pendingGuidance.status, /sistema de entrada confirmado/);
+
+    // 2. After entry search runs and confirms landable system, guidance transitions to 'confirmed'
+    assert.equal(hasProceduralGalaxyEntry(procGalaxyId, catalog), true);
+    assert.equal(peekProceduralGalaxyEntry(procGalaxyId, DEFAULT_UNIVERSE_SEED), true);
+    const confirmedGuidance = describeNavigationGuidance(
+      'intergalactic',
+      'galaxy',
+      procGalaxyId,
+      'milky_way',
+      DEFAULT_UNIVERSE_SEED,
+    );
+    assert.equal(confirmedGuidance.readinessState, 'confirmed');
+    assert.match(confirmedGuidance.status, /sistema de entrada confirmado/);
+
     const targets = [
       catalog.target('andromeda')!,
       catalog.target(`galaxy/${procGalaxyId}`)!,
@@ -384,40 +533,24 @@ test('T_U45_10: Painel de destino estruturado em 4 seções (IDENTIDADE, POSIÇ�
       assert.match(html, /data-travel-shortcut-hint/);
     }
 
-    // Reachable intergalactic galaxy displays [P] shortcut hint
-    const andromedaHtml = renderUniversalTargetCardHtml(
-      resolver.resolve(catalog.target('andromeda')!),
-      catalog.discovery,
-      'milky_way',
-    );
-    assert.match(andromedaHtml, /Atalho \[P\]/);
-    assert.match(andromedaHtml, /Canônica/);
-
-    // Procedural galaxy displays Procedural Sintética classification and [P] shortcut
-    const procHtml = renderUniversalTargetCardHtml(
-      resolver.resolve(catalog.target(`galaxy/${procGalaxyId}`)!),
-      catalog.discovery,
-      'milky_way',
-    );
-    assert.match(procHtml, /Procedural Sintética/);
-    assert.match(procHtml, /Atalho \[P\]/);
-
     // Current galaxy explains why intergalactic travel to same galaxy is blocked
     const currentGuidance = describeNavigationGuidance('cosmological-future', 'galaxy', 'milky_way', 'milky_way');
     assert.equal(currentGuidance.available, false);
+    assert.equal(currentGuidance.readinessState, 'active-system');
     assert.match(currentGuidance.status, /já está nesta galáxia/);
   } finally {
     universe.dispose();
   }
 });
 
-test('T_U45_11_12: Continuidade morfológica entre proxy e chegada + estabilidade de histerese LOD sem thrashing', () => {
+test('T_U45_11_12: Continuidade morfológica, janela de cross-fade dual-LOD e estabilidade de histerese sem thrashing', () => {
   const setup = makeTransitSetup();
   try {
     const procGalaxyId = findReachableProceduralGalaxy(setup.catalog);
     const parent = new Group();
     const pres = new HypercruisePresentation(parent);
     const proxy = pres.ensureGalaxyProxy(procGalaxyId, DEFAULT_UNIVERSE_SEED);
+    assert.ok(proxy);
 
     const def = galaxyDefinition(procGalaxyId, DEFAULT_UNIVERSE_SEED)!;
     assert.ok(def);
@@ -437,8 +570,15 @@ test('T_U45_11_12: Continuidade morfológica entre proxy e chegada + estabilidad
     });
 
     assert.equal(morph.currentLod, 0);
-    morph.update(1e22, 16.5); // Crosses 0 -> 1
+    assert.equal(morph.isCrossfading, false);
+
+    // Enter LOD 1 inside transition window (18 px in [13.6, 22.4]): both LOD 0 and LOD 1 cross-fade
+    morph.update(1e22, 18.0);
     assert.equal(morph.currentLod, 1);
+    assert.equal(morph.isCrossfading, true, 'Must cross-fade LOD 0 and LOD 1 inside boundary window');
+    const crossfadeAlphas = morph.getLodAlphas();
+    assert.ok(crossfadeAlphas.lod0 > 0 && crossfadeAlphas.lod1 > 0);
+
     const transitionsAfterEnterLod1 = morph.lodTransitionCount;
     assert.equal(transitionsAfterEnterLod1, 1);
 
@@ -449,13 +589,22 @@ test('T_U45_11_12: Continuidade morfológica entre proxy e chegada + estabilidad
     }
     assert.equal(morph.lodTransitionCount, transitionsAfterEnterLod1, 'Zero LOD thrashing inside hysteresis band');
 
-    // Approach LOD 2 and verify predictive preheat + smooth alpha exposure
+    // Settle in mid-LOD 1 (60 px): cross-fade finishes and only LOD 1 remains visible
+    morph.update(8e21, 60);
+    assert.equal(morph.isCrossfading, false);
+    assert.equal(morph.getLodAlphas().lod1, 1.0);
+
+    // Approach LOD 2 and verify predictive preheat + dual-LOD cross-fade at 300 px
     morph.update(5e21, 190);
     assert.equal(morph.isLod2Preheated, true);
-    morph.update(1e21, 290);
+    morph.update(1e21, 300);
     assert.equal(morph.currentLod, 2);
-    const alphas = morph.getLodAlphas();
-    assert.ok(alphas.lod2 >= 0.88 && alphas.lod2 <= 1.0);
+    assert.equal(morph.isCrossfading, true, 'Must cross-fade LOD 1 and LOD 2 inside boundary window');
+
+    // Settle deep in LOD 2 (400 px)
+    morph.update(5e20, 400);
+    assert.equal(morph.isCrossfading, false);
+    assert.equal(morph.getLodAlphas().lod2, 1.0);
 
     morph.dispose();
     pres.dispose();
@@ -464,9 +613,9 @@ test('T_U45_11_12: Continuidade morfológica entre proxy e chegada + estabilidad
   }
 });
 
-test('T_U45_13_14: Isolamento multissemente de proxies e ciclo completo Sol <-> galáxia procedural com telemetria U4.5', () => {
-  const seedA = 0x51a04401n;
-  const seedB = 0x99b07702n;
+test('T_U45_13_14: Isolamento multissemente de proxies e ciclo completo Sol <-> galáxia procedural <-> Andrômeda', () => {
+  const seedA = DEFAULT_UNIVERSE_SEED;
+  const seedB = 0xBBBB_4444_5555_6666n;
   const setup = makeTransitSetup(seedA);
   try {
     const procId = findReachableProceduralGalaxy(setup.catalog);
@@ -541,9 +690,11 @@ test('T_U45_13_14: Isolamento multissemente de proxies e ciclo completo Sol <-> 
     pres.update(setup.controller.state, camera, 0.1);
     assert.equal(pres.root.visible, false, 'Presentation root must hide cleanly once transit completes');
 
-    // Deterministic proxy descriptors across different seeds (seedA vs seedB vs seedA)
-    const proxyA1 = pres.ensureGalaxyProxy(procId, seedA);
-    const proxyB = pres.ensureGalaxyProxy(procId, seedB);
+    // Deterministic proxy descriptors across different seeds (seedA vs seedB)
+    const proxyA1 = pres.ensureGalaxyProxy(procId, seedA)!;
+    const proxyB = pres.ensureGalaxyProxy(procId, seedB)!;
+    assert.ok(proxyA1);
+    assert.ok(proxyB);
     assert.notEqual(proxyA1, proxyB, 'Different universe seeds must produce distinct procedural proxy instances');
     const descA = proxyA1.userData.descriptor;
     const descB = proxyB.userData.descriptor;

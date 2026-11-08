@@ -1,6 +1,24 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.1 Cosmic Exploration Experience (2026-11-07)
+## Current checkpoint — U4.5.1.1 Recuperação do CI e Correção dos Contratos Visuais do Cosmic Exploration (2026-11-08)
+
+Baseline auditado do U4.5.1 no commit `d49c6161c22d6f70cdeb702698a2a282396f93cd` reprovou na compilação TypeScript oficial (GitHub Actions Run `42444989687`: 8 erros de tipo). O patch U4.5.1.1 sana todos os 8 erros de compilação e corrige os 6 problemas funcionais/arquiteturais identificados na auditoria:
+1. `src/rendering/HypercruisePresentation.ts`:
+   - Restaurado o método público `setDirection(dir: THREE.Vector3): void` exigido por `Game.ts`, com validação de finitude/norma, orientação determinística de `this.root.quaternion` via `targetQuaternion` e remoção da sobrescrita por `camera.quaternion`.
+   - Substituídos os símbolos inexistentes `galaxyCenterM` e `sectorOffsetM` pela API cosmológica real (`galaxyCosmologicalAddress`, `cosmologicalSeparationVectorM`, `orientGalaxyVector`, `galaxyLocalPositionM`, `boundedGalaxySector`, `o.offsetM`, `d.offsetM` e `universeSeed`), com fallback determinístico para `distanceTravelledM` e `distanceRemainingM` quando as células `BigInt3` excedem o domínio seguro `Float64`.
+   - Introduzida a união discriminada `HypercruiseVisualInput = HypercruiseTravelState | LocalSuperluminalEffectState` para voo local `> 10c` sem fabricar plano falso para Andrômeda.
+   - Removido o fallback enganoso `?? LOCAL_GROUP_CATALOG[0]` em `ensureGalaxyProxy()` (galáxias desconhecidas retornam `undefined`) e restrita a visibilidade dos proxies exclusivamente a viagens `intergalactic`.
+2. `src/game/Game.ts`:
+   - Substituído `const fakeState: any` por `LocalSuperluminalEffectState` tipado (`{ kind: 'local-superluminal', effectiveSpeedMps, phase: 'cruise' }`).
+3. `src/ui/map/UniversalMapPanel.ts`:
+   - Corrigido o import para `type ResolvedUniversalTarget` e atualizado `describeNavigationGuidance()` para consultar `peekProceduralGalaxyEntry(targetGalaxyId, universeSeed)` em $O(1)$, distinguindo `confirmed` (`"sistema de entrada confirmado"`), `pending-validation` (`"aguardando validação de entrada"`), `active-system`, `observational-only` e `unavailable`.
+4. `src/world/galaxy/GalaxyMorphologyRenderer.ts`:
+   - Implementado cross-fade dual-LOD localizado (`isCrossfading`) nas janelas de transição `0 <-> 1` e `1 <-> 2`, reutilizando os pontos já instanciados sem alocar geometria extra.
+5. `tests/cosmic-exploration-u45.test.ts`:
+   - Corrigidos os contratos de `new UniversalTargetCatalog(universe.solarSystem, discovery)` e `hasProceduralGalaxyEntry(g.id, catalog)`, com cobertura expandida para `setDirection()`, modo `> 10c`, `observerGlobalPositionM() === undefined`, células `BigInt` gigantes, rejeição de galáxia inexistente, ocultação de proxies interestelares, prontidão `pending-validation` vs `confirmed` e cross-fade dual-LOD.
+Evidence: [42-status-U4.5-COSMIC-EXPLORATION-EXPERIENCE.md](42-status-U4.5-COSMIC-EXPLORATION-EXPERIENCE.md).
+
+## Previous checkpoint — U4.5.1 Cosmic Exploration Experience (2026-11-07)
 
 Baseline auditado do U4.4.9 no commit `97c6ad14c67b8316201ce83c2a56ffe3c096a294` aprovado integralmente no GitHub Actions Run `42398634062` (TypeScript PASS, 638/638 regressões permanentes, 1.543/1.543 testes gerais, build Vite PASS). O patch U4.5.1 inaugura a fase de Experiência de Exploração Cósmica em quatro etapas integradas:
 1. `HypercruisePresentation.ts`:

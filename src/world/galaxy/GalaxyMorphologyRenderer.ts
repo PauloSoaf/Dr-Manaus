@@ -190,8 +190,16 @@ export class GalaxyMorphologyRenderer {
     };
   }
 
+  get isCrossfading(): boolean {
+    const v0 = this.lod0Mesh.visible;
+    const v1 = Boolean(this.lod1Group?.visible);
+    const v2 = Boolean(this.lod2Group?.visible);
+    return (Number(v0) + Number(v1) + Number(v2)) > 1;
+  }
+
   /**
-   * Updates LOD tier with 15% directional hysteresis and predictive preheating.
+   * Updates LOD tier with 15% directional hysteresis, predictive preheating,
+   * and a localized dual-LOD alpha cross-fade window across tier boundaries.
    *
    * @param distanceM Distance to galaxy center in metres.
    * @param projectedPx Apparent projected pixel size on viewport.
@@ -234,19 +242,53 @@ export class GalaxyMorphologyRenderer {
       this.applyLodVisibility(next);
     }
 
-    // Smooth exposure modulation within active LOD tier
+    // Localized dual-LOD cross-fade window using already-materialized lower LODs
     const safePx = Math.max(0, Number.isFinite(projectedPx) ? projectedPx : 0);
     if (next === 0) {
-      const t0 = Math.min(1, safePx / Math.max(1, lodThreshold01));
-      this.uLod0Alpha.value = 0.84 + 0.16 * t0;
+      this.lod0Mesh.visible = true;
+      if (this.lod1Group) this.lod1Group.visible = false;
+      if (this.lod2Group) this.lod2Group.visible = false;
+      this.uLod0Alpha.value = 1.0;
+      this.uLod1Alpha.value = 0.0;
+      this.uLod2Alpha.value = 0.0;
     } else if (next === 1) {
-      const lowBand = lodThreshold01 * hysteresisRatio;
-      const t1 = Math.min(1, Math.max(0, (safePx - lowBand) / Math.max(1, lodThreshold01 * 0.5)));
-      this.uLod1Alpha.value = 0.86 + 0.14 * t1;
+      const bandStart = lodThreshold01 * hysteresisRatio;
+      const bandEnd = lodThreshold01 * 1.4;
+      if (safePx < bandEnd) {
+        const t = Math.min(1, Math.max(0, (safePx - bandStart) / Math.max(1e-3, bandEnd - bandStart)));
+        const smooth = t * t * (3 - 2 * t);
+        this.lod0Mesh.visible = true;
+        if (this.lod1Group) this.lod1Group.visible = true;
+        if (this.lod2Group) this.lod2Group.visible = false;
+        this.uLod0Alpha.value = Math.max(0.05, 1.0 - smooth * 0.85);
+        this.uLod1Alpha.value = Math.max(0.25, smooth);
+        this.uLod2Alpha.value = 0.0;
+      } else {
+        this.lod0Mesh.visible = false;
+        if (this.lod1Group) this.lod1Group.visible = true;
+        if (this.lod2Group) this.lod2Group.visible = false;
+        this.uLod0Alpha.value = 0.0;
+        this.uLod1Alpha.value = 1.0;
+        this.uLod2Alpha.value = 0.0;
+      }
     } else {
-      const lowBand2 = lodThreshold12 * hysteresisRatio;
-      const t2 = Math.min(1, Math.max(0, (safePx - lowBand2) / Math.max(1, lodThreshold12 * 0.35)));
-      this.uLod2Alpha.value = 0.88 + 0.12 * t2;
+      const bandStart2 = lodThreshold12 * hysteresisRatio;
+      const bandEnd2 = lodThreshold12 * 1.25;
+      this.lod0Mesh.visible = false;
+      this.uLod0Alpha.value = 0.0;
+      if (safePx < bandEnd2 && this.lod1Group) {
+        const t2 = Math.min(1, Math.max(0, (safePx - bandStart2) / Math.max(1e-3, bandEnd2 - bandStart2)));
+        const smooth2 = t2 * t2 * (3 - 2 * t2);
+        this.lod1Group.visible = true;
+        if (this.lod2Group) this.lod2Group.visible = true;
+        this.uLod1Alpha.value = Math.max(0.05, 1.0 - smooth2 * 0.85);
+        this.uLod2Alpha.value = Math.max(0.3, smooth2);
+      } else {
+        if (this.lod1Group) this.lod1Group.visible = false;
+        if (this.lod2Group) this.lod2Group.visible = true;
+        this.uLod1Alpha.value = 0.0;
+        this.uLod2Alpha.value = 1.0;
+      }
     }
   }
 

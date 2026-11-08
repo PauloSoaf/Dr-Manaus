@@ -798,20 +798,15 @@ export class Game {
       this.hyperPresentation ??= new HypercruisePresentation(this.celestialRoot);
       const { forward: camFwd } = cameraFlightAxes(this.rendering.camera);
       this.hyperPresentation.setDirection([camFwd.x, camFwd.y, camFwd.z]);
-      const fakeState: any = {
-        effectiveSpeedMps: this.flightTelemetry.speedMps,
-        phase: 'cruise',
-        plan: {
-          domain: this.universe.address.galaxyId === 'andromeda' ? 'intergalactic' : 'interstellar',
-          destination: { address: { galaxyId: 'andromeda' } },
-          logicalDistanceM: 2.365e22,
-          durationS: 30,
+      this.hyperPresentation.update(
+        {
+          kind: 'local-superluminal',
+          effectiveSpeedMps: this.flightTelemetry.speedMps,
+          phase: 'cruise',
         },
-        progress: 0.5,
-        distanceRemainingM: 1e22,
-        distanceTravelledM: 1e22,
-      };
-      this.hyperPresentation.update(fakeState, this.rendering.camera, rawDt);
+        this.rendering.camera,
+        rawDt,
+      );
     } else {
       this.hyperPresentation?.update(undefined, this.rendering.camera, rawDt);
     }
