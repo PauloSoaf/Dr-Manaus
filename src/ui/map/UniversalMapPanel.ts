@@ -8,9 +8,143 @@ import type { Vector3 } from 'three/webgpu';
 import { SurfaceMapRenderer, PlanetMapRenderer, PlanetMap3DRenderer, SystemMapRenderer, GalaxyMapRenderer, CosmologyMapRenderer } from './MapRenderers';
 import { UniverseCoordinates } from '../../world/spatial/UniverseCoordinates';
 import { universalTargetKey, type UniversalTargetDescriptor } from '../../world/travel/UniversalNavigationTarget';
-import { travelCapabilityLabel } from '../../world/travel/UniversalTargetResolver';
+import { travelCapabilityLabel, type ResolvedNavigationTarget, type TravelCapability } from '../../world/travel/UniversalTargetResolver';
+import type { ProceduralGalaxyDiscovery } from '../../world/galaxy/ProceduralGalaxyDiscovery';
+import { isCanonicalGalaxyId } from '../../world/celestial/GalaxyDefinition';
 
 const escapeHtml=(value:string)=>value.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
+
+export function describeNavigationGuidance(
+  capability: TravelCapability,
+  kind: string,
+  targetGalaxyId?: string,
+  currentGalaxyId?: string,
+): { status: string; shortcutHint: string; available: boolean } {
+  switch (capability) {
+    case 'intergalactic':
+      return {
+        status: 'Rota intergaláctica pronta (sistema de entrada validado)',
+        shortcutHint: 'Atalho [P] · Iniciar Hypercruise Intergaláctico em voo espacial seguro',
+        available: true,
+      };
+    case 'interstellar':
+      return {
+        status: 'Rota interestelar disponível na galáxia ativa',
+        shortcutHint: 'Atalho [P] · Iniciar Hypercruise Interestelar em voo espacial seguro',
+        available: true,
+      };
+    case 'intra-system':
+      return {
+        status: 'Destino local no sistema planetário ativo',
+        shortcutHint: 'Atalho [P] · Engajar Warp interplanetário local',
+        available: true,
+      };
+    case 'black-hole-future':
+      return {
+        status: 'Indisponível · Horizonte de eventos (aproximação extrema bloqueada)',
+        shortcutHint: 'Somente telemetria e referência gravitacional',
+        available: false,
+      };
+    case 'cosmological-future':
+      if (kind === 'galaxy' && targetGalaxyId && targetGalaxyId === currentGalaxyId) {
+        return {
+          status: 'Você já está nesta galáxia · selecione um sistema estelar interno',
+          shortcutHint: 'Use a vista Galáxia ou Sistema para escolher um destino local',
+          available: false,
+        };
+      }
+      if (kind === 'galaxy') {
+        return {
+          status: 'Indisponível · Nenhum sistema de entrada pousável localizado nesta galáxia',
+          shortcutHint: 'Alvo catalogado apenas para observação cosmológica',
+          available: false,
+        };
+      }
+      return {
+        status: 'Indisponível · Estrutura cosmológica de grande escala fora de trânsito direto',
+        shortcutHint: 'Selecione uma galáxia com sistema de entrada válido para viajar',
+        available: false,
+      };
+    default:
+      return {
+        status: 'Indisponível · Alvo sem rota de navegação ativa',
+        shortcutHint: 'Selecione outro destino no mapa ou catálogo',
+        available: false,
+      };
+  }
+}
+
+export function renderUniversalTargetCardHtml(
+  resolved: ResolvedNavigationTarget | undefined,
+  discovery: ProceduralGalaxyDiscovery,
+  currentGalaxyId?: string,
+): string {
+  let html = `<section id="universal-target-card"><h3>ALVO DE NAVEGAÇÃO</h3>`;
+  if (!resolved) {
+    html += `Nenhum alvo</section>`;
+    return html;
+  }
+  const t = resolved.target;
+  const desc = t.galaxyId ? discovery.findGalaxyById(t.galaxyId) : undefined;
+  const isCanonical =
+    desc?.isKnownAstronomicalEntity ?? (t.galaxyId ? isCanonicalGalaxyId(t.galaxyId) : true);
+  const classification = isCanonical ? 'Canônica' : 'Procedural Sintética';
+  const guidance = describeNavigationGuidance(
+    resolved.travelCapability,
+    t.kind,
+    t.galaxyId,
+    currentGalaxyId,
+  );
+  const cellText = desc
+    ? `[${desc.cell.x}, ${desc.cell.y}, ${desc.cell.z}]`
+    : t.address && 'sector' in t.address
+      ? `${t.address.sector.x},${t.address.sector.y},${t.address.sector.z}`
+      : t.address && 'cell' in t.address
+        ? `[${t.address.cell.x}, ${t.address.cell.y}, ${t.address.cell.z}]`
+        : '—';
+
+  html += `<div class="target-section" data-target-section="identidade">`;
+  html += `<div style="font-size:10px;color:#38bdf8;font-weight:700;letter-spacing:0.06em;margin-bottom:2px;">IDENTIDADE</div>`;
+  html += `<strong>${escapeHtml(t.displayName)}</strong>`;
+  html += `<table class="card-table">`;
+  html += `<tr><td>Tipo</td><td>${escapeHtml(t.kind)}</td></tr>`;
+  html += `<tr><td>Classificação</td><td>${classification}</td></tr>`;
+  html += `</table>`;
+  html += `<small style="overflow-wrap:anywhere">${escapeHtml(t.key)}</small>`;
+  html += `</div>`;
+
+  html += `<div class="target-section" data-target-section="posicao" style="margin-top:6px;">`;
+  html += `<div style="font-size:10px;color:#38bdf8;font-weight:700;letter-spacing:0.06em;margin-bottom:2px;">POSIÇÃO</div>`;
+  html += `<table class="card-table">`;
+  html += `<tr><td>Galáxia</td><td>${escapeHtml(formatGalaxyName(t.galaxyId))}</td></tr>`;
+  html += `<tr><td>Célula / Setor</td><td>${escapeHtml(cellText)}</td></tr>`;
+  html += `<tr><td>Distância</td><td>${resolved.distanceM === undefined ? '—' : formatDistance(resolved.distanceM)}</td></tr>`;
+  html += `</table>`;
+  html += `</div>`;
+
+  html += `<div class="target-section" data-target-section="exploracao" style="margin-top:6px;">`;
+  html += `<div style="font-size:10px;color:#38bdf8;font-weight:700;letter-spacing:0.06em;margin-bottom:2px;">EXPLORAÇÃO</div>`;
+  html += `<table class="card-table">`;
+  if (desc) {
+    html += `<tr><td>Morfologia</td><td>${escapeHtml(desc.morphology)} (${escapeHtml(desc.family)})</td></tr>`;
+    html += `<tr><td>Diâmetro</td><td>${Math.round(desc.diameterLy / 1000)} kly</td></tr>`;
+    html += `<tr><td>Estrelas Est.</td><td>${(desc.estimatedStarCount / 1e9).toFixed(1)} bilhões</td></tr>`;
+  }
+  html += `<tr><td>Materializado</td><td>${resolved.materialized ? 'sim' : 'não'}</td></tr>`;
+  html += `</table>`;
+  html += `</div>`;
+
+  html += `<div class="target-section" data-target-section="navegacao" style="margin-top:6px;padding:6px;background:rgba(15,23,42,0.65);border-radius:4px;border:1px solid ${guidance.available ? '#0284c7' : '#334155'};">`;
+  html += `<div style="font-size:10px;color:${guidance.available ? '#38bdf8' : '#94a3b8'};font-weight:700;letter-spacing:0.06em;margin-bottom:2px;">NAVEGAÇÃO</div>`;
+  html += `<table class="card-table">`;
+  html += `<tr><td>Viagem</td><td>${travelCapabilityLabel(resolved.travelCapability)}</td></tr>`;
+  html += `<tr><td>Status</td><td>${escapeHtml(guidance.status)}</td></tr>`;
+  html += `</table>`;
+  html += `<div data-travel-shortcut-hint style="font-size:11px;margin-top:4px;color:${guidance.available ? '#fde047' : '#94a3b8'};">${escapeHtml(guidance.shortcutHint)}</div>`;
+  html += `</div>`;
+  html += `</section>`;
+  return html;
+}
 
 export class UniversalMapPanel {
   private readonly root: HTMLElement;
@@ -60,6 +194,7 @@ export class UniversalMapPanel {
         isDragging = true;
         dragStartX = event.clientX;
         dragStartY = event.clientY;
+        canvas.style.cursor = 'grabbing';
       }
     });
     window.addEventListener('mousemove', event => {
@@ -70,10 +205,32 @@ export class UniversalMapPanel {
         dragStartY = event.clientY;
         this.renderers.cosmology.pan(dx, dy);
         this.drawMap();
+      } else if (this.currentLevel === 'cosmology' || this.currentLevel === 'galaxy') {
+        const rect = canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        if (x >= 0 && x <= rect.width && y >= 0 && y <= rect.height) {
+          const prevHover = this.model.hoveredTargetKey;
+          const nextHover =
+            this.currentLevel === 'cosmology'
+              ? this.renderers.cosmology.updateHover(x, y)
+              : this.renderers.galaxy.markers.hitTest(x, y);
+          this.model.hoveredTargetKey = nextHover;
+          this.renderers.galaxy.hoveredTargetKey = nextHover;
+          canvas.style.cursor = nextHover
+            ? 'pointer'
+            : this.currentLevel === 'cosmology'
+              ? 'grab'
+              : 'default';
+          if (prevHover !== nextHover) this.drawMap();
+        }
       }
     });
     window.addEventListener('mouseup', () => {
-      isDragging = false;
+      if (isDragging) {
+        isDragging = false;
+        canvas.style.cursor = this.currentLevel === 'cosmology' ? 'grab' : 'default';
+      }
     });
 
     canvas.addEventListener('wheel', event => {
@@ -83,7 +240,10 @@ export class UniversalMapPanel {
         this.drawMap();
       } else if (this.currentLevel === 'cosmology') {
         event.preventDefault();
-        this.renderers.cosmology.changeZoom(event.deltaY);
+        const rect = canvas.getBoundingClientRect();
+        const cx = event.clientX - rect.left;
+        const cy = event.clientY - rect.top;
+        this.renderers.cosmology.changeZoom(event.deltaY, cx, cy);
         this.drawMap();
       }
     }, { passive: false });
@@ -139,6 +299,10 @@ export class UniversalMapPanel {
     this.bodies = bodies;
     this.flight = flight;
     this.targetCatalog=targetCatalog;
+    const selectedKey = flight?.universalTarget?.target.key;
+    this.model.selectedTargetKey = selectedKey;
+    this.renderers.galaxy.selectedTargetKey = selectedKey;
+    this.renderers.cosmology.selectedTargetKey = selectedKey;
     this.renderers.galaxy.markers.setTargets(targetCatalog);
     this.renderers.cosmology.markers.setTargets(targetCatalog);
     const inTravel = !!location.systemPositionM||!!location.transit;
@@ -385,29 +549,7 @@ export class UniversalMapPanel {
     if(loc.transit)html=`<h3>LOCALIZAÇÃO · EM TRÂNSITO</h3><div class="cruise-block hypercruise-map">${hypercruiseTelemetry(loc.transit,this.flight?.universalTarget?.target.displayName)}</div>`;
 
     const resolved=this.flight?.universalTarget;
-    html+=`<section id="universal-target-card"><h3>ALVO DE NAVEGAÇÃO</h3>`;
-    if(resolved){
-      const t=resolved.target;
-      html+=`<strong>${escapeHtml(t.displayName)}</strong><table class="card-table"><tr><td>Tipo</td><td>${t.kind}</td></tr>`
-        +`<tr><td>Galáxia</td><td>${escapeHtml(formatGalaxyName(t.galaxyId))}</td></tr>`
-        +`<tr><td>Distância</td><td>${resolved.distanceM===undefined?'—':formatDistance(resolved.distanceM)}</td></tr>`
-        +`<tr><td>Materializado</td><td>${resolved.materialized?'sim':'não'}</td></tr>`
-        +`<tr><td>Viagem</td><td>${travelCapabilityLabel(resolved.travelCapability)}</td></tr></table>`
-        +`<small style="overflow-wrap:anywhere">${escapeHtml(t.key)}</small>`;
-      if (t.kind === 'galaxy' && t.galaxyId) {
-        const desc = this.renderers.cosmology.discovery.findGalaxyById(t.galaxyId);
-        if (desc) {
-          html += `<div style="margin-top: 6px; padding: 6px; background: rgba(30, 41, 59, 0.5); border-radius: 4px; font-size: 11px;">`
-            + `<div><b>Morfologia:</b> ${desc.morphology} (${desc.family})</div>`
-            + `<div><b>Diâmetro:</b> ${Math.round(desc.diameterLy / 1000)} kly</div>`
-            + `<div><b>Estrelas Est.:</b> ${(desc.estimatedStarCount / 1e9).toFixed(1)} bilhões</div>`
-            + `<div><b>Célula:</b> [${desc.cell.x}, ${desc.cell.y}, ${desc.cell.z}]</div>`
-            + `<div><b>Classificação:</b> ${desc.isKnownAstronomicalEntity ? 'Canônica' : 'Procedural Sintética'}</div>`
-            + `</div>`;
-        }
-      }
-    }else html+='Nenhum alvo';
-    html+='</section>';
+    html+=renderUniversalTargetCardHtml(resolved,this.renderers.cosmology.discovery,this.model.location.address.galaxyId);
     if(this.currentLevel==='galaxy'||this.currentLevel==='cosmology'){
       html+=`<h3>GALÁXIA ATUAL · ${escapeHtml(formatGalaxyName(this.model.location.address.galaxyId))}</h3>`;
       html+='<h3>CATÁLOGO DE DESTINOS</h3><small>Marcadores esquemáticos · selecionar não inicia viagem</small>';

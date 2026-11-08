@@ -12,6 +12,8 @@ import type { BigInt3 } from '../../world/spatial/UniverseAddress';
 export class CatalogMapMarkers {
   private descriptors:readonly UniversalTargetDescriptor[]=[];
   private hits:{key:string;x:number;y:number}[]=[];
+  selectedKey?:string;
+  hoveredKey?:string;
   setTargets(descriptors:readonly UniversalTargetDescriptor[]):void { this.descriptors=descriptors; }
   hitTest(x:number,y:number):string|undefined {
     return this.hits.find(h=>Math.hypot(x-h.x,y-h.y)<=22)?.key;
@@ -25,10 +27,18 @@ export class CatalogMapMarkers {
     for(let i=0;i<descriptors.length;i++){
       const d=descriptors[i],x=Math.min(28,w/4),y=35+i*42;
       if(y>h-45)break;
-      this.hits.push({key:universalTargetKey(d),x,y});
-      ctx.fillStyle=d.kind==='black-hole'?'#fbbf24':'#67e8f9';
+      const key=universalTargetKey(d);
+      this.hits.push({key,x,y});
+      const isSelected=this.selectedKey===key;
+      const isHovered=this.hoveredKey===key;
+      ctx.fillStyle=d.kind==='black-hole'?'#fbbf24':d.kind==='galaxy'?'#38bdf8':'#a78bfa';
       ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);ctx.fill();
-      ctx.fillStyle='#e2e8f0';ctx.fillText(d.displayName+(currentGalaxy&&d.galaxyId?(d.galaxyId===currentGalaxy?' · CURRENT':' · EXTERNAL'):''),x+14,y+4,Math.max(20,w-x-20));
+      if(isSelected||isHovered){
+        ctx.beginPath();ctx.arc(x,y,isSelected?11:9,0,Math.PI*2);
+        ctx.strokeStyle=isSelected?'#facc15':'#e2e8f0';ctx.lineWidth=isSelected?2:1.2;ctx.stroke();
+      }
+      ctx.fillStyle=isSelected?'#facc15':'#e2e8f0';
+      ctx.fillText(d.displayName+(currentGalaxy&&d.galaxyId?(d.galaxyId===currentGalaxy?' · CURRENT':' · EXTERNAL'):''),x+14,y+4,Math.max(20,w-x-20));
     }
   }
 }
@@ -295,6 +305,8 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
   readonly markers = new CatalogMapMarkers();
   private readonly discovery = new ProceduralGalaxyDiscovery();
   private offset = 0;
+  selectedTargetKey?: string;
+  hoveredTargetKey?: string;
   
   draw(location: UniverseLocation, destination?: Vector3): void {
     this.clear('#020617');
@@ -304,6 +316,8 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
     const cy = h / 2;
 
     this.offset -= 0.001;
+    this.markers.selectedKey = this.selectedTargetKey;
+    this.markers.hoveredKey = this.hoveredTargetKey;
 
     const galaxyId = location.address.galaxyId || 'milky_way';
     const desc = this.discovery.findGalaxyById(galaxyId);
@@ -351,8 +365,8 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
       const numArms = desc?.spiralArms.active ? desc.spiralArms.numArms : 4;
       const isBarred = desc?.bar.active ?? false;
       const armColor = desc?.dominantSpectralClass && ['O','B','A'].includes(desc.dominantSpectralClass)
-        ? 'rgba(56, 189, 248, 0.12)'
-        : 'rgba(167, 139, 250, 0.12)';
+        ? 'rgba(56, 189, 248, 0.14)'
+        : 'rgba(167, 139, 250, 0.14)';
 
       // Central bar if active
       if (isBarred && desc?.bar) {
@@ -427,8 +441,9 @@ export class GalaxyMapRenderer extends BaseMapRenderer {
       this.ctx.stroke();
     }
 
+    const originBadge = desc?.isKnownAstronomicalEntity ? 'CANÔNICA' : 'PROCEDURAL';
     const title = desc
-      ? `GALAXY: ${desc.name} · ${desc.morphology} (${desc.family.toUpperCase()}) · Ø ${Math.round(desc.diameterLy / 1000)} kly`
+      ? `GALAXY: ${desc.name} · ${desc.morphology} (${desc.family.toUpperCase()}) · ${originBadge} · Ø ${Math.round(desc.diameterLy / 1000)} kly`
       : `GALAXY: ${galaxyId.toUpperCase()}`;
 
     this.ctx.fillStyle = '#94a3b8';
@@ -445,7 +460,9 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
   centerCell: BigInt3 = { x: 0n, y: 0n, z: 0n };
   panOffsetMpc = { x: 0, y: 0 };
   zoomMpc = 14;
-  private galaxyHits: { key: string; x: number; y: number; radius: number }[] = [];
+  selectedTargetKey?: string;
+  hoveredTargetKey?: string;
+  private galaxyHits: { key: string; x: number; y: number; radius: number; descriptor: ProceduralGalaxyDescriptor }[] = [];
   private cachedVisibleKey = '';
   private cachedGalaxies: readonly ProceduralGalaxyDescriptor[] = [];
 
@@ -453,16 +470,35 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     super(canvas);
   }
 
-  changeZoom(deltaY: number): void {
+  changeZoom(deltaY: number, cursorX?: number, cursorY?: number): void {
+    const oldZoom = this.zoomMpc;
     const factor = deltaY < 0 ? 0.82 : 1.22;
-    this.zoomMpc = Math.max(4, Math.min(120, this.zoomMpc * factor));
+    const newZoom = Math.max(4, Math.min(120, oldZoom * factor));
+    this.zoomMpc = newZoom;
+
+    if (
+      cursorX !== undefined &&
+      cursorY !== undefined &&
+      Number.isFinite(cursorX) &&
+      Number.isFinite(cursorY) &&
+      this.width > 1
+    ) {
+      const offsetPxX = cursorX - this.width / 2;
+      const offsetPxY = cursorY - this.height / 2;
+      this.panOffsetMpc.x += (offsetPxX / this.width) * (newZoom - oldZoom);
+      this.panOffsetMpc.y += (offsetPxY / this.width) * (newZoom - oldZoom);
+      this.normalizeCellOffset();
+    }
   }
 
   pan(dxPx: number, dyPx: number): void {
     const mpcPerPx = this.zoomMpc / Math.max(1, this.width);
     this.panOffsetMpc.x -= dxPx * mpcPerPx;
     this.panOffsetMpc.y -= dyPx * mpcPerPx;
+    this.normalizeCellOffset();
+  }
 
+  private normalizeCellOffset(): void {
     const cellStepX = Math.trunc(this.panOffsetMpc.x / COSMOLOGICAL_CELL_SIZE_MPC);
     if (cellStepX !== 0) {
       this.centerCell = { x: this.centerCell.x + BigInt(cellStepX), y: this.centerCell.y, z: this.centerCell.z };
@@ -476,7 +512,25 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
   }
 
   hitTest(x: number, y: number): string | undefined {
-    return this.galaxyHits.find(h => Math.hypot(x - h.x, y - h.y) <= h.radius)?.key;
+    let best: { key: string; dist: number } | undefined;
+    for (const h of this.galaxyHits) {
+      const dist = Math.hypot(x - h.x, y - h.y);
+      if (dist <= h.radius && (!best || dist < best.dist)) {
+        best = { key: h.key, dist };
+      }
+    }
+    return best?.key;
+  }
+
+  updateHover(x: number, y: number): string | undefined {
+    const key = this.markers.hitTest(x, y) ?? this.hitTest(x, y);
+    this.hoveredTargetKey = key;
+    this.markers.hoveredKey = key;
+    return key;
+  }
+
+  getVisibleGalaxies(): readonly ProceduralGalaxyDescriptor[] {
+    return this.cachedGalaxies;
   }
 
   draw(location: UniverseLocation, destination?: Vector3): void {
@@ -486,6 +540,8 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     const cx = w / 2;
     const cy = h / 2;
     this.galaxyHits = [];
+    this.markers.selectedKey = this.selectedTargetKey;
+    this.markers.hoveredKey = this.hoveredTargetKey;
 
     const pxPerMpc = w / this.zoomMpc;
     const mpcPerPx = this.zoomMpc / Math.max(1, w);
@@ -494,11 +550,25 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
     const spanCellsX = Math.max(2, Math.ceil(halfSpanX_Mpc / COSMOLOGICAL_CELL_SIZE_MPC) + 1);
     const spanCellsY = Math.max(2, Math.ceil(halfSpanY_Mpc / COSMOLOGICAL_CELL_SIZE_MPC) + 1);
 
-    // Cache visible galaxies per centerCell & zoom level to avoid synchronous discovery spikes on idle redraws
-    const visibleKey = `${this.centerCell.x}_${this.centerCell.y}_${this.centerCell.z}_${this.zoomMpc}`;
+    // Effective discovery cell accounts for sub-cell panOffsetMpc so edge galaxies are never missing during panning
+    const panShiftCellsX = Math.round(this.panOffsetMpc.x / COSMOLOGICAL_CELL_SIZE_MPC);
+    const panShiftCellsY = Math.round(this.panOffsetMpc.y / COSMOLOGICAL_CELL_SIZE_MPC);
+    const effectiveCenterCell: BigInt3 = {
+      x: this.centerCell.x + BigInt(panShiftCellsX),
+      y: this.centerCell.y + BigInt(panShiftCellsY),
+      z: this.centerCell.z,
+    };
+    const effectiveSpanMpc =
+      this.zoomMpc +
+      2 * Math.max(Math.abs(this.panOffsetMpc.x), Math.abs(this.panOffsetMpc.y)) +
+      COSMOLOGICAL_CELL_SIZE_MPC;
+    const panBucketX = Math.round(this.panOffsetMpc.x * 2);
+    const panBucketY = Math.round(this.panOffsetMpc.y * 2);
+
+    const visibleKey = `${this.discovery.universeSeed.toString(16)}_${effectiveCenterCell.x}_${effectiveCenterCell.y}_${effectiveCenterCell.z}_${this.zoomMpc.toFixed(2)}_${panBucketX}_${panBucketY}`;
     if (this.cachedVisibleKey !== visibleKey) {
       this.cachedVisibleKey = visibleKey;
-      this.cachedGalaxies = this.discovery.discoverVisibleRegion(this.centerCell, this.zoomMpc, 64);
+      this.cachedGalaxies = this.discovery.discoverVisibleRegion(effectiveCenterCell, effectiveSpanMpc, 96);
     }
     const galaxies = this.cachedGalaxies;
 
@@ -547,6 +617,8 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
       }
     }
 
+    const placedLabels: { x: number; y: number; w: number; h: number }[] = [];
+
     // Draw visible galaxies
     for (const g of galaxies) {
       const dxMpc = Number(g.cell.x - this.centerCell.x) * COSMOLOGICAL_CELL_SIZE_MPC + g.localCellMpc[0] - this.panOffsetMpc.x;
@@ -556,58 +628,94 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
 
       if (sx < -40 || sx > w + 40 || sy < -40 || sy > h + 40) continue;
 
-      const visualR = Math.max(5, Math.min(24, (g.diameterLy / 100_000) * 12 * (14 / this.zoomMpc)));
+      const visualR = Math.max(5, Math.min(26, (g.diameterLy / 100_000) * 12 * (14 / this.zoomMpc)));
       const hitKey = universalTargetKey({ kind: 'galaxy', displayName: g.name, objectId: g.id, galaxyId: g.id });
-      this.galaxyHits.push({ key: hitKey, x: sx, y: sy, radius: Math.max(16, visualR + 6) });
+      this.galaxyHits.push({ key: hitKey, x: sx, y: sy, radius: Math.max(16, visualR + 6), descriptor: g });
 
-      // Morphological styling
+      const isCurrent = location.address.galaxyId === g.id && !location.transit;
+      const isSelected = this.selectedTargetKey === hitKey;
+      const isHovered = this.hoveredTargetKey === hitKey;
+      const posAngle = g.orientationEulerRad[2] || Math.PI / 5;
+
+      // Morphological styling with orientation and family silhouette
       if (g.family === 'elliptical') {
-        const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, visualR);
-        grad.addColorStop(0, 'rgba(254, 240, 138, 1)');
-        grad.addColorStop(0.4, 'rgba(245, 158, 11, 0.7)');
+        const flattening = Math.max(0.45, Math.min(0.95, g.bulge.axisRatio[2]));
+        const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, visualR * 1.15);
+        grad.addColorStop(0, 'rgba(254, 249, 195, 1)');
+        grad.addColorStop(0.4, 'rgba(245, 158, 11, 0.78)');
         grad.addColorStop(1, 'rgba(217, 119, 6, 0)');
         this.ctx.fillStyle = grad;
         this.ctx.beginPath();
-        this.ctx.arc(sx, sy, visualR, 0, Math.PI * 2);
+        this.ctx.ellipse(sx, sy, visualR * 1.1, visualR * 1.1 * flattening, posAngle, 0, Math.PI * 2);
         this.ctx.fill();
       } else if (g.family === 'irregular') {
+        const knotPhase = Number(g.seed & 0xffn) * 0.0245;
+        const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, visualR);
+        grad.addColorStop(0, 'rgba(110, 231, 183, 0.85)');
+        grad.addColorStop(0.6, 'rgba(56, 189, 248, 0.35)');
+        grad.addColorStop(1, 'rgba(2, 6, 23, 0)');
+        this.ctx.fillStyle = grad;
+        this.ctx.beginPath();
+        this.ctx.arc(sx, sy, visualR * 0.85, 0, Math.PI * 2);
+        this.ctx.fill();
+
         this.ctx.fillStyle = '#34d399';
         this.ctx.beginPath();
-        this.ctx.arc(sx, sy, visualR * 0.6, 0, Math.PI * 2);
+        this.ctx.arc(sx, sy, visualR * 0.45, 0, Math.PI * 2);
         this.ctx.fill();
         this.ctx.fillStyle = '#38bdf8';
         this.ctx.beginPath();
-        this.ctx.arc(sx + visualR * 0.4, sy - visualR * 0.3, visualR * 0.4, 0, Math.PI * 2);
+        this.ctx.arc(
+          sx + Math.cos(knotPhase) * visualR * 0.42,
+          sy + Math.sin(knotPhase) * visualR * 0.34,
+          visualR * 0.34,
+          0,
+          Math.PI * 2,
+        );
         this.ctx.fill();
       } else if (g.family === 'barred-spiral') {
-        // Bar
-        this.ctx.strokeStyle = '#c084fc';
-        this.ctx.lineWidth = Math.max(2, visualR * 0.3);
+        const barAngle = g.bar.angleRad || posAngle;
+        const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, visualR);
+        grad.addColorStop(0, '#fef08a');
+        grad.addColorStop(0.45, 'rgba(192, 132, 252, 0.65)');
+        grad.addColorStop(1, 'rgba(147, 51, 234, 0)');
+        this.ctx.fillStyle = grad;
         this.ctx.beginPath();
-        this.ctx.moveTo(sx - visualR * 0.8, sy);
-        this.ctx.lineTo(sx + visualR * 0.8, sy);
+        this.ctx.ellipse(sx, sy, visualR, visualR * 0.62, barAngle, 0, Math.PI * 2);
+        this.ctx.fill();
+
+        const bx = Math.cos(barAngle) * visualR * 0.78;
+        const by = Math.sin(barAngle) * visualR * 0.78;
+        this.ctx.strokeStyle = '#e9d5ff';
+        this.ctx.lineWidth = Math.max(2, visualR * 0.26);
+        this.ctx.beginPath();
+        this.ctx.moveTo(sx - bx, sy - by);
+        this.ctx.lineTo(sx + bx, sy + by);
         this.ctx.stroke();
-        // Arms
-        this.ctx.strokeStyle = 'rgba(192, 132, 252, 0.6)';
+
+        this.ctx.strokeStyle = 'rgba(192, 132, 252, 0.72)';
         this.ctx.lineWidth = 1.5;
         this.ctx.beginPath();
-        this.ctx.arc(sx, sy, visualR * 0.8, 0, Math.PI * 1.4);
+        this.ctx.arc(sx, sy, visualR * 0.82, barAngle, barAngle + Math.PI * 0.82);
+        this.ctx.stroke();
+        this.ctx.beginPath();
+        this.ctx.arc(sx, sy, visualR * 0.82, barAngle + Math.PI, barAngle + Math.PI * 1.82);
         this.ctx.stroke();
       } else {
         // Spiral
-        const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, visualR);
+        const grad = this.ctx.createRadialGradient(sx, sy, 0, sx, sy, visualR * 1.05);
         grad.addColorStop(0, '#ffffff');
-        grad.addColorStop(0.3, '#38bdf8');
+        grad.addColorStop(0.32, '#38bdf8');
         grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
         this.ctx.fillStyle = grad;
         this.ctx.beginPath();
         this.ctx.arc(sx, sy, visualR, 0, Math.PI * 2);
         this.ctx.fill();
 
-        this.ctx.strokeStyle = 'rgba(56, 189, 248, 0.5)';
+        this.ctx.strokeStyle = 'rgba(125, 211, 252, 0.62)';
         this.ctx.lineWidth = 1.5;
         this.ctx.beginPath();
-        this.ctx.ellipse(sx, sy, visualR * 0.9, visualR * 0.45, Math.PI / 4, 0, Math.PI * 2);
+        this.ctx.ellipse(sx, sy, visualR * 0.92, visualR * 0.48, posAngle, 0, Math.PI * 2);
         this.ctx.stroke();
       }
 
@@ -620,8 +728,17 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
         this.ctx.stroke();
       }
 
+      // Hover halo
+      if (isHovered && !isSelected) {
+        this.ctx.beginPath();
+        this.ctx.arc(sx, sy, visualR + 8, 0, Math.PI * 2);
+        this.ctx.strokeStyle = 'rgba(224, 242, 254, 0.85)';
+        this.ctx.lineWidth = 1.6;
+        this.ctx.stroke();
+      }
+
       // Current player galaxy reticle
-      if (location.address.galaxyId === g.id && !location.transit) {
+      if (isCurrent) {
         this.ctx.beginPath();
         this.ctx.arc(sx, sy, visualR + 9, 0, Math.PI * 2);
         this.ctx.strokeStyle = '#ef4444';
@@ -629,14 +746,51 @@ export class CosmologyMapRenderer extends BaseMapRenderer {
         this.ctx.stroke();
       }
 
-      // Label
-      this.ctx.font = '11px "Inter", sans-serif';
-      this.ctx.textAlign = 'center';
-      this.ctx.fillStyle = g.isKnownAstronomicalEntity ? '#f8fafc' : '#cbd5e1';
-      this.ctx.fillText(g.name, sx, sy + visualR + 13);
-      this.ctx.font = '9px "Inter", sans-serif';
-      this.ctx.fillStyle = '#64748b';
-      this.ctx.fillText(`${g.morphology} · ${Math.round(g.diameterLy / 1000)} kly`, sx, sy + visualR + 24);
+      // Selected destination reticle
+      if (isSelected) {
+        this.ctx.beginPath();
+        this.ctx.arc(sx, sy, visualR + 12, 0, Math.PI * 2);
+        this.ctx.strokeStyle = '#facc15';
+        this.ctx.lineWidth = 2.2;
+        this.ctx.stroke();
+      }
+
+      // Smart label de-cluttering
+      const priorityLabel = g.isKnownAstronomicalEntity || isCurrent || isSelected || isHovered;
+      const labelW = Math.max(54, g.name.length * 6.5);
+      const labelH = 24;
+      const labelX = sx - labelW * 0.5;
+      const labelY = sy + visualR + 4;
+      const collides = placedLabels.some(
+        b =>
+          labelX < b.x + b.w &&
+          labelX + labelW > b.x &&
+          labelY < b.y + b.h &&
+          labelY + labelH > b.y,
+      );
+
+      if (priorityLabel || !collides) {
+        placedLabels.push({ x: labelX, y: labelY, w: labelW, h: labelH });
+        this.ctx.font = priorityLabel ? 'bold 11px "Inter", sans-serif' : '11px "Inter", sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.fillStyle = isSelected
+          ? '#facc15'
+          : g.isKnownAstronomicalEntity
+            ? '#f8fafc'
+            : '#cbd5e1';
+        this.ctx.fillText(g.name, sx, sy + visualR + 13);
+
+        if (priorityLabel || this.zoomMpc <= 36) {
+          const originTag = g.isKnownAstronomicalEntity ? 'CANÔNICA' : 'PROCEDURAL';
+          this.ctx.font = '9px "Inter", sans-serif';
+          this.ctx.fillStyle = isSelected ? '#fde047' : '#64748b';
+          this.ctx.fillText(
+            `${g.morphology} · ${Math.round(g.diameterLy / 1000)} kly · ${originTag}`,
+            sx,
+            sy + visualR + 24,
+          );
+        }
+      }
     }
 
     const scaleMly = (this.zoomMpc * MPC_LY) / 1_000_000;

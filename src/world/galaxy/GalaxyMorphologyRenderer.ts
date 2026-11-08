@@ -73,6 +73,9 @@ export class GalaxyMorphologyRenderer {
 
   private _currentLod: 0 | 1 | 2 = 0;
   private _particleCount = 0;
+  private _lodTransitionCount = 0;
+  private _lastProjectedPx = 0;
+  private _lastDistanceM = 0;
   private _disposed = false;
 
   // Uniforms for smooth exposure and fading
@@ -167,6 +170,26 @@ export class GalaxyMorphologyRenderer {
     return this._lod2Preheated;
   }
 
+  get lodTransitionCount(): number {
+    return this._lodTransitionCount;
+  }
+
+  get lastProjectedPx(): number {
+    return this._lastProjectedPx;
+  }
+
+  get lastDistanceM(): number {
+    return this._lastDistanceM;
+  }
+
+  getLodAlphas(): { lod0: number; lod1: number; lod2: number } {
+    return {
+      lod0: Number(this.uLod0Alpha.value),
+      lod1: Number(this.uLod1Alpha.value),
+      lod2: Number(this.uLod2Alpha.value),
+    };
+  }
+
   /**
    * Updates LOD tier with 15% directional hysteresis and predictive preheating.
    *
@@ -175,6 +198,9 @@ export class GalaxyMorphologyRenderer {
    */
   update(distanceM: number, projectedPx: number): void {
     if (this._disposed) return;
+
+    this._lastDistanceM = distanceM;
+    this._lastProjectedPx = projectedPx;
 
     const { lodThreshold01, lodThreshold12, hysteresisRatio } = this.options;
     const current = this._currentLod;
@@ -204,7 +230,23 @@ export class GalaxyMorphologyRenderer {
 
     if (next !== current) {
       this._currentLod = next;
+      this._lodTransitionCount++;
       this.applyLodVisibility(next);
+    }
+
+    // Smooth exposure modulation within active LOD tier
+    const safePx = Math.max(0, Number.isFinite(projectedPx) ? projectedPx : 0);
+    if (next === 0) {
+      const t0 = Math.min(1, safePx / Math.max(1, lodThreshold01));
+      this.uLod0Alpha.value = 0.84 + 0.16 * t0;
+    } else if (next === 1) {
+      const lowBand = lodThreshold01 * hysteresisRatio;
+      const t1 = Math.min(1, Math.max(0, (safePx - lowBand) / Math.max(1, lodThreshold01 * 0.5)));
+      this.uLod1Alpha.value = 0.86 + 0.14 * t1;
+    } else {
+      const lowBand2 = lodThreshold12 * hysteresisRatio;
+      const t2 = Math.min(1, Math.max(0, (safePx - lowBand2) / Math.max(1, lodThreshold12 * 0.35)));
+      this.uLod2Alpha.value = 0.88 + 0.12 * t2;
     }
   }
 

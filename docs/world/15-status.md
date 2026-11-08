@@ -1,6 +1,23 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.4.9 Recuperação das Regressões U2/U3 e Reutilização Correta de Sessões (2026-11-07)
+## Current checkpoint — U4.5.1 Cosmic Exploration Experience (2026-11-07)
+
+Baseline auditado do U4.4.9 no commit `97c6ad14c67b8316201ce83c2a56ffe3c096a294` aprovado integralmente no GitHub Actions Run `42398634062` (TypeScript PASS, 638/638 regressões permanentes, 1.543/1.543 testes gerais, build Vite PASS). O patch U4.5.1 inaugura a fase de Experiência de Exploração Cósmica em quatro etapas integradas:
+1. `HypercruisePresentation.ts`:
+   - Perfis visuais explícitos e interpolados por fase (`spool`, `acceleration`, `cruise`, `deceleration`, `emergency-deceleration`, `arrival-hold`, `arrival`, `coasting`) e domínio (`interstellar` vs `intergalactic`), com cores por vértice, camadas de paralaxe e suporte opcional a `reducedMotion`.
+   - Proxies morfológicos determinísticos tanto para galáxias canônicas quanto para galáxias procedurais em trânsito (`proxyCacheKey(galaxyId, universeSeed)`), utilizando `GalaxyPointCloudProvider` e `resolveGalaxyDescriptor(def)` com orientação real `orientationEuler`, zero rebuild por frame, cache LRU limitado e `dispose()` completo.
+2. `MapRenderers.ts`, `UniversalMapPanel.ts` e `MapNavigationModel.ts`:
+   - Correção do cache de região visível (`cachedVisibleKey`) em `CosmologyMapRenderer` para considerar deslocamentos sub-célula (`panOffsetMpc`) e semente universal sem perder precisão `BigInt3`.
+   - Zoom relativo ao cursor, feedback de hover, desambiguação de rótulos, silhuetas morfológicas (`spiral`, `barred-spiral`, `elliptical`, `irregular`) e retículos distintos para galáxia canônica (`#38bdf8`), atual (`#ef4444`) e selecionada (`#facc15`).
+   - Painel de destino (`#universal-target-card`) estruturado em 4 seções: **IDENTIDADE**, **POSIÇÃO**, **EXPLORAÇÃO** e **NAVEGAÇÃO** (com diagnóstico de disponibilidade e atalho `[P]`).
+3. `GalaxyMorphologyRenderer.ts` e `HypercruiseTelemetry.ts`:
+   - Modulação suave de exposição alfa entre níveis de LOD (`getLodAlphas()`) e instrumentação de transições com histerese de 15% (`lodTransitionCount`).
+   - Telemetria de Hypercruise enriquecida com `FASE`, `GALÁXIA DE DESTINO` e distinção explícita entre `VELOCIDADE EFETIVA` (FTL) e `VELOCIDADE LOCAL` (`0 m/s · FRAME ANCORADO`).
+4. `tests/cosmic-exploration-u45.test.ts`:
+   - Cobertura completa dos 14 contratos de exploração cósmica, proxies procedurais, mapa Cosmos, painel de destino, continuidade de chegada, histerese LOD e isolamento multissemente.
+Evidence: [42-status-U4.5-COSMIC-EXPLORATION-EXPERIENCE.md](42-status-U4.5-COSMIC-EXPLORATION-EXPERIENCE.md).
+
+## Previous checkpoint — U4.4.9 Recuperação das Regressões U2/U3 e Reutilização Correta de Sessões (2026-11-07)
 
 Baseline auditado do U4.4.8 no commit `60eff2731fb61d82f4dbcd5ca7841283c41477b9` passou no TypeScript, mas reprovou no gate permanente de regressões (GitHub Actions Run `42394939637`: 627/638 aprovadas, 11 falhas em transições U2/U3 por `Conflito de provider: "galaxy/star-sectors" já registrado por outra instância`). O patch U4.4.9 restaura a equivalência de identidade das sessões canônicas, preserva a segurança contra colisões e restabelece as 11 regressões:
 1. `GalaxyDefinition.ts` e `GalaxyRuntime.ts`:
