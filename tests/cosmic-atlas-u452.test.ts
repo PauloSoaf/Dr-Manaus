@@ -57,10 +57,23 @@ test('T_U452_01_ATLAS_BASELINE_INITIALIZATION', () => {
     assert.equal(atlas.isVisited('universe/milky_way/0,0,0/system/sol/body/mars'), false);
 
     const stats = atlas.getStatistics('milky_way');
-    assert.ok(stats.totalGalaxies >= 5, 'Should include local group canonical galaxies');
+    assert.ok(stats.totalGalaxies >= 2, 'Should include local group canonical galaxies');
+    assert.equal(stats.canonicalGalaxies >= 2, true);
+    assert.equal(stats.proceduralGalaxies, 0, 'No procedural galaxies discovered yet at baseline');
+    assert.equal(stats.totalGalaxies, stats.canonicalGalaxies + stats.proceduralGalaxies);
     assert.ok(stats.totalSystems >= 1, 'Should include solar system');
     assert.equal(stats.visitedCount >= 3, true);
     assert.equal(stats.favoritesCount, 0);
+
+    // Confirm presence of canonical galaxies in atlas query
+    const res = atlas.query({ kind: 'galaxy' });
+    const galaxyKeys = res.entries.map(e => e.key);
+    assert.ok(galaxyKeys.includes('galaxy/milky_way'));
+    assert.ok(galaxyKeys.includes('galaxy/andromeda'));
+    assert.equal(res.statistics.totalGalaxies, stats.totalGalaxies);
+    assert.equal(res.statistics.totalKnown, stats.totalKnown);
+    assert.equal(res.statistics.canonicalGalaxies, stats.canonicalGalaxies);
+    assert.equal(res.statistics.proceduralGalaxies, stats.proceduralGalaxies);
   } finally {
     restore();
   }
@@ -556,8 +569,53 @@ test('T_U452_12_ATLAS_UPDATE_DOM_STABILITY', () => {
     panel.update(newLocation, dummyVec, undefined, [], undefined, []);
     assert.equal(renderAtlasCount, 1, 'Address change must trigger atlas update');
     assert.equal(panel.atlasModel.isVisited('galaxy/andromeda'), true);
+
+    // Consecutive update with same newLocation: must NOT trigger additional rebuild
+    panel.update(newLocation, dummyVec, undefined, [], undefined, []);
+    assert.equal(renderAtlasCount, 1, 'Subsequent update without change must keep atlas DOM untouched');
+
+    // Selection change: should trigger atlas update to refresh card selection indicator
+    const mockFlight = { universalTarget: { target: { key: 'galaxy/andromeda' } } } as any;
+    panel.update(newLocation, dummyVec, undefined, [], mockFlight, []);
+    assert.equal(renderAtlasCount, 2, 'Selection change must trigger atlas update');
   } finally {
     (globalThis as any).document = prevDoc;
+    restoreStorage();
+  }
+});
+
+test('T_U452_13_STATISTICS_UNIFICATION_AND_DEDUPLICATION', () => {
+  const restoreStorage = mockStorage();
+  try {
+    const save = new SaveManager();
+    const catalog = new UniversalTargetCatalog();
+    const atlas = new CosmicAtlasModel(catalog, save);
+
+    // Register a procedural discovery
+    const procGalaxy: UniversalTargetDescriptor = {
+      kind: 'galaxy',
+      displayName: 'DM-PG-001',
+      objectId: 'galaxy_c_10_20_30_0',
+      galaxyId: 'galaxy_c_10_20_30_0',
+    };
+    atlas.recordDiscovery(procGalaxy);
+
+    const statsDirect = atlas.getStatistics('milky_way');
+    const queryResult = atlas.query({}, 'milky_way');
+    const statsQuery = queryResult.statistics;
+
+    assert.equal(statsDirect.totalKnown, statsQuery.totalKnown);
+    assert.equal(statsDirect.totalGalaxies, statsQuery.totalGalaxies);
+    assert.equal(statsDirect.canonicalGalaxies, statsQuery.canonicalGalaxies);
+    assert.equal(statsDirect.proceduralGalaxies, statsQuery.proceduralGalaxies);
+    assert.equal(statsDirect.proceduralGalaxies, 1);
+    assert.equal(statsDirect.canonicalGalaxies, 2);
+    assert.equal(statsDirect.totalGalaxies, 3);
+    assert.equal(statsDirect.totalSystems, statsQuery.totalSystems);
+    assert.equal(statsDirect.visitedCount, statsQuery.visitedCount);
+    assert.equal(statsDirect.favoritesCount, statsQuery.favoritesCount);
+    assert.equal(statsDirect.flyableCount, statsQuery.flyableCount);
+  } finally {
     restoreStorage();
   }
 });

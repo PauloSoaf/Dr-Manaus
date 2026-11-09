@@ -1,6 +1,22 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.2.1 Recuperação do CI, Desacoplamento de Orientação e Estabilidade da DOM do Atlas (2026-11-08)
+## Current checkpoint — U4.5.2.2 Fechamento dos 2 Testes do Atlas Cósmico e Unificação de Estatísticas (2026-11-08)
+
+Auditado após o CI do commit `b43ea015b1b3ab37862ace7570b927d23062824f` (Run `42535234334`: TypeScript PASS, 638/638 regressões aprovadas, 1.560/1.562 testes gerais, falhas em `T_U452_01` e `T_U452_12`). O patch U4.5.2.2 resolve as duas falhas com correções estritas e unifica o cálculo de estatísticas:
+1. `tests/cosmic-atlas-u452.test.ts` (`T_U452_01_ATLAS_BASELINE_INITIALIZATION`):
+   - Alinhada a asserção à realidade astronômica de `LOCAL_GROUP_CATALOG` (`milky_way` e `andromeda`, contagem canônica = 2), sem inventar galáxias fictícias ou corromper a autoridade de coordenadas.
+   - Adicionada verificação explícita da presença das chaves `galaxy/milky_way` e `galaxy/andromeda`, separação estrita entre canônicas catalogadas e procedurais descobertas (`proceduralGalaxies === 0` no baseline) e consistência entre `getStatistics()` e `query().statistics`.
+2. `src/ui/map/UniversalMapPanel.ts` (`T_U452_12_ATLAS_UPDATE_DOM_STABILITY`):
+   - Inicializados no construtor `this.lastAtlasGalaxyId = initialLocation.address.galaxyId;`, `this.lastAtlasSelectedKey = undefined;` e `this.atlasDirty = false;`.
+   - Elimina o falso positivo de transição de galáxia (`currentGalaxyId !== undefined`) no primeiro tick de `update()`, garantindo exatamente 0 reconstruções do DOM do Atlas em updates ociosos sem mudança de endereço ou seleção.
+3. `src/world/exploration/CosmicAtlasModel.ts`:
+   - Unificado o cálculo de estatísticas entre `getStatistics(currentGalaxyId)` e `query().statistics` através de `collectTargetMap()` e `computeStatistics()`.
+   - Deduplicação canônica por chave universal em $O(N)$, eliminando duplicidade de contagem de descritores entre catálogos e mapas internos, sincronizando `totalKnown`, `totalGalaxies`, `canonicalGalaxies`, `proceduralGalaxies`, `totalSystems` e `flyableCount`.
+4. `tests/cosmic-atlas-u452.test.ts`:
+   - Adicionado teste `T_U452_13_STATISTICS_UNIFICATION_AND_DEDUPLICATION` e expandido `T_U452_12` para validar updates consecutivos ociosos e atualização controlada por seleção.
+Evidence: [43-status-U4.5.2-COSMIC-ATLAS.md](43-status-U4.5.2-COSMIC-ATLAS.md).
+
+## Previous checkpoint — U4.5.2.1 Recuperação do CI, Desacoplamento de Orientação e Estabilidade da DOM do Atlas (2026-11-08)
 
 Auditado após o CI do commit `b4ca622255d934259686ee2ce822e1487f72715d` (Run `42519003427` com 2 erros TS2339 em `Game.ts:157-158`). O patch corretivo U4.5.2.1 sana todos os erros e reforça a integridade arquitetural:
 1. `src/game/Game.ts`:

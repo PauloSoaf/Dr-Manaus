@@ -79,7 +79,18 @@
 
 ---
 
-## 6. Roteiro de Homologação Manual
+## 6. Patch Corretivo U4.5.2.2: Fechamento dos 2 Testes e Unificação de Estatísticas
+
+- **Baseline auditado:** Commit `b43ea015b1b3ab37862ace7570b927d23062824f` (CI Run `42535234334`: TypeScript PASS, 638/638 regressões aprovadas, 1.560/1.562 testes gerais, falhas em `T_U452_01` e `T_U452_12`).
+- **Problemas resolvidos:**
+  1. `T_U452_01_ATLAS_BASELINE_INITIALIZATION`: alinhada a asserção às galáxias reais de `LOCAL_GROUP_CATALOG` (`milky_way` e `andromeda`, contagem canônica = 2), sem inventar galáxias fictícias ou corromper a autoridade de coordenadas. Adicionada verificação explícita de `galaxy/milky_way`, `galaxy/andromeda`, distinção entre canônicas e procedurais, e consistência entre `getStatistics()` e `query().statistics`.
+  2. `T_U452_12_ATLAS_UPDATE_DOM_STABILITY`: no construtor de `UniversalMapPanel`, inicializados `this.lastAtlasGalaxyId = initialLocation.address.galaxyId`, `this.lastAtlasSelectedKey = undefined` e `this.atlasDirty = false`. Elimina o falso positivo de transição no primeiro tick de `update()`, garantindo exatamente 0 reconstruções em updates ociosos.
+  3. Unificação de Estatísticas (`CosmicAtlasModel.ts`): centralização em `collectTargetMap()` e `computeStatistics()`, aplicando deduplicação canônica em $O(N)$ e garantindo coerência matemática absoluta entre `getStatistics()` e `query().statistics`.
+  4. Suíte de testes: adicionado `T_U452_13_STATISTICS_UNIFICATION_AND_DEDUPLICATION` e expandido `T_U452_12` com validação de updates consecutivos e seleção.
+
+---
+
+## 7. Roteiro de Homologação Manual
 
 1. Abrir o jogo na porta 9999 (`http://localhost:9999`).
 2. Pressionar `M` para abrir o Mapa Universal.

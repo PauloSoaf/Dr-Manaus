@@ -161,6 +161,9 @@ export class UniversalMapPanel {
     };
     this.atlasModel = atlasModel ?? new CosmicAtlasModel(new UniversalTargetCatalog(undefined, this.renderers.cosmology.discovery), undefined, this.renderers.cosmology.discovery);
     this.lastRecordedAddressKey = this.getAddressKey(initialLocation.address);
+    this.lastAtlasGalaxyId = initialLocation.address.galaxyId;
+    this.lastAtlasSelectedKey = undefined;
+    this.atlasDirty = false;
     this.atlasModel.recordArrival(initialLocation);
 
     this.bindCanvasListeners(canvas);

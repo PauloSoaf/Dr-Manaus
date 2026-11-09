@@ -270,36 +270,78 @@ export class CosmicAtlasModel {
     return this.history;
   }
 
-  getStatistics(currentGalaxyId?: string): CosmicAtlasStatistics {
+  private collectTargetMap(): Map<string, UniversalTargetDescriptor> {
+    const targetMap = new Map<string, UniversalTargetDescriptor>();
+    for (const [k, d] of this.discoveredGalaxies) targetMap.set(k, d);
+    for (const [k, d] of this.identifiedSystems) targetMap.set(k, d);
+    for (const d of this.catalog.descriptors) targetMap.set(universalTargetKey(d), d);
+    for (const favKey of this.favoriteKeys) {
+      if (!targetMap.has(favKey)) {
+        const d = this.catalog.find(favKey);
+        if (d) targetMap.set(universalTargetKey(d), d);
+      }
+    }
+    return targetMap;
+  }
+
+  private computeStatistics(
+    targetMap: Map<string, UniversalTargetDescriptor>,
+    currentGalaxyId?: string,
+  ): CosmicAtlasStatistics {
     let proceduralCount = 0;
     let canonicalCount = 0;
     let galaxyCount = 0;
     let systemCount = 0;
-
-    for (const desc of this.discoveredGalaxies.values()) {
-      galaxyCount++;
-      const isCanonical = desc.galaxyId ? isCanonicalGalaxyId(desc.galaxyId) : true;
-      if (isCanonical) canonicalCount++;
-      else proceduralCount++;
-    }
-
-    systemCount = this.identifiedSystems.size;
-
     let flyableCount = 0;
     const seed = this.discovery?.universeSeed ?? DEFAULT_UNIVERSE_SEED;
-    for (const desc of this.discoveredGalaxies.values()) {
-      const guidance = describeNavigationGuidance(
-        desc.galaxyId !== currentGalaxyId ? 'intergalactic' : 'intra-system',
-        desc.kind,
-        desc.galaxyId,
-        currentGalaxyId,
-        seed,
-      );
-      if (guidance.available) flyableCount++;
+
+    for (const desc of targetMap.values()) {
+      const isCanonical = desc.galaxyId ? isCanonicalGalaxyId(desc.galaxyId) : true;
+      if (desc.kind === 'galaxy') {
+        galaxyCount++;
+        if (isCanonical) canonicalCount++;
+        else proceduralCount++;
+      } else if (desc.kind === 'system') {
+        systemCount++;
+      }
+
+      let canTravel = false;
+      if (this.resolver) {
+        try {
+          const target = createUniversalTarget(desc);
+          const resolved = this.resolver.resolve(target);
+          const guidance = describeNavigationGuidance(
+            resolved.travelCapability,
+            target.kind,
+            target.galaxyId,
+            currentGalaxyId,
+            seed,
+          );
+          canTravel = guidance.available;
+        } catch {
+          canTravel = false;
+        }
+      } else {
+        const capability = desc.kind === 'galaxy' && desc.galaxyId !== currentGalaxyId
+          ? 'intergalactic'
+          : desc.kind === 'system'
+            ? 'interstellar'
+            : 'intra-system';
+        const guidance = describeNavigationGuidance(
+          capability,
+          desc.kind,
+          desc.galaxyId,
+          currentGalaxyId,
+          seed,
+        );
+        canTravel = guidance.available;
+      }
+
+      if (canTravel) flyableCount++;
     }
 
     return {
-      totalKnown: this.discoveredGalaxies.size + this.identifiedSystems.size + this.catalog.descriptors.length,
+      totalKnown: targetMap.size,
       totalGalaxies: galaxyCount,
       proceduralGalaxies: proceduralCount,
       canonicalGalaxies: canonicalCount,
@@ -308,6 +350,11 @@ export class CosmicAtlasModel {
       favoritesCount: this.favoriteKeys.size,
       flyableCount,
     };
+  }
+
+  getStatistics(currentGalaxyId?: string): CosmicAtlasStatistics {
+    const targetMap = this.collectTargetMap();
+    return this.computeStatistics(targetMap, currentGalaxyId);
   }
 
   query(options: CosmicAtlasFilterOptions = {}, currentGalaxyId?: string): CosmicAtlasQueryResult {
@@ -354,44 +401,19 @@ export class CosmicAtlasModel {
       }
     }
 
-    // Collect all candidate target descriptors
-    const targetMap = new Map<string, UniversalTargetDescriptor>();
-
-    for (const [k, d] of this.discoveredGalaxies) targetMap.set(k, d);
-    for (const [k, d] of this.identifiedSystems) targetMap.set(k, d);
-    for (const d of this.catalog.descriptors) targetMap.set(universalTargetKey(d), d);
-
-    // If favorite is not in targetMap, look it up in catalog
-    for (const favKey of this.favoriteKeys) {
-      if (!targetMap.has(favKey)) {
-        const d = this.catalog.find(favKey);
-        if (d) targetMap.set(universalTargetKey(d), d);
-      }
-    }
+    // Collect all candidate target descriptors and calculate unified statistics
+    const targetMap = this.collectTargetMap();
+    const statistics = this.computeStatistics(targetMap, currentGalaxyId);
 
     // Build evaluated entries
     const allEntries: CosmicAtlasEntry[] = [];
     const seed = this.discovery?.universeSeed ?? DEFAULT_UNIVERSE_SEED;
-
-    let proceduralCount = 0;
-    let canonicalCount = 0;
-    let galaxyCount = 0;
-    let systemCount = 0;
-    let flyableCount = 0;
 
     for (const desc of targetMap.values()) {
       const key = universalTargetKey(desc);
       const target = createUniversalTarget(desc);
       const isCanonical = desc.galaxyId ? isCanonicalGalaxyId(desc.galaxyId) : true;
       const galaxyMeta = desc.galaxyId && this.discovery ? this.discovery.findGalaxyById(desc.galaxyId) : undefined;
-
-      if (desc.kind === 'galaxy') {
-        galaxyCount++;
-        if (isCanonical) canonicalCount++;
-        else proceduralCount++;
-      } else if (desc.kind === 'system') {
-        systemCount++;
-      }
 
       // Resolve navigation / distance / guidance
       let distanceM: number | undefined;
@@ -437,8 +459,6 @@ export class CosmicAtlasModel {
         shortcutHint = guidance.shortcutHint;
         canTravel = guidance.available;
       }
-
-      if (canTravel) flyableCount++;
 
       const visited = this.visitedTargets.has(key);
       const favorite = this.favoriteKeys.has(key);
@@ -550,17 +570,6 @@ export class CosmicAtlasModel {
     const totalCount = allEntries.length;
     const sliced = allEntries.slice(offset, offset + limit);
     const hasMore = offset + limit < totalCount;
-
-    const statistics: CosmicAtlasStatistics = {
-      totalKnown: targetMap.size,
-      totalGalaxies: galaxyCount,
-      proceduralGalaxies: proceduralCount,
-      canonicalGalaxies: canonicalCount,
-      totalSystems: systemCount,
-      visitedCount: this.visitedTargets.size,
-      favoritesCount: this.favoriteKeys.size,
-      flyableCount,
-    };
 
     return {
       entries: Object.freeze(sliced),
