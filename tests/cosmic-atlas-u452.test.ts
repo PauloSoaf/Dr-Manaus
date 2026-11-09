@@ -25,6 +25,7 @@ import {
   UniversalMapPanel,
 } from '../src/ui/map/UniversalMapPanel';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime';
+import type { HUDFlightTelemetry } from '../src/ui/HUD';
 
 function mockStorage(initial: Record<string, string> = {}): () => void {
   const previous = globalThis.localStorage;
@@ -446,28 +447,52 @@ function createMockElement(tagName = 'div'): any {
     },
   });
 
-  element.querySelector = (selector: string) => {
+  element.querySelector = (selector: string): any => {
     if (selector.startsWith('#')) {
       const id = selector.slice(1);
-      return children.find(c => c.id === id) ?? null;
+      const findRecursive = (el: any): any => {
+        if (el.id === id) return el;
+        for (const child of el.children) {
+          const found = findRecursive(child);
+          if (found) return found;
+        }
+        return null;
+      };
+      return findRecursive(element);
     }
     if (selector.startsWith('.')) {
-      return children.find(c => c.className?.includes(selector.slice(1))) ?? null;
+      const cls = selector.slice(1);
+      const findRecursive = (el: any): any => {
+        if (el !== element && el.className?.includes(cls)) return el;
+        for (const child of el.children) {
+          const found = findRecursive(child);
+          if (found) return found;
+        }
+        return null;
+      };
+      return findRecursive(element);
     }
     return children[0] ?? null;
   };
 
-  element.querySelectorAll = (selector: string) => {
-    if (selector.includes('[data-map-level]')) {
-      return children.filter(c => c.dataset?.mapLevel !== undefined);
-    }
-    if (selector.includes('[data-target-fav-toggle]')) {
-      return children.filter(c => c.dataset?.targetFavToggle !== undefined);
-    }
-    if (selector.includes('[data-atlas-toggle-fav]')) {
-      return children.filter(c => c.dataset?.atlasToggleFav !== undefined);
-    }
-    return children;
+  element.querySelectorAll = (selector: string): any[] => {
+    const results: any[] = [];
+    const collectRecursive = (el: any) => {
+      if (el !== element) {
+        if (selector.includes('[data-map-level]') && el.dataset?.mapLevel !== undefined) {
+          results.push(el);
+        } else if (selector.includes('[data-target-fav-toggle]') && el.dataset?.targetFavToggle !== undefined) {
+          results.push(el);
+        } else if (selector.includes('[data-atlas-toggle-fav]') && el.dataset?.atlasToggleFav !== undefined) {
+          results.push(el);
+        }
+      }
+      for (const child of el.children) {
+        collectRecursive(child);
+      }
+    };
+    collectRecursive(element);
+    return results.length > 0 ? results : children;
   };
 
   return element;
@@ -523,7 +548,10 @@ test('T_U452_12_ATLAS_UPDATE_DOM_STABILITY', () => {
     activeElement: null,
   };
 
+  const universe = new UniverseRuntime();
   try {
+    const catalog = new UniversalTargetCatalog(universe.solarSystem);
+    const resolver = new UniversalTargetResolver(catalog, universe);
     const container = createMockElement('div');
     const initialLocation: UniverseLocation = {
       address: {
@@ -557,6 +585,10 @@ test('T_U452_12_ATLAS_UPDATE_DOM_STABILITY', () => {
     panel.update(initialLocation, dummyVec, undefined, [], undefined, []);
     assert.equal(renderAtlasCount, 0, 'Frame update without address/selection change must not rebuild atlas DOM');
 
+    // Consecutive update with same location: still 0 rebuilds
+    panel.update(initialLocation, dummyVec, undefined, [], undefined, []);
+    assert.equal(renderAtlasCount, 0, 'Consecutive idle update must not rebuild atlas DOM');
+
     // Update with new galaxy location: should trigger arrival & render
     const newLocation: UniverseLocation = {
       address: {
@@ -574,11 +606,43 @@ test('T_U452_12_ATLAS_UPDATE_DOM_STABILITY', () => {
     panel.update(newLocation, dummyVec, undefined, [], undefined, []);
     assert.equal(renderAtlasCount, 1, 'Subsequent update without change must keep atlas DOM untouched');
 
-    // Selection change: should trigger atlas update to refresh card selection indicator
-    const mockFlight = { universalTarget: { target: { key: 'galaxy/andromeda' } } } as any;
+    // Selection change: resolve Andromeda target via real catalog and resolver
+    const andromedaTarget = catalog.target('andromeda');
+    assert.ok(andromedaTarget, 'Andromeda target must exist in catalog');
+    const resolved = resolver.resolve(andromedaTarget);
+
+    assert.equal(resolved.target.key, 'galaxy/andromeda');
+    assert.equal(resolved.target.displayName, 'Andromeda');
+    assert.equal(resolved.target.kind, 'galaxy');
+    assert.equal(resolved.target.galaxyId, 'andromeda');
+    assert.equal(resolved.valid, true);
+    assert.equal(resolved.materialized, false);
+    assert.equal(resolved.domain, 'intergalactic');
+    assert.equal(resolved.travelCapability, 'intergalactic');
+
+    const mockFlight: HUDFlightTelemetry = {
+      universalTarget: resolved,
+      speedMps: 0,
+      accelerationMps2: 0,
+      phase: 'idle',
+      targetName: resolved.target.displayName,
+      distanceToTargetM: resolved.distanceM,
+    };
+
     panel.update(newLocation, dummyVec, undefined, [], mockFlight, []);
     assert.equal(renderAtlasCount, 2, 'Selection change must trigger atlas update');
+
+    // Update with unchanged selection: must NOT trigger additional rebuild
+    panel.update(newLocation, dummyVec, undefined, [], mockFlight, []);
+    assert.equal(renderAtlasCount, 2, 'Unchanged selection update must not rebuild atlas DOM');
+
+    // Target details must appear in card
+    const whereAmICard = container.querySelector('#where-am-i-card');
+    assert.ok(whereAmICard, 'Sidebar card element must exist');
+    assert.ok(whereAmICard.innerHTML.includes('Andromeda'), 'Card HTML must include selected target name');
+    assert.ok(whereAmICard.innerHTML.includes('ALVO DE NAVEGAÇÃO'), 'Card HTML must include target section');
   } finally {
+    universe.dispose();
     (globalThis as any).document = prevDoc;
     restoreStorage();
   }

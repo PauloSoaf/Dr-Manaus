@@ -1,6 +1,16 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.2.2 Fechamento dos 2 Testes do Atlas Cósmico e Unificação de Estatísticas (2026-11-08)
+## Current checkpoint — U4.5.2.3 Resolução do Fixture de Seleção e Fechamento Integral do Atlas (2026-11-08)
+
+Auditado após o CI do commit `691866ec52b778bd7b27fcfff56305561f542177` (Run `42540360712`: TypeScript PASS, 638/638 regressões aprovadas, 1.562/1.563 testes gerais, única falha em `T_U452_12`). O patch U4.5.2.3 fecha o ciclo corretivo da suíte:
+1. `tests/cosmic-atlas-u452.test.ts` (`T_U452_12_ATLAS_UPDATE_DOM_STABILITY`):
+   - Substituído o mock parcial não tipado por um `ResolvedUniversalTarget` autêntico e completo gerado via `UniversalTargetCatalog.target('andromeda')` e `UniversalTargetResolver.resolve()`.
+   - Provê `target.displayName`, `target.kind`, `target.galaxyId`, `valid`, `materialized`, `domain` e `travelCapability`, eliminando o `TypeError: Cannot read properties of undefined (reading 'replace')` no renderizador do cartão (`escapeHtml`).
+   - Adicionada busca recursiva nos seletores de `createMockElement` (`querySelector`/`querySelectorAll`) para localizar elementos aninhados na árvore de layout.
+   - Valida ciclo completo de estabilidade do Atlas: 0 reconstruções em atualizações ociosas consecutivas, 1 reconstrução em transição de galáxia, 2 reconstruções ao selecionar novo alvo, e 0 reconstruções adicionais em atualizações subsequentes com a mesma seleção, além de checar a presença dos dados do alvo no cartão lateral.
+Evidence: [43-status-U4.5.2-COSMIC-ATLAS.md](43-status-U4.5.2-COSMIC-ATLAS.md).
+
+## Previous checkpoint — U4.5.2.2 Fechamento dos 2 Testes do Atlas Cósmico e Unificação de Estatísticas (2026-11-08)
 
 Auditado após o CI do commit `b43ea015b1b3ab37862ace7570b927d23062824f` (Run `42535234334`: TypeScript PASS, 638/638 regressões aprovadas, 1.560/1.562 testes gerais, falhas em `T_U452_01` e `T_U452_12`). O patch U4.5.2.2 resolve as duas falhas com correções estritas e unifica o cálculo de estatísticas:
 1. `tests/cosmic-atlas-u452.test.ts` (`T_U452_01_ATLAS_BASELINE_INITIALIZATION`):

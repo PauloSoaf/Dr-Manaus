@@ -90,7 +90,32 @@
 
 ---
 
-## 7. Roteiro de Homologação Manual
+## 7. Patch Corretivo U4.5.2.3: Resolução do Fixture de Seleção e Fechamento Integral do Atlas
+
+- **Baseline auditado:** Commit `691866ec52b778bd7b27fcfff56305561f542177` (CI Run `42540360712`: TypeScript PASS, 638/638 regressões permanentes aprovadas, 1.562/1.563 testes gerais, única falha em `T_U452_12_ATLAS_UPDATE_DOM_STABILITY`).
+- **Problema identificado:**
+  - No teste `T_U452_12`, a simulação de seleção usava um mock incompleto `{ universalTarget: { target: { key: 'galaxy/andromeda' } } } as any`.
+  - Ao invocar `UniversalMapPanel.update()` com esse mock, o método `updateCard()` delegava a renderização para `renderUniversalTargetCardHtml()`, que executava `escapeHtml(t.displayName)` diretamente. Com `displayName === undefined`, `escapeHtml()` lançava `TypeError: Cannot read properties of undefined (reading 'replace')`.
+- **Soluções implementadas:**
+  1. `tests/cosmic-atlas-u452.test.ts` (`T_U452_12_ATLAS_UPDATE_DOM_STABILITY`):
+     - Substituído o mock raso por um `ResolvedUniversalTarget` autêntico gerado a partir de instâncias reais de `UniverseRuntime`, `UniversalTargetCatalog` e `UniversalTargetResolver`.
+     - Validada a integridade completa dos metadados resolvidos de Andrômeda (`target.key === 'galaxy/andromeda'`, `displayName === 'Andromeda'`, `kind === 'galaxy'`, `galaxyId === 'andromeda'`, `valid === true`, `materialized === false`, `domain === 'intergalactic'`, `travelCapability === 'intergalactic'`).
+     - Tipada a telemetria do mock flight com `HUDFlightTelemetry`, repassando o `universalTarget` resolvido real.
+  2. Implementação de busca recursiva nos seletores de `createMockElement`:
+     - O simulador de DOM simplificado inspecionava apenas filhos diretos em `querySelector` e `querySelectorAll`. Como os subcomponentes como `#where-am-i-card` residem em `this.root` aninhado ao contêiner, os métodos foram atualizados com busca recursiva em profundidade por `id` e classes.
+  3. Validação sequencial da estabilidade da DOM:
+     - 0 reconstruções no primeiro update sem alteração.
+     - 0 reconstruções em update ocioso consecutivo.
+     - 1 reconstrução em transição de endereço para nova galáxia.
+     - 1 reconstrução em update consecutivo mantendo a mesma galáxia.
+     - 2 reconstruções ao selecionar novo alvo intergaláctico (Andrômeda).
+     - 2 reconstruções em update subsequente mantendo o mesmo alvo selecionado.
+     - Validação explícita de conteúdo no cartão `#where-am-i-card`, confirmando que os dados de destino são formatados e injetados com sucesso.
+  4. Gerenciamento seguro de recursos com `universe.dispose()` em bloco `try/finally`.
+
+---
+
+## 8. Roteiro de Homologação Manual
 
 1. Abrir o jogo na porta 9999 (`http://localhost:9999`).
 2. Pressionar `M` para abrir o Mapa Universal.
