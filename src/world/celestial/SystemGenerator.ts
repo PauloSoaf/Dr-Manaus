@@ -304,7 +304,7 @@ export function generateSystem(starId: string, starSeed: bigint, properties: num
       } else if (tempK >= 230 && tempK <= 340 && baseHasAtmosphere && sub.chance(0.65)) {
         classification = 'oceanic-rocky';
         label = 'Planeta Oceânico';
-        description = 'Mundo temperado com hidrosfera líquida e atmosfera respirável.';
+        description = 'Mundo temperado com hidrosfera líquida e atmosfera rica em voláteis (composição não confirmada).';
         visualAlbedo = [0.20, 0.46, 0.88];
         haze = { radiusScale: 1.08, strength: 0.35 };
         pointGlowStrength = 0.4;

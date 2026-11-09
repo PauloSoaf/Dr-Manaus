@@ -1,6 +1,31 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.3 Diversidade Estelar e Planetária Procedural (2026-11-08)
+## Current checkpoint — U4.5.3.1 Integração Real dos Mundos Procedurais ao Atlas, Taxonomia Canônica e Precisão de Pouso (2026-11-08)
+
+Implementado com base no baseline auditado do commit `356b98eb3041b21bba488751c37d1fbbb621d9c1` (Runs `42543820898` e `42543814817` 100% verdes: 1.573/1.573 testes, 638/638 regressões permanentes):
+1. `src/world/travel/UniversalTargetCatalog.ts`:
+   - Decodificação e instanciação determinística de chaves universais completas (`universe/:galaxyId/:x,:y,:z/system/:systemId[/(body|star)/:bodyId]`) e identificadores procedurais de corpos e estrelas no método `find(query)`.
+2. `src/world/exploration/CosmicAtlasModel.ts`:
+   - Exportada a função `isCanonicalTarget(desc)`: classifica como canônicos exclusivamente as galáxias do Grupo Local, o Sistema Solar (`sol`), os corpos canônicos solares e `sgra`; mundos procedurais dentro da Via Láctea ou de outras galáxias são categorizados como procedurais sintéticos.
+   - Adicionado mapa `discoveredBodies` e auto-registro dos corpos filhos ao descobrir um sistema estelar (`recordDiscovery`) ou ancorar em um endereço procedural (`recordArrival`).
+   - Visitação estrita mantida: na chegada a um sistema procedural, apenas o corpo físico de pouso/órbita recebe `visited: true`, mantendo os demais corpos irmãos descobertos como não-visitados.
+   - Suporte a buscas com tolerância a acentos (normalização NFD).
+3. `src/core/SaveManager.ts`:
+   - Campo `discoveredTargets?: string[]` adicionado à estrutura de persistência, mantendo compatibilidade de formato JSON e garantindo restauração contínua de corpos e sistemas descobertos.
+4. `src/ui/map/UniversalMapPanel.ts`:
+   - Avaliação rigorosa de `landingMode` no cartão lateral (`renderUniversalTargetCardHtml`):
+     - Sol: `✓ Entrada permitida na fotosfera` e badge `✓ Fotosfera` no Atlas.
+     - Mundos sólidos e luas: `✓ Pouso permitido (superfície sólida)` e badge `✓ Pousável`.
+     - Gigantes gasosos/gelados: `✗ Pouso impossível (gigante fluido)`.
+     - Estrelas procedurais: `✗ Sem pouso (fotosfera inóspita)`.
+   - Distinção de rótulo: `Temperatura Média (observada)` vs `Temperatura de Equilíbrio (estimada)`.
+5. `src/world/celestial/SystemGenerator.ts`:
+   - Descrição do planeta oceânico ajustada para "atmosfera rica em voláteis (composição não confirmada)", eliminando afirmação precipitada de atmosfera respirável.
+6. `tests/atlas-procedural-integration-u4531.test.ts`:
+   - Nova suíte de 6 testes verificando parsing de chaves universais procedurais, taxonomia canônica, propagação de chegadas, persistência de favoritos de corpos procedurais no SaveManager, consultas acentuadas e precisão de renderização dos modos de pouso.
+Evidence: [45-status-U4.5.3.1-ATLAS-PROCEDURAL-INTEGRATION.md](45-status-U4.5.3.1-ATLAS-PROCEDURAL-INTEGRATION.md).
+
+## Previous checkpoint — U4.5.3 Diversidade Estelar e Planetária Procedural (2026-11-08)
 
 Implementado com base no baseline estável `375584e30ea1f49a3bb2abcc0d7c55dbc81ef9ed` (Runs `42541489643` e `42541484777` 100% verdes):
 1. `src/world/celestial/CelestialBodyProfile.ts`:

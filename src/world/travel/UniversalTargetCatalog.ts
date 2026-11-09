@@ -79,6 +79,45 @@ export class UniversalTargetCatalog {
       );
     if (direct) return direct;
 
+    // Check procedural universe key resolution:
+    // universe/:galaxyId/:x,:y,:z/system/:systemId[/(body|star)/:bodyId]
+    const uMatch = query.match(/^universe\/([^/]+)\/(-?\d+),(-?\d+),(-?\d+)\/system\/([^/]+)(?:\/(body|star)\/([^/]+))?$/);
+    if (uMatch) {
+      try {
+        const [, gIdRaw, xStr, yStr, zStr, sIdRaw, kindRaw, bIdRaw] = uMatch;
+        const galaxyId = decodeURIComponent(gIdRaw);
+        const systemId = decodeURIComponent(sIdRaw);
+        const sector = sectorIndex(BigInt(xStr), BigInt(yStr), BigInt(zStr));
+        const kind = (kindRaw as 'body' | 'star') ?? 'system';
+        const bodyId = bIdRaw ? decodeURIComponent(bIdRaw) : (kind === 'star' ? systemId : undefined);
+        const target = this.proceduralTarget(galaxyId, sector, systemId, kind, bodyId);
+        if (target) return target;
+      } catch {
+        // Continue fallback search
+      }
+    }
+
+    // Procedural body/star/system ID match (e.g. milky_way/17,-2,4/0 or milky_way/17,-2,4/0_planet_0 or with _moon_0)
+    const procIdMatch = query.match(/^([^/]+)\/(-?\d+),(-?\d+),(-?\d+)\/(\d+)(?:_(planet_\d+(?:_moon_\d+)?))?$/);
+    if (procIdMatch) {
+      try {
+        const [, galaxyId, xStr, yStr, zStr, starIdx, planetSuffix] = procIdMatch;
+        const sector = sectorIndex(BigInt(xStr), BigInt(yStr), BigInt(zStr));
+        const starId = `${galaxyId}/${xStr},${yStr},${zStr}/${starIdx}`;
+        if (planetSuffix) {
+          const bodyId = `${starId}_${planetSuffix}`;
+          const target = this.proceduralTarget(galaxyId, sector, starId, 'body', bodyId);
+          if (target) return target;
+        } else {
+          const target = this.proceduralTarget(galaxyId, sector, starId, 'system')
+            ?? this.proceduralTarget(galaxyId, sector, starId, 'star');
+          if (target) return target;
+        }
+      } catch {
+        // Continue fallback search
+      }
+    }
+
     // Check procedural galaxy resolution via discovery
     const galaxyDesc = this.discovery.findGalaxyById(rawId);
     if (galaxyDesc) {

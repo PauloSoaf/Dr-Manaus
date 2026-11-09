@@ -20,6 +20,7 @@ export interface SaveData {
   settings: Settings;
   favorites?: string[];
   visitedTargets?: string[];
+  discoveredTargets?: string[];
 }
 const defaults = (): SaveData => ({
   version: 1,
@@ -35,6 +36,7 @@ const defaults = (): SaveData => ({
     'universe/milky_way/0,0,0/system/sol',
     'universe/milky_way/0,0,0/system/sol/body/earth',
   ],
+  discoveredTargets: [],
 });
 export class SaveManager {
   data = defaults();
@@ -47,6 +49,7 @@ export class SaveManager {
         if (Array.isArray(saved.completed)) this.data.completed = saved.completed.filter((v): v is string => typeof v === 'string');
         if (Array.isArray(saved.favorites)) this.data.favorites = saved.favorites.filter((v): v is string => typeof v === 'string');
         if (Array.isArray(saved.visitedTargets)) this.data.visitedTargets = saved.visitedTargets.filter((v): v is string => typeof v === 'string');
+        if (Array.isArray(saved.discoveredTargets)) this.data.discoveredTargets = saved.discoveredTargets.filter((v): v is string => typeof v === 'string');
         this.data.settings = { ...this.data.settings, ...saved.settings };
         if (!['Low', 'Medium', 'High', 'Ultra'].includes(this.data.settings.quality)) this.data.settings.quality = 'High';
         // A save written before these existed, or hand-edited, must not produce a silent or unusable game.
@@ -89,6 +92,14 @@ export class SaveManager {
     if (!this.data.visitedTargets) this.data.visitedTargets = [];
     if (this.data.visitedTargets.includes(key)) return false;
     this.data.visitedTargets.push(key);
+    this.save();
+    return true;
+  }
+  isDiscoveredTarget(key: string): boolean { return this.data.discoveredTargets?.includes(key) ?? false; }
+  discoverTarget(key: string): boolean {
+    if (!this.data.discoveredTargets) this.data.discoveredTargets = [];
+    if (this.data.discoveredTargets.includes(key)) return false;
+    this.data.discoveredTargets.push(key);
     this.save();
     return true;
   }
