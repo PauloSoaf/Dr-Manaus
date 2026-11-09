@@ -11,6 +11,7 @@ import { universalTargetKey, type UniversalTargetDescriptor } from '../../world/
 import { travelCapabilityLabel, type ResolvedUniversalTarget } from '../../world/travel/UniversalTargetResolver';
 import { DEFAULT_UNIVERSE_SEED, type ProceduralGalaxyDiscovery } from '../../world/galaxy/ProceduralGalaxyDiscovery';
 import { isCanonicalGalaxyId } from '../../world/celestial/GalaxyDefinition';
+import { SOLAR_BODY_PROFILES } from '../../world/celestial/CelestialBodyProfile';
 import {
   CosmicAtlasModel,
   type CosmicAtlasEntry,
@@ -38,6 +39,7 @@ export function renderUniversalTargetCardHtml(
   currentGalaxyId?: string,
   isFavorite = false,
   isVisited = false,
+  catalog?: UniversalTargetCatalog,
 ): string {
   let html = `<section id="universal-target-card"><h3>ALVO DE NAVEGAÇÃO</h3>`;
   if (!resolved) {
@@ -95,6 +97,42 @@ export function renderUniversalTargetCardHtml(
   html += `<tr><td>Materializado</td><td>${resolved.materialized ? 'sim' : 'não'}</td></tr>`;
   html += `</table>`;
   html += `</div>`;
+
+  // Astrophysics & Surface condition section for bodies and stars
+  let env = t.bodyId && SOLAR_BODY_PROFILES[t.bodyId]?.environment;
+  let canLand = t.bodyId ? SOLAR_BODY_PROFILES[t.bodyId]?.canLand : false;
+  let hasAtmo = t.bodyId ? SOLAR_BODY_PROFILES[t.bodyId]?.hasAtmosphere : false;
+  let hasRings = t.bodyId ? (!!SOLAR_BODY_PROFILES[t.bodyId]?.visual.rings || !!SOLAR_BODY_PROFILES[t.bodyId]?.environment?.hasRings) : false;
+
+  if (!env && catalog && t.address && 'sector' in t.address && t.address.systemId) {
+    const p = catalog.proceduralDescriptor(t.address.galaxyId, t.address.sector, t.address.systemId);
+    if (p) {
+      const b = p.system.bodies.find(cand => cand.id === (t.bodyId ?? t.objectId));
+      if (b?.profile?.environment) {
+        env = b.profile.environment;
+        canLand = b.profile.canLand;
+        hasAtmo = b.profile.hasAtmosphere;
+        hasRings = !!b.profile.visual.rings || !!b.profile.environment?.hasRings;
+      }
+    }
+  }
+
+  if (env) {
+    html += `<div class="target-section" data-target-section="astrofisica" style="margin-top:6px;">`;
+    html += `<div style="font-size:10px;color:#38bdf8;font-weight:700;letter-spacing:0.06em;margin-bottom:2px;">ASTROFÍSICA &amp; SUPERFÍCIE</div>`;
+    html += `<table class="card-table">`;
+    html += `<tr><td>Classificação</td><td><strong>${escapeHtml(env.label)}</strong></td></tr>`;
+    html += `<tr><td>Temperatura</td><td>${env.temperatureK} K (${Math.round(env.temperatureK - 273.15)}°C)</td></tr>`;
+    html += `<tr><td>Gravidade</td><td>${env.surfaceGravityMps2} m/s² (${(env.surfaceGravityMps2 / 9.80665).toFixed(2)} g)</td></tr>`;
+    html += `<tr><td>Pouso</td><td>${canLand ? '<span style="color:#4ade80;font-weight:600;">✓ Pouso permitido (sólido)</span>' : '<span style="color:#f87171;font-weight:600;">✗ Pouso impossível (fluido)</span>'}</td></tr>`;
+    if (hasRings) {
+      html += `<tr><td>Anéis</td><td><span style="color:#fde047;font-weight:600;">★ Sistema de anéis presente</span></td></tr>`;
+    }
+    html += `<tr><td>Atmosfera</td><td>${hasAtmo ? (env.atmosphericPressureAtm ? env.atmosphericPressureAtm + ' atm' : 'Presente') : 'Rarefeita / Vácuo'}</td></tr>`;
+    html += `</table>`;
+    html += `<div style="font-size:10px;color:#94a3b8;margin-top:4px;font-style:italic;">${escapeHtml(env.description)}</div>`;
+    html += `</div>`;
+  }
 
   html += `<div class="target-section" data-target-section="navegacao" style="margin-top:6px;padding:6px;background:rgba(15,23,42,0.65);border-radius:4px;border:1px solid ${guidance.available ? '#0284c7' : '#334155'};">`;
   html += `<div style="font-size:10px;color:${guidance.available ? '#38bdf8' : '#94a3b8'};font-weight:700;letter-spacing:0.06em;margin-bottom:2px;">NAVEGAÇÃO</div>`;
@@ -593,7 +631,7 @@ export class UniversalMapPanel {
     const selectedKey = resolved?.target.key;
     const isFav = selectedKey ? (this.atlasModel?.isFavorite(selectedKey) ?? false) : false;
     const isVis = selectedKey ? (this.atlasModel?.isVisited(selectedKey) ?? false) : false;
-    html+=renderUniversalTargetCardHtml(resolved,this.renderers?.cosmology?.discovery,this.model.location.address.galaxyId,isFav,isVis);
+    html+=renderUniversalTargetCardHtml(resolved,this.renderers?.cosmology?.discovery,this.model.location.address.galaxyId,isFav,isVis,this.atlasModel?.catalog);
     if(this.currentLevel==='galaxy'||this.currentLevel==='cosmology'){
       html+=`<h3>GALÁXIA ATUAL · ${escapeHtml(formatGalaxyName(this.model.location.address.galaxyId))}</h3>`;
       html+='<h3>CATÁLOGO DE DESTINOS</h3><small>Marcadores esquemáticos · selecionar não inicia viagem</small>';
@@ -749,6 +787,9 @@ export class UniversalMapPanel {
                 <span style="background: #1e293b; padding: 2px 6px; border-radius: 4px; color: ${entry.isCanonical ? '#38bdf8' : '#a855f7'};">${entry.isCanonical ? 'Canônica' : 'Procedural'}</span>
                 ${entry.visited ? '<span style="background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); padding: 1px 6px; border-radius: 4px; font-weight: 600;">✓ VISITADO</span>' : '<span style="color: #64748b; padding: 1px 4px;">NÃO VISITADO</span>'}
                 ${entry.morphology ? `<span style="background: #1e293b; padding: 2px 6px; border-radius: 4px; color: #cbd5e1;">${escapeHtml(entry.morphology)}</span>` : ''}
+                ${entry.worldType ? `<span style="background: #0369a1; padding: 2px 6px; border-radius: 4px; color: #e0f2fe; font-weight: 600;">${escapeHtml(entry.worldType)}</span>` : ''}
+                ${entry.canLand !== undefined ? `<span style="background: ${entry.canLand ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)'}; color: ${entry.canLand ? '#4ade80' : '#f87171'}; border: 1px solid ${entry.canLand ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}; padding: 1px 6px; border-radius: 4px;">${entry.canLand ? '✓ Pousável' : 'Apenas observável'}</span>` : ''}
+                ${entry.hasRings ? `<span style="background: rgba(250,204,21,0.12); color: #facc15; border: 1px solid rgba(250,204,21,0.3); padding: 1px 6px; border-radius: 4px;">★ Anéis</span>` : ''}
               </div>
 
               <div style="margin-top: 8px; font-size: 11px; color: #94a3b8; line-height: 1.4;">
@@ -756,6 +797,7 @@ export class UniversalMapPanel {
                 <div>Distância: <span style="color: #cbd5e1;">${entry.distanceFormatted}</span></div>
                 ${entry.estimatedStarCount ? `<div>Estrelas Est.: <span style="color: #cbd5e1;">${(entry.estimatedStarCount / 1e9).toFixed(1)}B</span></div>` : ''}
                 ${entry.diameterLy ? `<div>Diâmetro: <span style="color: #cbd5e1;">${Math.round(entry.diameterLy / 1000)} kly</span></div>` : ''}
+                ${entry.temperatureK ? `<div>Temp. Equilíbrio: <span style="color: #cbd5e1;">${entry.temperatureK} K (${Math.round(entry.temperatureK - 273.15)}°C)</span></div>` : ''}
               </div>
 
               <div style="margin-top: 8px; padding: 6px; background: rgba(15,23,42,0.8); border-radius: 4px; border: 1px solid ${entry.canTravel ? '#0284c7' : '#334155'}; font-size: 10px;">

@@ -10,6 +10,7 @@ import {
 import { UniversalTargetResolver } from '../travel/UniversalTargetResolver';
 import { ProceduralGalaxyDiscovery, DEFAULT_UNIVERSE_SEED } from '../galaxy/ProceduralGalaxyDiscovery';
 import { LOCAL_GROUP_CATALOG, isCanonicalGalaxyId } from '../celestial/GalaxyDefinition';
+import { SOLAR_BODY_PROFILES } from '../celestial/CelestialBodyProfile';
 import { SaveManager } from '../../core/SaveManager';
 import { formatDistance, formatGalaxyName } from '../../ui/format';
 import { describeNavigationGuidance, type NavigationReadinessState } from '../travel/NavigationGuidance';
@@ -40,6 +41,10 @@ export interface CosmicAtlasEntry {
   readonly guidanceStatus: string;
   readonly shortcutHint: string;
   readonly canTravel: boolean;
+  readonly worldType?: string;
+  readonly canLand?: boolean;
+  readonly temperatureK?: number;
+  readonly hasRings?: boolean;
 }
 
 export interface ExplorationHistoryEvent {
@@ -463,6 +468,30 @@ export class CosmicAtlasModel {
       const visited = this.visitedTargets.has(key);
       const favorite = this.favoriteKeys.has(key);
 
+      let worldType: string | undefined;
+      let canLandBody: boolean | undefined;
+      let temperatureK: number | undefined;
+      let hasRings: boolean | undefined;
+
+      if (desc.kind === 'body' || desc.kind === 'star') {
+        const solar = desc.bodyId ? SOLAR_BODY_PROFILES[desc.bodyId] : undefined;
+        if (solar) {
+          worldType = solar.environment?.label ?? solar.bodyClass;
+          canLandBody = solar.canLand;
+          temperatureK = solar.environment?.temperatureK;
+          hasRings = !!solar.visual.rings || !!solar.environment?.hasRings;
+        } else if (desc.address && 'sector' in desc.address && desc.address.systemId) {
+          const p = this.catalog.proceduralDescriptor(desc.address.galaxyId, desc.address.sector, desc.address.systemId);
+          const cand = p?.system.bodies.find(b => b.id === (desc.bodyId ?? desc.objectId));
+          if (cand?.profile) {
+            worldType = cand.profile.environment?.label ?? cand.profile.bodyClass;
+            canLandBody = cand.profile.canLand;
+            temperatureK = cand.profile.environment?.temperatureK;
+            hasRings = !!cand.profile.visual.rings || !!cand.profile.environment?.hasRings;
+          }
+        }
+      }
+
       const entry: CosmicAtlasEntry = {
         key,
         descriptor: desc,
@@ -486,6 +515,10 @@ export class CosmicAtlasModel {
         guidanceStatus,
         shortcutHint,
         canTravel,
+        worldType,
+        canLand: canLandBody,
+        temperatureK,
+        hasRings,
       };
 
       // Filter: Query search
@@ -495,6 +528,7 @@ export class CosmicAtlasModel {
         const matchesId = entry.objectId.toLowerCase().includes(q);
         const matchesGalaxy = entry.galaxyId?.toLowerCase().includes(q) ?? false;
         const matchesKey = entry.key.toLowerCase().includes(q);
+        const matchesWorldType = entry.worldType?.toLowerCase().includes(q) ?? false;
         const matchesDiscovered = queryDiscoveredKeys.has(entry.key);
 
         let matchesCoord = false;
@@ -514,7 +548,7 @@ export class CosmicAtlasModel {
           }
         }
 
-        if (!matchesName && !matchesId && !matchesGalaxy && !matchesKey && !matchesDiscovered && !matchesCoord) {
+        if (!matchesName && !matchesId && !matchesGalaxy && !matchesKey && !matchesWorldType && !matchesDiscovered && !matchesCoord) {
           continue;
         }
       }

@@ -1,6 +1,24 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.2.3 Resolução do Fixture de Seleção e Fechamento Integral do Atlas (2026-11-08)
+## Current checkpoint — U4.5.3 Diversidade Estelar e Planetária Procedural (2026-11-08)
+
+Implementado com base no baseline estável `375584e30ea1f49a3bb2abcc0d7c55dbc81ef9ed` (Runs `42541489643` e `42541484777` 100% verdes):
+1. `src/world/celestial/CelestialBodyProfile.ts`:
+   - Adicionada taxonomia física completa `WorldClassification` ('arid-rocky', 'frozen-rocky', 'volcanic-rocky', 'dense-atmosphere-rocky', 'oceanic-rocky', 'gas-giant', 'ice-giant', 'rocky-moon', 'icy-moon', 'volcanic-moon', 'atmospheric-moon').
+   - Estrutura `WorldEnvironment` carregando temperatura de equilíbrio, gravidade superficial ($g = GM/R^2$), pressão atmosférica e presença de anéis.
+   - Mapeados perfis ambientais autênticos para os corpos do Sistema Solar.
+2. `src/world/celestial/SystemGenerator.ts`:
+   - Expansão de `stellarAlbedo` com suporte para classes espectrais O, B, A, F, G, K, M e cálculo de halo corona em `stellarSolarGlow`.
+   - Funções físicas `calculateEquilibriumTemperatureK` e `calculateSurfaceGravityMps2`.
+   - Preservação estrita da sequência principal do PRNG (órbitas, raios e massas idênticos) com variações ambientais derivadas por `bodySubRandom`.
+   - Anéis analíticos determinísticos para gigantes e névoas ópticas para mundos atmosféricos.
+3. `src/world/exploration/CosmicAtlasModel.ts` e `src/ui/map/UniversalMapPanel.ts`:
+   - Seção `ASTROFÍSICA & SUPERFÍCIE` no cartão de alvo e consulta por classes de mundos no Atlas.
+4. `tests/stellar-planetary-diversity-u453.test.ts`:
+   - Nova suíte de 10 testes cobrindo diversidade espectral, taxonomia, física de temperatura e gravidade, anéis, névoas, determinismo e descarte GPU.
+Evidence: [44-status-U4.5.3-STELLAR-PLANETARY-DIVERSITY.md](44-status-U4.5.3-STELLAR-PLANETARY-DIVERSITY.md).
+
+## Previous checkpoint — U4.5.2.3 Resolução do Fixture de Seleção e Fechamento Integral do Atlas (2026-11-08)
 
 Auditado após o CI do commit `691866ec52b778bd7b27fcfff56305561f542177` (Run `42540360712`: TypeScript PASS, 638/638 regressões aprovadas, 1.562/1.563 testes gerais, única falha em `T_U452_12`). O patch U4.5.2.3 fecha o ciclo corretivo da suíte:
 1. `tests/cosmic-atlas-u452.test.ts` (`T_U452_12_ATLAS_UPDATE_DOM_STABILITY`):
