@@ -23,14 +23,18 @@ export function isCanonicalTarget(desc: UniversalTargetDescriptor): boolean {
     return isCanonicalGalaxyId(desc.objectId);
   }
   if (desc.kind === 'system') {
-    return desc.objectId === 'sol' && desc.galaxyId === 'milky_way';
+    return desc.objectId === 'sol' && (desc.galaxyId === 'milky_way' || desc.galaxyId === undefined);
   }
   if (desc.kind === 'body' || desc.kind === 'star') {
     const bodyId = desc.bodyId ?? desc.objectId;
-    return desc.systemId === 'sol' && (bodyId in SOLAR_BODY_PROFILES || bodyId === 'sun');
+    const isSolarGalaxy = desc.galaxyId === 'milky_way' || desc.galaxyId === undefined;
+    const isSolarSystem = desc.systemId === 'sol';
+    const isAddressSolar = !desc.address || !('galaxyId' in desc.address) || desc.address.galaxyId === 'milky_way';
+    return isSolarGalaxy && isSolarSystem && isAddressSolar && (bodyId in SOLAR_BODY_PROFILES || bodyId === 'sun');
   }
   if (desc.kind === 'black-hole') {
-    return desc.objectId === 'sgra' || desc.objectId === 'sagittarius-a-star' || desc.objectId === 'm31_smbh';
+    const isLocalGroup = desc.galaxyId === 'milky_way' || desc.galaxyId === 'andromeda' || desc.galaxyId === undefined;
+    return isLocalGroup && (desc.objectId === 'sgra' || desc.objectId === 'sagittarius-a-star' || desc.objectId === 'm31_smbh');
   }
   if (desc.kind === 'cosmic-anchor' || desc.kind === 'cluster' || desc.kind === 'observable-horizon') {
     return true;
@@ -134,15 +138,29 @@ export class CosmicAtlasModel {
         }
       }
       if (Array.isArray(save.data.discoveredTargets)) {
-        for (const discKey of save.data.discoveredTargets) {
-          if (typeof discKey === 'string' && discKey.length > 0) {
-            const desc = catalog.find(discKey);
-            if (desc) {
-              const k = universalTargetKey(desc);
-              if (desc.kind === 'galaxy') this.discoveredGalaxies.set(k, desc);
-              else if (desc.kind === 'system') this.identifiedSystems.set(k, desc);
-              else if (desc.kind === 'body' || desc.kind === 'star') this.discoveredBodies.set(k, desc);
-            }
+        const uniqueKeys = Array.from(new Set(save.data.discoveredTargets.filter((k): k is string => typeof k === 'string' && k.length > 0)));
+        const systemKeys: string[] = [];
+        const otherKeys: string[] = [];
+        for (const k of uniqueKeys) {
+          if (k.includes('/system/') && !k.includes('/body/') && !k.includes('/star/')) {
+            systemKeys.push(k);
+          } else {
+            otherKeys.push(k);
+          }
+        }
+        for (const k of systemKeys) {
+          const desc = catalog.find(k);
+          if (desc && desc.kind === 'system') {
+            this.identifiedSystems.set(universalTargetKey(desc), desc);
+          }
+        }
+        for (const k of otherKeys) {
+          const desc = catalog.find(k);
+          if (desc) {
+            const kKey = universalTargetKey(desc);
+            if (desc.kind === 'galaxy') this.discoveredGalaxies.set(kKey, desc);
+            else if (desc.kind === 'system') this.identifiedSystems.set(kKey, desc);
+            else if (desc.kind === 'body' || desc.kind === 'star') this.discoveredBodies.set(kKey, desc);
           }
         }
       }
@@ -251,101 +269,121 @@ export class CosmicAtlasModel {
   }
 
   recordArrival(location: UniverseLocation, timeS = 0): void {
-    const a = location.address;
-    if (!a) return;
+    const doArrival = () => {
+      const a = location.address;
+      if (!a) return;
 
-    if (a.galaxyId && a.galaxyId !== 'cosmology') {
-      const galaxyKey = `galaxy/${encodeURIComponent(a.galaxyId)}`;
-      this.markVisited(galaxyKey, timeS);
-    }
+      if (a.galaxyId && a.galaxyId !== 'cosmology') {
+        const galaxyKey = `galaxy/${encodeURIComponent(a.galaxyId)}`;
+        this.markVisited(galaxyKey, timeS);
+      }
 
-    if (a.galaxyId && a.sector && a.systemId) {
-      const sectorStr = `${a.sector.x},${a.sector.y},${a.sector.z}`;
-      const systemKey = `universe/${encodeURIComponent(a.galaxyId)}/${sectorStr}/system/${encodeURIComponent(a.systemId)}`;
-      this.markVisited(systemKey, timeS);
+      if (a.galaxyId && a.sector && a.systemId) {
+        const sectorStr = `${a.sector.x},${a.sector.y},${a.sector.z}`;
+        const systemKey = `universe/${encodeURIComponent(a.galaxyId)}/${sectorStr}/system/${encodeURIComponent(a.systemId)}`;
+        this.markVisited(systemKey, timeS);
 
-      // Register procedural system & contained bodies when arriving at a procedural system
-      if (a.systemId !== 'sol') {
-        const sysTarget = this.catalog.proceduralTarget(a.galaxyId, a.sector, a.systemId, 'system');
-        if (sysTarget) {
-          this.recordDiscovery(sysTarget, timeS);
+        // Register procedural system & contained bodies when arriving at a procedural system
+        if (a.systemId !== 'sol') {
+          const sysTarget = this.catalog.proceduralTarget(a.galaxyId, a.sector, a.systemId, 'system');
+          if (sysTarget) {
+            this.recordDiscovery(sysTarget, timeS);
+          }
+        }
+
+        if (a.bodyId) {
+          const kind = a.bodyId === 'sun' || a.bodyId === a.systemId ? 'star' : 'body';
+          const bodyKey = `${systemKey}/${kind}/${encodeURIComponent(a.bodyId)}`;
+          this.markVisited(bodyKey, timeS);
         }
       }
+    };
 
-      if (a.bodyId) {
-        const kind = a.bodyId === 'sun' || a.bodyId === a.systemId ? 'star' : 'body';
-        const bodyKey = `${systemKey}/${kind}/${encodeURIComponent(a.bodyId)}`;
-        this.markVisited(bodyKey, timeS);
-      }
+    if (this.save) {
+      this.save.batch(doArrival);
+    } else {
+      doArrival();
     }
   }
 
   recordDiscovery(descriptor: UniversalTargetDescriptor, timeS = 0): void {
-    const key = universalTargetKey(descriptor);
-    if (descriptor.kind === 'galaxy') {
-      if (!this.discoveredGalaxies.has(key)) {
-        this.discoveredGalaxies.set(key, descriptor);
-        this.addHistory({
-          timestampS: timeS,
-          type: 'discovery',
-          targetKey: key,
-          displayName: descriptor.displayName,
-          details: 'Galáxia descoberta',
-        });
-        if (this.save) this.save.discoverTarget(key);
-      }
-    } else if (descriptor.kind === 'system') {
-      if (!this.identifiedSystems.has(key)) {
-        this.identifiedSystems.set(key, descriptor);
-        this.addHistory({
-          timestampS: timeS,
-          type: 'discovery',
-          targetKey: key,
-          displayName: descriptor.displayName,
-          details: 'Sistema identificado',
-        });
-        if (this.save) this.save.discoverTarget(key);
-      }
+    const doDiscovery = () => {
+      const key = universalTargetKey(descriptor);
+      if (descriptor.kind === 'galaxy') {
+        if (!this.discoveredGalaxies.has(key)) {
+          this.discoveredGalaxies.set(key, descriptor);
+          this.addHistory({
+            timestampS: timeS,
+            type: 'discovery',
+            targetKey: key,
+            displayName: descriptor.displayName,
+            details: 'Galáxia descoberta',
+          });
+          if (this.save) this.save.discoverTarget(key);
+        }
+      } else if (descriptor.kind === 'system') {
+        if (!this.identifiedSystems.has(key)) {
+          this.identifiedSystems.set(key, descriptor);
+          this.addHistory({
+            timestampS: timeS,
+            type: 'discovery',
+            targetKey: key,
+            displayName: descriptor.displayName,
+            details: 'Sistema identificado',
+          });
+          if (this.save) this.save.discoverTarget(key);
+        }
 
-      // Automatically register the system's contained bodies in discoveredBodies
-      if (descriptor.address && 'sector' in descriptor.address && descriptor.address.systemId) {
-        const p = this.catalog.proceduralDescriptor(
-          descriptor.address.galaxyId,
-          descriptor.address.sector,
-          descriptor.address.systemId,
-        );
-        if (p) {
-          for (const body of p.system.bodies) {
-            const bodyKind = body.id === p.star.id ? 'star' : 'body';
-            const bodyTarget = this.catalog.proceduralTarget(
-              descriptor.address.galaxyId,
-              descriptor.address.sector,
-              descriptor.address.systemId,
-              bodyKind,
-              body.id,
-            );
-            if (bodyTarget) {
-              const bKey = universalTargetKey(bodyTarget);
-              if (!this.discoveredBodies.has(bKey)) {
-                this.discoveredBodies.set(bKey, bodyTarget);
-                if (this.save) this.save.discoverTarget(bKey);
+        // Automatically register the system's contained bodies in discoveredBodies in bulk
+        if (descriptor.address && 'sector' in descriptor.address && descriptor.address.systemId) {
+          const p = this.catalog.proceduralDescriptor(
+            descriptor.address.galaxyId,
+            descriptor.address.sector,
+            descriptor.address.systemId,
+          );
+          if (p) {
+            const bodyKeys: string[] = [];
+            for (const body of p.system.bodies) {
+              const bodyKind = body.id === p.star.id ? 'star' : 'body';
+              const bodyTarget = this.catalog.proceduralTarget(
+                descriptor.address.galaxyId,
+                descriptor.address.sector,
+                descriptor.address.systemId,
+                bodyKind,
+                body.id,
+              );
+              if (bodyTarget) {
+                const bKey = universalTargetKey(bodyTarget);
+                if (!this.discoveredBodies.has(bKey)) {
+                  this.discoveredBodies.set(bKey, bodyTarget);
+                  bodyKeys.push(bKey);
+                }
               }
+            }
+            if (this.save && bodyKeys.length > 0) {
+              this.save.discoverTargets(bodyKeys);
             }
           }
         }
+      } else if (descriptor.kind === 'body' || descriptor.kind === 'star') {
+        if (!this.discoveredBodies.has(key)) {
+          this.discoveredBodies.set(key, descriptor);
+          this.addHistory({
+            timestampS: timeS,
+            type: 'discovery',
+            targetKey: key,
+            displayName: descriptor.displayName,
+            details: descriptor.kind === 'star' ? 'Estrela descoberta' : 'Corpo celeste descoberto',
+          });
+          if (this.save) this.save.discoverTarget(key);
+        }
       }
-    } else if (descriptor.kind === 'body' || descriptor.kind === 'star') {
-      if (!this.discoveredBodies.has(key)) {
-        this.discoveredBodies.set(key, descriptor);
-        this.addHistory({
-          timestampS: timeS,
-          type: 'discovery',
-          targetKey: key,
-          displayName: descriptor.displayName,
-          details: descriptor.kind === 'star' ? 'Estrela descoberta' : 'Corpo celeste descoberto',
-        });
-        if (this.save) this.save.discoverTarget(key);
-      }
+    };
+
+    if (this.save) {
+      this.save.batch(doDiscovery);
+    } else {
+      doDiscovery();
     }
   }
 
@@ -736,28 +774,25 @@ export class CosmicAtlasModel {
       for (const k of data.visited) if (typeof k === 'string') this.visitedTargets.add(k);
     }
     if (Array.isArray(data.discoveredGalaxies)) {
-      for (const k of data.discoveredGalaxies) {
-        if (typeof k === 'string') {
-          const desc = this.catalog.find(k);
-          if (desc && desc.kind === 'galaxy') this.discoveredGalaxies.set(universalTargetKey(desc), desc);
-        }
+      const unique = Array.from(new Set(data.discoveredGalaxies.filter((k): k is string => typeof k === 'string')));
+      for (const k of unique) {
+        const desc = this.catalog.find(k);
+        if (desc && desc.kind === 'galaxy') this.discoveredGalaxies.set(universalTargetKey(desc), desc);
       }
     }
     if (Array.isArray(data.identifiedSystems)) {
-      for (const k of data.identifiedSystems) {
-        if (typeof k === 'string') {
-          const desc = this.catalog.find(k);
-          if (desc && desc.kind === 'system') this.identifiedSystems.set(universalTargetKey(desc), desc);
-        }
+      const unique = Array.from(new Set(data.identifiedSystems.filter((k): k is string => typeof k === 'string')));
+      for (const k of unique) {
+        const desc = this.catalog.find(k);
+        if (desc && desc.kind === 'system') this.identifiedSystems.set(universalTargetKey(desc), desc);
       }
     }
     if (Array.isArray(data.discoveredBodies)) {
-      for (const k of data.discoveredBodies) {
-        if (typeof k === 'string') {
-          const desc = this.catalog.find(k);
-          if (desc && (desc.kind === 'body' || desc.kind === 'star')) {
-            this.discoveredBodies.set(universalTargetKey(desc), desc);
-          }
+      const unique = Array.from(new Set(data.discoveredBodies.filter((k): k is string => typeof k === 'string')));
+      for (const k of unique) {
+        const desc = this.catalog.find(k);
+        if (desc && (desc.kind === 'body' || desc.kind === 'star')) {
+          this.discoveredBodies.set(universalTargetKey(desc), desc);
         }
       }
     }

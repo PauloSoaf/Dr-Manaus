@@ -1,6 +1,28 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.3.1 Integração Real dos Mundos Procedurais ao Atlas, Taxonomia Canônica e Precisão de Pouso (2026-11-08)
+## Current checkpoint — U4.5.4 Superfícies Procedurais, Biomas Visuais e Otimização do Atlas (2026-11-10)
+
+Implementado com base no baseline auditado do commit `d9e777fcdcfbef37c0d121c192b411210023faed` (Run `42558085566` 100% verde: 1.579/1.579 testes, 638/638 regressões permanentes):
+1. `src/core/SaveManager.ts`:
+   - Agrupamento atômico de escritas via `batch<T>(fn)` com controle de profundidade (`batchDepth`) e flag `dirty`.
+   - Métodos de lote `discoverTargets(keys)` e `markVisitedTargets(keys)`, eliminando write-amplification e múltiplas gravações síncronas em `localStorage.setItem`.
+2. `src/world/exploration/CosmicAtlasModel.ts`:
+   - Envelopamento de `recordDiscovery()` e `recordArrival()` com `save.batch()`, reduzindo escritas de dezenas para exatamente 1 por evento.
+   - Restauração otimizada com deduplicação de chaves por `Set` e pré-aquecimento dos setores de sistemas antes dos corpos celestes.
+   - Validação estrita em `isCanonicalTarget()` verificando galáxia (`milky_way`), sistema (`sol`) e perfil solar.
+3. `src/world/planet/ProceduralPlanetSurface.ts`:
+   - Pipeline de relevo procedural determinístico via hash 3D e ruído cúbico de valor Hermite, FBM multi-oitava e ridged multifractal sem `Math.random()`.
+   - Biomas diferenciados: mundos áridos (cânions e dunas até 4.200 m), glaciais (fissuras e gelo até 3.800 m), vulcânicos (picos e caldeiras até 7.800 m), oceânicos (nível do mar plano a 0 m e continentes até 6.200 m), atmosfera densa (até 3.200 m) e luas (1.800 a 3.500 m).
+   - Cálculo de normais de superfície ENU e paletas espectrais com gradientes de altitude e latitude.
+4. `src/world/planet/BodySurfaceFactory.ts`:
+   - Integração do gerador procedural unificado em `surfaceForBody(body)` e cotas máximas em `maximumSurfaceReliefM(body)`.
+   - Consistência geométrica absoluta entre a malha visual (`PlanetGlobe`) e a física de colisão e pouso (`PlanetTerrainProvider`).
+   - Preservação estrita dos corpos canônicos (Terra, Lua, Marte intactos; Mercúrio e Vênus mantidos em base esférica plana).
+5. `tests/procedural-surfaces-and-atlas-opt-u454.test.ts`:
+   - Nova suíte de 8 testes cobrindo persistência atômica, batching, restauração, taxonomia estrita, determinismo, biomas com nível do mar plano, consistência física/visual e integridade canônica.
+Evidence: [46-status-U4.5.4-PROCEDURAL-SURFACES-AND-ATLAS-OPTIMIZATION.md](46-status-U4.5.4-PROCEDURAL-SURFACES-AND-ATLAS-OPTIMIZATION.md).
+
+## Previous checkpoint — U4.5.3.1 Integração Real dos Mundos Procedurais ao Atlas, Taxonomia Canônica e Precisão de Pouso (2026-11-08)
 
 Implementado com base no baseline auditado do commit `356b98eb3041b21bba488751c37d1fbbb621d9c1` (Runs `42543820898` e `42543814817` 100% verdes: 1.573/1.573 testes, 638/638 regressões permanentes):
 1. `src/world/travel/UniversalTargetCatalog.ts`:

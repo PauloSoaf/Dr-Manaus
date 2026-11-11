@@ -69,7 +69,32 @@ export class SaveManager {
       }
     } catch { /* Private browsing and malformed saves still allow play. */ }
   }
-  save() { try { localStorage.setItem('dr-manaus-v1', JSON.stringify(this.data)); } catch { /* Storage is optional. */ } }
+  private batchDepth = 0;
+  private dirty = false;
+
+  save() {
+    if (this.batchDepth > 0) {
+      this.dirty = true;
+      return;
+    }
+    try {
+      localStorage.setItem('dr-manaus-v1', JSON.stringify(this.data));
+    } catch { /* Storage is optional. */ }
+  }
+
+  batch<T>(fn: () => T): T {
+    this.batchDepth++;
+    try {
+      return fn();
+    } finally {
+      this.batchDepth--;
+      if (this.batchDepth === 0 && this.dirty) {
+        this.dirty = false;
+        this.save();
+      }
+    }
+  }
+
   discover(id: string) { if (this.data.discovered.includes(id)) return false; this.data.discovered.push(id); this.save(); return true; }
   complete(id: string) { if (!this.data.completed.includes(id)) this.data.completed.push(id); this.save(); }
   isFavorite(key: string): boolean { return this.data.favorites?.includes(key) ?? false; }
@@ -95,6 +120,20 @@ export class SaveManager {
     this.save();
     return true;
   }
+  markVisitedTargets(keys: readonly string[]): number {
+    if (!this.data.visitedTargets) this.data.visitedTargets = [];
+    const set = new Set(this.data.visitedTargets);
+    let added = 0;
+    for (const k of keys) {
+      if (!set.has(k)) {
+        set.add(k);
+        this.data.visitedTargets.push(k);
+        added++;
+      }
+    }
+    if (added > 0) this.save();
+    return added;
+  }
   isDiscoveredTarget(key: string): boolean { return this.data.discoveredTargets?.includes(key) ?? false; }
   discoverTarget(key: string): boolean {
     if (!this.data.discoveredTargets) this.data.discoveredTargets = [];
@@ -102,6 +141,20 @@ export class SaveManager {
     this.data.discoveredTargets.push(key);
     this.save();
     return true;
+  }
+  discoverTargets(keys: readonly string[]): number {
+    if (!this.data.discoveredTargets) this.data.discoveredTargets = [];
+    const set = new Set(this.data.discoveredTargets);
+    let added = 0;
+    for (const k of keys) {
+      if (!set.has(k)) {
+        set.add(k);
+        this.data.discoveredTargets.push(k);
+        added++;
+      }
+    }
+    if (added > 0) this.save();
+    return added;
   }
   reset() { this.data = defaults(); this.save(); }
 }
