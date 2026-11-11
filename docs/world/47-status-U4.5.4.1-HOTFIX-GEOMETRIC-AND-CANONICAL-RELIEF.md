@@ -43,3 +43,4 @@
 
 3. [`docs/world/47-status-U4.5.4.1-HOTFIX-GEOMETRIC-AND-CANONICAL-RELIEF.md`](file:///c:/Projetos/Dr-Manaus/docs/world/47-status-U4.5.4.1-HOTFIX-GEOMETRIC-AND-CANONICAL-RELIEF.md)
    - Relatório técnico deste patch corretivo.
+

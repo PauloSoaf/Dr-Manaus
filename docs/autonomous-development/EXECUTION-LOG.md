@@ -42,3 +42,14 @@ Registro cronológico contínuo de decisões, investigações, implementações 
   5. Criação de suíte de testes `tests/black-hole-astrophysics-bh0.test.ts` com 8 testes cobrindo todas as fórmulas, perfis e interfaces.
 - **Validação Local:** `npm run typecheck` (`tsc --noEmit`) 100% aprovado com 0 erros.
 - **Documentação:** Atualizados `docs/world/15-status.md`, `docs/world/48-status-BH0-BLACK-HOLE-ASTROPHYSICS.md` e tracker operacional.
+
+---
+
+### [2026-11-11T08:42:00-04:00] — Implementação e Entrega do Milestone BH1
+- **Milestone:** `BH1` — Dinâmica Gravitacional Relativística e Captura de Horizonte.
+- **Entregas:**
+  1. Criação de `src/world/celestial/BlackHoleGravity.ts` com aceleração Paczyński-Wiita, arrasto de referencial Lense-Thirring, dilatação temporal e velocidade de escape relativísticas.
+  2. Implementação das 5 zonas de proximidade (`distant`, `influence`, `strong-field`, `isco-zone`, `captured`) e regras de bloqueio de escape pós-horizonte.
+  3. Criação de suíte de testes `tests/black-hole-gravity-bh1.test.ts` com 7 testes cobrindo todas as leis físicas e transições de zona.
+- **Validação Local:** `npm run typecheck` (`tsc --noEmit`) 100% aprovado com 0 erros.
+- **Documentação:** Atualizados `docs/world/15-status.md`, `docs/world/49-status-BH1-BLACK-HOLE-GRAVITY-CAPTURE.md` e tracker operacional.

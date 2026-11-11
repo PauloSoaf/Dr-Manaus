@@ -290,3 +290,4 @@ export function generateStellarBlackHole(galaxyId: string, sector: SectorIndex):
     },
   });
 }
+

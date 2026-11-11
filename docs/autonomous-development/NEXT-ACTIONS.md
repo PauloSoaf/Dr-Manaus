@@ -33,3 +33,4 @@ Este plano define a sequência de engenharia estrita para conduzir o desenvolvim
 
 ### Passo 6: Milestone U6 (Estrutura Cósmica e Horizonte Observável)
 - Expansão cosmológica e horizonte do universo observável relativo ao observador.
+

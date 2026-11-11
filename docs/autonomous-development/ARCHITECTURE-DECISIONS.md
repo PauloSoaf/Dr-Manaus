@@ -44,3 +44,4 @@ Registro formal das decisões arquiteturais tomadas para garantir estabilidade, 
 - **Decisão:**
   - A cota máxima da Terra no motor é `EARTH_MAX_ELEVATION_M = 5742 m` (resultado do downsampling de ETOPO5 a 5 arc-minutos para grade $512 \times 256$).
   - O código de teste e de produção nunca deve forjar ou inventar cotas arbitrárias que divirjam das fontes científicas embarcadas nos assets canônicos.
+

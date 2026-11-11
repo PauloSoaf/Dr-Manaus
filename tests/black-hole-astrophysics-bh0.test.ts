@@ -275,3 +275,4 @@ test('T_BH0_08_TARGET_CARD_ASTROPHYSICS_AND_LANDING_HTML', () => {
   assert.ok(html.includes('✗ Pouso impossível (singularidade relativística)'), 'Must indicate impossible landing at singularity');
   assert.ok(html.includes('Disco de Acreção'), 'Must show active accretion disk');
 });
+

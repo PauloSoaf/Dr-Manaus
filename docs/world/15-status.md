@@ -1,6 +1,19 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — BH0 Modelo Astrofísico e Relativístico de Buracos Negros (2026-11-11)
+## Current checkpoint — BH1 Dinâmica Gravitacional Relativística e Captura de Horizonte (2026-11-11)
+
+Implementado com base no baseline estável `998871d87e07b22a00908eb8a37e5d95e26b2b54` (Patch BH0, typecheck PASS):
+1. `src/world/celestial/BlackHoleGravity.ts`:
+   - Modelo de gravidade relativística efetiva: aceleração de Paczyński-Wiita ($a_{\text{PW}} = \frac{GM}{(r - r_s)^2}$) com convergência a $GM/r^2$ no campo distante e barreira de potencial no horizonte.
+   - Arrasto de referencial de Kerr (efeito Lense-Thirring) induzindo velocidade azimutal proporcional ao spin $a_*$.
+   - Zonas de proximidade: `'distant'`, `'influence'`, `'strong-field'`, `'isco-zone'` e `'captured'`.
+   - Dilatação temporal relativística $\sqrt{1 - r_s / r}$ e velocidade de escape relativística $c \sqrt{r_s / r}$.
+   - Regras de dinâmica de voo com curvatura de trajetória, limitação subluminal estrita e bloqueio de escape pós-cruzamento de horizonte ($r \le r_+$).
+2. `tests/black-hole-gravity-bh1.test.ts`:
+   - Suíte de 7 testes automatizados cobrindo assíntotas de aceleração, dilatação temporal, zonas de proximidade, arrasto de referencial, curvatura de trajetória e irreversibilidade de captura de horizonte.
+Evidence: [49-status-BH1-BLACK-HOLE-GRAVITY-CAPTURE.md](49-status-BH1-BLACK-HOLE-GRAVITY-CAPTURE.md).
+
+## Previous checkpoint — BH0 Modelo Astrofísico e Relativístico de Buracos Negros (2026-11-11)
 
 Implementado com base no baseline estável `c48fc64b456cf489d038050bdfca09f1c9dc6d56` (Patch U4.5.4.1 hotfix, typecheck PASS):
 1. `src/world/celestial/BlackHoleDescriptor.ts`:

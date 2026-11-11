@@ -19,3 +19,4 @@ Matriz consolidada de critérios de aceite abrangendo todos os domínios do jogo
 | **Buracos Negros BH2** | `11-BLACK-HOLES.md` | Rede de trânsito dimensional persistente por `universeSeed + traversalCounter` | Testes de persistência de saída | Travessia e emergência segura | `TODO` |
 | **Mapa Universal U5** | `U5` | Visualização interativa e clicável em múltiplas escalas (sistema -> galáxia -> teia) | Testes de hierarquia de câmera | Seleção e zoom sem saltos | `TODO` |
 | **Horizonte Cósmico U6**| `13-OBSERVABLE-UNIVERSE-HORIZON.md`| Limite observável relativístico, estruturas em filamentos, grande atrator | Testes de coordenadas cosmológicas | Teia cósmica em grande escala | `TODO` |
+

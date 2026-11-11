@@ -66,3 +66,4 @@ Anteriormente, o sistema renderizava buracos negros apenas através de um proved
 | `T_BH0_06` | Validação estrita de taxonomia canônica vs procedural em `isCanonicalTarget` | APROVADO |
 | `T_BH0_07` | Escala e ciclo de vida do `BlackHoleProvider` (esfera de sombra, disco, dispose) | APROVADO |
 | `T_BH0_08` | Renderização do cartão de alvo com seção astrofísica e modo de pouso impossível | APROVADO |
+

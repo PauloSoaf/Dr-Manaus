@@ -76,8 +76,8 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
 | `BH-01` | `11-BLACK-HOLES.md` | **BH0:** Descritor `BlackHoleDescriptor`, raio de Schwarzschild $r_s$, horizonte Kerr $r_+$, ISCO e anel de fótons | P0 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-astrophysics-bh0.test.ts` |
 | `BH-02` | `11-BLACK-HOLES.md` | **BH0:** Integração de Sagittarius A*, M31 SMBH e buracos negros estelares no Catálogo Universal | P0 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-astrophysics-bh0.test.ts` |
-| `BH-03` | `11-BLACK-HOLES.md` | **BH1:** Atração gravitacional relativística, curvatura de trajetória e estado de captura de horizonte | P1 | `TODO` | — | Planejado para BH1 |
-| `BH-04` | `11-BLACK-HOLES.md` | **BH2:** Rede de trânsito dimensional com saídas persistentes via `universeSeed + traversalCounter` | P1 | `TODO` | — | Planejado para BH2 |
+| `BH-03` | `11-BLACK-HOLES.md` | **BH1:** Atração gravitacional relativística, curvatura de trajetória e estado de captura de horizonte | P1 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-gravity-bh1.test.ts` |
+| `BH-04` | `11-BLACK-HOLES.md` | **BH2:** Rede de trânsito dimensional com saídas persistentes via `universeSeed + traversalCounter` | P1 | `IN_PROGRESS` | Em desenvolvimento | Planejado para BH2 |
 
 ---
 
