@@ -73,6 +73,7 @@ import { CelestialImpactService } from '../world/travel/CelestialImpactService';
 import { RockyImpactDestructionService } from '../world/destruction/RockyImpactDestructionService';
 import { PlanetExcavationService } from '../world/destruction/PlanetExcavationService';
 import { GeomechanicalFractureService } from '../world/destruction/GeomechanicalFractureService';
+import { MacroBodyFractureService } from '../world/destruction/MacroBodyFractureService';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
 import { IMPACT_VOLUME_LIMITS } from '../world/planet/volume/PlanetVolumeImpactDemand';
@@ -147,6 +148,7 @@ export class Game {
   readonly rockyImpactDestruction:RockyImpactDestructionService;
   readonly planetExcavation: PlanetExcavationService;
   readonly geomechanicalFracture: GeomechanicalFractureService;
+  readonly macroBodyFracture: MacroBodyFractureService;
   readonly volumeRenderer:PlanetVolumeSurfaceRenderer;
   galaxyMaterializer?:GalaxyMaterializer;
   get galaxy():StarSectorProvider|undefined{return this.galaxyMaterializer?.current?.starSectorProvider;}
@@ -471,6 +473,18 @@ export class Game {
         }
       },
     });
+    this.macroBodyFracture = new MacroBodyFractureService({
+      edits: this.universe.volume.edits,
+      geomechanics: this.geomechanicalFracture,
+      surfaceForBody: id => {
+        const body = this.universe.activeSystem.bodies.find(b => b.id === id);
+        return body ? surfaceForBody(body) : undefined;
+      },
+      bodyById: id => this.universe.activeSystem.bodies.find(b => b.id === id),
+      onFractureCreated: plan => {
+        this.universe.volume.requestEditRegion(`${plan.planId}:cap_cavity`);
+      },
+    });
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -563,6 +577,14 @@ export class Game {
         if (!body || !body.frameId) return;
         const originBF = this.universe.frames.convertPosition(currentFrame, body.frameId, [origin.x, origin.y, origin.z]);
         this.geomechanicalFracture.propagateStressAndFracture(bodyId, originBF, energyJoules);
+      },
+      macroFracture: (epicenter, capRadiusM, capDepthM, ejectionSpeedMps) => {
+        const bodyId = this.universe.telemetry.dominantBody;
+        const currentFrame = this.universe.player.frame;
+        const body = this.universe.activeSystem.bodies.find(b => b.id === bodyId);
+        if (!body || !body.frameId) return;
+        const originBF = this.universe.frames.convertPosition(currentFrame, body.frameId, [epicenter.x, epicenter.y, epicenter.z]);
+        this.macroBodyFracture.detachPlate(bodyId, originBF, capRadiusM, capDepthM, ejectionSpeedMps ?? 5000);
       },
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
@@ -2149,6 +2171,7 @@ export class Game {
       ...this.rockyImpactDestruction.debugMetrics(),
       ...this.planetExcavation.debugMetrics(),
       ...this.geomechanicalFracture.debugMetrics(),
+      ...this.macroBodyFracture.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
       'Geo · Altitude':`${t.altitudeM.toFixed(1)} m`,
       'Frame · Ativo':`${t.frame} · corpo ${t.dominantBody}`,

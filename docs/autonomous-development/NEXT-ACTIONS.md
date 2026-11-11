@@ -8,12 +8,11 @@
 - **SPEC-TRACKER** — Expansão integral para 54 especificações consolidadas.
 - **D2** — Escavação planetária profunda e túneis volumétricos contínuos (`PlanetExcavationService`).
 - **D3** — Fratura geomecânica da crosta, propagação sísmica de falhas e degradação de integridade (`GeomechanicalFractureService`).
+- **D4** — Destruição planetária parcial, separação de calotas e anéis de escombros Keplerianos (`MacroBodyFractureService`).
 
 ## Sequência Técnica Imediata
-1. **D4 (Destruição Planetária Parcial e Ejeção de Escombros em Órbita)**:
-   - Implementar `MacroBodyFractureService`: fratura de calotas planetárias quando integridade da crosta cai abaixo de limiar crítico ($< 30\%$).
-   - Desprendimento de fragmentos macroscópicos e injeção de asteroides em órbitas Keplerianas osculadoras (`CelestialDebrisRing`).
-2. **D5 (Ruptura Catastrófica de Corpos Menores e Dispersão de Campo de Asteroides)**:
-   - Fragmentação total de luas menores e asteroides com colisão de energia acima da energia de ligação gravitacional $U = \frac{3 G M^2}{5 R}$.
-3. **Auditoria Contínua de Performance e Testes E2E no Navegador**:
+1. **D5 (Ruptura Catastrófica de Corpos Menores e Dispersão de Campo de Asteroides)**:
+   - Implementar `MinorBodyDisruptionService`: fragmentação integral de luas menores e asteroides quando a energia do impacto excede a energia de ligação gravitacional $U = \frac{3 G M^2}{5 R}$.
+   - Substituição do corpo celeste no catálogo ativo por enxame de asteroides em órbita heliocêntrica.
+2. **Auditoria Contínua de Performance e Testes E2E no Navegador**:
    - Manter 100% dos testes verdes e zero regressão no CI.

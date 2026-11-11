@@ -36,6 +36,8 @@ export interface PowerHooks {
   excavate?: (origin: Vector3, direction: Vector3, radius: number, maxDepth?: number) => void;
   /** Authoritative geomechanical crust fracture and fault propagation (D3). */
   fractureCrust?: (origin: Vector3, energyJoules: number) => void;
+  /** Authoritative macroscopic continental/polar plate detachment and debris ejection (D4). */
+  macroFracture?: (epicenter: Vector3, capRadiusM: number, capDepthM: number, ejectionSpeedMps?: number) => void;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }

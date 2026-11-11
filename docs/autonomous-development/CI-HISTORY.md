@@ -29,3 +29,5 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 - fdad6f7 (BH1.2 HUD Telemetry): push run 43057588955 SUCCESS; PR run 43057599012 SUCCESS. 1.648/1.648 passed.
 - 2b677af (BH1.3 Stellar Black Holes): push run 43078901001 SUCCESS; PR run 43078910480 SUCCESS. 1.651/1.651 passed.
 - a7c476e (BH2.2 Wormhole Presentation & 54 Specs Tracker): push run 43088038666 SUCCESS; PR run 43088050501 SUCCESS. 1.655/1.655 passed. 2026-11-11T15:33:00-04:00
+- 7a543e7 (D2 Deep Planetary Excavation): push run 43090344377 SUCCESS; PR run 43090353806 SUCCESS. 1.661/1.661 passed. 2026-11-11T15:45:00-04:00
+- c260032 (D3 Geomechanical Crust Fracture): push run 43091828500 SUCCESS; PR run 43091841173 SUCCESS. 1.666/1.666 passed. 2026-11-11T15:58:00-04:00
