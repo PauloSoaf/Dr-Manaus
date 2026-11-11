@@ -1,7 +1,7 @@
 import type { Vec3 } from '../spatial/units';
-import { SECTOR_SIZE_M, type SectorIndex } from '../spatial/UniverseAddress';
+import { SECTOR_SIZE_M, sectorIndex, type SectorIndex } from '../spatial/UniverseAddress';
 import {
-  type BlackHoleDescriptor, SAGITTARIUS_A_STAR, M31_CENTRAL_BLACK_HOLE, SPEED_OF_LIGHT,
+  type BlackHoleDescriptor, SAGITTARIUS_A_STAR, M31_CENTRAL_BLACK_HOLE, SPEED_OF_LIGHT, generateStellarBlackHole,
 } from '../celestial/BlackHoleDescriptor';
 import {
   applyBlackHoleDynamics, evaluateBlackHoleProximity, type BlackHoleProximityState,
@@ -22,6 +22,41 @@ export function centralBlackHoleFor(galaxyId: string): BlackHoleDescriptor | und
   if (galaxyId === 'milky_way') return SAGITTARIUS_A_STAR;
   if (galaxyId === 'andromeda') return M31_CENTRAL_BLACK_HOLE;
   return undefined;
+}
+
+/** A stellar black hole re-expressed in galaxy-relative metres (descriptor positions are sector-local). */
+export function withAbsolutePosition(bh: BlackHoleDescriptor, sector: SectorIndex): BlackHoleDescriptor {
+  return { ...bh, positionM: [
+    Number(sector.x) * SECTOR_SIZE_M + bh.positionM[0],
+    Number(sector.y) * SECTOR_SIZE_M + bh.positionM[1],
+    Number(sector.z) * SECTOR_SIZE_M + bh.positionM[2],
+  ] };
+}
+
+/**
+ * Nearest black hole (stellar, from the 3x3x3 sectors around the player, or the galaxy's central one)
+ * to a galaxy-relative position. Deterministic; results are in galaxy-relative metres.
+ */
+export function nearestBlackHole(galaxyId: string, galaxyRelativeM: Vec3): BlackHoleDescriptor | undefined {
+  let best: BlackHoleDescriptor | undefined;
+  let bestD = Infinity;
+  const consider = (bh: BlackHoleDescriptor): void => {
+    const d = Math.hypot(galaxyRelativeM[0] - bh.positionM[0], galaxyRelativeM[1] - bh.positionM[1],
+      galaxyRelativeM[2] - bh.positionM[2]);
+    if (d < bestD) { bestD = d; best = bh; }
+  };
+  const central = centralBlackHoleFor(galaxyId);
+  // The central hole sits at the galaxy-relative origin in free flight.
+  if (central) consider({ ...central, positionM: [0, 0, 0] });
+  const cx = Math.round(galaxyRelativeM[0] / SECTOR_SIZE_M);
+  const cy = Math.round(galaxyRelativeM[1] / SECTOR_SIZE_M);
+  const cz = Math.round(galaxyRelativeM[2] / SECTOR_SIZE_M);
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+    const sector = sectorIndex(BigInt(cx + dx), BigInt(cy + dy), BigInt(cz + dz));
+    const sbh = generateStellarBlackHole(galaxyId, sector);
+    if (sbh) consider(withAbsolutePosition(sbh, sector));
+  }
+  return best;
 }
 
 export interface BlackHoleRuntimeStep {

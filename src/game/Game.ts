@@ -1,5 +1,5 @@
 import { UniversalTravelController } from '../world/travel/UniversalTravelController';
-import { BlackHoleRuntime, centralBlackHoleFor } from '../world/travel/BlackHoleRuntime';
+import { BlackHoleRuntime, nearestBlackHole, withAbsolutePosition } from '../world/travel/BlackHoleRuntime';
 import { BlackHoleTransitController } from '../world/travel/BlackHoleTransitNetwork';
 import type { BlackHoleDescriptor } from '../world/celestial/BlackHoleDescriptor';
 import { UniversalTeleportService } from '../world/travel/UniversalTeleportService';
@@ -1186,10 +1186,11 @@ export class Game {
     this.flightTelemetry = this.interplanetary.getTelemetry();
     let finalState = newState;
     // Live black hole gravity / capture (cosmic space only; never in local ENU physics).
-    const bhDescriptor = this.universe.address.systemId === undefined ? this.activeBlackHoleAtOrigin() : undefined;
+    const bhDescriptor = this.universe.address.systemId === undefined ? this.activeBlackHoleNear(newState.positionM) : undefined;
     // Cheap far-field gate: never build the runtime (or touch the catalog) away from a singularity.
     const nearBlackHole = !!bhDescriptor && (this.blackHoleRuntime?.transit.active
-      || Math.hypot(newState.positionM[0], newState.positionM[1], newState.positionM[2]) <= 100 * bhDescriptor.schwarzschildRadiusM);
+      || Math.hypot(newState.positionM[0] - bhDescriptor.positionM[0], newState.positionM[1] - bhDescriptor.positionM[1],
+        newState.positionM[2] - bhDescriptor.positionM[2]) <= 100 * bhDescriptor.schwarzschildRadiusM);
     const bhStep = nearBlackHole ? this.blackHoles.step({
       localPhysicsActive: this.travelDomain.localPhysicsActive,
       galaxyId: this.universe.activeGalaxy.id,
@@ -1219,10 +1220,9 @@ export class Game {
       this.universalTargetCatalog.discovery.universeSeed);
   }
 
-  /** The active galaxy's central black hole re-centred on the galaxy-relative origin used by free flight. */
-  private activeBlackHoleAtOrigin(): BlackHoleDescriptor | undefined {
-    const bh = centralBlackHoleFor(this.universe.activeGalaxy.id);
-    return bh ? { ...bh, positionM: [0, 0, 0] } : undefined;
+  /** Nearest black hole (central or stellar) in galaxy-relative metres for free flight. */
+  private activeBlackHoleNear(positionM: readonly number[]): BlackHoleDescriptor | undefined {
+    return nearestBlackHole(this.universe.activeGalaxy.id, [positionM[0], positionM[1], positionM[2]]);
   }
 
   /** Advances an active wormhole transit and performs the transactional emergence handoff. */
@@ -1240,10 +1240,17 @@ export class Game {
         throw new Error('destination galaxy preparation failed');
       }
       const exitBh = dest.exitBlackHole;
-      // Free-flight coordinates are galaxy-relative: central holes sit at the origin.
-      const base: [number, number, number] = exitBh && exitBh.isCanonical ? [0, 0, 0] : [...dest.emergencePositionM];
-      const pos: [number, number, number] = exitBh && exitBh.isCanonical
-        ? [base[0], base[1], base[2] + dest.safeClearanceDistanceM] : base;
+      // Free-flight coordinates are galaxy-relative: central holes sit at the origin; stellar
+      // holes carry sector-local offsets, so they are anchored to their sector first.
+      let pos: [number, number, number];
+      if (exitBh && exitBh.isCanonical) {
+        pos = [0, 0, dest.safeClearanceDistanceM];
+      } else if (exitBh && dest.exitTarget.address && 'sector' in dest.exitTarget.address) {
+        const abs = withAbsolutePosition(exitBh, dest.exitTarget.address.sector).positionM;
+        pos = [abs[0], abs[1], abs[2] + dest.safeClearanceDistanceM];
+      } else {
+        pos = [...dest.emergencePositionM];
+      }
       this.travelDomain.setState({ systemId: this.universe.address.systemId ?? galaxyId, positionM: pos,
         velocityMps: [...dest.emergenceVelocityMps], referenceBodyId: undefined });
       this.universe.updateSystemPose(pos, dest.emergenceVelocityMps, 0);
