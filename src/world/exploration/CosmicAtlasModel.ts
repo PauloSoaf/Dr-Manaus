@@ -116,6 +116,14 @@ export class CosmicAtlasModel {
   private readonly visitedTargets = new Set<string>();
   private readonly favoriteKeys = new Set<string>();
   private readonly history: ExplorationHistoryEvent[] = [];
+  private readonly bodyMetadataCache = new Map<string, {
+    worldType?: string;
+    canLand?: boolean;
+    landingMode?: 'none' | 'surface' | 'photosphere';
+    temperatureK?: number;
+    hasRings?: boolean;
+  }>();
+  private cachedTargetMap: Map<string, UniversalTargetDescriptor> | null = null;
 
   constructor(
     readonly catalog: UniversalTargetCatalog,
@@ -236,6 +244,7 @@ export class CosmicAtlasModel {
       });
     }
 
+    this.cachedTargetMap = null;
     if (this.save) {
       this.save.toggleFavorite(key);
     }
@@ -250,6 +259,7 @@ export class CosmicAtlasModel {
   markVisited(key: string, timeS = 0): boolean {
     if (this.visitedTargets.has(key)) return false;
     this.visitedTargets.add(key);
+    this.cachedTargetMap = null;
 
     let displayName = key;
     const desc = this.catalog.find(key);
@@ -308,6 +318,7 @@ export class CosmicAtlasModel {
 
   recordDiscovery(descriptor: UniversalTargetDescriptor, timeS = 0): void {
     const doDiscovery = () => {
+      this.cachedTargetMap = null;
       const key = universalTargetKey(descriptor);
       if (descriptor.kind === 'galaxy') {
         if (!this.discoveredGalaxies.has(key)) {
@@ -358,6 +369,15 @@ export class CosmicAtlasModel {
                   this.discoveredBodies.set(bKey, bodyTarget);
                   bodyKeys.push(bKey);
                 }
+                if (body.profile) {
+                  this.bodyMetadataCache.set(bKey, {
+                    worldType: body.profile.environment?.label ?? body.profile.bodyClass,
+                    canLand: body.profile.canLand,
+                    landingMode: body.profile.landingMode,
+                    temperatureK: body.profile.environment?.temperatureK,
+                    hasRings: !!body.profile.visual.rings || !!body.profile.environment?.hasRings,
+                  });
+                }
               }
             }
             if (this.save && bodyKeys.length > 0) {
@@ -398,7 +418,57 @@ export class CosmicAtlasModel {
     return this.history;
   }
 
+  private getBodyMetadata(desc: UniversalTargetDescriptor): {
+    worldType?: string;
+    canLand?: boolean;
+    landingMode?: 'none' | 'surface' | 'photosphere';
+    temperatureK?: number;
+    hasRings?: boolean;
+  } {
+    const key = universalTargetKey(desc);
+    const cached = this.bodyMetadataCache.get(key);
+    if (cached) return cached;
+
+    let worldType: string | undefined;
+    let canLandBody: boolean | undefined;
+    let landingModeBody: 'none' | 'surface' | 'photosphere' | undefined;
+    let temperatureK: number | undefined;
+    let hasRings: boolean | undefined;
+
+    const solar = desc.bodyId ? SOLAR_BODY_PROFILES[desc.bodyId] : (desc.objectId in SOLAR_BODY_PROFILES ? SOLAR_BODY_PROFILES[desc.objectId] : undefined);
+    if (solar) {
+      worldType = solar.environment?.label ?? solar.bodyClass;
+      canLandBody = solar.canLand;
+      landingModeBody = solar.landingMode;
+      temperatureK = solar.environment?.temperatureK;
+      hasRings = !!solar.visual.rings || !!solar.environment?.hasRings;
+    } else if (desc.address && 'sector' in desc.address && desc.address.systemId) {
+      const p = this.catalog.proceduralDescriptor(desc.address.galaxyId, desc.address.sector, desc.address.systemId);
+      const cand = p?.system.bodies.find(b => b.id === (desc.bodyId ?? desc.objectId));
+      if (cand?.profile) {
+        worldType = cand.profile.environment?.label ?? cand.profile.bodyClass;
+        canLandBody = cand.profile.canLand;
+        landingModeBody = cand.profile.landingMode;
+        temperatureK = cand.profile.environment?.temperatureK;
+        hasRings = !!cand.profile.visual.rings || !!cand.profile.environment?.hasRings;
+      }
+    }
+
+    const meta = {
+      worldType,
+      canLand: canLandBody,
+      landingMode: landingModeBody,
+      temperatureK,
+      hasRings,
+    };
+    this.bodyMetadataCache.set(key, meta);
+    return meta;
+  }
+
   private collectTargetMap(): Map<string, UniversalTargetDescriptor> {
+    if (this.cachedTargetMap) {
+      return this.cachedTargetMap;
+    }
     const targetMap = new Map<string, UniversalTargetDescriptor>();
     for (const [k, d] of this.discoveredGalaxies) targetMap.set(k, d);
     for (const [k, d] of this.identifiedSystems) targetMap.set(k, d);
@@ -410,6 +480,7 @@ export class CosmicAtlasModel {
         if (d) targetMap.set(universalTargetKey(d), d);
       }
     }
+    this.cachedTargetMap = targetMap;
     return targetMap;
   }
 
@@ -516,6 +587,7 @@ export class CosmicAtlasModel {
     const queryDiscoveredKeys = new Set<string>();
     if (query.length >= 2 && this.discovery) {
       const discovered = this.discovery.search(query, { x: 0n, y: 0n, z: 0n }, 32);
+      let newlyDiscovered = false;
       for (const g of discovered) {
         const desc: UniversalTargetDescriptor = {
           kind: 'galaxy',
@@ -527,30 +599,55 @@ export class CosmicAtlasModel {
         queryDiscoveredKeys.add(key);
         if (!this.discoveredGalaxies.has(key)) {
           this.discoveredGalaxies.set(key, desc);
+          newlyDiscovered = true;
         }
+      }
+      if (newlyDiscovered) {
+        this.cachedTargetMap = null;
       }
     }
 
-    // Collect all candidate target descriptors and calculate unified statistics
+    // Collect all candidate target descriptors
     const targetMap = this.collectTargetMap();
-    const statistics = this.computeStatistics(targetMap, currentGalaxyId);
 
-    // Build evaluated entries
-    const allEntries: CosmicAtlasEntry[] = [];
+    // Prepare search terms once outside the loop
+    const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const hasQuery = query.length > 0;
+    const nq = hasQuery ? normalize(query) : '';
+    const q = hasQuery ? query.toLowerCase() : '';
     const seed = this.discovery?.universeSeed ?? DEFAULT_UNIVERSE_SEED;
 
-    for (const desc of targetMap.values()) {
-      const key = universalTargetKey(desc);
-      const target = createUniversalTarget(desc);
-      const isCanonical = isCanonicalTarget(desc);
-      const galaxyMeta = desc.galaxyId && this.discovery ? this.discovery.findGalaxyById(desc.galaxyId) : undefined;
+    // Statistics accumulators (evaluated in the single loop)
+    let proceduralGalaxies = 0;
+    let canonicalGalaxies = 0;
+    let totalGalaxies = 0;
+    let totalSystems = 0;
+    let flyableCount = 0;
 
-      // Resolve navigation / distance / guidance
+    const allEntries: CosmicAtlasEntry[] = [];
+
+    for (const desc of targetMap.values()) {
+      const isCanonical = isCanonicalTarget(desc);
+      if (desc.kind === 'galaxy') {
+        totalGalaxies++;
+        if (isCanonical) canonicalGalaxies++;
+        else proceduralGalaxies++;
+      } else if (desc.kind === 'system') {
+        totalSystems++;
+      }
+
+      const key = universalTargetKey(desc);
+      const visited = this.visitedTargets.has(key);
+      const favorite = this.favoriteKeys.has(key);
+
+      // Resolve navigation / distance / guidance once per target
       let distanceM: number | undefined;
       let readinessState: NavigationReadinessState = 'unavailable';
       let guidanceStatus = 'Indisponível';
       let shortcutHint = 'Nenhum atalho';
       let canTravel = false;
+
+      const target = createUniversalTarget(desc);
 
       if (this.resolver) {
         try {
@@ -571,7 +668,6 @@ export class CosmicAtlasModel {
           // Keep defaults
         }
       } else {
-        // Fallback guidance when resolver is not provided
         const capability = desc.kind === 'galaxy' && desc.galaxyId !== currentGalaxyId
           ? 'intergalactic'
           : desc.kind === 'system'
@@ -590,9 +686,28 @@ export class CosmicAtlasModel {
         canTravel = guidance.available;
       }
 
-      const visited = this.visitedTargets.has(key);
-      const favorite = this.favoriteKeys.has(key);
+      if (canTravel) {
+        flyableCount++;
+      }
 
+      // Early rejection filters
+      if (kindFilter !== 'all' && desc.kind !== kindFilter) {
+        continue;
+      }
+      if (statusFilter === 'favorites' && !favorite) continue;
+      if (statusFilter === 'visited' && !visited) continue;
+      if (statusFilter === 'flyable' && !canTravel) continue;
+
+      const galaxyMeta = desc.galaxyId && this.discovery ? this.discovery.findGalaxyById(desc.galaxyId) : undefined;
+      const morphology = galaxyMeta?.morphology ?? (desc.kind === 'galaxy' ? 'spiral' : undefined);
+      const family = galaxyMeta?.family;
+
+      if (morphologyFilter !== 'all') {
+        const morph = (family ?? morphology ?? '').toLowerCase();
+        if (!morph.includes(morphologyFilter.toLowerCase())) continue;
+      }
+
+      // Body metadata retrieval (cached)
       let worldType: string | undefined;
       let canLandBody: boolean | undefined;
       let landingModeBody: 'none' | 'surface' | 'photosphere' | undefined;
@@ -600,23 +715,47 @@ export class CosmicAtlasModel {
       let hasRings: boolean | undefined;
 
       if (desc.kind === 'body' || desc.kind === 'star') {
-        const solar = desc.bodyId ? SOLAR_BODY_PROFILES[desc.bodyId] : (desc.objectId in SOLAR_BODY_PROFILES ? SOLAR_BODY_PROFILES[desc.objectId] : undefined);
-        if (solar) {
-          worldType = solar.environment?.label ?? solar.bodyClass;
-          canLandBody = solar.canLand;
-          landingModeBody = solar.landingMode;
-          temperatureK = solar.environment?.temperatureK;
-          hasRings = !!solar.visual.rings || !!solar.environment?.hasRings;
-        } else if (desc.address && 'sector' in desc.address && desc.address.systemId) {
-          const p = this.catalog.proceduralDescriptor(desc.address.galaxyId, desc.address.sector, desc.address.systemId);
-          const cand = p?.system.bodies.find(b => b.id === (desc.bodyId ?? desc.objectId));
-          if (cand?.profile) {
-            worldType = cand.profile.environment?.label ?? cand.profile.bodyClass;
-            canLandBody = cand.profile.canLand;
-            landingModeBody = cand.profile.landingMode;
-            temperatureK = cand.profile.environment?.temperatureK;
-            hasRings = !!cand.profile.visual.rings || !!cand.profile.environment?.hasRings;
+        const meta = this.getBodyMetadata(desc);
+        worldType = meta.worldType;
+        canLandBody = meta.canLand;
+        landingModeBody = meta.landingMode;
+        temperatureK = meta.temperatureK;
+        hasRings = meta.hasRings;
+      }
+
+      // Query filter with short-circuit evaluation
+      if (hasQuery) {
+        let matches = false;
+        if (queryDiscoveredKeys.has(key)) {
+          matches = true;
+        } else if (normalize(desc.displayName).includes(nq)) {
+          matches = true;
+        } else if (desc.objectId.toLowerCase().includes(q)) {
+          matches = true;
+        } else if (desc.galaxyId !== undefined && desc.galaxyId.toLowerCase().includes(q)) {
+          matches = true;
+        } else if (key.toLowerCase().includes(q)) {
+          matches = true;
+        } else if (worldType !== undefined && normalize(worldType).includes(nq)) {
+          matches = true;
+        } else if (targetCell !== undefined) {
+          if (galaxyMeta && galaxyMeta.cell.x === targetCell.x && galaxyMeta.cell.y === targetCell.y && galaxyMeta.cell.z === targetCell.z) {
+            matches = true;
+          } else if (desc.address && 'cell' in desc.address) {
+            const c = desc.address.cell;
+            if (c.x === targetCell.x && c.y === targetCell.y && c.z === targetCell.z) {
+              matches = true;
+            }
+          } else if (desc.address && 'sector' in desc.address) {
+            const s = desc.address.sector;
+            if (s.x === targetCell.x && s.y === targetCell.y && s.z === targetCell.z) {
+              matches = true;
+            }
           }
+        }
+
+        if (!matches) {
+          continue;
         }
       }
 
@@ -631,8 +770,8 @@ export class CosmicAtlasModel {
         systemId: desc.systemId,
         bodyId: desc.bodyId,
         isCanonical,
-        morphology: galaxyMeta?.morphology ?? (desc.kind === 'galaxy' ? 'spiral' : undefined),
-        family: galaxyMeta?.family,
+        morphology,
+        family,
         diameterLy: galaxyMeta?.diameterLy,
         estimatedStarCount: galaxyMeta?.estimatedStarCount,
         distanceM,
@@ -650,58 +789,19 @@ export class CosmicAtlasModel {
         hasRings,
       };
 
-      // Filter: Query search
-      if (query) {
-        const normalize = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-        const nq = normalize(query);
-        const q = query.toLowerCase();
-        const matchesName = normalize(entry.displayName).includes(nq);
-        const matchesId = entry.objectId.toLowerCase().includes(q);
-        const matchesGalaxy = entry.galaxyId?.toLowerCase().includes(q) ?? false;
-        const matchesKey = entry.key.toLowerCase().includes(q);
-        const matchesWorldType = entry.worldType ? normalize(entry.worldType).includes(nq) : false;
-        const matchesDiscovered = queryDiscoveredKeys.has(entry.key);
-
-        let matchesCoord = false;
-        if (targetCell) {
-          if (galaxyMeta && galaxyMeta.cell.x === targetCell.x && galaxyMeta.cell.y === targetCell.y && galaxyMeta.cell.z === targetCell.z) {
-            matchesCoord = true;
-          } else if (entry.descriptor.address && 'cell' in entry.descriptor.address) {
-            const c = entry.descriptor.address.cell;
-            if (c.x === targetCell.x && c.y === targetCell.y && c.z === targetCell.z) {
-              matchesCoord = true;
-            }
-          } else if (entry.descriptor.address && 'sector' in entry.descriptor.address) {
-            const s = entry.descriptor.address.sector;
-            if (s.x === targetCell.x && s.y === targetCell.y && s.z === targetCell.z) {
-              matchesCoord = true;
-            }
-          }
-        }
-
-        if (!matchesName && !matchesId && !matchesGalaxy && !matchesKey && !matchesWorldType && !matchesDiscovered && !matchesCoord) {
-          continue;
-        }
-      }
-
-      // Filter: Kind
-      if (kindFilter !== 'all' && entry.kind !== kindFilter) {
-        continue;
-      }
-
-      // Filter: Status
-      if (statusFilter === 'favorites' && !entry.favorite) continue;
-      if (statusFilter === 'visited' && !entry.visited) continue;
-      if (statusFilter === 'flyable' && !entry.canTravel) continue;
-
-      // Filter: Morphology
-      if (morphologyFilter !== 'all') {
-        const morph = (entry.family ?? entry.morphology ?? '').toLowerCase();
-        if (!morph.includes(morphologyFilter.toLowerCase())) continue;
-      }
-
       allEntries.push(entry);
     }
+
+    const statistics: CosmicAtlasStatistics = {
+      totalKnown: targetMap.size,
+      totalGalaxies,
+      proceduralGalaxies,
+      canonicalGalaxies,
+      totalSystems,
+      visitedCount: this.visitedTargets.size,
+      favoritesCount: this.favoriteKeys.size,
+      flyableCount,
+    };
 
     // Sort entries
     allEntries.sort((a, b) => {
@@ -767,6 +867,8 @@ export class CosmicAtlasModel {
     identifiedSystems?: string[];
     discoveredBodies?: string[];
   }): void {
+    this.cachedTargetMap = null;
+    this.bodyMetadataCache.clear();
     if (Array.isArray(data.favorites)) {
       this.favoriteKeys.clear();
       for (const k of data.favorites) if (typeof k === 'string') this.favoriteKeys.add(k);

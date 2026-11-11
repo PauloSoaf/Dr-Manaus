@@ -40,7 +40,14 @@ Este plano define a sequência de engenharia estrita para conduzir o desenvolvim
 - Commits: `b118829`, `ac307f1`, `bb4ce9c`
 - Status: Desacoplamento de `BlackHoleDefinition` em `src/world/blackhole/BlackHoleDefinition.ts`, saneamento de `LargeScaleStructureProvider` e documentação técnica `docs/world/54-status-COSMIC-TARGET-HARDENING.md` 100% aprovados no GitHub Actions (Runs 43036032343, 43036554791 e 43036567036).
 
-### Passo 10: Homologação Visual e Verificação de Gameplay no Navegador (Próxima Execução)
+### Passo 10: Otimizações Visuais e Escala do Atlas (ISSUE-01 & ISSUE-02) (Concluído)
+- Commits: `2e06284`, `57d0312`
+- Status:
+  - `ISSUE-01`: Anel de fótons relativístico orientado ao observador contornando a sombra de buracos negros.
+  - `ISSUE-02`: Cache de `targetMap` e `bodyMetadataCache` em `CosmicAtlasModel`, eliminando recomputação procedural e consolidando estatísticas em passagem única $O(N)$ em `query()`.
+  - Suíte de 1.640 testes globais e 638 regressões 100% verde.
+
+### Passo 11: Homologação Visual e Verificação de Gameplay no Navegador (Próxima Execução)
 - Servidor de desenvolvimento mantido ativo na porta 9999.
 - Itens para validação de experiência interativa:
   1. Tecla `M`: Abertura e fechamento instantâneo do Mapa Universal com breadcrumbs reativos e botão `COPIAR URI`.

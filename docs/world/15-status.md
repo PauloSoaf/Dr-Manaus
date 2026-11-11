@@ -1,6 +1,25 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — Cosmic Target Hardening & Clean Architecture (2026-11-11)
+## Current checkpoint — Otimização de Escala do Atlas Cósmico e Anel de Fótons Relativístico (2026-11-11)
+
+Implementado com base no baseline auditado e 100% aprovado no CI:
+1. Resolução da `ISSUE-02` (Otimização de Escala e Caching do Atlas Cósmico):
+   - `src/world/exploration/CosmicAtlasModel.ts`:
+     - Cache de `targetMap` consolidado com invalidação reativa em mutações (`cachedTargetMap`).
+     - Cache persistente de metadados procedurais (`bodyMetadataCache`), prevenindo a regeneração sintética de perfis de corpos em consultas repetidas.
+     - Avaliação em passagem única $O(N)$ em `query()` unificando o cálculo de estatísticas e a filtragem de destinos, cortando pela metade as chamadas ao `resolver.resolve` e navegação.
+     - Otimização de busca textual com avaliação por curto-circuito e precomputação de normalização NFD.
+   - `tests/atlas-scale-opt-issue02.test.ts`: 3 novos testes unitários dedicados a reuso de mapa, invalidação e paridade matemática de estatísticas.
+2. Resolução da `ISSUE-01` (Anel de Fótons Relativístico para Buracos Negros):
+   - `src/world/providers/BlackHoleProvider.ts`:
+     - Implementado anel de fótons relativístico com geometria anular orientada continuamente para o observador (`photonRing.lookAt(cameraPosM)`), contornando a fronteira de sombra de Kerr/Schwarzschild.
+     - Cobertura expandida em `tests/black-hole-astrophysics-bh0.test.ts`.
+3. Cobertura Global de Testes:
+   - 1.640 / 1.640 testes gerais aprovados (100% green).
+   - 638 / 638 testes de regressão permanente aprovados (100% green).
+   - TypeScript `tsc --noEmit` 0 erros e build de produção Vite concluído em < 2s.
+
+## Previous checkpoint — Cosmic Target Hardening & Clean Architecture (2026-11-11)
 
 Implementado com base no baseline estável `3eda1ca` (Patch U7 e normalização unitária, 100% CI pass):
 1. Desacoplamento do Modelo Astrofísico (`src/world/blackhole/BlackHoleDefinition.ts`):

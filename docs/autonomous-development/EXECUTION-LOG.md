@@ -4,6 +4,24 @@ Registro cronológico contínuo de decisões, investigações, implementações 
 
 ---
 
+### [2026-11-11T10:48:00-04:00] — Otimização de Escala do Atlas Cósmico e Resolução da ISSUE-02
+- **Milestone:** Otimização de Escala do Atlas Cósmico (`ISSUE-02` de `docs/autonomous-development/KNOWN-ISSUES.md`).
+- **Problema Abordado:** Em visualizações do Atlas Cósmico com grande volume de alvos identificados, consultas repetidas incorriam em recriação síncrona de `targetMap`, reavaliação de descritores procedurais de corpos (`proceduralDescriptor`) para cada corpo de cada sistema, e execução dupla de rotinas de roteamento/orientação de viagem (`resolver.resolve`) em loops separados para estatísticas e filtragem.
+- **Entregas:**
+  1. **Cache de TargetMap Consolidado:** Criado `cachedTargetMap` com invalidação reativa (`cachedTargetMap = null`) acionada estritamente em mutações de estado (`recordDiscovery`, `recordArrival`, `toggleFavorite`, `importState` e descoberta dinâmica). Consultas repetidas ou reordenações reutilizam a mesma instância de mapa em $O(1)$.
+  2. **Cache de Metadados de Corpos Procedurais (`bodyMetadataCache`):** Armazenamento em memória das propriedades taxonômicas imutáveis dos corpos celestes procedurais (`worldType`, `canLand`, `landingMode`, `temperatureK`, `hasRings`) capturadas no ato de `recordDiscovery`, eliminando regeneração sintética de sistemas em consultas de pesquisa.
+  3. **Loop Unificado de Passagem Única em `query()`:** Unificação do cálculo de estatísticas globais (`CosmicAtlasStatistics`) e filtragem de alvos em uma única iteração $O(N)$ sobre o catálogo, eliminando chamadas redundantes a `resolver.resolve` e `describeNavigationGuidance`.
+  4. **Otimização de Termos de Busca:** Precomputação de normalizações NFD e caixa baixa fora do loop de iteração com avaliação por curto-circuito (`short-circuit evaluation`), priorizando checagens de conjunto $O(1)$ e filtros de tipo antes de expressões de texto.
+  5. **Suíte de Testes Automatizada:** Criado `tests/atlas-scale-opt-issue02.test.ts` com 3 testes unitários cobrindo reutilização de mapa, invalidação determinística, retenção de metadados em cache e paridade matemática de 100% entre `getStatistics()` e `query().statistics`.
+- **Validação:**
+  - `npm test`: **1.640 / 1.640 aprovados (100% verde)**.
+  - `npm run test:regression`: **638 / 638 aprovados (100% verde)**.
+  - `npm run typecheck`: **0 erros**.
+  - `npm run build`: Build de produção Vite concluído com sucesso em 1.94s.
+- **Status:** `ISSUE-02` promovida para `CONCLUIDO` em `KNOWN-ISSUES.md`.
+
+---
+
 ### [2026-11-11T09:48:00-04:00] — Implementação e Entrega do Milestone U7
 - **Milestone:** `U7` — Teleporte Universal Infinito e Handoff Seguro de Destino (`05-INFINITE-TELEPORT.md` e `06-DESTINATION-PREPARATION-HANDOFF.md`).
 - **Entregas:**
