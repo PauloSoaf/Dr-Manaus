@@ -34,6 +34,8 @@ export interface PowerHooks {
   universalTeleport?: (rayOrigin: Vector3, rayDirection: Vector3) => Promise<boolean>;
   /** Authoritative planetary tunnel / borehole excavation (D2). */
   excavate?: (origin: Vector3, direction: Vector3, radius: number, maxDepth?: number) => void;
+  /** Authoritative geomechanical crust fracture and fault propagation (D3). */
+  fractureCrust?: (origin: Vector3, energyJoules: number) => void;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }

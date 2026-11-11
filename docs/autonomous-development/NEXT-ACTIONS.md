@@ -7,11 +7,13 @@
 - **ISSUE-01, ISSUE-02, ISSUE-04** — Anel de fótons orientado, otimização de cache do Atlas e transição suave Terra-órbita.
 - **SPEC-TRACKER** — Expansão integral para 54 especificações consolidadas.
 - **D2** — Escavação planetária profunda e túneis volumétricos contínuos (`PlanetExcavationService`).
+- **D3** — Fratura geomecânica da crosta, propagação sísmica de falhas e degradação de integridade (`GeomechanicalFractureService`).
 
 ## Sequência Técnica Imediata
-1. **D3 (Fratura Geomecânica e Desabamento Estrutural)**:
-   - Implementar propagação de tensão de impacto (`StressPropagationModel`) e fendas poligonais profundas no manto rochoso.
-2. **D4 (Destruição Planetária Parcial e Ejeção de Escombros)**:
-   - Fratura de calotas planetárias com desprendimento de fragmentos em órbita Kepleriana.
+1. **D4 (Destruição Planetária Parcial e Ejeção de Escombros em Órbita)**:
+   - Implementar `MacroBodyFractureService`: fratura de calotas planetárias quando integridade da crosta cai abaixo de limiar crítico ($< 30\%$).
+   - Desprendimento de fragmentos macroscópicos e injeção de asteroides em órbitas Keplerianas osculadoras (`CelestialDebrisRing`).
+2. **D5 (Ruptura Catastrófica de Corpos Menores e Dispersão de Campo de Asteroides)**:
+   - Fragmentação total de luas menores e asteroides com colisão de energia acima da energia de ligação gravitacional $U = \frac{3 G M^2}{5 R}$.
 3. **Auditoria Contínua de Performance e Testes E2E no Navegador**:
    - Manter 100% dos testes verdes e zero regressão no CI.

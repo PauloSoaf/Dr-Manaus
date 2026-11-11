@@ -72,6 +72,7 @@ import { TravelDomain } from '../world/travel/TravelDomain';
 import { CelestialImpactService } from '../world/travel/CelestialImpactService';
 import { RockyImpactDestructionService } from '../world/destruction/RockyImpactDestructionService';
 import { PlanetExcavationService } from '../world/destruction/PlanetExcavationService';
+import { GeomechanicalFractureService } from '../world/destruction/GeomechanicalFractureService';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
 import { IMPACT_VOLUME_LIMITS } from '../world/planet/volume/PlanetVolumeImpactDemand';
@@ -145,6 +146,7 @@ export class Game {
   readonly universe:UniverseRuntime;
   readonly rockyImpactDestruction:RockyImpactDestructionService;
   readonly planetExcavation: PlanetExcavationService;
+  readonly geomechanicalFracture: GeomechanicalFractureService;
   readonly volumeRenderer:PlanetVolumeSurfaceRenderer;
   galaxyMaterializer?:GalaxyMaterializer;
   get galaxy():StarSectorProvider|undefined{return this.galaxyMaterializer?.current?.starSectorProvider;}
@@ -457,6 +459,18 @@ export class Game {
         this.universe.volume.requestEditRegion(plan.tunnelId);
       },
     });
+    this.geomechanicalFracture = new GeomechanicalFractureService({
+      edits: this.universe.volume.edits,
+      surfaceForBody: id => {
+        const body = this.universe.activeSystem.bodies.find(b => b.id === id);
+        return body ? surfaceForBody(body) : undefined;
+      },
+      onFractureCreated: plan => {
+        for (const seg of plan.faultSegments.slice(0, 8)) {
+          this.universe.volume.requestEditRegion(seg.id);
+        }
+      },
+    });
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -541,6 +555,14 @@ export class Game {
           radiusM: radius,
           maxDepthM: maxDepth,
         });
+      },
+      fractureCrust: (origin, energyJoules) => {
+        const bodyId = this.universe.telemetry.dominantBody;
+        const currentFrame = this.universe.player.frame;
+        const body = this.universe.activeSystem.bodies.find(b => b.id === bodyId);
+        if (!body || !body.frameId) return;
+        const originBF = this.universe.frames.convertPosition(currentFrame, body.frameId, [origin.x, origin.y, origin.z]);
+        this.geomechanicalFracture.propagateStressAndFracture(bodyId, originBF, energyJoules);
       },
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
@@ -2126,6 +2148,7 @@ export class Game {
       'Planet Destruction · Tile masks avg max / zero masked':`${this.volumeRenderer.stats.masks?.averageBounds.toFixed(2)??'0'} ${this.volumeRenderer.stats.masks?.maxBounds??0} / ${this.volumeRenderer.stats.masks?.zeroTiles??0} ${this.volumeRenderer.stats.masks?.maskedTiles??0}`,
       ...this.rockyImpactDestruction.debugMetrics(),
       ...this.planetExcavation.debugMetrics(),
+      ...this.geomechanicalFracture.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
       'Geo · Altitude':`${t.altitudeM.toFixed(1)} m`,
       'Frame · Ativo':`${t.frame} · corpo ${t.dominantBody}`,
