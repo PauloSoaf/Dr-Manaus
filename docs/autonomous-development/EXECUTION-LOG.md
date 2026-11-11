@@ -65,3 +65,17 @@ Registro cronológico contínuo de decisões, investigações, implementações 
 - **Conclusão de Família:** Trilogia completa de Buracos Negros (`BH0`, `BH1`, `BH2`) implementada com 22 testes automatizados.
 - **Validação Local:** `npm run typecheck` (`tsc --noEmit`) 100% aprovado com 0 erros.
 - **Documentação:** Atualizados `docs/world/15-status.md`, `docs/world/50-status-BH2-BLACK-HOLE-TRANSIT-NETWORK.md` e tracker operacional.
+
+---
+
+### [2026-11-11T09:15:00-04:00] — Implementação e Entrega do Milestone U5
+- **Milestone:** `U5` — Mapa Universal Multiescala Interativo, Hierarquia Canônica e Modelo de Coordenadas Compartilháveis.
+- **Entregas:**
+  1. Criação e expansão de `src/ui/map/MapNavigationModel.ts` com tipagem de precisão `MapPrecision`, escalas `MapScaleTier`, resolução de hierarquia `resolveHierarchy()` (`UNIVERSE / LOCAL GROUP / MILKY WAY / SOL / TERRA / MANAUS`), avaliação unificada de precisão física, busca universal e geração de URI compartilhável `drm:v1://`.
+  2. Implementação de `toTeleportTarget()`, `formatLocation()` e `fromTargetDescriptor()` em `src/world/spatial/UniverseCoordinates.ts` com roundtrip BigInt 64-bit perfeito.
+  3. Refatoração de `src/ui/map/UniversalMapPanel.ts` com botão `COPIAR URI`, breadcrumbs canônicos reativos, apresentação explícita de precisão física e busca universal integrada ao campo de coordenadas.
+  4. Criação da suíte `tests/universal-map-multiscale-u5.test.ts` com 7 testes automatizados aprovados (49/49 testes em regressões permanentes e marcos recentes).
+- **Validação Local:**
+  - `npm run typecheck`: 100% aprovado (0 erros).
+  - `npm run build`: Build de produção Vite 8.3.0 concluído com sucesso.
+- **Documentação:** Atualizados `docs/world/15-status.md`, `docs/world/51-status-U5-UNIVERSAL-MAP-MULTISCALE.md` e tracker operacional.

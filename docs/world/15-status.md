@@ -1,6 +1,25 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — BH2 Rede Determinística de Trânsito Cósmico e Emergência de Dobra Espacial (2026-11-11)
+## Current checkpoint — U5 Mapa Universal Multiescala Interativo, Hierarquia Canônica e Modelo de Coordenadas (2026-11-11)
+
+Implementado com base no baseline estável `e28668c48a731f24d2938cf387063db1a4ec8ebc` (Patch BH2, typecheck PASS):
+1. `src/ui/map/MapNavigationModel.ts`:
+   - Modelo de navegação multiescala com tipos `MapPrecision` (`measured`, `approximate`, `procedural`, `gameplay-placeholder`) e `MapScaleTier`.
+   - Método `resolveHierarchy()` implementando a árvore de breadcrumbs canônica sem fabricação de níveis (`UNIVERSE / LOCAL GROUP / MILKY WAY / SOL / TERRA / MANAUS`).
+   - Mecanismo unificado de busca com rotulagem de precisão, disponibilidade e orientação de voo.
+   - Formatação e exportação direta de URI compartilhável `drm:v1://` com preservação estrita de `BigInt`.
+2. `src/world/spatial/UniverseCoordinates.ts`:
+   - Funções utilitárias `toTeleportTarget()`, `formatLocation()` e `fromTargetDescriptor()`, assegurando roundtrip exato entre objetos e URIs.
+3. `src/ui/map/UniversalMapPanel.ts`:
+   - Botão interativo `COPIAR URI` para transferir coordenadas da localização atual para o clipboard.
+   - Integração da hierarquia de breadcrumbs clicáveis com tooltip de precisão.
+   - Renderização explícita de precisão no cartão de localização (`where-am-i-card`) e no cartão do alvo de navegação (`universal-target-card`).
+   - Suporte a busca universal no campo de coordenadas ao digitar texto ou nomes de destinos.
+4. `tests/universal-map-multiscale-u5.test.ts`:
+   - Suíte de 7 testes automatizados cobrindo hierarquia canônica de breadcrumbs, precisão física, roundtrip de URIs compartilháveis, busca universal, transições de escala e navegação reativa.
+Evidence: [51-status-U5-UNIVERSAL-MAP-MULTISCALE.md](51-status-U5-UNIVERSAL-MAP-MULTISCALE.md).
+
+## Previous checkpoint — BH2 Rede Determinística de Trânsito Cósmico e Emergência de Dobra Espacial (2026-11-11)
 
 Implementado com base no baseline estável `95de4747be8bb8c82eb5c76db421c97a8ec21021` (Patch BH1, typecheck PASS):
 1. `src/world/travel/BlackHoleTransitNetwork.ts`:

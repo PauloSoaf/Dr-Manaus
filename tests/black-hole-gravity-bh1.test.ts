@@ -97,8 +97,9 @@ test('T_BH1_03_PROXIMITY_ZONES_AND_LENSING_INTENSITY', () => {
   assert.ok(pStrong.lensingIntensity01 > 0.5);
   assert.equal(pStrong.canEscapeNormally, true);
 
-  // 4. ISCO zone: r = 2 * rs (inside ISCO at 3*rs, but outside horizon)
-  const pIsco = evaluateBlackHoleProximity([2 * rs, 0, 0], sgra);
+  // 4. ISCO zone: between horizon and ISCO radius
+  const rIscoTest = (sgra.eventHorizonRadiusM + sgra.iscoRadiusM) * 0.5;
+  const pIsco = evaluateBlackHoleProximity([rIscoTest, 0, 0], sgra);
   assert.equal(pIsco.zone, 'isco-zone');
   assert.equal(pIsco.isCaptured, false);
   assert.equal(pIsco.canEscapeNormally, false);

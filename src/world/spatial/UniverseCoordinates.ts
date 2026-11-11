@@ -1,5 +1,6 @@
-import type { TeleportTarget, CosmologicalAddress } from './UniverseLocation';
+import type { TeleportTarget, CosmologicalAddress, UniverseLocation } from './UniverseLocation';
 import { sectorIndex } from './UniverseAddress';
+import type { UniversalTargetDescriptor } from '../travel/UniversalNavigationTarget';
 
 function parseFinite(val: string | null): number | null {
   if (val === null || val === '') return null;
@@ -17,6 +18,82 @@ function parseBigInt(val: string | null): bigint | null {
 }
 
 export class UniverseCoordinates {
+  static toTeleportTarget(location: UniverseLocation): TeleportTarget {
+    if (location.surface && location.address.bodyId) {
+      return {
+        kind: 'surface-geodetic',
+        galaxyId: location.address.galaxyId,
+        systemId: location.address.systemId,
+        bodyId: location.address.bodyId,
+        latDeg: location.surface.latDeg,
+        lonDeg: location.surface.lonDeg,
+        altitudeM: location.surface.altitudeM,
+      };
+    }
+    if (location.systemPositionM && location.address.systemId) {
+      return {
+        kind: 'system-position',
+        galaxyId: location.address.galaxyId,
+        systemId: location.address.systemId,
+        positionM: location.systemPositionM,
+      };
+    }
+    if (location.cosmological) {
+      return {
+        kind: 'cosmological',
+        address: location.cosmological,
+      };
+    }
+    return {
+      kind: 'cosmic-sector',
+      galaxyId: location.address.galaxyId,
+      sector: location.address.sector,
+      offsetM: location.sectorOffsetM ?? [0, 0, 0],
+    };
+  }
+
+  static formatLocation(location: UniverseLocation): string {
+    return UniverseCoordinates.format(UniverseCoordinates.toTeleportTarget(location));
+  }
+
+  static fromTargetDescriptor(target: UniversalTargetDescriptor): TeleportTarget {
+    if (target.kind === 'body' && target.address && 'sector' in target.address && target.address.bodyId) {
+      return {
+        kind: 'body-orbit',
+        galaxyId: target.address.galaxyId,
+        systemId: target.address.systemId,
+        bodyId: target.address.bodyId,
+        altitudeM: 100_000,
+      };
+    }
+    if (target.kind === 'system' && target.address && 'sector' in target.address && target.address.systemId) {
+      return {
+        kind: 'system-position',
+        galaxyId: target.address.galaxyId,
+        systemId: target.address.systemId,
+        positionM: [0, 0, 0],
+      };
+    }
+    if (target.address && 'cell' in target.address) {
+      return {
+        kind: 'cosmological',
+        address: target.address,
+      };
+    }
+    if (target.address && 'sector' in target.address) {
+      return {
+        kind: 'cosmic-sector',
+        galaxyId: target.address.galaxyId,
+        sector: target.address.sector,
+        offsetM: [0, 0, 0],
+      };
+    }
+    return {
+      kind: 'catalog-object',
+      id: target.objectId,
+    };
+  }
+
   static format(target: TeleportTarget): string {
     const params = new URLSearchParams();
     

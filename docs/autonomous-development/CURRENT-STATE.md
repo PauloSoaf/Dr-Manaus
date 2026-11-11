@@ -1,10 +1,16 @@
 # DR-MANAUS | Current State
 
-- **Data/Hora:** 2026-11-11T08:46:00-04:00
+- **Data/Hora:** 2026-11-11T09:15:00-04:00
 - **Branch Ativa:** `feat/universe-map`
-- **Último Milestone Entregue:** `BH2` — Rede Determinística de Trânsito Cósmico e Emergência de Dobra Espacial
-- **Trilogia de Buracos Negros:** Completa (`BH0`, `BH1`, `BH2` todos implementados e cobertos por 22 testes automatizados).
+- **Último Milestone Entregue:** `U5` — Mapa Universal Multiescala Interativo, Hierarquia Canônica e Modelo de Coordenadas Compartilháveis
+- **Status dos Milestones:**
+  - `U4.5.4.1`: Hotfix Relevo & Elipsoide (Concluído)
+  - `BH0`: Astrofísica Relativística de Buracos Negros (Concluído)
+  - `BH1`: Dinâmica Gravitacional e Captura de Horizonte (Concluído)
+  - `BH2`: Rede Determinística de Trânsito Cósmico (Concluído)
+  - `U5`: Mapa Universal Multiescala Interativo e Coordenadas Compartilháveis (Concluído)
 - **Status de Typecheck:** Aprovado (`tsc --noEmit` 0 erros).
-- **Cobertura de Testes Adicionada:** 7 novos testes em `tests/black-hole-transit-bh2.test.ts`.
-- **Bloqueios Ativos:** Nenhum bloqueio P0 ou P1.
-- **Próximo Milestone:** `U5` — Mapa Universal Multiescala Interativo (Sistema -> Setor Estelar -> Galáxia -> Grupo Local -> Superaglomerado -> Teia Cósmica).
+- **Status de Build:** Aprovado (Vite 8.3.0).
+- **Cobertura de Testes do U5:** 7 novos testes em `tests/universal-map-multiscale-u5.test.ts` (49/49 testes de marcos recentes aprovados).
+- **Bloqueios Ativos:** Nenhum bloqueio.
+- **Próximo Milestone:** `U6` — Estrutura Cósmica, Horizonte Observável e Exploração Cosmológica.

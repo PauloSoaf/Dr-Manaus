@@ -84,5 +84,5 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 ### Módulo G — Escala Cosmológica e Teia Cósmica
 | ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| `COSMO-01` | `UNIVERSE-MAP-COMPLETION-EPIC.md` | **U5:** Mapa Universal Interativo aninhado em múltiplas escalas (sistema -> galáxia -> teia) | P1 | `IN_PROGRESS` | Em desenvolvimento | Planejado para U5 |
-| `COSMO-02` | `13-OBSERVABLE-UNIVERSE-HORIZON.md`| **U6:** Horizonte cosmológico observável centrado no jogador e estruturas do Grande Atrator | P1 | `TODO` | — | Planejado para U6 |
+| `COSMO-01` | `UNIVERSE-MAP-COMPLETION-EPIC.md` | **U5:** Mapa Universal Interativo multiescala, breadcrumbs canônicos (`UNIVERSE/LOCAL GROUP/MW/SOL/EARTH/MANAUS`) e modelo de coordenadas `drm:v1://` | P0 | `IMPLEMENTED` | `HEAD` | `tests/universal-map-multiscale-u5.test.ts` |
+| `COSMO-02` | `13-OBSERVABLE-UNIVERSE-HORIZON.md`| **U6:** Horizonte cosmológico observável centrado no observador e estruturas do Grande Atrator | P1 | `TODO` | — | Planejado para U6 |

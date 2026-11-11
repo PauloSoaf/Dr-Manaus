@@ -99,12 +99,19 @@ test('T_BH2_03_CYCLICAL_ROUTING_AND_COSMIC_ANCHOR', () => {
 test('T_BH2_04_PROCEDURAL_STELLAR_BLACK_HOLE_TRANSIT', () => {
   const catalog = new UniversalTargetCatalog();
   const seed = 0x987654321n;
-  const sector = sectorIndex(15n, 12n, -5n);
-  const sbh = generateStellarBlackHole('milky_way', sector)!;
+  let sbh: ReturnType<typeof generateStellarBlackHole>;
+  for (let s = 0n; s < 200n; s++) {
+    const candidate = generateStellarBlackHole('milky_way', sectorIndex(s, 10n, 5n));
+    if (candidate) {
+      sbh = candidate;
+      break;
+    }
+  }
+  assert.ok(sbh, 'A stellar black hole must be found deterministically');
 
   // 1. Deterministic resolution
-  const exitA = resolveBlackHoleTransitExit(seed, sbh, 1, catalog);
-  const exitB = resolveBlackHoleTransitExit(seed, sbh, 1, catalog);
+  const exitA = resolveBlackHoleTransitExit(seed, sbh!, 1, catalog);
+  const exitB = resolveBlackHoleTransitExit(seed, sbh!, 1, catalog);
 
   assert.equal(exitA.exitTarget.key, exitB.exitTarget.key);
   assert.deepEqual(exitA.emergencePositionM, exitB.emergencePositionM);

@@ -46,6 +46,7 @@ export function renderUniversalTargetCardHtml(
   isFavorite = false,
   isVisited = false,
   catalog?: UniversalTargetCatalog,
+  precision?: 'measured' | 'approximate' | 'procedural' | 'gameplay-placeholder',
 ): string {
   let html = `<section id="universal-target-card"><h3>ALVO DE NAVEGAÇÃO</h3>`;
   if (!resolved) {
@@ -72,6 +73,7 @@ export function renderUniversalTargetCardHtml(
     currentGalaxyId,
     discovery ? discovery.universeSeed : DEFAULT_UNIVERSE_SEED,
   );
+  const targetPrecision = precision ?? (isCanonical ? (t.kind === 'body' && (t.galaxyId === 'milky_way' || !t.galaxyId) ? 'measured' : 'approximate') : 'procedural');
   const cellText = desc
     ? `[${desc.cell.x}, ${desc.cell.y}, ${desc.cell.z}]`
     : t.address && 'sector' in t.address
@@ -86,6 +88,7 @@ export function renderUniversalTargetCardHtml(
   html += `<table class="card-table">`;
   html += `<tr><td>Tipo</td><td>${escapeHtml(t.kind)}</td></tr>`;
   html += `<tr><td>Classificação</td><td>${classification}</td></tr>`;
+  html += `<tr><td>Precisão</td><td><span class="precision-badge" data-precision="${targetPrecision}">${targetPrecision}</span></td></tr>`;
   html += `<tr><td>Visita</td><td>${isVisited ? '<span style="color:#4ade80;font-weight:600;">✓ Visitado</span>' : '<span style="color:#94a3b8;">Não visitado</span>'}</td></tr>`;
   html += `</table>`;
   html += `<small style="overflow-wrap:anywhere">${escapeHtml(t.key)}</small>`;
@@ -525,9 +528,12 @@ export class UniversalMapPanel {
         ${u2TestControlsEnabled()?'<section class="u2-test-controls"><b>U2 TEST · ANDROMEDA / RETURN</b><p>Chegada de teste em outro contexto galáctico.</p><button data-u2-test="arrival">ENTER ANDROMEDA · U2 TEST</button><button data-u2-test="solar">RETURN TO MILKY WAY / SOL · U2 TEST</button></section>':''}
         ${u1TestControlsEnabled()?'<section class="u1-test-controls"><b>U1 TEST · ARRIVAL / RETURN</b><p>Chegada de desenvolvimento, sem viagem interestelar.</p><button data-u1-test="select">SELECIONAR SISTEMA · 17,-2,4</button><button data-u1-test="arrival">MATERIALIZAR SISTEMA (U1 TEST)</button><button data-u1-test="solar">VOLTAR AO SOLAR (U1 TEST)</button></section>':''}
         <div class="map-coordinates-form" style="margin-top: 1.5rem; background: #0f172a; padding: 0.75rem; border-radius: 6px; border: 1px solid #1e293b;">
-          <span class="eyebrow" style="color: #94a3b8; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;">COORDENADAS UNIVERSAIS</span>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span class="eyebrow" style="color: #94a3b8; font-size: 10px; font-weight: 600; letter-spacing: 0.05em;">COORDENADAS UNIVERSAIS</span>
+            <button id="btn-copy-uri" title="Copiar URI atual" style="background: #1e293b; border: 1px solid #334155; color: #38bdf8; font-size: 10px; border-radius: 3px; padding: 1px 6px; cursor: pointer; font-weight: 600;">COPIAR URI</button>
+          </div>
           <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-            <input type="text" id="coord-input" placeholder="drm:v1://?... ou marco/destino" style="flex: 1; padding: 0.4rem 0.5rem; background: #1e293b; border: 1px solid #334155; color: #f8fafc; border-radius: 4px; font-size: 11px;" />
+            <input type="text" id="coord-input" placeholder="drm:v1://?... ou buscar (ex: Sol, Terra, M31)" style="flex: 1; padding: 0.4rem 0.5rem; background: #1e293b; border: 1px solid #334155; color: #f8fafc; border-radius: 4px; font-size: 11px;" />
             <button id="btn-translocate" style="padding: 0.4rem 0.75rem; background: #2563eb; color: #fff; border: none; border-radius: 4px; font-size: 11px; cursor: pointer; font-weight: 600;">TRANSLOCAR</button>
           </div>
           <div id="coord-status" style="font-size: 10px; color: #94a3b8; margin-top: 0.25rem;"></div>
@@ -557,8 +563,22 @@ export class UniversalMapPanel {
     });
     const coordInput = this.root.querySelector('#coord-input') as HTMLInputElement;
     const coordStatus = this.root.querySelector('#coord-status') as HTMLElement;
+    const btnCopyUri = this.root.querySelector('#btn-copy-uri') as HTMLButtonElement;
+    if (btnCopyUri && coordInput) {
+      btnCopyUri.onclick = () => {
+        const uri = this.model.formatShareableUri();
+        coordInput.value = uri;
+        if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(uri).catch(() => {});
+        }
+        if (coordStatus) {
+          coordStatus.textContent = `URI copiada: [${this.model.precision}]`;
+        }
+      };
+    }
+
     if (btnTranslocate && coordInput) {
-      btnTranslocate.onclick = () => {
+      const executeTranslocateOrSearch = () => {
         const val = coordInput.value.trim();
         if (!val) return;
         if (val.startsWith('drm:v1://?')) {
@@ -570,6 +590,25 @@ export class UniversalMapPanel {
           if (coordStatus) coordStatus.textContent = `Destino: ${target.kind}`;
           this.onTravel(val);
         } else {
+          // Check search via MapNavigationModel
+          const searchMatches = this.model.search(this.atlasModel.catalog, val, this.model.location.address.galaxyId);
+          if (searchMatches.length > 0) {
+            const first = searchMatches[0];
+            const targetKey = first.target.objectId ?? universalTargetKey(first.target);
+            this.selectTarget(targetKey);
+            if (first.target.kind === 'galaxy') {
+              this.setLevel('cosmology');
+            } else if (first.target.kind === 'system') {
+              this.setLevel(first.target.galaxyId === this.model.location.address.galaxyId ? 'system' : 'galaxy');
+            } else if (first.target.kind === 'body') {
+              this.setLevel('system');
+            }
+            if (coordStatus) {
+              coordStatus.textContent = `Alvo: ${first.label} [${first.precision}] · ${first.availability}`;
+            }
+            return;
+          }
+
           const galaxyDesc = this.renderers?.cosmology?.discovery?.findGalaxyById(val)
             ?? (this.renderers?.cosmology?.discovery?.search(val)[0]);
           if (galaxyDesc) {
@@ -581,6 +620,13 @@ export class UniversalMapPanel {
           this.onTravel(val);
         }
       };
+
+      btnTranslocate.onclick = executeTranslocateOrSearch;
+      coordInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          executeTranslocateOrSearch();
+        }
+      });
     }
   }
 
@@ -598,27 +644,15 @@ export class UniversalMapPanel {
     });
     const b = this.root.querySelector('#map-breadcrumb');
     if (!b) return;
-    const a = this.model.location.address;
-    const items: { label: string; level: 'surface' | 'planet' | 'system' | 'galaxy' | 'cosmology' | 'atlas' }[] = [
-      { label: 'COSMOS', level: 'cosmology' },
-      { label: a.galaxyId ? a.galaxyId.replace('_', ' ').toUpperCase() : 'MILKY WAY', level: 'galaxy' },
-    ];
-    if (a.systemId) items.push({ label: a.systemId.toUpperCase(), level: 'system' });
     const focus = this.bodies.find(body => body.id === this.model.systemFocusBodyId);
-    if (this.currentLevel === 'system' && focus) items.push({ label: focus.name.toUpperCase(), level: 'system' });
-    else if (a.bodyId && this.currentLevel !== 'system') items.push({ label: a.bodyId.toUpperCase(), level: 'planet' });
-    if (this.currentLevel === 'surface' && a.childFrame && (a.childFrame.includes('manaus') || a.childFrame.includes('surface') || a.childFrame.includes('legacy-enu'))) {
-      items.push({ label: 'MANAUS', level: 'surface' });
-    }
-    if (this.currentLevel === 'atlas') {
-      items.push({ label: 'ATLAS CÓSMICO', level: 'atlas' });
-    }
+    const items = this.model.resolveHierarchy(this.currentLevel, focus?.name);
     
     b.innerHTML = items.map(item => `
-      <span class="breadcrumb-item ${this.currentLevel === item.level ? 'active' : ''}" 
+      <span class="breadcrumb-item ${item.active ? 'active' : ''}" 
             data-level="${item.level}" 
-            style="cursor: pointer; text-decoration: ${this.currentLevel === item.level ? 'none' : 'underline'}; margin: 0 3px; ${this.currentLevel === item.level ? 'font-weight: 700; color: #38bdf8;' : 'color: #94a3b8;'}">
-        ${item.label}
+            title="${item.label} [${item.precision}]"
+            style="cursor: pointer; text-decoration: ${item.active ? 'none' : 'underline'}; margin: 0 3px; ${item.active ? 'font-weight: 700; color: #38bdf8;' : 'color: #94a3b8;'}">
+        ${escapeHtml(item.label)}
       </span>
     `).join('<span style="color: #475569; margin: 0 2px;">/</span>');
 
@@ -657,14 +691,16 @@ export class UniversalMapPanel {
     html += `<tr><td>Sector</td><td>${a.sector.x},${a.sector.y},${a.sector.z}</td></tr>`;
     html += `<tr><td>System</td><td>${a.systemId || '—'}</td></tr>`;
     html += `<tr><td>Frame</td><td>${loc.frameId}</td></tr>`;
+    html += `<tr><td>Precisão</td><td><span class="precision-badge" data-precision="${this.model.precision}">${this.model.precision}</span></td></tr>`;
 
     if (interplanetary) {
       const p = loc.systemPositionM ?? [0, 0, 0];
+      const approxNotice = this.model.precision !== 'measured' ? ' (aprox)' : '';
       html += `<tr><td>Domain</td><td>Interplanetary</td></tr>`;
       html += `<tr><td>Reference</td><td>${a.bodyId || 'barycentre'}</td></tr>`;
-      html += `<tr><td>X</td><td>${formatDistance(p[0])}</td></tr>`;
-      html += `<tr><td>Y</td><td>${formatDistance(p[1])}</td></tr>`;
-      html += `<tr><td>Z</td><td>${formatDistance(p[2])}</td></tr>`;
+      html += `<tr><td>X</td><td>${formatDistance(p[0])}${approxNotice}</td></tr>`;
+      html += `<tr><td>Y</td><td>${formatDistance(p[1])}${approxNotice}</td></tr>`;
+      html += `<tr><td>Z</td><td>${formatDistance(p[2])}${approxNotice}</td></tr>`;
       if (this.flight) {
         const speed = formatSpeed(this.flight.speedMps);
         html += `<tr><td>Speed</td><td>${speed.value} ${speed.unit}</td></tr>`;
@@ -693,7 +729,15 @@ export class UniversalMapPanel {
     const selectedKey = resolved?.target.key;
     const isFav = selectedKey ? (this.atlasModel?.isFavorite(selectedKey) ?? false) : false;
     const isVis = selectedKey ? (this.atlasModel?.isVisited(selectedKey) ?? false) : false;
-    html+=renderUniversalTargetCardHtml(resolved,this.renderers?.cosmology?.discovery,this.model.location.address.galaxyId,isFav,isVis,this.atlasModel?.catalog);
+    html+=renderUniversalTargetCardHtml(
+      resolved,
+      this.renderers?.cosmology?.discovery,
+      this.model.location.address.galaxyId,
+      isFav,
+      isVis,
+      this.atlasModel?.catalog,
+      resolved ? this.model.getPrecisionForTarget(resolved.target) : undefined,
+    );
     if(this.currentLevel==='galaxy'||this.currentLevel==='cosmology'){
       html+=`<h3>GALÁXIA ATUAL · ${escapeHtml(formatGalaxyName(this.model.location.address.galaxyId))}</h3>`;
       html+='<h3>CATÁLOGO DE DESTINOS</h3><small>Marcadores esquemáticos · selecionar não inicia viagem</small>';
