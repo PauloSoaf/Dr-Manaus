@@ -8,19 +8,9 @@ import {
   kerrHorizonRadiusM,
   type BlackHoleDescriptor,
 } from '../celestial/BlackHoleDescriptor';
+import type { BlackHoleDefinition } from '../blackhole/BlackHoleDefinition';
 
-export interface BlackHoleDefinition {
-  id: string;
-  massKg: number;
-  spin01: number;
-  positionM: [number, number, number]; // Position in the local system or galactic frame
-  accretion?: {
-    innerRadiusRs: number;
-    outerRadiusRs: number;
-    temperatureK: number;
-    luminosity: number;
-  };
-}
+export type { BlackHoleDefinition } from '../blackhole/BlackHoleDefinition';
 
 export interface BlackHoleProviderOptions {
   blackHole: BlackHoleDefinition | BlackHoleDescriptor;

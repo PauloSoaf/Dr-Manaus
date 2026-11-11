@@ -8,5 +8,6 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 | `42543820898` | `356b98e` | U4.5.3 | 1.573 / 1.573 | 638 / 638 | APROVADO | Diversidade estelar e planetária procedural, classes O-M, gravidade superficial |
 | `42558085566` | `d9e777f` | U4.5.3.1 | 1.579 / 1.579 | 638 / 638 | APROVADO | Integração real de mundos procedurais ao Atlas, pouso em fotosfera, taxonomia canônica |
 | `42940721868` | `d41fc2d` | U4.5.4 | 1.585 / 1.587 | 638 / 638 | FALHA | Falhas em `T_U454_07` (elipsoide direcional vs esfera) e `T_U454_08` (cota NOAA ETOPO5 5742m vs asserção >8000m) |
-| *Pendente* | `c48fc64` | U4.5.4.1 | 1.587 / 1.587 (proj.) | 638 / 638 | EM EXECUÇÃO | Hotfix U4.5.4.1: asserções alinhadas ao elipsoide direcional e autoridade NOAA ETOPO5 |
+| `43034411855` | `3eda1ca` | U7 + Test Fix | 1.637 / 1.637 | 638 / 638 | APROVADO | 100% verde: U5, U6, U7 e normalização unitária em T_U454_07 |
+| `43034426451` | `3eda1ca` | U7 + Test Fix | 1.637 / 1.637 | 638 / 638 | APROVADO | Validação concorrente aprovada (Vite 8.3.0, TypeScript 0 erros) |
 

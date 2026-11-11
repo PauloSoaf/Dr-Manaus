@@ -56,7 +56,7 @@ import {
   LOCAL_GROUP_CATALOG,
   GALACTIC_CENTRE_FROM_SOL_M,
 } from '../celestial/GalaxyDefinition';
-import type { BlackHoleDefinition } from '../providers/BlackHoleProvider';
+import type { BlackHoleDefinition } from '../blackhole/BlackHoleDefinition';
 
 /* ========================================================================== */
 /* Physical and Astronomical Constants                                        */

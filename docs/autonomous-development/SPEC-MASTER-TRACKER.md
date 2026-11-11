@@ -71,18 +71,25 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 
 ---
 
-### Módulo F — Buracos Negros (Próximo Marco Crítico)
+### Módulo F — Buracos Negros
 | ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| `BH-01` | `11-BLACK-HOLES.md` | **BH0:** Descritor `BlackHoleDescriptor`, raio de Schwarzschild $r_s$, horizonte Kerr $r_+$, ISCO e anel de fótons | P0 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-astrophysics-bh0.test.ts` |
-| `BH-02` | `11-BLACK-HOLES.md` | **BH0:** Integração de Sagittarius A*, M31 SMBH e buracos negros estelares no Catálogo Universal | P0 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-astrophysics-bh0.test.ts` |
-| `BH-03` | `11-BLACK-HOLES.md` | **BH1:** Atração gravitacional relativística, curvatura de trajetória e estado de captura de horizonte | P1 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-gravity-bh1.test.ts` |
-| `BH-04` | `11-BLACK-HOLES.md` | **BH2:** Rede de trânsito dimensional com saídas persistentes via `universeSeed + traversalCounter` | P1 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-transit-bh2.test.ts` |
+| `BH-01` | `11-BLACK-HOLES.md` | **BH0:** Descritor `BlackHoleDescriptor`, raio de Schwarzschild $r_s$, horizonte Kerr $r_+$, ISCO e anel de fótons | P0 | `CI_VERIFIED` | `998871d` | `tests/black-hole-astrophysics-bh0.test.ts` (7/7 pass) |
+| `BH-02` | `11-BLACK-HOLES.md` | **BH0:** Integração de Sagittarius A*, M31 SMBH e buracos negros estelares no Catálogo Universal | P0 | `CI_VERIFIED` | `998871d` | `tests/black-hole-astrophysics-bh0.test.ts` (7/7 pass) |
+| `BH-03` | `11-BLACK-HOLES.md` | **BH1:** Atração gravitacional relativística, curvatura de trajetória e estado de captura de horizonte | P1 | `CI_VERIFIED` | `95de474` | `tests/black-hole-gravity-bh1.test.ts` (14/14 pass) |
+| `BH-04` | `11-BLACK-HOLES.md` | **BH2:** Rede de trânsito dimensional com saídas persistentes via `universeSeed + traversalCounter` | P1 | `CI_VERIFIED` | `e28668c` | `tests/black-hole-transit-bh2.test.ts` (13/13 pass) |
 
 ---
 
 ### Módulo G — Escala Cosmológica e Teia Cósmica
 | ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| `COSMO-01` | `UNIVERSE-MAP-COMPLETION-EPIC.md` | **U5:** Mapa Universal Interativo multiescala, breadcrumbs canônicos (`UNIVERSE/LOCAL GROUP/MW/SOL/EARTH/MANAUS`) e modelo de coordenadas `drm:v1://` | P0 | `IMPLEMENTED` | `HEAD` | `tests/universal-map-multiscale-u5.test.ts` |
-| `COSMO-02` | `13-OBSERVABLE-UNIVERSE-HORIZON.md`| **U6:** Horizonte cosmológico observável centrado no observador, sem paredes físicas ou centro absoluto, e filamentos da Teia Cósmica | P1 | `IMPLEMENTED` | `HEAD` | `tests/cosmological-structure-u6.test.ts` |
+| `COSMO-01` | `UNIVERSE-MAP-COMPLETION-EPIC.md` | **U5:** Mapa Universal Interativo multiescala, breadcrumbs canônicos (`UNIVERSE/LOCAL GROUP/MW/SOL/EARTH/MANAUS`) e modelo de coordenadas `drm:v1://` | P0 | `CI_VERIFIED` | `abffab1` | `tests/universal-map-multiscale-u5.test.ts` (7/7 pass) |
+| `COSMO-02` | `13-OBSERVABLE-UNIVERSE-HORIZON.md`| **U6:** Horizonte cosmológico observável centrado no observador, sem paredes físicas ou centro absoluto, e filamentos da Teia Cósmica | P1 | `CI_VERIFIED` | `09a13f3` | `tests/cosmological-structure-u6.test.ts` (7/7 pass) |
+
+---
+
+### Módulo H — Teleporte Universal Infinito e Handoff Seguro
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `TEL-01` | `05-INFINITE-TELEPORT.md` | **U7:** Resolução hierárquica em 4 níveis (colisor local, WGS84/Lua/Marte analítico, mira celeste angular, coordenadas/URI), eliminação de barreiras arbitrárias ($\pm 100\text{ km}$, $2500\text{ m}$), handoff transacional atômico e reciclagem dinâmica de referenciais | P0 | `CI_VERIFIED` | `8845b4d` | `tests/universal-teleport-service.test.ts` (14/14 pass) |

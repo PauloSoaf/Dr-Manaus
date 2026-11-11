@@ -29,8 +29,6 @@ export class LargeScaleStructureProvider {
   private cmbMesh?: Mesh;
   private clustersMesh?: InstancedMesh;
 
-  private altitudeM = 0;
-
   constructor(parent: Object3D, options: LargeScaleStructureProviderOptions = {}) {
     this.options = {
       drawCMB: options.drawCMB ?? true,

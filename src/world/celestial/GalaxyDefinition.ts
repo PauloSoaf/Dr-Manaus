@@ -1,4 +1,4 @@
-import type { BlackHoleDefinition } from '../providers/BlackHoleProvider';
+import type { BlackHoleDefinition } from '../blackhole/BlackHoleDefinition';
 import { LIGHT_YEAR_M, type Vec3 } from '../spatial/units';
 import type { ProceduralGalaxyDescriptor } from '../galaxy/ProceduralGalaxyGenerator';
 
