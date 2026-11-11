@@ -487,7 +487,8 @@ export class CosmicAtlasModel {
   }
 
   query(options: CosmicAtlasFilterOptions = {}, currentGalaxyId?: string): CosmicAtlasQueryResult {
-    const query = options.query?.trim() ?? '';
+    const rawQuery = options.query?.trim() ?? '';
+    const query = rawQuery.startsWith('drm:v1://') ? rawQuery.slice(9) : rawQuery;
     const kindFilter = options.kind ?? 'all';
     const statusFilter = options.statusFilter ?? 'all';
     const morphologyFilter = options.morphology ?? 'all';

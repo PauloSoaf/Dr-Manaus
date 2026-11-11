@@ -178,6 +178,11 @@ test('T_U452_04_SEARCH_FILTERING', () => {
     const cellResults = atlas.query({ query: 'c:0,0,0' });
     assert.ok(cellResults.entries.length > 0);
 
+    // Search by shareable drm:v1:// URI
+    const uriResults = atlas.query({ query: 'drm:v1://galaxy/andromeda' });
+    assert.ok(uriResults.entries.length > 0);
+    assert.ok(uriResults.entries.some(e => e.objectId === 'andromeda'));
+
     // Empty search should return all known items
     const allResults = atlas.query({ limit: 100 });
     assert.ok(allResults.entries.length > 0);
