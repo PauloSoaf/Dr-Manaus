@@ -1,6 +1,15 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.4 Superfícies Procedurais, Biomas Visuais e Otimização do Atlas (2026-11-10)
+## Current checkpoint — U4.5.4.1 Hotfix de Consistência Geométrica e Preservação do Relevo Canônico (2026-11-11)
+
+Auditado com base no run `42940721868` (1.585/1.587 testes aprovados):
+1. `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` (`T_U454_07`):
+   - Alinhada a asserção de `planetSurfaceRadius(surface, dir)` ao modelo de elipsoide de referência direcional autêntico (`planetSurfaceRadius(surface, dir, true) + heightAt`), respeitando o achatamento rotacional ($f > 0$) e semieixo polar $b = a(1-f)$.
+2. `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` (`T_U454_08`):
+   - Alinhada a verificação de `maximumSurfaceReliefM(earth)` à autoridade de relevo real da Terra (`EARTH_MAX_ELEVATION_M = 5742 m` da grade ETOPO5 do NOAA em `earth-elevation.json`), validando a igualdade estrita com as autoridades canônicas (Terra, Lua e Marte).
+Evidence: [47-status-U4.5.4.1-HOTFIX-GEOMETRIC-AND-CANONICAL-RELIEF.md](47-status-U4.5.4.1-HOTFIX-GEOMETRIC-AND-CANONICAL-RELIEF.md).
+
+## Previous checkpoint — U4.5.4 Superfícies Procedurais, Biomas Visuais e Otimização do Atlas (2026-11-10)
 
 Implementado com base no baseline auditado do commit `d9e777fcdcfbef37c0d121c192b411210023faed` (Run `42558085566` 100% verde: 1.579/1.579 testes, 638/638 regressões permanentes):
 1. `src/core/SaveManager.ts`:

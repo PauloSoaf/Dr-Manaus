@@ -16,6 +16,9 @@ import type { UniverseLocation } from '../src/world/spatial/UniverseLocation';
 import { generateStarSector } from '../src/world/celestial/StarSector';
 import { maximumSurfaceReliefM, surfaceForBody } from '../src/world/planet/BodySurfaceFactory';
 import { planetSurfaceRadius } from '../src/world/planet/PlanetSurface';
+import { EARTH_MAX_ELEVATION_M } from '../src/world/planet/EarthElevation';
+import { MOON_RELIEF_M } from '../src/world/planet/MoonSurface';
+import { MARS_RELIEF_M } from '../src/world/planet/MarsSurface';
 import { SOLAR_BODY_PROFILES } from '../src/world/celestial/CelestialBodyProfile';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime';
 
@@ -378,9 +381,13 @@ test('T_U454_07_PHYSICS_AND_VISUAL_GEOMETRIC_CONSISTENCY', () => {
     // 1. Height must stay strictly within the broad-phase relief envelope
     assert.ok(Math.abs(h) <= maxRelief, `Height ${h} must not exceed maximumSurfaceReliefM ${maxRelief}`);
 
-    // 2. planetSurfaceRadius must equal base semiMajorAxis + height
+    // 2. planetSurfaceRadius must equal reference ellipsoid base radius + height
     const r = planetSurfaceRadius(surface, dir);
-    assert.ok(Math.abs(r - (surface.radiusM + h)) < 1e-4, 'planetSurfaceRadius must match surface.radiusM + heightAt');
+    const baseEllipsoidRadius = planetSurfaceRadius(surface, dir, true);
+    assert.ok(Math.abs(r - (baseEllipsoidRadius + h)) < 1e-4, 'planetSurfaceRadius must match reference ellipsoid radius + heightAt');
+    if (Math.abs(dir[2]) < 1e-6) {
+      assert.ok(Math.abs(baseEllipsoidRadius - surface.radiusM) < 1e-4, 'Equatorial base radius must match surface.radiusM');
+    }
 
     // 3. Normal vector must be normalized unit vector
     const norm: [number, number, number] = [0, 0, 0];
@@ -401,10 +408,13 @@ test('T_U454_08_CANONICAL_BODIES_PRESERVATION', () => {
     const jupiter = universe.activeSystem.bodies.find(b => b.id === 'jupiter')!;
     const sun = universe.activeSystem.bodies.find(b => b.id === 'sun')!;
 
-    // 1. Earth, Moon, Mars must retain their canonical relief
-    assert.ok(maximumSurfaceReliefM(earth) > 8_000);
-    assert.ok(maximumSurfaceReliefM(moon) > 10_000);
-    assert.ok(maximumSurfaceReliefM(mars) >= 21_000);
+    // 1. Earth, Moon, Mars must retain their canonical relief from their respective authorities
+    assert.equal(maximumSurfaceReliefM(earth), Math.max(0, EARTH_MAX_ELEVATION_M));
+    assert.equal(maximumSurfaceReliefM(moon), MOON_RELIEF_M);
+    assert.equal(maximumSurfaceReliefM(mars), MARS_RELIEF_M);
+    assert.ok(maximumSurfaceReliefM(earth) >= 5_000, 'Earth NOAA ETOPO5 maximum relief must be >= 5000m');
+    assert.ok(maximumSurfaceReliefM(moon) > 10_000, 'Moon LOLA maximum relief must be > 10000m');
+    assert.ok(maximumSurfaceReliefM(mars) >= 21_000, 'Mars Olympus Mons scale relief must be >= 21000m');
 
     // 2. Mercury and Venus must retain flat synthetic-base behavior (heightAt === 0 and max relief === 0)
     assert.equal(maximumSurfaceReliefM(mercury), 0, 'Mercury must retain flat synthetic-base');
