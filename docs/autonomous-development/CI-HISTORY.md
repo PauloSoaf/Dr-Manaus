@@ -10,4 +10,5 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 | `42940721868` | `d41fc2d` | U4.5.4 | 1.585 / 1.587 | 638 / 638 | FALHA | Falhas em `T_U454_07` (elipsoide direcional vs esfera) e `T_U454_08` (cota NOAA ETOPO5 5742m vs asserção >8000m) |
 | `43034411855` | `3eda1ca` | U7 + Test Fix | 1.637 / 1.637 | 638 / 638 | APROVADO | 100% verde: U5, U6, U7 e normalização unitária em T_U454_07 |
 | `43034426451` | `3eda1ca` | U7 + Test Fix | 1.637 / 1.637 | 638 / 638 | APROVADO | Validação concorrente aprovada (Vite 8.3.0, TypeScript 0 erros) |
+| `43036032343` | `b118829` | Cosmic Hardening | 1.637 / 1.637 | 638 / 638 | APROVADO | Desacoplamento de BlackHoleDefinition, limpeza de LargeScaleStructureProvider e matriz 100% verde |
 

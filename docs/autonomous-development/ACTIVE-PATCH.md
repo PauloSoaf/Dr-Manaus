@@ -1,9 +1,9 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `U7` — Infinite Universal Teleport, Analytical Surface Picking and Safe Atomic Handoff
-- **Status:** CONCLUÍDO & VALIDADO (Pronto para Commit & Push)
+- **Patch:** `U7` + `Cosmic Target Hardening` (Clean Architecture & World-Model Isolation)
+- **Status:** CONCLUÍDO, PUBLICADO E CI APROVADO
 - **Branch:** `feat/universe-map`
-- **Data/Hora:** 2026-11-11T09:48:00-04:00
+- **Data/Hora:** 2026-11-11T10:13:00-04:00
 
 ## Modificações do Patch
 1. `src/world/travel/UniversalTeleportService.ts`:
