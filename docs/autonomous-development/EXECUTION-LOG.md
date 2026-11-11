@@ -79,3 +79,17 @@ Registro cronológico contínuo de decisões, investigações, implementações 
   - `npm run typecheck`: 100% aprovado (0 erros).
   - `npm run build`: Build de produção Vite 8.3.0 concluído com sucesso.
 - **Documentação:** Atualizados `docs/world/15-status.md`, `docs/world/51-status-U5-UNIVERSAL-MAP-MULTISCALE.md` e tracker operacional.
+
+---
+
+### [2026-11-11T09:25:00-04:00] — Implementação e Entrega do Milestone U6
+- **Milestone:** `U6` — Estrutura Cósmica, Horizonte Observável Relativo e Exploração Cosmológica.
+- **Entregas:**
+  1. Criação de `src/world/cosmology/CosmologicalStructure.ts` com modelo formal Lambda-CDM ($H_0 = 67.4$, $\Omega_m = 0.315$, $\Omega_\Lambda = 0.685$, $\Omega_k = 0.0$), parâmetro de Hubble $H(z)$, tempo de regressão $t_{\text{lookback}}$ até $13.78\text{ Gyr}$, relação invertível $D_C(z) \leftrightarrow z$, avaliação de horizonte com garantia estrita das invariantes (`isPhysicalWall: false`, `hasUniversalCenter: false`) e densidade de filamentos cósmicos.
+  2. Criação de `src/world/cosmology/CosmologicalNavigation.ts` com telemetria e chegada segura a âncoras da Teia Cósmica.
+  3. Atualização de `src/world/providers/LargeScaleStructureProvider.ts` com o método `getHorizonDescriptor()`.
+  4. Criação da suíte `tests/cosmological-structure-u6.test.ts` com 7 testes automatizados aprovados (56/56 testes em regressões permanentes e marcos recentes).
+- **Validação Local:**
+  - `npm run typecheck`: 100% aprovado (0 erros).
+  - `npm run build`: Build de produção Vite 8.3.0 concluído com sucesso.
+- **Documentação:** Atualizados `docs/world/15-status.md`, `docs/world/52-status-U6-COSMOLOGICAL-STRUCTURE-OBSERVABLE-HORIZON.md` e tracker operacional.

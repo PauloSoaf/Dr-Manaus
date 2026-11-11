@@ -21,10 +21,15 @@ Este plano define a sequência de engenharia estrita para conduzir o desenvolvim
 - Status: Publicado na branch `feat/universe-map`.
 
 ### Passo 5: Milestone U5 (Mapa Universal Multiescala Interativo) (Concluído)
-- Status: Implementado, testado (7/7 testes em `tests/universal-map-multiscale-u5.test.ts`), build Vite aprovado.
+- Commit: `abffab1`
+- Status: Publicado na branch `feat/universe-map`.
+
+### Passo 6: Milestone U6 (Estrutura Cósmica, Horizonte Observável e Exploração Cosmológica) (Concluído)
+- Status: Implementado, testado (7/7 testes em `tests/cosmological-structure-u6.test.ts`), build Vite aprovado.
 - Commit e Push a serem finalizados no ciclo corrente.
 
-### Passo 6: Milestone U6 (Estrutura Cósmica, Horizonte Observável e Exploração Cosmológica) (Próxima Execução)
-- Arquitetura de horizonte observável relativo ao observador (sem paredes físicas ou centro absoluto).
-- Coordenadas cosmológicas hierárquicas preservando precisão e expansão em larga escala (Mpc/Gpc).
-- Suporte a navegação e teleporte cosmológico para âncoras da Teia Cósmica.
+### Passo 7: Teleporte Universal Infinito e Handoff de Destino (Próxima Execução)
+- Conforme `specs/dr-manaus-universal-map-teleport-specs-v2/.../05-INFINITE-TELEPORT.md`:
+  - Resolver ordem de alvos: (1) colisor local carregado, (2) superfície analítica do corpo ativo (WGS84/Lua/Marte), (3) mira angular celeste, (4) coordenadas armadas do mapa.
+  - Eliminar restrições de jogabilidade arbitrárias de Manaus (limite de 2.5 km e caixa de 100 km).
+  - Teleporte seguro atômico: preparação de hierarquia de destino e handoff consistente (`UniverseRuntime.navigationState`).

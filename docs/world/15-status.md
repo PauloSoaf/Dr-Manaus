@@ -1,6 +1,22 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U5 Mapa Universal Multiescala Interativo, Hierarquia Canônica e Modelo de Coordenadas (2026-11-11)
+## Current checkpoint — U6 Estrutura Cósmica, Horizonte Observável Relativo e Exploração Cosmológica (2026-11-11)
+
+Implementado com base no baseline estável `abffab1` (Patch U5, typecheck PASS):
+1. `src/world/cosmology/CosmologicalStructure.ts`:
+   - Modelo cosmológico Lambda-CDM formal: constantes de Hubble ($H_0 = 67.4\text{ km/s/Mpc}$), densidades de matéria e energia escura ($\Omega_m = 0.315$, $\Omega_\Lambda = 0.685$), curvatura plana ($\Omega_k = 0.0$).
+   - Funções analíticas e numéricas: parâmetro de Hubble $H(z)$, tempo de regressão $t_{\text{lookback}}(z)$ (até $13.78\text{ Gyr}$), e distância comovente $D_C(z)$ com inversão exata.
+   - Avaliação do horizonte de eventos observável com garantias estritas das invariantes cosmológicas: `isPhysicalWall: false` (sem paredes invisíveis ou contêineres físicos), `hasUniversalCenter: false` (sem centro absoluto universal), e esfera de horizonte sempre centrada na posição comovente do observador.
+   - Modelo de campo de densidade de filamentos cósmicos com perfil gaussiano entre grandes aglomerados.
+2. `src/world/cosmology/CosmologicalNavigation.ts`:
+   - Serviços de navegação cosmológica e chegada segura a âncoras da Teia Cósmica (Aglomerado de Virgem, Grande Atrator em Norma, Superaglomerado de Shapley).
+3. `src/world/providers/LargeScaleStructureProvider.ts`:
+   - Adicionado método `getHorizonDescriptor()` conectado aos descritores relativísticos formais.
+4. `tests/cosmological-structure-u6.test.ts`:
+   - Suíte de 7 testes automatizados cobrindo todas as leis físicas, invariantes de horizonte, distâncias comoventes e âncoras cósmicas.
+Evidence: [52-status-U6-COSMOLOGICAL-STRUCTURE-OBSERVABLE-HORIZON.md](52-status-U6-COSMOLOGICAL-STRUCTURE-OBSERVABLE-HORIZON.md).
+
+## Previous checkpoint — U5 Mapa Universal Multiescala Interativo, Hierarquia Canônica e Modelo de Coordenadas (2026-11-11)
 
 Implementado com base no baseline estável `e28668c48a731f24d2938cf387063db1a4ec8ebc` (Patch BH2, typecheck PASS):
 1. `src/ui/map/MapNavigationModel.ts`:
