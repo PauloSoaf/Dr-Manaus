@@ -1,4 +1,7 @@
 import { UniversalTravelController } from '../world/travel/UniversalTravelController';
+import { BlackHoleRuntime, centralBlackHoleFor } from '../world/travel/BlackHoleRuntime';
+import { BlackHoleTransitController } from '../world/travel/BlackHoleTransitNetwork';
+import type { BlackHoleDescriptor } from '../world/celestial/BlackHoleDescriptor';
 import { UniversalTeleportService } from '../world/travel/UniversalTeleportService';
 import { HypercruisePresentation } from '../rendering/HypercruisePresentation';
 import { orientGalaxyVector } from '../world/galaxy/GalaxyCoordinates';
@@ -1038,6 +1041,7 @@ export class Game {
     if (!this.travelDomain.state) return;
     // We are interplanetary! Zero out local velocity so the player stays put relative to the camera.
     this.player.velocity.set(0,0,0);
+    if (this.blackHoleRuntime?.transit.active) { this.updateBlackHoleTransit(dt); return; }
 
     // Read input for thrust and brake aligned with camera
     const { forward: camFwd, right: camRight, up: camUp } = cameraFlightAxes(this.rendering.camera);
@@ -1180,10 +1184,76 @@ export class Game {
       this.lastCelestialImpact=event;this.rockyImpactDestruction.consume(event);
     }
     this.flightTelemetry = this.interplanetary.getTelemetry();
-    this.travelDomain.setState(newState);
+    let finalState = newState;
+    // Live black hole gravity / capture (cosmic space only; never in local ENU physics).
+    const bhDescriptor = this.universe.address.systemId === undefined ? this.activeBlackHoleAtOrigin() : undefined;
+    // Cheap far-field gate: never build the runtime (or touch the catalog) away from a singularity.
+    const nearBlackHole = !!bhDescriptor && (this.blackHoleRuntime?.transit.active
+      || Math.hypot(newState.positionM[0], newState.positionM[1], newState.positionM[2]) <= 100 * bhDescriptor.schwarzschildRadiusM);
+    const bhStep = nearBlackHole ? this.blackHoles.step({
+      localPhysicsActive: this.travelDomain.localPhysicsActive,
+      galaxyId: this.universe.activeGalaxy.id,
+      sector: sectorIndex(0n, 0n, 0n), // free-flight positions are already galaxy-relative
+      systemPositionM: [newState.positionM[0], newState.positionM[1], newState.positionM[2]],
+      systemVelocityMps: [newState.velocityMps[0], newState.velocityMps[1], newState.velocityMps[2]],
+      dt,
+      blackHole: bhDescriptor,
+    }) : {};
+    if (bhStep.nextVelocityMps) finalState = { ...newState, velocityMps: bhStep.nextVelocityMps };
+    if (bhStep.transitStarted) {
+      this.warpStep = 0;
+      this.hud.notify(`Horizonte de eventos cruzado · ${bhStep.transitStarted.description}`);
+    }
+    this.travelDomain.setState(finalState);
 
-    this.universe.updateSystemPose(newState.positionM, newState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
+    this.universe.updateSystemPose(finalState.positionM, finalState.velocityMps, dt, [this.viewForward.x, this.viewForward.y, this.viewForward.z]);
     this.checkFreeFlightGalaxyHandoff();
+  }
+
+  private blackHoleRuntime?: BlackHoleRuntime;
+  /** Lazily built; the transit counter persists through SaveManager only on committed emergence. */
+  get blackHoles(): BlackHoleRuntime {
+    return this.blackHoleRuntime ??= new BlackHoleRuntime(
+      new BlackHoleTransitController(this.universalTargetCatalog, this.save),
+      this.universalTargetCatalog.discovery.universeSeed);
+  }
+
+  /** The active galaxy's central black hole re-centred on the galaxy-relative origin used by free flight. */
+  private activeBlackHoleAtOrigin(): BlackHoleDescriptor | undefined {
+    const bh = centralBlackHoleFor(this.universe.activeGalaxy.id);
+    return bh ? { ...bh, positionM: [0, 0, 0] } : undefined;
+  }
+
+  /** Advances an active wormhole transit and performs the transactional emergence handoff. */
+  private updateBlackHoleTransit(dt: number): void {
+    const transit = this.blackHoles.transit;
+    if (!transit.active) return;
+    this.player.velocity.set(0, 0, 0);
+    const r = transit.update(dt);
+    if (!r.completed || !r.destination) return;
+    const dest = r.destination;
+    const previous = this.travelDomain.state ? { ...this.travelDomain.state } : undefined;
+    try {
+      const galaxyId = dest.exitTarget.galaxyId ?? this.universe.activeGalaxy.id;
+      if (galaxyId !== this.universe.activeGalaxy.id && !this.performFreeFlightGalaxyHandoff(galaxyId)) {
+        throw new Error('destination galaxy preparation failed');
+      }
+      const exitBh = dest.exitBlackHole;
+      // Free-flight coordinates are galaxy-relative: central holes sit at the origin.
+      const base: [number, number, number] = exitBh && exitBh.isCanonical ? [0, 0, 0] : [...dest.emergencePositionM];
+      const pos: [number, number, number] = exitBh && exitBh.isCanonical
+        ? [base[0], base[1], base[2] + dest.safeClearanceDistanceM] : base;
+      this.travelDomain.setState({ systemId: this.universe.address.systemId ?? galaxyId, positionM: pos,
+        velocityMps: [...dest.emergenceVelocityMps], referenceBodyId: undefined });
+      this.universe.updateSystemPose(pos, dest.emergenceVelocityMps, 0);
+      const n = this.blackHoles.confirmEmergence();
+      this.hud.notify(`Emersão confirmada · travessia #${n ?? '?'} · ${dest.exitTarget.displayName}`);
+    } catch (err) {
+      console.warn('Black hole transit failed; rolling back:', err);
+      if (previous) { this.travelDomain.setState(previous); this.universe.updateSystemPose(previous.positionM, previous.velocityMps, 0); }
+      this.blackHoles.failTransit();
+      this.hud.notify('Travessia abortada · controle restaurado');
+    }
   }
 
   performFreeFlightGalaxyHandoff(targetGalaxyId: string): boolean {

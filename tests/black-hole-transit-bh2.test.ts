@@ -160,8 +160,11 @@ test('T_BH2_06_TRANSIT_CONTROLLER_LIFECYCLE', () => {
     const dest = controller.startTransit(0x123n, SAGITTARIUS_A_STAR);
     assert.equal(controller.active, true);
     assert.equal(controller.phase, 'event-horizon-entry');
-    assert.equal(save.getBlackHoleTraversalCount('sgra'), 1);
+    // Transactional: nothing persisted until emergence is committed.
+    assert.equal(save.getBlackHoleTraversalCount('sgra'), 0);
+    assert.equal(controller.hasReservation, true);
     assert.equal(dest.sourceBlackHoleId, 'sgra');
+    assert.equal(dest.traversalIndex, 1);
 
     // 2. Step forward into wormhole tunnel (dt = 2.0s)
     const step1 = controller.update(2.0);
@@ -180,7 +183,10 @@ test('T_BH2_06_TRANSIT_CONTROLLER_LIFECYCLE', () => {
     assert.equal(step3.completed, true);
     assert.equal(controller.active, false);
 
-    // 5. Reset
+    // 5. Commit then reset
+    assert.equal(controller.commitTransit(), 1);
+    assert.equal(controller.commitTransit(), undefined);
+    assert.equal(save.getBlackHoleTraversalCount('sgra'), 1);
     controller.reset();
     assert.equal(controller.phase, 'idle');
     assert.equal(controller.active, false);

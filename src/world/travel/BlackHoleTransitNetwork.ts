@@ -190,9 +190,10 @@ export class BlackHoleTransitController {
     universeSeed: bigint,
     sourceBlackHole: BlackHoleDescriptor
   ): BlackHoleTransitDestination {
-    const traversalCount = this.saveManager
-      ? this.saveManager.recordBlackHoleTraversal(sourceBlackHole.id)
-      : 1;
+    // Reserve index N+1 without persisting: the counter only changes in commitTransit().
+    const traversalCount = (this.saveManager
+      ? this.saveManager.getBlackHoleTraversalCount(sourceBlackHole.id)
+      : this.volatileCount.get(sourceBlackHole.id) ?? 0) + 1;
 
     const destination = resolveBlackHoleTransitExit(
       universeSeed,
@@ -202,11 +203,40 @@ export class BlackHoleTransitController {
     );
 
     this.currentDestination = destination;
+    this.reservedSourceId = sourceBlackHole.id;
     this.phase = 'event-horizon-entry';
     this.progress01 = 0;
     this.elapsedS = 0;
 
     return destination;
+  }
+
+  private reservedSourceId?: string;
+  private readonly volatileCount = new Map<string, number>();
+
+  /** True while a traversal index is reserved but not yet committed. */
+  get hasReservation(): boolean {
+    return this.reservedSourceId !== undefined;
+  }
+
+  /**
+   * Persists the reserved traversal. Call only after the destination has been installed
+   * and the player is confirmed outside the destination horizon. Idempotent.
+   */
+  commitTransit(): number | undefined {
+    const id = this.reservedSourceId;
+    if (id === undefined) return undefined;
+    this.reservedSourceId = undefined;
+    if (this.saveManager) return this.saveManager.recordBlackHoleTraversal(id);
+    const next = (this.volatileCount.get(id) ?? 0) + 1;
+    this.volatileCount.set(id, next);
+    return next;
+  }
+
+  /** Discards the reservation (failed preparation or aborted transit); nothing was persisted. */
+  abortTransit(): void {
+    this.reservedSourceId = undefined;
+    this.reset();
   }
 
   /**
