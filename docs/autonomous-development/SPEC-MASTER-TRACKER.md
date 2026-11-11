@@ -122,7 +122,7 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `DEST-01` | `18-status-VOLUME-COLLISION-D0.md` | D0 Provedor de terreno volumétrico com Marching Cubes e dual-contouring | P1 | `CI_VERIFIED` | `baseline` | `tests/planet-volume-collision.test.ts` |
 | `DEST-02` | `24-status-D1.1-FINAL-HARDENING.md` | D1.1 Cratera de impacto local em Manaus com malhas de cicatriz e debris pool | P1 | `CI_VERIFIED` | `c92249b` | `tests/destructible-world.test.ts` |
 | `DEST-03` | `23-status-D1.2-HIGH-RES-IMPACT-CORE.md` | D1.2 High-resolution impact core e preservação de integridade de malha | P1 | `CI_VERIFIED` | `baseline` | `tests/rocky-impact-game.test.ts` |
-| `DEST-04` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D2 Escavação profunda e túneis contínuos em relevo volumétrico | P2 | `DEFERRED` | — | Aguardando conclusão de cosmos |
+| `DEST-04` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D2 Escavação profunda e túneis contínuos em relevo volumétrico (`PlanetExcavationService`) | P1 | `IMPLEMENTED` | `HEAD` | `tests/planet-excavation-service.test.ts` (6/6 pass) |
 | `DEST-05` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D3 Fratura geomecânica em grande escala e desabamento estrutural | P3 | `DEFERRED` | — | Aguardando D2 |
 | `DEST-06` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D4 Destruição planetária parcial e ejeção de escombros em órbita | P3 | `DEFERRED` | — | Aguardando D3 |
 | `DEST-07` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D5 Ruptura de corpos menores e dispersão orbital de asteroides | P3 | `DEFERRED` | — | Aguardando D4 |

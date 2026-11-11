@@ -1,26 +1,26 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `BH2.2` (Apresentação 3D do Túnel de Minhoca de Buraco Negro) + `SPEC-TRACKER-EXPANSION`
+- **Patch:** `D2` (Escavação Planetária Profunda e Túneis Volumétricos Contínuos)
 - **Status:** IMPLEMENTADO, VALIDAÇÃO COMPLETA EM ANDAMENTO
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-11T15:30:00-04:00
+- **Atualizado:** 2026-11-11T15:45:00-04:00
 
 ## Mudanças do Patch
-1. `src/rendering/WormholeTunnelPresentation.ts`:
-   - Apresentação 3D da garganta de Einstein-Rosen e horizonte de eventos de Kerr durante a travessia de buracos negros.
-   - Costelas/anéis geodésicos concêntricos (`LineSegments`) com perfil hiperbólico $r(z) = r_0 \sqrt{1 + (z/400)^2}$ e rotação de arrasto relativístico.
-   - Linhas de correnteza geodésica longitudinal mostrando o fluxo do espaço-tempo rumo ao horizonte/abertura.
-   - Perfis de fase cinemáticos:
-     - `event-horizon-entry`: contração do raio da garganta, aceleração angular do vórtice, violeta/magenta relativístico.
-     - `wormhole-tunnel`: travessia do túnel com alta velocidade linear, pulsação quântica, ciano luminescente e lavanda.
-     - `destination-emergence`: alargamento do raio de saída, desaceleração, brilho dourado/branco estelar e fade-out.
-     - `idle` / `completed`: visibilidade desativada, snapshot limpo.
-   - Suporte completo a `reducedMotion` com limitação de velocidades e opacidade.
-2. `src/game/Game.ts`:
-   - Conexão de `WormholeTunnelPresentation` no loop de renderização (`render()`).
-   - Ocultação dos corpos planetários, visuais celestes e galáxias durante o trânsito no túnel de minhoca, idêntico ao hypercruise.
-   - Handoff suave entre apresentação de túnel e normalidade visual na emergência.
-3. `tests/wormhole-tunnel-presentation.test.ts`:
-   - 4 testes unitários cobrindo estado inicial, transições de fase e paletas, modo de movimento reduzido e ciclo de vida completo com câmera real.
-4. `docs/autonomous-development/SPEC-MASTER-TRACKER.md`:
-   - Reconciliação e expansão completa do backlog de 28 para 54 especificações detalhadas, integrando todos os módulos (CCD, D0-D5, Streaming, Renderização, Tráfego, Buracos Negros BH0-BH2.2).
+1. `src/world/destruction/PlanetExcavationService.ts`:
+   - Serviço autoritativo de escavação planetária e perfuração contínua de túneis volumétricos (`PlanetExcavationService`).
+   - Interseção analítica raio vs elipsoide planetário (`intersectRayPlanetEllipsoid`) determinando pontos de entrada e saída $A_{\text{entry}}$ e $B_{\text{exit}}$.
+   - Suporte a túneis transplanetários completos (atravessando o diâmetro da Terra, Lua e Marte com o núcleo vazio $d > 0$) e poços/furos subterrâneos cegos com profundidade finita (`maxDepthM`).
+   - Escavação de redes de cavernas e túneis subterrâneos multi-segmento interligando waypoints 3D arbitrários.
+   - Preservação estrita do invariante de memória esparsa: armazena operações CSG mínimas sem expansão em grade voxel global.
+   - Serialização e restauração completa de túneis em JSON via `serializePlanetVolumeEdits` / `deserializePlanetVolumeEdits`.
+2. `src/world/planet/volume/PlanetVolumeRuntime.ts`:
+   - Adicionada API `requestEditRegion(editId)` para demandar regiões ativas de chunks volumétricos afetadas por escavações.
+3. `src/player/powers/PowerSystem.ts`:
+   - Adicionado hook `excavate(origin, direction, radius, maxDepth)` para poderes direcionais e perfuração contínua.
+4. `src/game/Game.ts`:
+   - Instanciação de `PlanetExcavationService` acoplado ao `PlanetVolumeEditStore` e aos corpos do sistema ativo.
+   - Conexão do hook `excavate` ao sistema de poderes e exposição de métricas em `universeDebug()`.
+5. `tests/planet-excavation-service.test.ts`:
+   - 6 testes unitários cobrindo interseção analítica, perfuração transplanetária, furos cegos, redes de cavernas, invariante de memória e persistência.
+6. `docs/autonomous-development/SPEC-MASTER-TRACKER.md`:
+   - Atualizado status de `DEST-04` (D2) de `DEFERRED` para `IMPLEMENTED`.

@@ -26,3 +26,6 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 - 7dc0f57 (BH1.1/BH2.1): push run 43055389258 SUCCESS; pull_request run 43055399191 FAILURE at 'Unit tests' (log unavailable without auth). Local: 1648/1648 x3, regression 638/638. Tree identical to HEAD (main is a stale ancestor, merge clean) -> investigating flake. 2026-11-11T12:16:00-04:00
 
 - 5a4eb38: push + pull_request SUCCESS -> 7dc0f57 PR failure classified as flake. BH1.2 (HUD black-hole telemetry) validated locally 1648/1648, 638/638. 2026-11-11T12:22:00-04:00
+- fdad6f7 (BH1.2 HUD Telemetry): push run 43057588955 SUCCESS; PR run 43057599012 SUCCESS. 1.648/1.648 passed.
+- 2b677af (BH1.3 Stellar Black Holes): push run 43078901001 SUCCESS; PR run 43078910480 SUCCESS. 1.651/1.651 passed.
+- a7c476e (BH2.2 Wormhole Presentation & 54 Specs Tracker): push run 43088038666 SUCCESS; PR run 43088050501 SUCCESS. 1.655/1.655 passed. 2026-11-11T15:33:00-04:00

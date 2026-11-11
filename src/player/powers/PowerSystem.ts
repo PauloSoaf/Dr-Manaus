@@ -32,6 +32,8 @@ export interface PowerHooks {
   canDeformSurface?: () => boolean;
   /** Universal teleport hook routing through UniversalTeleportService when local raycast misses. */
   universalTeleport?: (rayOrigin: Vector3, rayDirection: Vector3) => Promise<boolean>;
+  /** Authoritative planetary tunnel / borehole excavation (D2). */
+  excavate?: (origin: Vector3, direction: Vector3, radius: number, maxDepth?: number) => void;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }
