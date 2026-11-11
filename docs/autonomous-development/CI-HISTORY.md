@@ -15,4 +15,10 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 | `43036567036` | `ac307f1` | Status Documentation | 1.637 / 1.637 | 638 / 638 | APROVADO | Validação de Pull Request #4 aprovada integralmente |
 | `43038048375` | `57d0312` | Atlas URI Search | 1.637 / 1.637 | 638 / 638 | APROVADO | Busca direta por URI compartilhável `drm:v1://` no CosmicAtlasModel |
 | `43038059459` | `57d0312` | Atlas URI Search | 1.637 / 1.637 | 638 / 638 | APROVADO | Validação de Pull Request #4 aprovada para suporte a URI no Atlas |
+| `43039228790` | `2e06284` | ISSUE-01 Photon Ring | 1.637 / 1.637 | 638 / 638 | APROVADO | Anel de fótons relativístico orientado ao observador contornando a sombra de buracos negros |
+| `43042460961` | `063190f` | ISSUE-02 Atlas Scale | 1.640 / 1.640 | 638 / 638 | APROVADO | Cache consolidado de targetMap, bodyMetadataCache e query $O(N)$ em passagem única |
+| `43042445861` | `063190f` | ISSUE-02 Atlas Scale | 1.640 / 1.640 | 638 / 638 | APROVADO | Validação de Pull Request #4 aprovada integralmente |
+| `43043695919` | `57d058c` | ISSUE-04 Earth Trans | 1.642 / 1.642 | 638 / 638 | APROVADO | orbitLift para nevoeiro orbital e desvanecimento Hermite cúbico da casca atmosférica WGS84 |
+| `43043685486` | `57d058c` | ISSUE-04 Earth Trans | 1.642 / 1.642 | 638 / 638 | APROVADO | Validação de Pull Request #4 aprovada integralmente |
+
 
