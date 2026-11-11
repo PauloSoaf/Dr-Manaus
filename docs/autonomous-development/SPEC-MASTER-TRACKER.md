@@ -125,7 +125,7 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `DEST-04` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D2 Escavação profunda e túneis contínuos em relevo volumétrico (`PlanetExcavationService`) | P1 | `CI_VERIFIED` | `7a543e7` | `tests/planet-excavation-service.test.ts` (6/6 pass) |
 | `DEST-05` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D3 Fratura geomecânica em grande escala e propagação de falhas tectônicas (`GeomechanicalFractureService`) | P1 | `CI_VERIFIED` | `c260032` | `tests/geomechanical-fracture-service.test.ts` (5/5 pass) |
 | `DEST-06` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D4 Destruição planetária parcial e ejeção de escombros em órbita (`MacroBodyFractureService`) | P2 | `CI_VERIFIED` | `d22efdd` | `tests/macro-body-fracture-service.test.ts` (5/5 pass) |
-| `DEST-07` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D5 Ruptura de corpos menores e dispersão orbital de asteroides (`MinorBodyDisruptionService`) | P2 | `IMPLEMENTED` | `HEAD` | `tests/minor-body-disruption-service.test.ts` (5/5 pass) |
+| `DEST-07` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D5 Ruptura de corpos menores e dispersão orbital de asteroides (`MinorBodyDisruptionService`) | P2 | `CI_VERIFIED` | `72e6468` | `tests/minor-body-disruption-service.test.ts` (5/5 pass) |
 
 ---
 

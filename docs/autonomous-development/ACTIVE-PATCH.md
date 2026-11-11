@@ -1,7 +1,7 @@
 # DR-MANAUS | Active Patch Tracker
 
 - **Patch:** `D5` (Ruptura Catastrófica de Corpos Menores, Energia de Ligação Gravitacional e Dispersão de Enxame de Asteroides)
-- **Status:** IMPLEMENTADO, APROVADO LOCALMENTE (1.676/1.676 testes, 638/638 regressões, typecheck OK, build OK)
+- **Status:** APROVADO EM CI REMOTO (Runs #43094667147 push / #43094679407 PR, 1.676/1.676 testes, 638/638 regressões, 100% verde)
 - **Branch:** `feat/universe-map`
 - **Atualizado:** 2026-11-11T16:13:00-04:00
 

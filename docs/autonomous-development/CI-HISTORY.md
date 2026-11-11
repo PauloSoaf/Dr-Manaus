@@ -32,3 +32,4 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 - 7a543e7 (D2 Deep Planetary Excavation): push run 43090344377 SUCCESS; PR run 43090353806 SUCCESS. 1.661/1.661 passed. 2026-11-11T15:45:00-04:00
 - c260032 (D3 Geomechanical Crust Fracture): push run 43091828500 SUCCESS; PR run 43091841173 SUCCESS. 1.666/1.666 passed. 2026-11-11T15:58:00-04:00
 - d22efdd (D4 Partial Planetary Fracture & Debris Rings): push run 43093427827 SUCCESS; PR run 43093436603 SUCCESS. 1.671/1.671 passed. 2026-11-11T16:08:00-04:00
+- 72e6468 (D5 Minor Body Disruption & Asteroid Fields): push run 43094667147 SUCCESS; PR run 43094679407 SUCCESS. 1.676/1.676 passed. 2026-11-11T16:17:00-04:00
