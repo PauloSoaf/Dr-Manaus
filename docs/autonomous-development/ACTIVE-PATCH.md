@@ -1,28 +1,35 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `U6` — Cosmological Structure, Relativistic Observer-Relative Horizon and Cosmic Exploration
+- **Patch:** `U7` — Infinite Universal Teleport, Analytical Surface Picking and Safe Atomic Handoff
 - **Status:** CONCLUÍDO & VALIDADO (Pronto para Commit & Push)
 - **Branch:** `feat/universe-map`
-- **Data/Hora:** 2026-11-11T09:25:00-04:00
+- **Data/Hora:** 2026-11-11T09:48:00-04:00
 
 ## Modificações do Patch
-1. `src/world/cosmology/CosmologicalStructure.ts`:
-   - Modelo cosmológico Lambda-CDM formal ($H_0 = 67.4$, $\Omega_m = 0.315$, $\Omega_\Lambda = 0.685$, $\Omega_k = 0.0$, $z_{\text{rec}} = 1089.9$, $T_{\text{CMB}} = 2.7255\text{ K}$).
-   - Avaliação analítica e numérica de $H(z)$, tempo de regressão ($t_{\text{lookback}}$ até $13.78\text{ Gyr}$) e distância comovente $D_C(z)$ com inversão exata.
-   - Avaliação de horizonte observável com garantia estrita das invariantes: `isPhysicalWall: false` (sem paredes invisíveis ou contêineres físicos), `hasUniversalCenter: false` (sem centro absoluto universal), e esfera de horizonte centrada dinamicamente no observador.
-   - Campo contínuo de densidade de filamentos cósmicos com perfil gaussiano entre grandes aglomerados.
-2. `src/world/cosmology/CosmologicalNavigation.ts`:
-   - Serviços de navegação cosmológica e chegada segura a âncoras da Teia Cósmica (Aglomerado de Virgem, Grande Atrator em Norma, Superaglomerado de Shapley).
-3. `src/world/providers/LargeScaleStructureProvider.ts`:
-   - Método `getHorizonDescriptor()` conectado aos descritores relativísticos formais.
-4. `tests/cosmological-structure-u6.test.ts`:
-   - 7 testes automatizados cobrindo todas as leis físicas, invariantes de horizonte, distâncias comoventes e âncoras cósmicas (100% aprovados).
-5. Documentação técnica:
+1. `src/world/travel/UniversalTeleportService.ts`:
+   - Serviço central unificado de teleporte sem limites artificiais de alcance ($\pm 100\text{ km}$ e $2500\text{ m}$ removidos como regras universais).
+   - Cadeia determinística de resolução em 4 estágios: colisor local carregado (`LOCAL_AIM_RAYCAST_M = 2500 m`), superfície analítica do corpo ativo, alvo angular celeste, e alvo armado / formulário de coordenadas.
+   - Handoff atômico transacional: sincronização simultânea de endereço `UniverseAddress`, estado de navegação, referencial espacial, posição lógica, `TravelDomain`, origem flutuante e `PlayerController`.
+   - Gerenciamento de memória com reciclagem automática de referenciais dinâmicos de superfície (`MAX_DYNAMIC_SURFACE_FRAMES = 32`).
+   - Cancelamento limpo via `AbortSignal` com preservação estrita do estado de origem em caso de aborto.
+2. `src/world/spatial/AnalyticalSurfaceIntersection.ts`:
+   - Interseção analítica raio vs elipsoide WGS84 da Terra em coordenadas ECEF, com mapeamento geodésico fechado sem streaming prévio da rota.
+   - Interseções analíticas raio vs esfera para a Lua ($R = 1.737.400\text{ m}$) e elipsoide para Marte.
+3. `src/world/travel/CelestialAngularPicker.ts`:
+   - Seleção angular de corpos celestes diretamente do runtime celeste por vetor de direção, raio angular aparente e cone de retículo, sem colisão de malhas 3D.
+4. `src/world/streaming/GlobalStreamingScheduler.ts`:
+   - Adicionada API `prepareDemands(demands, signal)` para carregamento crítico de destinos antes da transição.
+5. `src/player/powers/PowerSystem.ts`, `src/game/Game.ts` e `src/ui/HUD.ts`:
+   - Integração da tecla `E`, do HUD e do mapa ao `UniversalTeleportService`.
+   - Remoção de checagem restritiva de `discovered` para coordenadas e URIs `drm:v1://`.
+6. `tests/universal-teleport-service.test.ts`:
+   - Suíte de 14 testes automatizados cobrindo os 4 níveis de resolução, teleporte geodésico na Terra e corpos do sistema solar, preservação exata de `BigInt`, política de buracos negros, cancelamento e limite de memória.
+7. Documentação técnica:
    - `docs/world/15-status.md`
-   - `docs/world/52-status-U6-COSMOLOGICAL-STRUCTURE-OBSERVABLE-HORIZON.md`
+   - `docs/world/53-status-U7-INFINITE-TELEPORT-HANDOFF.md`
 
 ## Validações
-- `node --import tsx --test tests/cosmological-structure-u6.test.ts`: PASS (7/7)
-- Suíte completa de marcos recentes e coordenadas: PASS (56/56)
+- `node --import tsx --test tests/universal-teleport-service.test.ts`: PASS (14/14)
+- Suíte completa de marcos recentes e coordenadas: PASS (62/62)
 - `npm run typecheck`: PASS (0 erros)
 - `npm run build`: PASS (Vite 8.3.0)

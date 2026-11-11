@@ -242,3 +242,4 @@ test('T_U6_07_LSS_PROVIDER_LIFECYCLE_AND_HORIZON_STATE', () => {
   lss.dispose();
   assert.equal(root.children.length, 0);
 });
+

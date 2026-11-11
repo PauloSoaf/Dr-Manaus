@@ -53,3 +53,4 @@ Suíte dedicada em `tests/cosmological-structure-u6.test.ts` (100% aprovada, 7/7
 Regressões permanentes e marcos recentes (`bh0`, `bh1`, `bh2`, `u5`, `u6`, atlas, coordenadas): **56/56 testes aprovados**.
 `npm run typecheck` (`tsc --noEmit`): **0 erros**.
 `npm run build` (Vite 8.3.0): **Build de produção concluído com sucesso**.
+

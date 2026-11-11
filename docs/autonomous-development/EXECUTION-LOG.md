@@ -4,6 +4,23 @@ Registro cronológico contínuo de decisões, investigações, implementações 
 
 ---
 
+### [2026-11-11T09:48:00-04:00] — Implementação e Entrega do Milestone U7
+- **Milestone:** `U7` — Teleporte Universal Infinito e Handoff Seguro de Destino (`05-INFINITE-TELEPORT.md` e `06-DESTINATION-PREPARATION-HANDOFF.md`).
+- **Entregas:**
+  1. Criação de `src/world/spatial/AnalyticalSurfaceIntersection.ts` com interseções analíticas fechadas de raio vs elipsoide WGS84 em coordenadas ECEF, mapeamento geodésico sem streaming de malhas intermediárias, esfera lunar ($R = 1.737.400\text{ m}$) e elipsoide de Marte.
+  2. Criação de `src/world/travel/CelestialAngularPicker.ts` para seleção analítica de corpos celestes diretamente do runtime celeste por ângulo de retículo e raio angular aparente.
+  3. Adicionada API `prepareDemands(demands, signal)` no `GlobalStreamingScheduler.ts` para pré-carregamento crítico síncrono no tile cache.
+  4. Implementação de `src/world/travel/UniversalTeleportService.ts` unificando a cadeia de resolução em 4 estágios (`LOCAL_AIM_RAYCAST_M = 2500 m`, superfície analítica, corpo celeste angular e alvos armados / coordenadas), transação atômica em um único tick, políticas de chegada segura (folga de 2 m em superfícies, órbita segura de 250 km em Marte, e órbita de observação a $6 r_s$ para buracos negros), cancelamento via `AbortSignal` e bounded memory para até 32 referenciais dinâmicos de superfície.
+  5. Refatoração de `PowerSystem.ts`, `Game.ts` e `HUD.ts`: remoção das restrições arbitrárias de $\pm 100\text{ km}$, integração de tecla `E`, do HUD e do mapa, e remoção da restrição de descoberta para coordenadas e URIs `drm:v1://`.
+- **Validação:**
+  - `tests/universal-teleport-service.test.ts`: 14/14 testes aprovados (100%).
+  - Suíte completa de marcos recentes e coordenadas: 62/62 testes aprovados (100%).
+  - `npm run typecheck`: 0 erros.
+  - `npm run build`: Vite 8.3.0 concluído com sucesso em 1.92s.
+- **Documentação:** Criado `docs/world/53-status-U7-INFINITE-TELEPORT-HANDOFF.md` e atualizado `docs/world/15-status.md`.
+
+---
+
 ### [2026-11-11T08:21:00-04:00] — Inicialização do Protocolo Autônomo e Diagnóstico do Run 42940721868
 - **Ação:** Assunção da direção técnica autônoma do projeto DR-MANAUS na branch `feat/universe-map`.
 - **Análise do HEAD:** HEAD em `d41fc2d` (Patch U4.5.4).

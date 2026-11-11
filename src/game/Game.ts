@@ -1,4 +1,5 @@
 import { UniversalTravelController } from '../world/travel/UniversalTravelController';
+import { UniversalTeleportService } from '../world/travel/UniversalTeleportService';
 import { HypercruisePresentation } from '../rendering/HypercruisePresentation';
 import { orientGalaxyVector } from '../world/galaxy/GalaxyCoordinates';
 import { GalaxyMaterializer } from '../world/galaxy/GalaxyMaterializer';
@@ -149,6 +150,22 @@ export class Game {
   readonly interplanetary=new CosmicCruiseController();
   private universalTravelController?:UniversalTravelController;
   private hyperPresentation?:HypercruisePresentation;
+  private teleportService?: UniversalTeleportService;
+  get universalTeleport(): UniversalTeleportService {
+    return this.teleportService ??= new UniversalTeleportService({
+      universe: this.universe,
+      travelDomain: this.travelDomain,
+      player: this.player,
+      getColliders: () => FEATURES.curvedManaus ? this.curvedColliders : this.colliders,
+      prepareManaus: destination => this.manausSimulationActive ? this.streamer.prepare(new Vector3(destination.x, destination.y, destination.z)) : Promise.resolve(),
+      prepareSystem: target => this.systemMaterializer.prepareTravel(target),
+      notify: message => this.hud.notify(message),
+      sound: name => this.audio.play(name),
+      burstVfx: pos => (this.powers as any)?.effects?.burst(pos as any, 0x91ffe1, this.player.size, 48),
+      targetCatalog: this.universalTargetCatalog,
+      targetResolver: this.universalTargetResolver,
+    });
+  }
   get universalTravel():UniversalTravelController {
     return this.universalTravelController??=new UniversalTravelController(this.universe,this.universalTargetCatalog,{
       prepare:plan=>this.systemMaterializer.prepareTravel(plan.resolvedDestination),
@@ -477,6 +494,22 @@ export class Game {
       },
       impact:(point,footprint)=>this.applyLocalImpact(point,footprint),
       damage:(point,radius,amount,deform)=>this.manausSimulationActive?this.destruction.damageAt(point,radius,amount,deform):0,prepare:destination=>this.manausSimulationActive?this.streamer.prepare(destination):Promise.resolve(),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
+      universalTeleport: async (rayOrigin, rayDirection) => {
+        const res = this.universalTeleport.resolveFromAim(rayOrigin, rayDirection);
+        if (!res) {
+          this.hud.notify('Aponte para uma superfície ou alvo cósmico.');
+          return false;
+        }
+        if (res.kind === 'local-collider' && res.localDestination) {
+          await this.powers.teleportTo(res.localDestination);
+          return true;
+        }
+        if (res.target) {
+          const result = await this.universalTeleport.teleport(res.target);
+          return result.success;
+        }
+        return false;
+      },
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
     this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:(id,source)=>this.selectNavigationTarget(id,source),settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress(),atlas:this.cosmicAtlas});
@@ -533,6 +566,11 @@ export class Game {
     this.audio.setVolumes(settings.masterVolume,settings.ambienceVolume,settings.effectsVolume);this.atmosphere.time=settings.time;this.atmosphere.weather=settings.weather;this.atmosphere.dayCycle=settings.dayCycle;this.quality.enabled=settings.dynamicResolution;this.quality.reset();this.audio.setEnabled(settings.sound);this.destruction.setQuality(QUALITY[settings.quality].particles);this.streamer.setNight(settings.time==='Night');this.water.setNight(settings.time==='Night');this.realCity.setNight(settings.time==='Night');this.realCity.setDetail(settings.quality!=='Low');}
   async travel(id:string,debug=false){
     if(this.universalTravelController?.active){this.hud.notify('Em trânsito · X desacelera / P retoma');return;}
+
+    if (id.startsWith('drm:v1://') || id.includes('/') || id.includes(',') || id.startsWith('coord:')) {
+      void this.universalTeleport.teleport(id);
+      return;
+    }
 
     if(id==='u2-test-arrival'){this.debugEnterAndromeda();return;}
     if(id==='u2-test-solar'){this.debugReturnFromAndromeda();return;}

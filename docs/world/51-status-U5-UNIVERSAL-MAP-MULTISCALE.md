@@ -53,3 +53,4 @@ Suíte dedicada em `tests/universal-map-multiscale-u5.test.ts` (100% aprovada, 7
 Regressões permanentes e marcos recentes (`cosmic-atlas-u452`, `universe-coordinates`, `bh0`, `bh1`, `bh2`, `u5`): **49/49 testes aprovados**.
 `npm run typecheck` (`tsc --noEmit`): **0 erros**.
 `npm run build` (Vite 8.3.0): **Build de produção concluído com sucesso**.
+

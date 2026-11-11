@@ -30,6 +30,8 @@ export interface PowerHooks {
   impact?: (point: Vector3, footprint: import('../combat/MeteorImpact').ImpactResult) => number;
   /** City crater/debris visuals require an active deformable surface. */
   canDeformSurface?: () => boolean;
+  /** Universal teleport hook routing through UniversalTeleportService when local raycast misses. */
+  universalTeleport?: (rayOrigin: Vector3, rayDirection: Vector3) => Promise<boolean>;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }
@@ -197,7 +199,18 @@ export class PowerSystem {
       }
       case 'laser': this.laserActive=!this.laserActive;this.hooks.notify(this.laserActive?'Laser continuo ativo - L para desligar.':'Laser desligado.');break;
       case 'energy': this.energy(); break;
-      case 'teleport': this.updateDestination(); if (this.destinationValid) void this.teleportTo(this.destination.clone()); else this.hooks.notify('Aponte para uma superfície a até 2,5 km.'); break;
+      case 'teleport': {
+        this.updateDestination();
+        if (this.destinationValid) {
+          void this.teleportTo(this.destination.clone());
+        } else if (this.hooks.universalTeleport) {
+          this.cameraRay();
+          void this.hooks.universalTeleport(this.rayOrigin.clone(), this.rayDirection.clone());
+        } else {
+          this.hooks.notify('Aponte para uma superfície ou alvo cósmico.');
+        }
+        break;
+      }
       case 'shockwave': this.shockwave(); break;
       case 'reconstruct': this.reconstruct(); break;
       case 'giant': this.giant(); break;
@@ -207,7 +220,7 @@ export class PowerSystem {
   }
 
   async teleportTo(position: Vector3): Promise<void> {
-    if (this.teleporting || !Number.isFinite(position.x + position.y + position.z) || Math.abs(position.x) > 100000 || Math.abs(position.z) > 100000) return;
+    if (this.teleporting || !Number.isFinite(position.x + position.y + position.z)) return;
     this.teleporting = true; this.cooldowns.teleport = 1.2;
     this.player.powerPose('teleport', 0.8);
     this.effects.burst(this.player.position, 0x91ffe1, this.player.size, 48);

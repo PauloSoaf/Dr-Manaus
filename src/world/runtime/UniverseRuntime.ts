@@ -304,8 +304,9 @@ export class UniverseRuntime {
     const halfSector = 0.5 * SECTOR_SIZE_M;
 
     if (this.activeSystem === this.solarSystem) {
+      const isRemoteSector = systemAddress.sector && (systemAddress.sector.x !== 0n || systemAddress.sector.y !== 0n || systemAddress.sector.z !== 0n);
       const distToSol = Math.hypot(p[0], p[1], p[2]);
-      if (distToSol < 1e16 && this.activeGalaxy.id === 'milky_way') {
+      if (distToSol < 1e16 && this.activeGalaxy.id === 'milky_way' && !isRemoteSector && systemAddress.systemId === 'sol') {
         this.address = {
           galaxyId: 'milky_way',
           sector: sectorIndex(0n, 0n, 0n),
@@ -313,13 +314,14 @@ export class UniverseRuntime {
         };
         return;
       }
-      // In interstellar space beyond Sol: determine sector deterministically in Milky Way coordinates
-      const sx = BigInt(Math.floor((p[0] + halfSector) / SECTOR_SIZE_M));
-      const sy = BigInt(Math.floor((p[1] + halfSector) / SECTOR_SIZE_M));
-      const sz = BigInt(Math.floor((p[2] + halfSector) / SECTOR_SIZE_M));
+      // In interstellar space: determine sector relative to authoritative base sector in Milky Way coordinates
+      const baseSec = isRemoteSector ? systemAddress.sector : sectorIndex(0n, 0n, 0n);
+      const dsx = BigInt(Math.floor((p[0] + halfSector) / SECTOR_SIZE_M));
+      const dsy = BigInt(Math.floor((p[1] + halfSector) / SECTOR_SIZE_M));
+      const dsz = BigInt(Math.floor((p[2] + halfSector) / SECTOR_SIZE_M));
       this.address = {
         galaxyId: this.activeGalaxy.id,
-        sector: sectorIndex(sx, sy, sz),
+        sector: sectorIndex(baseSec.x + dsx, baseSec.y + dsy, baseSec.z + dsz),
         // Outside the stellar envelope, systemId is undefined (interstellar space)
         systemId: undefined,
       };

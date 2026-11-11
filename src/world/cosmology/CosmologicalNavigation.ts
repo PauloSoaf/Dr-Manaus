@@ -117,3 +117,4 @@ export function resolveCosmologicalAnchorArrival(
     comovingDistanceM: Math.hypot(targetX, targetY, targetZ) * MPC_M,
   };
 }
+

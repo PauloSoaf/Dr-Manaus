@@ -80,6 +80,12 @@ export class UniverseCoordinates {
         address: target.address,
       };
     }
+    if (target.kind === 'black-hole') {
+      return {
+        kind: 'catalog-object',
+        id: target.objectId,
+      };
+    }
     if (target.address && 'sector' in target.address) {
       return {
         kind: 'cosmic-sector',

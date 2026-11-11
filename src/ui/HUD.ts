@@ -334,7 +334,19 @@ export class HUD {
   }
   toggleDebug(){this.debugOpen=!this.debugOpen;$('#debug-panel').hidden=!this.debugOpen;if(this.debugOpen&&document.pointerLockElement)void document.exitPointerLock();}
   notify(message:string){$('#toast').textContent=message;$('#toast').classList.add('visible');this.toastTimer=4;}
-  private travel(id:string){if(id.startsWith('u1-test-')||id.startsWith('u2-test-')){this.hooks.travel(id,true);return;}if(!this.save.data.discovered.includes(id)){this.notify('Voe até este lugar para descobrir sua assinatura.');return;}this.togglePanel('');this.hooks.travel(id);}
+  private travel(id: string) {
+    if (id.startsWith('u1-test-') || id.startsWith('u2-test-') || id.startsWith('drm:v1://') || id.includes('/') || id.includes(',') || id.startsWith('coord:')) {
+      this.hooks.travel(id, true);
+      this.togglePanel('');
+      return;
+    }
+    if (!this.save.data.discovered.includes(id)) {
+      this.notify('Voe até este lugar para descobrir sua assinatura.');
+      return;
+    }
+    this.togglePanel('');
+    this.hooks.travel(id);
+  }
   /** Phase names the player can act on, rather than the controller's internal vocabulary. */
   private static readonly CRUISE_PHASES: Record<string,string> = {
     capture:'CAPTURA', arrived:'CHEGADA', idle: 'PRONTO PARA CRUISE',
