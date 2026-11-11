@@ -1,6 +1,6 @@
 import { galaxyDefinition, galaxyLocalPositionM, orientGalaxyVector } from '../galaxy/GalaxyCoordinates';
 import type { Vec3 } from '../spatial/units';
-import { Group, Mesh, Object3D, SphereGeometry, TorusGeometry, MeshBasicMaterial, MeshStandardMaterial, DoubleSide } from 'three/webgpu';
+import { Group, Mesh, Object3D, SphereGeometry, TorusGeometry, RingGeometry, Vector3, MeshBasicMaterial, MeshStandardMaterial, DoubleSide } from 'three/webgpu';
 import { finite } from '../spatial/units';
 import {
   schwarzschildRadiusM,
@@ -29,6 +29,7 @@ export class BlackHoleProvider {
   private readonly options: Required<BlackHoleProviderOptions>;
   private readonly eventHorizon: Mesh;
   private accretionDisk?: Mesh;
+  private readonly photonRing: Mesh;
 
   constructor(parent: Object3D, options: BlackHoleProviderOptions) {
     this.id = `blackhole/${options.blackHole.id}`;
@@ -76,11 +77,29 @@ export class BlackHoleProvider {
       this.group.add(this.accretionDisk);
     }
 
+    // Relativistic photon ring (lensed optical photon sphere boundary)
+    const photonInner = shadowR * 1.002;
+    const photonOuter = shadowR * 1.035;
+    const photonGeom = new RingGeometry(photonInner, photonOuter, 96);
+    const photonMat = new MeshBasicMaterial({
+      color: 0xfff3e0,
+      side: DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+    });
+    this.photonRing = new Mesh(photonGeom, photonMat);
+    this.photonRing.name = 'photon-ring';
+    this.group.add(this.photonRing);
+
     parent.add(this.group);
   }
 
   get stats() {
-    return { visible: this.group.visible };
+    return {
+      visible: this.group.visible,
+      hasAccretion: !!this.accretionDisk,
+      hasPhotonRing: true,
+    };
   }
 
   update(address: import('../spatial/UniverseAddress').UniverseAddress,cameraPosM:Vec3,altitudeM:number,sectorOffsetM:Vec3=[0,0,0],toRenderDirection:(v:Vec3)=>Vec3=v=>v):void {
@@ -94,6 +113,8 @@ export class BlackHoleProvider {
     if(distance<=0){this.group.visible=false;return;}
     const direction=toRenderDirection(delta.map(v=>v/distance) as Vec3);
     this.group.position.set(...direction.map((v,i)=>cameraPosM[i]+v*18_000) as Vec3);
+    // Orient photon ring toward the observer line of sight
+    this.photonRing.lookAt(cameraPosM[0], cameraPosM[1], cameraPosM[2]);
     // Presentation floor, not a physical horizon/capture boundary.
     this.group.scale.setScalar(100);
   }
@@ -105,5 +126,7 @@ export class BlackHoleProvider {
       this.accretionDisk.geometry.dispose();
       (this.accretionDisk.material as any).dispose();
     }
+    this.photonRing.geometry.dispose();
+    (this.photonRing.material as any).dispose();
   }
 }

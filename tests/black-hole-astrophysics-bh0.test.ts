@@ -236,6 +236,13 @@ test('T_BH0_07_BLACK_HOLE_PROVIDER_LOD_AND_SCALE', () => {
   assert.ok(diskMesh);
   assert.ok(diskMesh.geometry);
 
+  // Photon ring mesh verification
+  const photonMesh = provider.group.children[2] as any;
+  assert.ok(photonMesh);
+  assert.equal(photonMesh.name, 'photon-ring');
+  assert.ok(photonMesh.geometry);
+  assert.equal(provider.stats.hasPhotonRing, true);
+
   // Update check
   provider.update({ galaxyId: 'milky_way', sector: sectorIndex(0n, 0n, 0n) }, [0, 0, 0], 5000);
   assert.equal(provider.stats.visible, true);
