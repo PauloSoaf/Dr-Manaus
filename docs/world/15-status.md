@@ -1,6 +1,20 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U7 Teleporte Universal Infinito e Handoff Seguro de Destino (2026-11-11)
+## Current checkpoint — Cosmic Target Hardening & Clean Architecture (2026-11-11)
+
+Implementado com base no baseline estável `3eda1ca` (Patch U7 e normalização unitária, 100% CI pass):
+1. Desacoplamento do Modelo Astrofísico (`src/world/blackhole/BlackHoleDefinition.ts`):
+   - Eliminação da importação invertida de tipos de dados a partir de um provedor de renderização (`BlackHoleProvider.ts`).
+   - Saneamento de `GalaxyDefinition.ts`, `ProceduralGalaxyGenerator.ts` e `LargeScaleStructureProvider.ts`.
+2. Estabilização Integral da Suíte de Testes:
+   - 1.637 / 1.637 testes gerais aprovados (100% green).
+   - 638 / 638 testes de regressão permanente aprovados (100% green).
+   - TypeScript `tsc --noEmit` 0 erros e Vite build de produção aprovado.
+3. Pipelines GitHub Actions:
+   - Runs 43034411855, 43034426451, 43036032343, 43036554791 e 43036567036 aprovados com sucesso.
+Evidence: [54-status-COSMIC-TARGET-HARDENING.md](54-status-COSMIC-TARGET-HARDENING.md).
+
+## Previous checkpoint — U7 Teleporte Universal Infinito e Handoff Seguro de Destino (2026-11-11)
 
 Implementado com base no baseline estável `09a13f3` (Patch U6, typecheck PASS):
 1. `src/world/travel/UniversalTeleportService.ts`:
