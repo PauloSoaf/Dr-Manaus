@@ -1199,6 +1199,7 @@ export class Game {
       dt,
       blackHole: bhDescriptor,
     }) : {};
+    if (!nearBlackHole && this.blackHoleRuntime) this.blackHoleRuntime.proximity = undefined;
     if (bhStep.nextVelocityMps) finalState = { ...newState, velocityMps: bhStep.nextVelocityMps };
     if (bhStep.transitStarted) {
       this.warpStep = 0;
@@ -1866,6 +1867,10 @@ export class Game {
       gatedBodyId:telemetry.gatedBodyId,
       emergencyStopActive:telemetry.emergencyStopActive,
       emergencyStopReason:telemetry.emergencyStopReason,
+      blackHole:this.blackHoleRuntime?.proximity ? { zone:this.blackHoleRuntime.proximity.zone,
+        radiusRs:this.blackHoleRuntime.proximity.radiusRs, timeDilation:this.blackHoleRuntime.proximity.timeDilationFactor } : undefined,
+      blackHoleTransit:this.blackHoleRuntime?.transit.active ? { phase:this.blackHoleRuntime.transit.phase,
+        progress01:this.blackHoleRuntime.transit.progress01 } : undefined,
       landingIntentActive:this.landingIntent?.active,
       landingBlockedReason:this.landingIntent?.active ? (this.travelDomain?.landingGate?.blockedReason === 'ready' ? 'CAPTURA' : this.travelDomain?.landingGate?.blockedReason) : undefined,
       distanceToTargetM:target ? distance : resolved?.distanceM,

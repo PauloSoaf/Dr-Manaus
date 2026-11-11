@@ -69,6 +69,8 @@ export interface HUDFlightTelemetry {
   readonly warpLabel?: string;
   readonly cosmicTier?: string;
   readonly proximityGatingActive?: boolean;
+  readonly blackHole?: { readonly zone: string; readonly radiusRs: number; readonly timeDilation: number };
+  readonly blackHoleTransit?: { readonly phase: string; readonly progress01: number };
   readonly gatedBodyId?: string;
   readonly landingIntentActive?: boolean;
   readonly landingBlockedReason?: string;
@@ -386,6 +388,8 @@ export class HUD {
       +(flight.warpLabel?`<span>WARP<i class="warp">${flight.warpLabel}</i></span>`:'')
       +(flight.cosmicTier&&flight.cosmicTier!=='conventional'?`<span>MODO CÓSMICO<i>${flight.cosmicTier.toUpperCase()}</i></span>`:'')
       +(flight.proximityGatingActive?`<span style="color:#f59e0b">FREIO PROXIMIDADE<i>${flight.gatedBodyId?flight.gatedBodyId.toUpperCase():'ATIVO'}</i></span>`:'')
+      +(flight.blackHole&&flight.blackHole.zone!=='distant'?`<span style="color:${flight.blackHole.zone==='captured'||flight.blackHole.zone==='isco-zone'?'#ef4444':'#f59e0b'}">BURACO NEGRO<i>${flight.blackHole.zone.toUpperCase()} · ${flight.blackHole.radiusRs.toFixed(1)} rs · τ×${flight.blackHole.timeDilation.toFixed(3)}</i></span>`:'')
+      +(flight.blackHoleTransit?`<span style="color:#a78bfa">TRAVESSIA<i>${flight.blackHoleTransit.phase.replaceAll('-',' ').toUpperCase()} ${(flight.blackHoleTransit.progress01*100).toFixed(0)}%</i></span>`:'')
       +(flight.landingIntentActive?`<span style="color:${flight.landingBlockedReason==='ready'||flight.landingBlockedReason==='CAPTURA'?'#a7f3d0':'#f59e0b'}">POUSO (F)<i>${flight.landingBlockedReason?flight.landingBlockedReason.toUpperCase():'ATIVO'}</i></span>`:'')
       +`<span>DESTINO<i>${flight.targetName??flight.targetBodyId??'—'}</i></span>`
       +(flight.universalTarget?`<span>TIPO<i>${flight.universalTarget.target.kind.replaceAll('-',' ').toUpperCase()}</i></span><span>GALÁXIA DO ALVO<i>${formatGalaxyName(flight.universalTarget.target.galaxyId)}</i></span><span>VIAGEM<i>${travelCapabilityLabel(flight.universalTarget.travelCapability)}</i></span>`:'')

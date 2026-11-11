@@ -24,3 +24,5 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 
 
 - 7dc0f57 (BH1.1/BH2.1): push run 43055389258 SUCCESS; pull_request run 43055399191 FAILURE at 'Unit tests' (log unavailable without auth). Local: 1648/1648 x3, regression 638/638. Tree identical to HEAD (main is a stale ancestor, merge clean) -> investigating flake. 2026-11-11T12:16:00-04:00
+
+- 5a4eb38: push + pull_request SUCCESS -> 7dc0f57 PR failure classified as flake. BH1.2 (HUD black-hole telemetry) validated locally 1648/1648, 638/638. 2026-11-11T12:22:00-04:00
