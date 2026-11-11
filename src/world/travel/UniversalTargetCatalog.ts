@@ -10,6 +10,7 @@ import { PARSEC_M, type Vec3 } from '../spatial/units';
 import { createUniversalTarget, isUniverseAddress, universalTargetKey, type UniversalTargetDescriptor, type UniversalNavigationTarget, type TargetSource } from './UniversalNavigationTarget';
 import { ProceduralGalaxyDiscovery } from '../galaxy/ProceduralGalaxyDiscovery';
 import { cosmologicalPositionM, isCellInFloatDomain } from '../galaxy/ProceduralGalaxyGenerator';
+import { getCanonicalBlackHole, generateStellarBlackHole } from '../celestial/BlackHoleDescriptor';
 
 export const SOLAR_TARGET_ADDRESS: UniverseAddress = Object.freeze({ galaxyId:'milky_way', sector:Object.freeze(sectorIndex(0n,0n,0n)), systemId:'sol' });
 const names: Readonly<Record<string,string>> = { sun:'Sol', mercury:'Mercúrio', venus:'Vênus', earth:'Terra', moon:'Lua', mars:'Marte', jupiter:'Júpiter', saturn:'Saturno', uranus:'Urano', neptune:'Netuno' };
@@ -78,6 +79,40 @@ export class UniversalTargetCatalog {
         d.displayName.toLowerCase() === rawId.toLowerCase()
       );
     if (direct) return direct;
+
+    // Check black-hole universal key resolution:
+    // universe/:galaxyId/:x,:y,:z/black-hole/:objectId
+    const bhMatch = query.match(/^universe\/([^/]+)\/(-?\d+),(-?\d+),(-?\d+)\/black-hole\/([^/]+)$/);
+    if (bhMatch) {
+      try {
+        const [, gIdRaw, xStr, yStr, zStr, objIdRaw] = bhMatch;
+        const galaxyId = decodeURIComponent(gIdRaw);
+        const objectId = decodeURIComponent(objIdRaw);
+        const sector = sectorIndex(BigInt(xStr), BigInt(yStr), BigInt(zStr));
+        const canonicalBh = getCanonicalBlackHole(objectId);
+        if (canonicalBh) {
+          return createUniversalTarget({
+            kind: 'black-hole',
+            displayName: canonicalBh.name,
+            objectId: canonicalBh.id,
+            galaxyId: canonicalBh.galaxyId,
+            address: { galaxyId: canonicalBh.galaxyId, sector },
+          });
+        }
+        const sbh = generateStellarBlackHole(galaxyId, sector);
+        if (sbh && sbh.id === objectId) {
+          return createUniversalTarget({
+            kind: 'black-hole',
+            displayName: sbh.name,
+            objectId: sbh.id,
+            galaxyId,
+            address: { galaxyId, sector },
+          });
+        }
+      } catch {
+        // Continue fallback search
+      }
+    }
 
     // Check procedural universe key resolution:
     // universe/:galaxyId/:x,:y,:z/system/:systemId[/(body|star)/:bodyId]

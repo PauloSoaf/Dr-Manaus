@@ -22,6 +22,11 @@ import {
 import { UniversalTargetCatalog } from '../../world/travel/UniversalTargetCatalog';
 
 import {
+  getCanonicalBlackHole,
+  generateStellarBlackHole,
+} from '../../world/celestial/BlackHoleDescriptor';
+
+import {
   describeNavigationGuidance,
   type NavigationReadinessState,
   type NavigationGuidance,
@@ -57,6 +62,8 @@ export function renderUniversalTargetCardHtml(
     classification = isCanonical ? 'Sistema Catalogado' : 'Sistema Procedural';
   } else if (t.kind === 'body' || t.kind === 'star') {
     classification = isCanonical ? 'Corpo Canônico (Sistema Solar)' : 'Corpo Procedural Sintético';
+  } else if (t.kind === 'black-hole') {
+    classification = isCanonical ? 'Buraco Negro Supermassivo Canônico' : 'Buraco Negro Estelar Procedural';
   }
   const guidance = describeNavigationGuidance(
     resolved.travelCapability,
@@ -156,6 +163,36 @@ export function renderUniversalTargetCardHtml(
     html += `<tr><td>Atmosfera</td><td>${hasAtmo ? (env.atmosphericPressureAtm ? env.atmosphericPressureAtm + ' atm' : 'Presente') : 'Rarefeita / Vácuo'}</td></tr>`;
     html += `</table>`;
     html += `<div style="font-size:10px;color:#94a3b8;margin-top:4px;font-style:italic;">${escapeHtml(env.description)}</div>`;
+    html += `</div>`;
+  }
+
+  if (t.kind === 'black-hole') {
+    const bhDesc = getCanonicalBlackHole(t.objectId)
+      ?? (t.address && 'sector' in t.address ? generateStellarBlackHole(t.address.galaxyId, t.address.sector) : undefined);
+
+    html += `<div class="target-section" data-target-section="astrofisica-bh" style="margin-top:6px;">`;
+    html += `<div style="font-size:10px;color:#f59e0b;font-weight:700;letter-spacing:0.06em;margin-bottom:2px;">ASTROFÍSICA &amp; HORIZONTE DE EVENTOS</div>`;
+    html += `<table class="card-table">`;
+    if (bhDesc) {
+      const massFormat = bhDesc.massSolar >= 1e6
+        ? `${(bhDesc.massSolar / 1e6).toFixed(2)} milhões M☉`
+        : `${bhDesc.massSolar.toFixed(1)} M☉`;
+      html += `<tr><td>Massa</td><td><strong>${massFormat}</strong></td></tr>`;
+      html += `<tr><td>Spin Kerr (a*)</td><td>${bhDesc.spin01.toFixed(3)}</td></tr>`;
+      const rsKm = (bhDesc.schwarzschildRadiusM / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+      html += `<tr><td>Raio Schwarzschild</td><td>${rsKm} km</td></tr>`;
+      const rhKm = (bhDesc.eventHorizonRadiusM / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+      html += `<tr><td>Horizonte de Kerr</td><td>${rhKm} km</td></tr>`;
+      const shKm = (bhDesc.shadowRadiusM / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+      html += `<tr><td>Sombra Lenteada</td><td>${shKm} km</td></tr>`;
+    }
+    html += `<tr><td>Pouso</td><td><span style="color:#f87171;font-weight:600;">✗ Pouso impossível (singularidade relativística)</span></td></tr>`;
+    if (bhDesc?.accretion) {
+      const tempK = bhDesc.accretion.peakTemperatureK.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+      html += `<tr><td>Disco de Acreção</td><td><span style="color:#fde047;font-weight:600;">Ativo (${tempK} K)</span></td></tr>`;
+    }
+    html += `</table>`;
+    html += `<div style="font-size:10px;color:#94a3b8;margin-top:4px;font-style:italic;">Horizonte de eventos unidirecional: escape impossível após cruzamento da fronteira relativística.</div>`;
     html += `</div>`;
   }
 
@@ -809,8 +846,9 @@ export class UniversalMapPanel {
 
               <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; font-size: 10px;">
                 <span style="background: #1e293b; padding: 2px 6px; border-radius: 4px; color: #94a3b8; text-transform: uppercase;">${escapeHtml(entry.kind)}</span>
-                <span style="background: #1e293b; padding: 2px 6px; border-radius: 4px; color: ${entry.isCanonical ? '#38bdf8' : '#a855f7'};">${entry.isCanonical ? (entry.kind === 'galaxy' ? 'Canônica' : entry.kind === 'system' ? 'Sistema Solar' : 'Canônico') : 'Procedural'}</span>
+                <span style="background: #1e293b; padding: 2px 6px; border-radius: 4px; color: ${entry.isCanonical ? '#38bdf8' : '#a855f7'};">${entry.isCanonical ? (entry.kind === 'galaxy' ? 'Canônica' : entry.kind === 'system' ? 'Sistema Solar' : entry.kind === 'black-hole' ? 'Buraco Negro SMBH' : 'Canônico') : (entry.kind === 'black-hole' ? 'Buraco Negro Estelar' : 'Procedural')}</span>
                 ${entry.visited ? '<span style="background: rgba(34,197,94,0.15); color: #4ade80; border: 1px solid rgba(34,197,94,0.3); padding: 1px 6px; border-radius: 4px; font-weight: 600;">✓ VISITADO</span>' : '<span style="color: #64748b; padding: 1px 4px;">NÃO VISITADO</span>'}
+                ${entry.kind === 'black-hole' ? '<span style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35); padding: 1px 6px; border-radius: 4px; font-weight: 600;">● Singularidade</span>' : ''}
                 ${entry.morphology ? `<span style="background: #1e293b; padding: 2px 6px; border-radius: 4px; color: #cbd5e1;">${escapeHtml(entry.morphology)}</span>` : ''}
                 ${entry.worldType ? `<span style="background: #0369a1; padding: 2px 6px; border-radius: 4px; color: #e0f2fe; font-weight: 600;">${escapeHtml(entry.worldType)}</span>` : ''}
                 ${entry.canLand !== undefined ? `<span style="background: ${entry.canLand ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)'}; color: ${entry.canLand ? '#4ade80' : '#f87171'}; border: 1px solid ${entry.canLand ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}; padding: 1px 6px; border-radius: 4px;">${entry.landingMode === 'photosphere' ? '✓ Fotosfera' : entry.canLand ? '✓ Pousável' : 'Apenas observável'}</span>` : ''}

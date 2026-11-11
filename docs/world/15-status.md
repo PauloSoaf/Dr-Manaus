@@ -1,6 +1,22 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — U4.5.4.1 Hotfix de Consistência Geométrica e Preservação do Relevo Canônico (2026-11-11)
+## Current checkpoint — BH0 Modelo Astrofísico e Relativístico de Buracos Negros (2026-11-11)
+
+Implementado com base no baseline estável `c48fc64b456cf489d038050bdfca09f1c9dc6d56` (Patch U4.5.4.1 hotfix, typecheck PASS):
+1. `src/world/celestial/BlackHoleDescriptor.ts`:
+   - Módulo astrofísico formal: cálculo analítico do raio de Schwarzschild ($r_s = 2GM/c^2$), horizonte de eventos de Kerr ($r_+$), raio da esfera de fótons ($r_{\text{ph}}$), ISCO ($r_{\text{isco}}$) e sombra óptica por lente gravitacional ($R_{\text{shadow}} \approx 2.598 r_s$).
+   - Perfis canônicos para Sagittarius A* ($4.297 \times 10^6 M_\odot$, spin $a_* = 0.90$) e Andromeda M31* ($1.4 \times 10^8 M_\odot$).
+   - Gerador determinístico de buracos negros estelares procedurais raros em setores cósmicos sem `Math.random()`.
+2. `src/world/providers/BlackHoleProvider.ts`:
+   - Escala relativística exata do horizonte aparente e anel de disco de acreção acoplado aos limites do ISCO; método de descarte de malhas Three.js.
+3. `src/world/travel/UniversalTargetCatalog.ts` e `src/ui/map/UniversalMapPanel.ts`:
+   - Decodificação e resolução de chaves universais de buracos negros (`universe/:galaxyId/:x,:y,:z/black-hole/:objectId`).
+   - Seção dedicada `ASTROFÍSICA & HORIZONTE DE EVENTOS` no cartão de alvo e selo visual `● Singularidade` no Atlas Cósmico.
+4. `tests/black-hole-astrophysics-bh0.test.ts`:
+   - Suíte de 8 testes automatizados cobrindo formulações físicas, determinismo, taxonomia, catálogo e UI.
+Evidence: [48-status-BH0-BLACK-HOLE-ASTROPHYSICS.md](48-status-BH0-BLACK-HOLE-ASTROPHYSICS.md).
+
+## Previous checkpoint — U4.5.4.1 Hotfix de Consistência Geométrica e Preservação do Relevo Canônico (2026-11-11)
 
 Auditado com base no run `42940721868` (1.585/1.587 testes aprovados):
 1. `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` (`T_U454_07`):
