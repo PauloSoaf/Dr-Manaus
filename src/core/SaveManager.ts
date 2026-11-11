@@ -21,6 +21,7 @@ export interface SaveData {
   favorites?: string[];
   visitedTargets?: string[];
   discoveredTargets?: string[];
+  blackHoleTraversals?: Record<string, number>;
 }
 const defaults = (): SaveData => ({
   version: 1,
@@ -37,6 +38,7 @@ const defaults = (): SaveData => ({
     'universe/milky_way/0,0,0/system/sol/body/earth',
   ],
   discoveredTargets: [],
+  blackHoleTraversals: {},
 });
 export class SaveManager {
   data = defaults();
@@ -50,6 +52,9 @@ export class SaveManager {
         if (Array.isArray(saved.favorites)) this.data.favorites = saved.favorites.filter((v): v is string => typeof v === 'string');
         if (Array.isArray(saved.visitedTargets)) this.data.visitedTargets = saved.visitedTargets.filter((v): v is string => typeof v === 'string');
         if (Array.isArray(saved.discoveredTargets)) this.data.discoveredTargets = saved.discoveredTargets.filter((v): v is string => typeof v === 'string');
+        if (saved.blackHoleTraversals && typeof saved.blackHoleTraversals === 'object') {
+          this.data.blackHoleTraversals = { ...saved.blackHoleTraversals };
+        }
         this.data.settings = { ...this.data.settings, ...saved.settings };
         if (!['Low', 'Medium', 'High', 'Ultra'].includes(this.data.settings.quality)) this.data.settings.quality = 'High';
         // A save written before these existed, or hand-edited, must not produce a silent or unusable game.
@@ -155,6 +160,16 @@ export class SaveManager {
     }
     if (added > 0) this.save();
     return added;
+  }
+  getBlackHoleTraversalCount(id: string): number {
+    return this.data.blackHoleTraversals?.[id] ?? 0;
+  }
+  recordBlackHoleTraversal(id: string): number {
+    if (!this.data.blackHoleTraversals) this.data.blackHoleTraversals = {};
+    const count = (this.data.blackHoleTraversals[id] ?? 0) + 1;
+    this.data.blackHoleTraversals[id] = count;
+    this.save();
+    return count;
   }
   reset() { this.data = defaults(); this.save(); }
 }

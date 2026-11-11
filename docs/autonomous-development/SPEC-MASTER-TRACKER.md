@@ -77,12 +77,12 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `BH-01` | `11-BLACK-HOLES.md` | **BH0:** Descritor `BlackHoleDescriptor`, raio de Schwarzschild $r_s$, horizonte Kerr $r_+$, ISCO e anel de fótons | P0 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-astrophysics-bh0.test.ts` |
 | `BH-02` | `11-BLACK-HOLES.md` | **BH0:** Integração de Sagittarius A*, M31 SMBH e buracos negros estelares no Catálogo Universal | P0 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-astrophysics-bh0.test.ts` |
 | `BH-03` | `11-BLACK-HOLES.md` | **BH1:** Atração gravitacional relativística, curvatura de trajetória e estado de captura de horizonte | P1 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-gravity-bh1.test.ts` |
-| `BH-04` | `11-BLACK-HOLES.md` | **BH2:** Rede de trânsito dimensional com saídas persistentes via `universeSeed + traversalCounter` | P1 | `IN_PROGRESS` | Em desenvolvimento | Planejado para BH2 |
+| `BH-04` | `11-BLACK-HOLES.md` | **BH2:** Rede de trânsito dimensional com saídas persistentes via `universeSeed + traversalCounter` | P1 | `IMPLEMENTED` | `HEAD` | `tests/black-hole-transit-bh2.test.ts` |
 
 ---
 
 ### Módulo G — Escala Cosmológica e Teia Cósmica
 | ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
-| `COSMO-01` | `UNIVERSE-MAP-COMPLETION-EPIC.md` | **U5:** Mapa Universal Interativo aninhado em múltiplas escalas (sistema -> galáxia -> teia) | P1 | `TODO` | — | Planejado para U5 |
+| `COSMO-01` | `UNIVERSE-MAP-COMPLETION-EPIC.md` | **U5:** Mapa Universal Interativo aninhado em múltiplas escalas (sistema -> galáxia -> teia) | P1 | `IN_PROGRESS` | Em desenvolvimento | Planejado para U5 |
 | `COSMO-02` | `13-OBSERVABLE-UNIVERSE-HORIZON.md`| **U6:** Horizonte cosmológico observável centrado no jogador e estruturas do Grande Atrator | P1 | `TODO` | — | Planejado para U6 |

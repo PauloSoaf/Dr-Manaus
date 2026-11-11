@@ -1,24 +1,31 @@
 # DR-MANAUS | Active Patch Specification
 
-## Milestone Concluído: BH1 — Dinâmica Gravitacional Relativística e Captura de Horizonte
+## Milestone Concluído: BH2 — Rede Determinística de Trânsito Cósmico e Emergência de Dobra Espacial
 
-### Resumo da Entrega BH1
-1. `src/world/celestial/BlackHoleGravity.ts`:
-   - Aceleração efetiva de Paczyński-Wiita ($GM/(r-r_s)^2$) reproduzindo ISCO em $3 r_s$ e assíntota de Newton $GM/r^2$ no campo distante.
-   - Arrasto de referencial de Kerr (efeito Lense-Thirring).
-   - Classificação das 5 zonas de proximidade: `'distant'`, `'influence'`, `'strong-field'`, `'isco-zone'`, `'captured'`.
-   - Dilatação temporal relativística $\sqrt{1 - r_s / r}$ e velocidade de escape $c \sqrt{r_s / r}$.
-   - Curvatura dinâmica de trajetória e irreversibilidade da captura de horizonte ($r \le r_+$).
-2. `tests/black-hole-gravity-bh1.test.ts`:
-   - 7 testes automatizados cobrindo todas as leis e transições físicas.
+### Resumo da Entrega BH2
+1. `src/world/travel/BlackHoleTransitNetwork.ts`:
+   - Mapeamento determinístico de destinos através de singularidades com `resolveBlackHoleTransitExit`.
+   - Ponte Einstein-Rosen bidirecional canônica Sagittarius A* <-> M31*.
+   - Invariante estrito de emergência segura: posição sempre exterior ao horizonte ($r > r_+$) e velocidade outward de escape a $0.2 c$.
+   - Controlador de máquina de estados de trânsito em 4 fases (`BlackHoleTransitController`).
+2. `src/core/SaveManager.ts`:
+   - Persistência e restauração de contadores de travessia `blackHoleTraversals` no `SaveData`.
+3. `tests/black-hole-transit-bh2.test.ts`:
+   - 7 testes automatizados cobrindo pontes, simetria, invariantes de segurança e persistência.
 
 ---
 
-## Próximo Milestone em Planejamento: BH2 — Rede Determinística de Trânsito Cósmico e Emergência de Dobra Espacial
+## Próximo Milestone em Planejamento: U5 — Mapa Universal Multiescala Interativo
 
-### 1. Objetivos do BH2
-- Fictional interior wormhole / bridge transit inspirado em relatividade de dimensões superiores.
-- Função analítica de mapeamento de destino:
-  `resolveBlackHoleTransitExit(universeSeed, sourceBlackHoleId, traversalCounter) -> UniverseLocation / UniverseAddress`.
-- Persistência no `SaveManager` do contador de travessias (`traversalCounter`) e do histórico de saídas descobertas.
-- Ponto de emergência seguro e pose de saída (`SpatialPose`) posicionado fora do horizonte de eventos do buraco negro ou estrutura de destino, prevenindo recaptura imediata.
+### 1. Objetivos do U5
+Conforme [`specs/UNIVERSE-MAP-COMPLETION-EPIC.md`](file:///c:/Projetos/Dr-Manaus/specs/UNIVERSE-MAP-COMPLETION-EPIC.md) (linha 57):
+"U5: Runtime-backed searchable/clickable Universal Map. System -> stellar sector -> galaxy -> Local Group -> cluster -> cosmic web -> observable universe; every actionable marker resolves to the same target/address authority."
+- Visualização e navegação contínua entre as 6 camadas de escala:
+  1. `surface` (Superfície planetária / Manaus)
+  2. `planet` (Corpo celeste e sistema de luas)
+  3. `system` (Sistema estelar planetário completo)
+  4. `stellar-sector` / `galaxy` (Setor estelar e braços espirais da galáxia)
+  5. `local-group` / `cluster` (Grupo Local e Superaglomerados como Virgem e Norma)
+  6. `cosmology` (Teia cósmica em grande escala e horizonte observável)
+- Integração da hierarquia de breadcrumb e renderizadores de mapa com sincronização de foco de câmera sem descontinuidades.
+- Todos os marcadores clicáveis no mapa devem resolver para instâncias imutáveis de `UniversalNavigationTarget` compartilhadas pelo HUD e pelo Hypercruise.

@@ -1,6 +1,21 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — BH1 Dinâmica Gravitacional Relativística e Captura de Horizonte (2026-11-11)
+## Current checkpoint — BH2 Rede Determinística de Trânsito Cósmico e Emergência de Dobra Espacial (2026-11-11)
+
+Implementado com base no baseline estável `95de4747be8bb8c82eb5c76db421c97a8ec21021` (Patch BH1, typecheck PASS):
+1. `src/world/travel/BlackHoleTransitNetwork.ts`:
+   - Rede determinística de trânsito interdimensional conectando buracos negros: `resolveBlackHoleTransitExit(universeSeed, sourceBh, counter, catalog)`.
+   - Ponte Einstein-Rosen bidirecional canônica entre Sagittarius A* (Via Láctea) e M31* (Andrômeda).
+   - Rotas determinísticas para o Superaglomerado de Norma (Grande Atrator) e setores estelares procedurais.
+   - Invariante de emergência segura: posição garantida fora do horizonte de eventos ($r_{\text{emergência}} \ge 6 \times r_s$) e vetor de velocidade outward a $0.2 c$.
+   - Máquina de estados de trânsito em 4 fases (`BlackHoleTransitController`).
+2. `src/core/SaveManager.ts`:
+   - Persistência e restauração de contadores de travessia `blackHoleTraversals` no `SaveData`, garantindo consistência através de saves e reloads.
+3. `tests/black-hole-transit-bh2.test.ts`:
+   - Suíte de 7 testes automatizados validando pontes canônicas, rotas procedurais, persistência de dados, ciclo de vida de trânsito e invariantes de segurança.
+Evidence: [50-status-BH2-BLACK-HOLE-TRANSIT-NETWORK.md](50-status-BH2-BLACK-HOLE-TRANSIT-NETWORK.md).
+
+## Previous checkpoint — BH1 Dinâmica Gravitacional Relativística e Captura de Horizonte (2026-11-11)
 
 Implementado com base no baseline estável `998871d87e07b22a00908eb8a37e5d95e26b2b54` (Patch BH0, typecheck PASS):
 1. `src/world/celestial/BlackHoleGravity.ts`:

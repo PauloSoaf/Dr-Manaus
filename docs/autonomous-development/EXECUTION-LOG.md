@@ -53,3 +53,15 @@ Registro cronológico contínuo de decisões, investigações, implementações 
   3. Criação de suíte de testes `tests/black-hole-gravity-bh1.test.ts` com 7 testes cobrindo todas as leis físicas e transições de zona.
 - **Validação Local:** `npm run typecheck` (`tsc --noEmit`) 100% aprovado com 0 erros.
 - **Documentação:** Atualizados `docs/world/15-status.md`, `docs/world/49-status-BH1-BLACK-HOLE-GRAVITY-CAPTURE.md` e tracker operacional.
+
+---
+
+### [2026-11-11T08:46:00-04:00] — Implementação e Entrega do Milestone BH2
+- **Milestone:** `BH2` — Rede Determinística de Trânsito Cósmico e Emergência de Dobra Espacial.
+- **Entregas:**
+  1. Criação de `src/world/travel/BlackHoleTransitNetwork.ts` com ponte canônica Sgr A* <-> M31*, rotas determinísticas por hash, invariante de emergência segura fora do horizonte ($r > r_+$ com velocidade $0.2c$) e máquina de estados em 4 fases.
+  2. Atualização de `src/core/SaveManager.ts` com persistência de `blackHoleTraversals` no `SaveData` e métodos de leitura/incremento.
+  3. Criação de suíte de testes `tests/black-hole-transit-bh2.test.ts` com 7 testes cobrindo todas as rotas, simetria, persistência e invariantes de segurança física.
+- **Conclusão de Família:** Trilogia completa de Buracos Negros (`BH0`, `BH1`, `BH2`) implementada com 22 testes automatizados.
+- **Validação Local:** `npm run typecheck` (`tsc --noEmit`) 100% aprovado com 0 erros.
+- **Documentação:** Atualizados `docs/world/15-status.md`, `docs/world/50-status-BH2-BLACK-HOLE-TRANSIT-NETWORK.md` e tracker operacional.
