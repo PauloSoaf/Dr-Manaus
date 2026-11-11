@@ -1,25 +1,24 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `D4` (Destruição Planetária Parcial, Separação de Calotas e Dispersão de Anéis de Escombros Orbitais Keplerianos)
-- **Status:** IMPLEMENTADO, APROVADO LOCALMENTE (1.671/1.671 testes, 638/638 regressões, typecheck OK, build OK)
+- **Patch:** `D5` (Ruptura Catastrófica de Corpos Menores, Energia de Ligação Gravitacional e Dispersão de Enxame de Asteroides)
+- **Status:** IMPLEMENTADO, APROVADO LOCALMENTE (1.676/1.676 testes, 638/638 regressões, typecheck OK, build OK)
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-11T16:05:00-04:00
+- **Atualizado:** 2026-11-11T16:13:00-04:00
 
 ## Mudanças do Patch
-1. `src/world/destruction/MacroBodyFractureService.ts`:
-   - Serviço autoritativo de destruição macroscópica planetária (`MacroBodyFractureService`).
-   - Cálculo analítico de elementos orbitais Keplerianos (energia orbital específica $\epsilon$, momento angular $\vec{h}$, vetor excentricidade $\vec{e}$, semieixo maior $a$, periapsis $r_p$, apoapsis $r_a$, inclinação $i$).
-   - Classificação física rigorosa de trajetórias: `BOUND_ORBITAL_RING` ($e < 1, r_p \ge R_{\text{parent}}$), `SUB_ORBITAL_REENTRY` ($e < 1, r_p < R_{\text{parent}}$) e `HYPERBOLIC_ESCAPE` ($e \ge 1, \epsilon \ge 0$).
-   - Detachamento de calotas/placas continentais com escavação de cavidade esférica profunda via `SubtractSphereEdit` no `PlanetVolumeEditStore`.
-   - Agregação de anel/nuvem de escombros celestes (`CelestialDebrisRing`) com distribuição de massa em lei de potência $N(r) \propto r^{-2.5}$.
-   - Disparo automático quando integridade da crosta cai abaixo do limiar crítico (`CRITICAL_CRUST_INTEGRITY_THRESHOLD = 0.35`).
-   - Conservação estrita de massa planetária ($M_{\text{rem}} = M_0 - \sum M_{\text{frag}}$) e transição de estado para `'PARTIALLY_FRACTURED'`.
+1. `src/world/destruction/MinorBodyDisruptionService.ts`:
+   - Serviço autoritativo de ruptura catastrófica de corpos menores astronômicos (`MinorBodyDisruptionService`).
+   - Cálculo exato de energia de ligação auto-gravitacional $U = \frac{3}{5}\frac{GM^2}{R}$ e limiar dinâmico de dispersão catastrófica $Q_D^* \cdot M = U + M \cdot q_{\text{strength}}$ ($q_{\text{strength}} = 100\text{ kJ/kg}$).
+   - Classificação estrita de imunidade: corpos maiores ($R > 500\text{ km}$, e.g. Terra, Lua, Marte, gigantes gasosos) são protegidos contra desintegração total, exigindo escavação ou fratura (D2/D3/D4).
+   - Conversão de energia cinética excedente em velocidade de dispersão isotrópica/impulsiva de enxame de escombros ($v_{\text{disp}} = \sqrt{2(E - E_{\text{thresh}})/M}$).
+   - Geração de aglomerado de asteroides (`AsteroidFieldCluster`) com 32 fragmentos em órbitas Keplerianas heliocêntricas determinísticas e distribuição de massa em lei de potência $N(r) \propto r^{-2.8}$.
+   - Transição de estado de ciclo de vida do corpo para `'DISRUPTED'`.
 2. `src/player/powers/PowerSystem.ts`:
-   - Adicionado hook `macroFracture(epicenter, capRadiusM, capDepthM, ejectionSpeedMps)` em `PowerHooks`.
+   - Adicionado hook de poderes `disruptMinorBody(bodyId, energyJoules)` em `PowerHooks`.
 3. `src/game/Game.ts`:
-   - Instanciado `MacroBodyFractureService` acoplado ao `PlanetVolumeEditStore` e `GeomechanicalFractureService`.
-   - Conectado hook `macroFracture` e telemetria de destruição em `universeDebug()`.
-4. `tests/macro-body-fracture-service.test.ts`:
-   - Suíte de 5 testes unitários validando classificação de órbitas de escombros, escavação de cavidade CSG e preservação de relevo esférico externo, gatilho de integridade crítica, conservação estrita de massa e isolamento multicorpo.
+   - Instanciado `MinorBodyDisruptionService` acoplado ao `PlanetVolumeEditStore` e catálogo de corpos do sistema ativo.
+   - Conexão do hook `disruptMinorBody` no `PowerSystem` e métricas de corpos destruídos em `universeDebug()`.
+4. `tests/minor-body-disruption-service.test.ts`:
+   - Suíte de 5 testes unitários validando cálculo de energia de ligação, imunidade garantida de grandes corpos, corte por limiar energético, geração de enxame orbital com conservação de massa e isolamento multicorpo.
 5. `docs/autonomous-development/SPEC-MASTER-TRACKER.md`:
-   - Atualizado status de `DEST-06` (D4) para `IMPLEMENTED` e `DEST-07` (D5) para `NEXT_IN_PIPELINE`.
+   - Atualizado status de `DEST-07` (D5) para `IMPLEMENTED`.

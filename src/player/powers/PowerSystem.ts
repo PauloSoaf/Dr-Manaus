@@ -38,6 +38,8 @@ export interface PowerHooks {
   fractureCrust?: (origin: Vector3, energyJoules: number) => void;
   /** Authoritative macroscopic continental/polar plate detachment and debris ejection (D4). */
   macroFracture?: (epicenter: Vector3, capRadiusM: number, capDepthM: number, ejectionSpeedMps?: number) => void;
+  /** Authoritative catastrophic disruption of minor celestial bodies into asteroid fields (D5). */
+  disruptMinorBody?: (bodyId: string, energyJoules: number) => boolean;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }

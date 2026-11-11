@@ -124,8 +124,8 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `DEST-03` | `23-status-D1.2-HIGH-RES-IMPACT-CORE.md` | D1.2 High-resolution impact core e preservação de integridade de malha | P1 | `CI_VERIFIED` | `baseline` | `tests/rocky-impact-game.test.ts` |
 | `DEST-04` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D2 Escavação profunda e túneis contínuos em relevo volumétrico (`PlanetExcavationService`) | P1 | `CI_VERIFIED` | `7a543e7` | `tests/planet-excavation-service.test.ts` (6/6 pass) |
 | `DEST-05` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D3 Fratura geomecânica em grande escala e propagação de falhas tectônicas (`GeomechanicalFractureService`) | P1 | `CI_VERIFIED` | `c260032` | `tests/geomechanical-fracture-service.test.ts` (5/5 pass) |
-| `DEST-06` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D4 Destruição planetária parcial e ejeção de escombros em órbita (`MacroBodyFractureService`) | P2 | `IMPLEMENTED` | `HEAD` | `tests/macro-body-fracture-service.test.ts` (5/5 pass) |
-| `DEST-07` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D5 Ruptura de corpos menores e dispersão orbital de asteroides | P3 | `NEXT_IN_PIPELINE` | — | Aguardando D4 CI |
+| `DEST-06` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D4 Destruição planetária parcial e ejeção de escombros em órbita (`MacroBodyFractureService`) | P2 | `CI_VERIFIED` | `d22efdd` | `tests/macro-body-fracture-service.test.ts` (5/5 pass) |
+| `DEST-07` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D5 Ruptura de corpos menores e dispersão orbital de asteroides (`MinorBodyDisruptionService`) | P2 | `IMPLEMENTED` | `HEAD` | `tests/minor-body-disruption-service.test.ts` (5/5 pass) |
 
 ---
 

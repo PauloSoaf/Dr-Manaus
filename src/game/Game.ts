@@ -74,6 +74,7 @@ import { RockyImpactDestructionService } from '../world/destruction/RockyImpactD
 import { PlanetExcavationService } from '../world/destruction/PlanetExcavationService';
 import { GeomechanicalFractureService } from '../world/destruction/GeomechanicalFractureService';
 import { MacroBodyFractureService } from '../world/destruction/MacroBodyFractureService';
+import { MinorBodyDisruptionService } from '../world/destruction/MinorBodyDisruptionService';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
 import { IMPACT_VOLUME_LIMITS } from '../world/planet/volume/PlanetVolumeImpactDemand';
@@ -149,6 +150,7 @@ export class Game {
   readonly planetExcavation: PlanetExcavationService;
   readonly geomechanicalFracture: GeomechanicalFractureService;
   readonly macroBodyFracture: MacroBodyFractureService;
+  readonly minorBodyDisruption: MinorBodyDisruptionService;
   readonly volumeRenderer:PlanetVolumeSurfaceRenderer;
   galaxyMaterializer?:GalaxyMaterializer;
   get galaxy():StarSectorProvider|undefined{return this.galaxyMaterializer?.current?.starSectorProvider;}
@@ -485,6 +487,10 @@ export class Game {
         this.universe.volume.requestEditRegion(`${plan.planId}:cap_cavity`);
       },
     });
+    this.minorBodyDisruption = new MinorBodyDisruptionService({
+      edits: this.universe.volume.edits,
+      bodyById: id => this.universe.activeSystem.bodies.find(b => b.id === id),
+    });
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -585,6 +591,10 @@ export class Game {
         if (!body || !body.frameId) return;
         const originBF = this.universe.frames.convertPosition(currentFrame, body.frameId, [epicenter.x, epicenter.y, epicenter.z]);
         this.macroBodyFracture.detachPlate(bodyId, originBF, capRadiusM, capDepthM, ejectionSpeedMps ?? 5000);
+      },
+      disruptMinorBody: (bodyId, energyJoules) => {
+        const plan = this.minorBodyDisruption.disruptMinorBody(bodyId, energyJoules);
+        return plan !== undefined;
       },
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
@@ -2172,6 +2182,7 @@ export class Game {
       ...this.planetExcavation.debugMetrics(),
       ...this.geomechanicalFracture.debugMetrics(),
       ...this.macroBodyFracture.debugMetrics(),
+      ...this.minorBodyDisruption.debugMetrics(),
       'Geo · Lat / Lon':`${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
       'Geo · Altitude':`${t.altitudeM.toFixed(1)} m`,
       'Frame · Ativo':`${t.frame} · corpo ${t.dominantBody}`,

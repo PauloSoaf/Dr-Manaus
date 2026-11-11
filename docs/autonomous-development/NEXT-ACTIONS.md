@@ -9,10 +9,10 @@
 - **D2** — Escavação planetária profunda e túneis volumétricos contínuos (`PlanetExcavationService`).
 - **D3** — Fratura geomecânica da crosta, propagação sísmica de falhas e degradação de integridade (`GeomechanicalFractureService`).
 - **D4** — Destruição planetária parcial, separação de calotas e anéis de escombros Keplerianos (`MacroBodyFractureService`).
+- **D5** — Ruptura catastrófica de corpos menores, energia de ligação gravitacional e dispersão de enxame de asteroides (`MinorBodyDisruptionService`).
 
 ## Sequência Técnica Imediata
-1. **D5 (Ruptura Catastrófica de Corpos Menores e Dispersão de Campo de Asteroides)**:
-   - Implementar `MinorBodyDisruptionService`: fragmentação integral de luas menores e asteroides quando a energia do impacto excede a energia de ligação gravitacional $U = \frac{3 G M^2}{5 R}$.
-   - Substituição do corpo celeste no catálogo ativo por enxame de asteroides em órbita heliocêntrica.
+1. **Auditoria de Integração E2E e Telemetria no HUD**:
+   - Conectar indicadores visuais em tempo real no HUD para status de destruição planetária (`Crust Integrity %`, `Debris Ring Active`, `Minor Body Disrupted`).
 2. **Auditoria Contínua de Performance e Testes E2E no Navegador**:
    - Manter 100% dos testes verdes e zero regressão no CI.
