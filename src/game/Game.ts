@@ -4,6 +4,7 @@ import { BlackHoleTransitController } from '../world/travel/BlackHoleTransitNetw
 import type { BlackHoleDescriptor } from '../world/celestial/BlackHoleDescriptor';
 import { UniversalTeleportService } from '../world/travel/UniversalTeleportService';
 import { HypercruisePresentation } from '../rendering/HypercruisePresentation';
+import { WormholeTunnelPresentation } from '../rendering/WormholeTunnelPresentation';
 import { orientGalaxyVector } from '../world/galaxy/GalaxyCoordinates';
 import { GalaxyMaterializer } from '../world/galaxy/GalaxyMaterializer';
 import { findAndromedaU2Fixture } from '../world/galaxy/AndromedaU2Fixture';
@@ -153,6 +154,7 @@ export class Game {
   readonly interplanetary=new CosmicCruiseController();
   private universalTravelController?:UniversalTravelController;
   private hyperPresentation?:HypercruisePresentation;
+  private wormholePresentation?: WormholeTunnelPresentation;
   private teleportService?: UniversalTeleportService;
   get universalTeleport(): UniversalTeleportService {
     return this.teleportService ??= new UniversalTeleportService({
@@ -851,26 +853,37 @@ export class Game {
     if(manaus){this.terrain.update(this.player.position,this.renderOriginVec);this.forest.update(this.player.position);}
     if(!this.universalTravelController?.active){this.bindSurfacePhysics();this.volumeRenderer.update();this.photosphereGround.update(dt,this.player.position,this.district==='FOTOSFERA'||this.physicsDomain==='sun');}
     const transit=this.universalTravelController?.state;
-    this.planetRoot.visible=!transit;this.celestialVisuals.root.visible=!transit;
-    if(this.galaxyMaterializer?.current)this.galaxyMaterializer.current.root.visible=!transit;
-    this.actorRoot.visible=!transit;
-    if (this.universalTravelController?.active) {
-      this.hyperPresentation?.update(transit, this.rendering.camera, rawDt);
-    } else if (this.flightTelemetry && this.flightTelemetry.speedMps > 10 * 299_792_458) {
-      this.hyperPresentation ??= new HypercruisePresentation(this.celestialRoot);
-      const { forward: camFwd } = cameraFlightAxes(this.rendering.camera);
-      this.hyperPresentation.setDirection([camFwd.x, camFwd.y, camFwd.z]);
-      this.hyperPresentation.update(
-        {
-          kind: 'local-superluminal',
-          effectiveSpeedMps: this.flightTelemetry.speedMps,
-          phase: 'cruise',
-        },
-        this.rendering.camera,
-        rawDt,
-      );
-    } else {
+    const bhTransit = this.blackHoleRuntime?.transit.active
+      ? { phase: this.blackHoleRuntime.transit.phase, progress01: this.blackHoleRuntime.transit.progress01 }
+      : undefined;
+    const inTransit = Boolean(transit || bhTransit);
+    this.planetRoot.visible=!inTransit;this.celestialVisuals.root.visible=!inTransit;
+    if(this.galaxyMaterializer?.current)this.galaxyMaterializer.current.root.visible=!inTransit;
+    this.actorRoot.visible=!inTransit;
+    if (bhTransit) {
+      this.wormholePresentation ??= new WormholeTunnelPresentation(this.celestialRoot);
+      this.wormholePresentation.update(bhTransit, this.rendering.camera, rawDt);
       this.hyperPresentation?.update(undefined, this.rendering.camera, rawDt);
+    } else {
+      this.wormholePresentation?.update(undefined, this.rendering.camera, rawDt);
+      if (this.universalTravelController?.active) {
+        this.hyperPresentation?.update(transit, this.rendering.camera, rawDt);
+      } else if (this.flightTelemetry && this.flightTelemetry.speedMps > 10 * 299_792_458) {
+        this.hyperPresentation ??= new HypercruisePresentation(this.celestialRoot);
+        const { forward: camFwd } = cameraFlightAxes(this.rendering.camera);
+        this.hyperPresentation.setDirection([camFwd.x, camFwd.y, camFwd.z]);
+        this.hyperPresentation.update(
+          {
+            kind: 'local-superluminal',
+            effectiveSpeedMps: this.flightTelemetry.speedMps,
+            phase: 'cruise',
+          },
+          this.rendering.camera,
+          rawDt,
+        );
+      } else {
+        this.hyperPresentation?.update(undefined, this.rendering.camera, rawDt);
+      }
     }
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
