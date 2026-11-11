@@ -364,7 +364,9 @@ test('T_U454_07_PHYSICS_AND_VISUAL_GEOMETRIC_CONSISTENCY', () => {
   const maxRelief = maximumSurfaceReliefM(pPlanet);
   assert.ok(maxRelief > 0, 'Procedural solid planet must report non-zero maximum surface relief');
 
-  // Test across multiple directions on the sphere
+  // Test across multiple normalized unit directions on the sphere
+  const invSqrt2 = Math.SQRT1_2;
+  const invSqrt3 = 1 / Math.sqrt(3);
   const directions: [number, number, number][] = [
     [1, 0, 0],
     [-1, 0, 0],
@@ -372,8 +374,8 @@ test('T_U454_07_PHYSICS_AND_VISUAL_GEOMETRIC_CONSISTENCY', () => {
     [0, -1, 0],
     [0, 0, 1],
     [0, 0, -1],
-    [0.577, 0.577, 0.577],
-    [-0.707, 0.707, 0],
+    [invSqrt3, invSqrt3, invSqrt3],
+    [-invSqrt2, invSqrt2, 0],
   ];
 
   for (const dir of directions) {

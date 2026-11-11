@@ -62,3 +62,4 @@ A tecla `E`, o botão `TRANSLOCAR` do mapa, o formulário de coordenadas e o men
   - **Total**: **62/62 testes aprovados** (100%).
 - `npm run typecheck` (`tsc --noEmit`): **0 erros**.
 - `npm run build` (Vite 8.3.0): **Build de produção aprovado em 1.92s**.
+

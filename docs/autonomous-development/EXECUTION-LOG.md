@@ -110,3 +110,29 @@ Registro cronológico contínuo de decisões, investigações, implementações 
   - `npm run typecheck`: 100% aprovado (0 erros).
   - `npm run build`: Build de produção Vite 8.3.0 concluído com sucesso.
 - **Documentação:** Atualizados `docs/world/15-status.md`, `docs/world/52-status-U6-COSMOLOGICAL-STRUCTURE-OBSERVABLE-HORIZON.md` e tracker operacional.
+
+---
+
+### [2026-11-11T09:48:00-04:00] — Implementação e Entrega do Milestone U7
+- **Milestone:** `U7` — Teleporte Universal Infinito, Interseção Analítica de Superfície e Handoff Seguro de Destino.
+- **Entregas:**
+  1. Criação de `src/world/travel/UniversalTeleportService.ts` com cadeia determinística de resolução em 4 estágios (`LOCAL_AIM_RAYCAST_M = 2500 m`, interseção analítica, mira angular celeste e coordenadas armadas / URI), transição atômica transacional de coordenadas e reciclagem de referenciais dinâmicos (`MAX_DYNAMIC_SURFACE_FRAMES = 32`).
+  2. Implementação de `src/world/spatial/AnalyticalSurfaceIntersection.ts` com interseções analíticas fechadas sem streaming para Terra (WGS84), Lua e Marte.
+  3. Implementação de `src/world/travel/CelestialAngularPicker.ts` para seleção angular pura de corpos celestes via retículo e tamanho angular aparente.
+  4. Suporte a carregamento crítico de ladrilhos via `GlobalStreamingScheduler.prepareDemands()`.
+  5. Integração com `Game.ts`, `PowerSystem.ts` (`KeyE`) e HUD, removendo restrições de distância artificial ($\pm 100\text{ km}$).
+  6. Criação de `tests/universal-teleport-service.test.ts` com 14/14 testes aprovados.
+- **Validação Local:**
+  - `npm run typecheck`: 100% aprovado (0 erros).
+  - `npm run build`: Build de produção Vite 8.3.0 concluído com sucesso.
+- **Documentação:** `docs/world/53-status-U7-INFINITE-TELEPORT-HANDOFF.md`.
+
+---
+
+### [2026-11-11T10:00:00-04:00] — Alinhamento de Vetores Direcionais Unitários em T_U454_07 & Suíte Global 100% Verde
+- **Diagnóstico:** No teste `T_U454_07_PHYSICS_AND_VISUAL_GEOMETRIC_CONSISTENCY`, o vetor geocêntrico `[-0.707, 0.707, 0]` utilizava aproximações com 3 casas decimais (`0.707^2 + 0.707^2 = 0.999698 != 1.0`). Isso gerava uma distorção de escala de ~962 metros contra a métrica analítica do elipsoide equatorial de raio $6.371\text{ km}$, disparando falso positivo na asserção `Math.abs(baseEllipsoidRadius - surface.radiusM) < 1e-4`.
+- **Ação:** Substituídos escalares arredondados por constantes matemáticas de máquina normalizadas `Math.SQRT1_2` e `1 / Math.sqrt(3)`.
+- **Validação Integral:**
+  - `npm test`: **1.637 / 1.637 testes aprovados (100% pass, 0 fail)**.
+  - `npm run typecheck`: 100% aprovado (0 erros).
+  - `npm run build`: Vite v8.3.0 concluído em 1.82s.

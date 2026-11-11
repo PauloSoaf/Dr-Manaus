@@ -76,3 +76,4 @@ export function pickCelestialBodyFromRay(
 
   return best;
 }
+

@@ -209,3 +209,4 @@ export function intersectMarsSurface(
   const semiAxes: Vec3 = [MARS_RADIUS_EQUATORIAL_M, MARS_RADIUS_EQUATORIAL_M, MARS_RADIUS_POLAR_M];
   return intersectEllipsoidRay(marsFixedOrigin, marsFixedDirection, semiAxes, minDistanceM);
 }
+
