@@ -1,6 +1,31 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — Otimização de Escala do Atlas Cósmico e Anel de Fótons Relativístico (2026-11-11)
+## Current checkpoint — Polimento Atmosférico e Transição Terrestre-Orbital (2026-11-11)
+
+Implementado com base no baseline auditado e 100% aprovado no CI:
+1. Resolução da `ISSUE-04` (Polimento da Transição Atmosférica Manaus/Terrestre-Orbital):
+   - `src/rendering/Atmosphere.ts`:
+     - Implementado multiplicador dinâmico `orbitLift` condicionado a `planetaryView` e `spaceBlend`, elevando os planos de neblina (`fog.near` e `fog.far`) para além de 20.000 km na órbita, eliminando o truncamento estético do globo terrestre em altitudes intermediárias (50 km a 200 km).
+   - `src/world/planet/EarthGlobe.ts`:
+     - Casca atmosférica volumétrica WGS84 suave via curva Hermite cúbica (`uAtmosphereOpacity`) entre 15.000 m (início da posse planetária) e 50.000 m (estratosfera/mesosfera), eliminando estalo visual de ativação repentina.
+   - `tests/terrestrial-orbital-transition-issue04.test.ts`: 2 testes unitários garantindo o alívio e retração do nevoeiro e a curva de opacidade contínua da casca atmosférica.
+2. Resolução da `ISSUE-02` (Otimização de Escala e Caching do Atlas Cósmico):
+   - `src/world/exploration/CosmicAtlasModel.ts`:
+     - Cache de `targetMap` consolidado com invalidação reativa em mutações (`cachedTargetMap`).
+     - Cache persistente de metadados procedurais (`bodyMetadataCache`), prevenindo a regeneração sintética de perfis de corpos em consultas repetidas.
+     - Avaliação em passagem única $O(N)$ em `query()` unificando o cálculo de estatísticas e a filtragem de destinos, cortando pela metade as chamadas ao `resolver.resolve` e navegação.
+     - Otimização de busca textual com avaliação por curto-circuito e precomputação de normalização NFD.
+   - `tests/atlas-scale-opt-issue02.test.ts`: 3 testes unitários dedicados a reuso de mapa, invalidação e paridade matemática de estatísticas.
+3. Resolução da `ISSUE-01` (Anel de Fótons Relativístico para Buracos Negros):
+   - `src/world/providers/BlackHoleProvider.ts`:
+     - Implementado anel de fótons relativístico com geometria anular orientada continuamente para o observador (`photonRing.lookAt(cameraPosM)`), contornando a fronteira de sombra de Kerr/Schwarzschild.
+     - Cobertura expandida em `tests/black-hole-astrophysics-bh0.test.ts`.
+4. Cobertura Global de Testes:
+   - 1.642 / 1.642 testes gerais aprovados (100% green).
+   - 638 / 638 testes de regressão permanente aprovados (100% green).
+   - TypeScript `tsc --noEmit` 0 erros e build de produção Vite concluído em < 2s.
+
+## Previous checkpoint — Otimização de Escala do Atlas Cósmico e Anel de Fótons Relativístico (2026-11-11)
 
 Implementado com base no baseline auditado e 100% aprovado no CI:
 1. Resolução da `ISSUE-02` (Otimização de Escala e Caching do Atlas Cósmico):

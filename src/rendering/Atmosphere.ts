@@ -123,10 +123,11 @@ export class Atmosphere {
     // Thin air means the horizon stops being a wall, so the city survives being looked at from orbit.
     const climb = Math.min(1, Math.max(0, (this.altitude - 900) / 25100));
     const lift = 1 + climb * climb * (3 - 2 * climb) * 14;
+    const orbitLift = this.planetaryView ? 1 + this.spaceBlend * 50 : 1;
     const fog = this.scene.fog as Fog;
     this.transition.copy(this.horizon.value).multiplyScalar(1 - this.spaceBlend * .85);
     fog.color.lerp(this.transition, blend);
-    fog.near += ((rain ? 300 : 2800) * lift - fog.near) * blend;
-    fog.far += ((rain ? 6500 : 27000) * lift - fog.far) * blend;
+    fog.near += ((rain ? 300 : 2800) * lift * orbitLift - fog.near) * blend;
+    fog.far += ((rain ? 6500 : 27000) * lift * orbitLift - fog.far) * blend;
   }
 }

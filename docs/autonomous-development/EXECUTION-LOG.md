@@ -4,6 +4,22 @@ Registro cronológico contínuo de decisões, investigações, implementações 
 
 ---
 
+### [2026-11-11T10:56:00-04:00] — Polimento da Transição Atmosférica Terrestre-Orbital e Resolução da ISSUE-04
+- **Milestone:** Polimento da Transição Manaus/Terrestre-Orbital (`ISSUE-04` de `docs/autonomous-development/KNOWN-ISSUES.md`).
+- **Problema Abordado:** Na subida do modelo WGS84 ECEF de Manaus para altitudes orbitais (50 km a 200 km), o nevoeiro atmosférico local da cena permanecia limitado a um alcance máximo de ~405 km, criando risco de corte estético do globo terrestre da órbita. Além disso, a casca atmosférica volumétrica WGS84 do `EarthGlobe` sofria ativação abrupta ao ultrapassar 20 km de altitude.
+- **Entregas:**
+  1. **Expansão Dinâmica do Nevoeiro Orbital (`Atmosphere.ts`):** Introduzido o multiplicador `orbitLift` condicionado a `planetaryView` e `spaceBlend`, permitindo que os planos de neblina (`fog.near` e `fog.far`) se estendam progressivamente para além de 20.000 km em órbitas espaciais, mantendo simultaneamente os valores canônicos ao nível do solo em Manaus.
+  2. **Gradiente de Desvanecimento Hermite Cúbico da Casca Atmosférica (`EarthGlobe.ts`):** Substituído o interruptor binário por `uAtmosphereOpacity` com transição suave entre 15.000 m (início do domínio planetário) e 50.000 m (estratosfera/mesosfera), eliminando estalos visuais de pop-in na camada de gás azul Rayleigh.
+  3. **Suíte de Testes Automatizada:** Criado `tests/terrestrial-orbital-transition-issue04.test.ts` com 2 testes unitários cobrindo o alívio e retração do nevoeiro e a curva estrita de opacidade da casca atmosférica.
+- **Validação:**
+  - `npm test`: **1.642 / 1.642 aprovados (100% verde)**.
+  - `npm run test:regression`: **638 / 638 aprovados (100% verde)**.
+  - `npm run typecheck`: **0 erros**.
+  - `npm run build`: Build de produção Vite concluído com sucesso em 1.97s.
+- **Status:** `ISSUE-04` promovida para `CONCLUIDO` em `KNOWN-ISSUES.md`.
+
+---
+
 ### [2026-11-11T10:48:00-04:00] — Otimização de Escala do Atlas Cósmico e Resolução da ISSUE-02
 - **Milestone:** Otimização de Escala do Atlas Cósmico (`ISSUE-02` de `docs/autonomous-development/KNOWN-ISSUES.md`).
 - **Problema Abordado:** Em visualizações do Atlas Cósmico com grande volume de alvos identificados, consultas repetidas incorriam em recriação síncrona de `targetMap`, reavaliação de descritores procedurais de corpos (`proceduralDescriptor`) para cada corpo de cada sistema, e execução dupla de rotinas de roteamento/orientação de viagem (`resolver.resolve`) em loops separados para estatísticas e filtragem.

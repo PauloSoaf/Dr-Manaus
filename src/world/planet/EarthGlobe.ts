@@ -248,6 +248,7 @@ export class EarthGlobe {
    */
   private readonly uSun = uniform(new Vector3(0, 1, 0));
   private readonly uSurfaceOpacity = uniform(1);
+  private readonly uAtmosphereOpacity = uniform(0);
   private triangles = 0;
   private fallbackTriangles = 0;
   private altitudeM = 0;
@@ -331,7 +332,10 @@ export class EarthGlobe {
     }
     this.atmosphereMesh.position.set(0, 0, 0);
     this.atmosphereMesh.quaternion.identity();
-    this.atmosphereMesh.visible = this.surfaceGroup.visible && altitudeM >= 20_000;
+    const atmoClimb = Math.max(0, Math.min(1, (altitudeM - 15_000) / 35_000));
+    const atmoFade = atmoClimb * atmoClimb * (3 - 2 * atmoClimb);
+    this.uAtmosphereOpacity.value = atmoFade;
+    this.atmosphereMesh.visible = this.surfaceGroup.visible && atmoFade > 0.001;
     this.fallbackGroup.position.set(0, 0, 0);
     this.fallbackGroup.quaternion.identity();
   }
@@ -425,7 +429,7 @@ export class EarthGlobe {
     const density = smoothstep(float(0.65), float(1.0), grazing);
     
     material.colorNode = ATMOSPHERE;
-    material.opacityNode = density.pow(2.5).mul(daylight).mul(ATMOSPHERE_SHELL_GAIN);
+    material.opacityNode = density.pow(2.5).mul(daylight).mul(this.uAtmosphereOpacity).mul(ATMOSPHERE_SHELL_GAIN);
     return material;
   }
 
@@ -457,7 +461,7 @@ export class EarthGlobe {
 
   set visible(visible: boolean) {
     this.surfaceGroup.visible = visible;
-    this.atmosphereMesh.visible = visible && this.altitudeM >= 20_000;
+    this.atmosphereMesh.visible = visible && this.uAtmosphereOpacity.value > 0.001;
     this.riverRenderer.visible = visible;
   }
   get visible(): boolean { return this.surfaceGroup.visible; }
