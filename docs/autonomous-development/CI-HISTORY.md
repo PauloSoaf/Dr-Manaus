@@ -22,3 +22,5 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 | `43043685486` | `57d058c` | ISSUE-04 Earth Trans | 1.642 / 1.642 | 638 / 638 | APROVADO | Validação de Pull Request #4 aprovada integralmente |
 
 
+
+- 7dc0f57 (BH1.1/BH2.1): push run 43055389258 SUCCESS; pull_request run 43055399191 FAILURE at 'Unit tests' (log unavailable without auth). Local: 1648/1648 x3, regression 638/638. Tree identical to HEAD (main is a stale ancestor, merge clean) -> investigating flake. 2026-11-11T12:16:00-04:00
