@@ -38,3 +38,4 @@ O patch desacopla formalmente o modelo de dados de astrofísica do runtime de ap
   - Vite v8.3.0: **Compilação aprovada em 2.42s** (274 módulos transformados, zero avisos bloqueantes).
 - **Servidor de Desenvolvimento**:
   - Porta `9999` ativa e respondendo (`TcpTestSucceeded: True`).
+
