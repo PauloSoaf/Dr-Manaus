@@ -530,3 +530,4 @@ export class CosmicAnomaliesAndRuinsManager {
     this.root.removeFromParent();
   }
 }
+

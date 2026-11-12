@@ -21,3 +21,4 @@ Em planetas onde a biosfera atinge `civilizationStage === 'ancient-ruins-guardia
 ## 4. Tipos e Fases de Colossos (`ColossusType`)
 1. `ancient-automaton`: Titã bípede colossal de 20 metros de envergadura, massa colossal e alta resistência mecânica ($1.200\text{ HP}$).
 2. `void-sentinel`: Guardião levitante com escudo de fragmentos orbitais ($800\text{ HP}$).
+

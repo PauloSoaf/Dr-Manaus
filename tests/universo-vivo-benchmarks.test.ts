@@ -226,3 +226,4 @@ describe('Universo Vivo Benchmarks & Polish (VIVO-16)', () => {
     assert.strictEqual(root.children.length, 0, 'Disposal must cleanly unparent all meshes');
   });
 });
+

@@ -103,3 +103,4 @@ export class PlanetaryHazardRenderer {
     this.root.removeFromParent();
   }
 }
+

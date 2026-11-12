@@ -300,3 +300,4 @@ describe('PlanetaryHazardsAndSky (VIVO-11)', () => {
     assert.ok(!parent.children.includes(renderer.root));
   });
 });
+

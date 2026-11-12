@@ -36,3 +36,4 @@ Ampliação dos meios suportados por `AudioEnvironment.medium`:
 - `'alien-toxic'`: Ambientes turbulentos ricos em amônia e metano; silvos dissonantes.
 - `'cryogenic-winds'`: Ventos subsônicos gelados com ressonância uivante.
 - `'airless-surface'` / `'vacuum'`: Silêncio atmosférico rigoroso ($0.0$ ganho).
+

@@ -178,3 +178,4 @@ describe('CosmicAnomaliesAndRuinsManager (VIVO-15)', () => {
     manager.dispose();
   });
 });
+
