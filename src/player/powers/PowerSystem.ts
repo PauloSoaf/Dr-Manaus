@@ -40,6 +40,12 @@ export interface PowerHooks {
   macroFracture?: (epicenter: Vector3, capRadiusM: number, capDepthM: number, ejectionSpeedMps?: number) => void;
   /** Authoritative catastrophic disruption of minor celestial bodies into asteroid fields (D5). */
   disruptMinorBody?: (bodyId: string, energyJoules: number) => boolean;
+  /** Authoritative catastrophic planetary rupture carving orthogonal fissure caps and debris ring (VIVO-12). */
+  planetRupture?: (bodyId: string, energyJoules: number) => boolean | Promise<boolean>;
+  /** Restores a fractured or ruptured body (VIVO-14). */
+  restoreBody?: (bodyId: string) => boolean;
+  /** Returns the active dominant celestial body id (e.g. 'earth', 'mars', 'moon', procedural body). */
+  getActiveBodyId?: () => string | null;
 }
 
 interface Clone { character: CharacterModel; life: number; attackTimer: number; angle: number }
@@ -59,7 +65,9 @@ export class PowerSystem {
   temporal = false;
   selected = 'energy';
   teleporting = false;
-  readonly cooldowns: Record<string, number> = { punch: 0, kick: 0, energy: 0, laser:0, teleport: 0, shockwave: 0, reconstruct: 0, giant: 0, clone: 0, temporal: 0 };
+  readonly cooldowns: Record<string, number> = { punch: 0, kick: 0, energy: 0, laser:0, teleport: 0, shockwave: 0, reconstruct: 0, giant: 0, clone: 0, temporal: 0, planetRupture: 0 };
+  planetRuptureCharge = 0;
+  private readonly maxPlanetRuptureCharge = 2.5;
   readonly destination = new Vector3();
   private readonly effects: EffectPool;
   private readonly indicator: Mesh;
@@ -101,7 +109,7 @@ export class PowerSystem {
     this.time += realDt;
     if (this.meleePending) this.sampleStrikeBone(false);
     for (const name of Object.keys(this.cooldowns)) this.cooldowns[name] = Math.max(0, this.cooldowns[name] - realDt);
-    const keys: [string, string][] = [['KeyL','laser'],['Digit1', 'energy'], ['KeyE', 'teleport'], ['KeyQ', 'shockwave'], ['KeyR', 'reconstruct'], ['KeyG', 'giant'], ['KeyC', 'clone'], ['KeyT', 'temporal']];
+    const keys: [string, string][] = [['KeyL','laser'],['Digit1', 'energy'], ['KeyE', 'teleport'], ['KeyQ', 'shockwave'], ['KeyR', 'reconstruct'], ['KeyG', 'giant'], ['KeyC', 'clone'], ['KeyT', 'temporal'], ['Digit9', 'planetRupture']];
     for (const [key, name] of keys) if (this.input.consume(key)) this.use(name);
     if (this.input.consume('KeyX')) {
       this.combatMode = this.combatMode === 'ranged' ? 'melee' : 'ranged';
@@ -113,7 +121,22 @@ export class PowerSystem {
       this.meleePending.time -= realDt;
       if (this.meleePending.time <= 0) { this.meleeHit(this.meleePending.kind); this.meleePending = null; }
     }
-    if (this.input.held('Mouse0') && !this.teleporting) this.use(this.combatMode === 'melee' ? 'punch' : 'energy');
+    if (this.input.held('Mouse0') && !this.teleporting) this.use(this.combatMode === 'melee' ? 'punch' : (this.selected === 'planetRupture' ? 'planetRupture' : 'energy'));
+    if ((this.selected === 'planetRupture' && this.input.held('Mouse0')) || this.input.held('Digit9')) {
+      if (this.cooldowns.planetRupture <= 0) {
+        this.planetRuptureCharge += realDt;
+        const progress = Math.min(1, this.planetRuptureCharge / this.maxPlanetRuptureCharge);
+        if (typeof window !== 'undefined' && Math.random() < 0.25) {
+          window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: progress * 1.5 }));
+        }
+        if (this.planetRuptureCharge >= this.maxPlanetRuptureCharge) {
+          this.planetRuptureCharge = 0;
+          this.planetRupture();
+        }
+      }
+    } else {
+      this.planetRuptureCharge = 0;
+    }
     if (this.combatMode === 'melee' && this.input.held('Mouse2')) this.use('kick');
     if (this.temporal) {
       this.temporalTime -= realDt;
@@ -224,6 +247,7 @@ export class PowerSystem {
       case 'giant': this.giant(); break;
       case 'clone': this.clone(); break;
       case 'temporal': this.toggleTemporal(); break;
+      case 'planetRupture': this.planetRupture(); break;
     }
   }
 
@@ -533,7 +557,41 @@ export class PowerSystem {
     this.effects.wave(this.player.position, radius, 0xeac780, 1.5);
     this.effects.burst(this.player.position, 0xffd699, this.player.size * 1.5, 44);
     this.hooks.sound('reconstruct');
-    this.hooks.notify(count > 0 ? `${count} ${count === 1 ? 'objeto reconstruído' : 'objetos reconstruídos'}.` : 'Reconstrução · nenhuma matéria destruída ao alcance.');
+    const activeBodyId = this.hooks.getActiveBodyId?.();
+    let bodyRestored = false;
+    if (activeBodyId && this.hooks.restoreBody?.(activeBodyId)) {
+      bodyRestored = true;
+    }
+    if (bodyRestored) {
+      this.hooks.notify(`Reconstrução cósmica · corpo celeste [${activeBodyId}] restaurado.`);
+    } else {
+      this.hooks.notify(count > 0 ? `${count} ${count === 1 ? 'objeto reconstruído' : 'objetos reconstruídos'}.` : 'Reconstrução · nenhuma matéria destruída ao alcance.');
+    }
+  }
+
+  planetRupture(): void {
+    this.cooldowns.planetRupture = 5.0;
+    const activeBodyId = this.hooks.getActiveBodyId?.();
+    if (!activeBodyId) {
+      this.hooks.notify('Ruptura planetária · nenhum corpo celeste detectado no referencial ativo.');
+      return;
+    }
+
+    this.player.powerPose('energy', 2.0);
+    this.effects.wave(this.player.position, 250 * Math.sqrt(this.player.size), 0xff3300, 2.0);
+    this.effects.burst(this.player.position, 0xffaa00, Math.min(80, 20 * this.player.size), 64);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: 3.5 }));
+    }
+    this.hooks.sound('shockwave');
+
+    const energyJoules = 1e28;
+    const res = this.hooks.planetRupture?.(activeBodyId, energyJoules);
+    if (res) {
+      this.hooks.notify(`Ruptura planetária catastrófica executada em [${activeBodyId}].`);
+    } else {
+      this.hooks.notify(`Ruptura planetária falhou · [${activeBodyId}] não suporta fissura global.`);
+    }
   }
 
   private giant(): void {

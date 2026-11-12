@@ -23,6 +23,7 @@ export interface SaveData {
   discoveredTargets?: string[];
   discoveredSpecies?: string[];
   blackHoleTraversals?: Record<string, number>;
+  rupturedBodies?: string[];
 }
 const defaults = (): SaveData => ({
   version: 1,
@@ -183,6 +184,24 @@ export class SaveManager {
     this.data.discoveredSpecies.push(speciesId);
     this.save();
     return true;
+  }
+  isBodyRuptured(bodyId: string): boolean {
+    return this.data.rupturedBodies?.includes(bodyId) ?? false;
+  }
+  recordBodyRupture(bodyId: string): void {
+    if (!this.data.rupturedBodies) this.data.rupturedBodies = [];
+    if (!this.data.rupturedBodies.includes(bodyId)) {
+      this.data.rupturedBodies.push(bodyId);
+      this.save();
+    }
+  }
+  recordBodyRestoration(bodyId: string): void {
+    if (!this.data.rupturedBodies) return;
+    const index = this.data.rupturedBodies.indexOf(bodyId);
+    if (index >= 0) {
+      this.data.rupturedBodies.splice(index, 1);
+      this.save();
+    }
   }
   reset() { this.data = defaults(); this.save(); }
 }

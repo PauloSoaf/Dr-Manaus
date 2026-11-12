@@ -53,7 +53,7 @@ export interface MacroBodyFracturePlan {
   readonly detachedMassKg: number;
   readonly remainingMassKg: number;
   readonly debrisRing: CelestialDebrisRing;
-  readonly state: 'PARTIALLY_FRACTURED';
+  readonly state: 'PARTIALLY_FRACTURED' | 'RUPTURED';
 }
 
 export interface MacroBodyFractureServiceOptions {
@@ -400,6 +400,76 @@ export class MacroBodyFractureService {
     this.plans.set(bodyId, plan);
     this.options.onFractureCreated?.(plan);
     return plan;
+  }
+
+  /**
+   * Catastrophically ruptures a major planetary body, carving multiple orthogonal
+   * fissure caps into the core and dispersing a dense Keplerian debris ring.
+   */
+  rupturePlanet(bodyId: string, energyJoules: number): MacroBodyFracturePlan | undefined {
+    const surface = this.options.surfaceForBody(bodyId);
+    const body = this.options.bodyById(bodyId);
+    if (!surface || !body) return undefined;
+
+    const r0 = planetSurfaceRadius(surface, [1, 0, 0]);
+    const capRadiusM = r0 * 0.45;
+    const capDepthM = r0 * 0.25;
+    const ejectionSpeedMps = 7500;
+
+    const plan = this.detachPlate(bodyId, [r0, 0, 0], capRadiusM, capDepthM, ejectionSpeedMps);
+    if (!plan) return undefined;
+
+    const antipodalAxes: readonly BodyFixedPoint[] = [
+      [-r0, 0, 0],
+      [0, r0, 0],
+      [0, -r0, 0],
+      [0, 0, r0],
+      [0, 0, -r0],
+    ];
+
+    for (let i = 0; i < antipodalAxes.length; i++) {
+      const axis = antipodalAxes[i];
+      const editId = `${bodyId}:rupture_cap_${i}:${Date.now()}`;
+      this.options.edits.subtractSphere({
+        id: editId,
+        bodyId,
+        centerBodyFixedM: axis,
+        radiusM: capRadiusM,
+      });
+    }
+
+    const rupturedPlan: MacroBodyFracturePlan = {
+      ...plan,
+      state: 'RUPTURED',
+    };
+    this.plans.set(bodyId, rupturedPlan);
+    return rupturedPlan;
+  }
+
+  /**
+   * Restores a fractured or ruptured planet, removing its subtractive CSG edits.
+   */
+  restorePlanet(bodyId: string): boolean {
+    const hadPlan = this.plans.delete(bodyId);
+    this.remainingMasses.delete(bodyId);
+
+    const edits = this.options.edits.editsForBody(bodyId);
+    let removedAny = false;
+    for (const edit of edits) {
+      if (edit.id.includes('macro-fracture') || edit.id.includes('rupture_cap') || edit.id.includes('cap_cavity')) {
+        this.options.edits.remove(edit.id);
+        removedAny = true;
+      }
+    }
+    return hadPlan || removedAny;
+  }
+
+  isBodyFracturedOrRuptured(bodyId: string): boolean {
+    return this.plans.has(bodyId);
+  }
+
+  getPlan(bodyId: string): MacroBodyFracturePlan | undefined {
+    return this.plans.get(bodyId);
   }
 
   debugMetrics(): Record<string, string | number> {

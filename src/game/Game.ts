@@ -633,6 +633,29 @@ export class Game {
         const plan = this.minorBodyDisruption.disruptMinorBody(bodyId, energyJoules);
         return plan !== undefined;
       },
+      planetRupture: (bodyId, energyJoules) => {
+        const minor = this.minorBodyDisruption.isBodyDisrupted(bodyId) || this.minorBodyDisruption.disruptMinorBody(bodyId, energyJoules);
+        if (minor) {
+          this.save.recordBodyRupture(bodyId);
+          return true;
+        }
+        const plan = this.macroBodyFracture.rupturePlanet(bodyId, energyJoules);
+        if (plan) {
+          this.save.recordBodyRupture(bodyId);
+          return true;
+        }
+        return false;
+      },
+      restoreBody: (bodyId) => {
+        const pRestored = this.macroBodyFracture.restorePlanet(bodyId);
+        const mRestored = this.minorBodyDisruption.restoreBody(bodyId);
+        if (pRestored || mRestored) {
+          this.save.recordBodyRestoration(bodyId);
+          return true;
+        }
+        return false;
+      },
+      getActiveBodyId: () => this.universe.telemetry.dominantBody ?? null,
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
     this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:(id,source)=>this.selectNavigationTarget(id,source),settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress(),atlas:this.cosmicAtlas});
@@ -671,6 +694,13 @@ export class Game {
     this.hlod.update(this.player.position,this.streamer.activeKeys);
     // The compact offline geographic payload is optional metadata; gameplay makes no map-service calls.
     void this.assets.json('/geodata/manaus.json').catch(()=>undefined);
+    if (this.save.data.rupturedBodies?.length) {
+      for (const bodyId of this.save.data.rupturedBodies) {
+        if (!this.macroBodyFracture.rupturePlanet(bodyId, 1e28)) {
+          this.minorBodyDisruption.disruptMinorBody(bodyId, 1e25);
+        }
+      }
+    }
     this.ready=true;this.hud.ready();this.lastTime=performance.now();
     this.rendering.renderer.setAnimationLoop(this.tick);
   }
@@ -2216,6 +2246,7 @@ export class Game {
       'ACTIVE SYSTEM · Boundary':Math.hypot(...this.universe.playerSystemPositionM())>systemDomainLimitM(this.universe.activeSystem)?'INTERSTELLAR HYPERCRUISE REQUIRED':'intra-system',
       'UNIVERSO VIVO · Espécies': this.save.data.discoveredSpecies?.length ?? 0,
       'UNIVERSO VIVO · Fauna': this.alienFauna.targets.length,
+      'UNIVERSO VIVO · Corpos Rupturados': this.save.data.rupturedBodies?.length ?? 0,
       ...this.solarDebug(),
       'EARTH MAP · 3D Canvas / Visible / Dim': `${this.hud.isMapOpen ? 'aberto' : 'fechado'} / ${this.hud.universalMapLevel === 'planet' ? '3D ativo' : '2D universal'} / 800x600`,
       'EARTH MAP · Rotation yaw / pitch / zoom': `${(this.hud.mapRenderer3D?.yaw ?? 1.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.pitch ?? 0.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.zoomLevel ?? 1.0).toFixed(1)}x`,

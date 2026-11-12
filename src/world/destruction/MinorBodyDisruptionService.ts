@@ -230,6 +230,18 @@ export class MinorBodyDisruptionService {
     return plan;
   }
 
+  /**
+   * Restores a disrupted minor celestial body, clearing its asteroid debris field.
+   */
+  restoreBody(bodyId: string): boolean {
+    const hadPlan = this.disruptedPlans.delete(bodyId);
+    return hadPlan;
+  }
+
+  getPlan(bodyId: string): DisruptedMinorBodyPlan | undefined {
+    return this.disruptedPlans.get(bodyId);
+  }
+
   debugMetrics(): Record<string, string | number> {
     return {
       'MINOR-DISRUPTION · Disrupted bodies': this.disruptedPlans.size,
