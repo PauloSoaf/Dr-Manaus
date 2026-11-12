@@ -77,6 +77,7 @@ import { MacroBodyFractureService } from '../world/destruction/MacroBodyFracture
 import { MinorBodyDisruptionService } from '../world/destruction/MinorBodyDisruptionService';
 import { AlienFloraRenderer } from '../world/life/AlienFloraRenderer';
 import { AlienFaunaManager } from '../world/life/AlienFaunaManager';
+import { AlienSettlementManager } from '../world/life/AlienSettlementManager';
 import { CosmicSpeciesScanner } from '../world/life/CosmicSpeciesScanner';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
@@ -157,6 +158,7 @@ export class Game {
   readonly volumeRenderer:PlanetVolumeSurfaceRenderer;
   readonly alienFlora: AlienFloraRenderer;
   readonly alienFauna: AlienFaunaManager;
+  readonly alienSettlements: AlienSettlementManager;
   readonly speciesScanner: CosmicSpeciesScanner;
   galaxyMaterializer?:GalaxyMaterializer;
   get galaxy():StarSectorProvider|undefined{return this.galaxyMaterializer?.current?.starSectorProvider;}
@@ -501,6 +503,8 @@ export class Game {
     this.worldRoot.add(this.alienFlora.root);
     this.alienFauna = new AlienFaunaManager();
     this.worldRoot.add(this.alienFauna.root);
+    this.alienSettlements = new AlienSettlementManager(this.save);
+    this.worldRoot.add(this.alienSettlements.root);
     this.speciesScanner = new CosmicSpeciesScanner(this.save);
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
@@ -537,22 +541,24 @@ export class Game {
       canDeformSurface:()=>this.manausSimulationActive || (this.travelDomain.localPhysicsActive && !!this.universe.telemetry.dominantBody),
       targets:()=>{
         const localTargets = this.manausSimulationActive ? [...this.population.targets, ...this.missions.targets] : [];
-        return [...localTargets, ...this.alienFauna.targets];
+        return [...localTargets, ...this.alienFauna.targets, ...this.alienSettlements.targets];
       },
       hit:(id,force)=>{
         if(this.manausSimulationActive && (this.missions.hit(id,force) || this.population.hit(id,force))) return;
+        if(this.alienSettlements.hit(id, force)) return;
         this.alienFauna.hit(id, force);
       },
       reconstruct:(position,radius)=>{
         const faunaRestored = this.alienFauna.reconstruct(position, radius);
         const floraRestored = this.alienFlora.reconstruct(position, radius);
-        if(!this.manausSimulationActive)return faunaRestored + floraRestored;
+        const settlementRestored = this.alienSettlements.reconstruct(position, radius);
+        if(!this.manausSimulationActive)return faunaRestored + floraRestored + settlementRestored;
         this.destruction.restoreAt(position,radius);
         let flat = position;
         if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
           flat = this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z);
         }
-        return faunaRestored + floraRestored + this.population.reconstruct(flat,radius)+this.realCity.restore(flat,radius)+this.streamer.restore(flat,radius)+this.landmarks.restore(flat,radius)+this.largo.restore(flat,radius)+this.airport.restore(flat,radius)+this.terrain.restoreAt(flat,radius);
+        return faunaRestored + floraRestored + settlementRestored + this.population.reconstruct(flat,radius)+this.realCity.restore(flat,radius)+this.streamer.restore(flat,radius)+this.landmarks.restore(flat,radius)+this.largo.restore(flat,radius)+this.airport.restore(flat,radius)+this.terrain.restoreAt(flat,radius);
       },
       impulse:(position,radius,force)=>{
         if(!this.manausSimulationActive)return;
@@ -570,6 +576,7 @@ export class Game {
         }
         count += this.alienFlora.destroyInRadius(point, radius);
         count += this.alienFauna.damageInRadius(point, radius, amount, 25);
+        count += this.alienSettlements.damageInRadius(point, radius, amount);
         if (!this.manausSimulationActive && (deform || amount >= 5000)) {
           const bodyId = this.universe.telemetry.dominantBody;
           const body = this.universe.activeSystem?.bodies.find(b => b.id === bodyId);
@@ -1009,6 +1016,7 @@ export class Game {
       const activeBiosphere = activeBody ? bodyProfile(activeBody).environment?.biosphere : undefined;
       this.alienFlora.update(this.player.position, activeSurface, activeBiosphere);
       this.alienFauna.update(dt, this.player.position, activeSurface, activeBiosphere);
+      this.alienSettlements.update(dt, this.player.position, activeSurface, activeBiosphere);
     }
     const transit=this.universalTravelController?.state;
     const bhTransit = this.blackHoleRuntime?.transit.active
@@ -1166,6 +1174,7 @@ export class Game {
     }
     affected += this.alienFlora.destroyInRadius(point, footprint.craterRadiusM * 1.5);
     affected += this.alienFauna.damageInRadius(point, footprint.impulseRadiusM, footprint.damage, footprint.impulse);
+    affected += this.alienSettlements.damageInRadius(point, footprint.impulseRadiusM, footprint.damage);
     return affected;
   }
   /** Register newly built surfaces once, including streamed roads and plaza LOD changes. */
@@ -2247,6 +2256,7 @@ export class Game {
       'UNIVERSO VIVO · Espécies': this.save.data.discoveredSpecies?.length ?? 0,
       'UNIVERSO VIVO · Fauna': this.alienFauna.targets.length,
       'UNIVERSO VIVO · Corpos Rupturados': this.save.data.rupturedBodies?.length ?? 0,
+      'UNIVERSO VIVO · Assentamentos': this.alienSettlements.activeSettlements.length,
       ...this.solarDebug(),
       'EARTH MAP · 3D Canvas / Visible / Dim': `${this.hud.isMapOpen ? 'aberto' : 'fechado'} / ${this.hud.universalMapLevel === 'planet' ? '3D ativo' : '2D universal'} / 800x600`,
       'EARTH MAP · Rotation yaw / pitch / zoom': `${(this.hud.mapRenderer3D?.yaw ?? 1.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.pitch ?? 0.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.zoomLevel ?? 1.0).toFixed(1)}x`,

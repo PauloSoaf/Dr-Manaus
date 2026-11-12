@@ -1,20 +1,27 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `VIVO-07` (IA Ecológica Avançada: Predação, Manadas Flocking, Pirâmide Trófica e Alarme Coletivo)
-- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.721/1.721 testes unitários, 638/638 regressões, typecheck 0 erros, build OK)
+- **Patch:** `VIVO-08 / VIVO-09` (Assentamentos Alienígenas Modulares, Cúpulas, Torres, Habitantes e Reputação de Facções)
+- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.727/1.727 testes unitários, 638/638 regressões, typecheck 0 erros, build OK)
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-12T12:50:00-04:00
+- **Atualizado:** 2026-11-12T13:00:00-04:00
 
 ## Mudanças do Patch
-1. `src/world/life/AlienFaunaManager.ts`:
-   - Adicionado tipo `EcologicalRole = 'herbivore' | 'carnivore' | 'scavenger' | 'apex'`.
-   - Implementada distribuição trófica determinística em mundos complexos ($\sim 75\%$ herbívoros, $\sim 25\%$ predadores/apex).
-   - Implementado ciclo de predação autônomo: predadores escaneiam presas herbívoras ($< 35\text{ m}$), perseguem em alta velocidade ($1.5\times$), desferem mordidas em raio de combate ($< 2.8\text{ m}$) e entram em repouso após se alimentarem.
-   - Implementada dinâmica de manadas (flocking tangencial) com repulsão $< 3.5\text{ m}$ para evitar sobreposição e coesão de direção ao centro de massa do grupo.
-   - Implementado sistema de alarme coletivo (`alertNearbyHerd`): ataques de predadores ou do Dr-Manaus transmitem choque sísmico/acústico dispersando herbívoros em debandada (`fleeing`).
-   - Introduzido gerador pseudo-aleatório estritamente determinístico `hashFauna(seed, index, tick)` para decisões e rotinas de patrulha.
-   - Atualizado sombreamento de instâncias com paletas biológicas distintas: herbívoros calmos `#5f755a`, em fuga `#c48256`, predadores `#7d3a3a`, em caça `#d44030`, e predadores apex `#4a2c5a` / `#bf3060`.
-2. `specs/universo-vivo/07-ECOLOGICAL-AI-AND-HERDS.md`:
-   - Especificação técnica completa de IA trófica, flocking, predação e propagação de alarme.
-3. `tests/alien-fauna-ecological-ai.test.ts`:
-   - 5 novos testes unitários validando pirâmide trófica, perseguição e mordida predatória, propagação de alarme, repulsão de manada e determinismo exato.
+1. `src/world/life/AlienSettlementManager.ts`:
+   - Criado subsistema de assentamentos modulares com renderização `InstancedMesh`.
+   - 5 arquétipos estruturais: `habitat-dome`, `comm-tower`, `energy-pylon`, `perimeter-wall` e `ancient-monolith`.
+   - 4 papéis sociais de habitantes: `worker`, `guard`, `elder`, `sentinel`.
+   - Lógica de disposição diplomática baseada em reputação: `friendly` (saudação ao herói), `neutral`, `hostile`, `guardians`.
+   - Mobilização tática de guardas e fuga de civis ao sofrer dano ou ataque.
+   - Suporte a destruição estrutural e reconstrução completa via poder `reconstruct`.
+2. `src/core/SaveManager.ts`:
+   - Adicionado campo `factionReputations?: Record<string, number>` a `SaveData`.
+   - Implementados métodos de consulta e modificação diplomática `getFactionReputation(factionId)` e `modifyFactionReputation(factionId, delta)` com clamps $[-100, +100]$ e persistência automática.
+3. `src/game/Game.ts`:
+   - Instanciado `alienSettlements` e anexado a `worldRoot`.
+   - Integrado `alienSettlements.targets` ao `PowerSystem`.
+   - Conectados hooks de `hit`, `damageInRadius` e `reconstruct` do jogador aos assentamentos.
+   - Conectado ciclo de `update` por frame e telemetria no HUD F3.
+4. `specs/universo-vivo/08-ALIEN-SETTLEMENTS-AND-FACTIONS.md`:
+   - Especificação técnica consolidada para arquitetura modular, diplomacia e combate em assentamentos.
+5. `tests/alien-settlement-manager.test.ts`:
+   - Suíte de 6 testes unitários cobrindo ciclo de vida, supressão em mundos estéreis, spawn modular, saudação amigável, mobilização defensiva e reconstrução com ganho de reputação.

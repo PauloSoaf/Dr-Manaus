@@ -24,6 +24,7 @@ export interface SaveData {
   discoveredSpecies?: string[];
   blackHoleTraversals?: Record<string, number>;
   rupturedBodies?: string[];
+  factionReputations?: Record<string, number>;
 }
 const defaults = (): SaveData => ({
   version: 1,
@@ -202,6 +203,17 @@ export class SaveManager {
       this.data.rupturedBodies.splice(index, 1);
       this.save();
     }
+  }
+  getFactionReputation(factionId: string): number {
+    return this.data.factionReputations?.[factionId] ?? 0;
+  }
+  modifyFactionReputation(factionId: string, delta: number): number {
+    if (!this.data.factionReputations) this.data.factionReputations = {};
+    const current = this.data.factionReputations[factionId] ?? 0;
+    const updated = Math.max(-100, Math.min(100, current + delta));
+    this.data.factionReputations[factionId] = updated;
+    this.save();
+    return updated;
   }
   reset() { this.data = defaults(); this.save(); }
 }
