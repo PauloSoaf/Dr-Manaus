@@ -510,7 +510,7 @@ export class PowerSystem {
       if (!target.active) continue;
       const distance = target.position.distanceTo(this.player.position);
       // The outer wave throws props; only its inner core disintegrates them.
-      if (distance < radius && (target.kind === 'anomaly' || distance < radius * 0.23)) this.hooks.hit(target.id, 95 * Math.sqrt(this.player.size));
+      if (distance < radius && (target.kind === 'anomaly' || target.kind === 'creature' || distance < radius * 0.23)) this.hooks.hit(target.id, 95 * Math.sqrt(this.player.size));
     }
     const levelled = this.hooks.damage?.(this.player.position, radius, DESTRUCTION.shockwaveDamage * this.player.size) ?? 0;
     this.hooks.sound('shockwave');

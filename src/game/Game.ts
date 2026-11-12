@@ -76,6 +76,7 @@ import { GeomechanicalFractureService } from '../world/destruction/Geomechanical
 import { MacroBodyFractureService } from '../world/destruction/MacroBodyFractureService';
 import { MinorBodyDisruptionService } from '../world/destruction/MinorBodyDisruptionService';
 import { AlienFloraRenderer } from '../world/life/AlienFloraRenderer';
+import { AlienFaunaManager } from '../world/life/AlienFaunaManager';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
 import { IMPACT_VOLUME_LIMITS } from '../world/planet/volume/PlanetVolumeImpactDemand';
@@ -154,6 +155,7 @@ export class Game {
   readonly minorBodyDisruption: MinorBodyDisruptionService;
   readonly volumeRenderer:PlanetVolumeSurfaceRenderer;
   readonly alienFlora: AlienFloraRenderer;
+  readonly alienFauna: AlienFaunaManager;
   galaxyMaterializer?:GalaxyMaterializer;
   get galaxy():StarSectorProvider|undefined{return this.galaxyMaterializer?.current?.starSectorProvider;}
   get sgra():BlackHoleProvider|undefined{return this.galaxyMaterializer?.current?.centralBlackHole;}
@@ -495,6 +497,8 @@ export class Game {
     });
     this.alienFlora = new AlienFloraRenderer();
     this.worldRoot.add(this.alienFlora.root);
+    this.alienFauna = new AlienFaunaManager();
+    this.worldRoot.add(this.alienFauna.root);
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -528,17 +532,24 @@ export class Game {
     this.player.beforeMove=(position,velocity,dt)=>{if(!this.manausSimulationActive)return [];this.destruction.plough(position,velocity,dt,true);this.gatherColliders();if(FEATURES.curvedManaus)this.curveColliders();return FEATURES.curvedManaus?this.curvedColliders:this.colliders;};
     this.powers=new PowerSystem(this.actorRoot,this.player,this.rendering.camera,this.input,{
       canDeformSurface:()=>this.manausSimulationActive,
-      targets:()=>this.manausSimulationActive?[...this.population.targets,...this.missions.targets]:[],
-      hit:(id,force)=>{if(this.manausSimulationActive)this.missions.hit(id,force)||this.population.hit(id,force);},
+      targets:()=>{
+        const localTargets = this.manausSimulationActive ? [...this.population.targets, ...this.missions.targets] : [];
+        return [...localTargets, ...this.alienFauna.targets];
+      },
+      hit:(id,force)=>{
+        if(this.manausSimulationActive && (this.missions.hit(id,force) || this.population.hit(id,force))) return;
+        this.alienFauna.hit(id, force);
+      },
       reconstruct:(position,radius)=>{
-        if(!this.manausSimulationActive)return 0;
+        const faunaRestored = this.alienFauna.reconstruct(position, radius);
+        if(!this.manausSimulationActive)return faunaRestored;
         this.destruction.restoreAt(position,radius);
         this.alienFlora.clear();
         let flat = position;
         if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
           flat = this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z);
         }
-        return this.population.reconstruct(flat,radius)+this.realCity.restore(flat,radius)+this.streamer.restore(flat,radius)+this.landmarks.restore(flat,radius)+this.largo.restore(flat,radius)+this.airport.restore(flat,radius)+this.terrain.restoreAt(flat,radius);
+        return faunaRestored + this.population.reconstruct(flat,radius)+this.realCity.restore(flat,radius)+this.streamer.restore(flat,radius)+this.landmarks.restore(flat,radius)+this.largo.restore(flat,radius)+this.airport.restore(flat,radius)+this.terrain.restoreAt(flat,radius);
       },
       impulse:(position,radius,force)=>{
         if(!this.manausSimulationActive)return;
@@ -946,6 +957,7 @@ export class Game {
       const activeSurface = activeBody ? surfaceForBody(activeBody) : undefined;
       const activeBiosphere = activeBody ? bodyProfile(activeBody).environment?.biosphere : undefined;
       this.alienFlora.update(this.player.position, activeSurface, activeBiosphere);
+      this.alienFauna.update(dt, this.player.position, activeSurface, activeBiosphere);
     }
     const transit=this.universalTravelController?.state;
     const bhTransit = this.blackHoleRuntime?.transit.active
