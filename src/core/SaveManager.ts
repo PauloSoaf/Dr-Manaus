@@ -21,6 +21,7 @@ export interface SaveData {
   favorites?: string[];
   visitedTargets?: string[];
   discoveredTargets?: string[];
+  discoveredSpecies?: string[];
   blackHoleTraversals?: Record<string, number>;
 }
 const defaults = (): SaveData => ({
@@ -38,6 +39,7 @@ const defaults = (): SaveData => ({
     'universe/milky_way/0,0,0/system/sol/body/earth',
   ],
   discoveredTargets: [],
+  discoveredSpecies: [],
   blackHoleTraversals: {},
 });
 export class SaveManager {
@@ -52,6 +54,7 @@ export class SaveManager {
         if (Array.isArray(saved.favorites)) this.data.favorites = saved.favorites.filter((v): v is string => typeof v === 'string');
         if (Array.isArray(saved.visitedTargets)) this.data.visitedTargets = saved.visitedTargets.filter((v): v is string => typeof v === 'string');
         if (Array.isArray(saved.discoveredTargets)) this.data.discoveredTargets = saved.discoveredTargets.filter((v): v is string => typeof v === 'string');
+        if (Array.isArray(saved.discoveredSpecies)) this.data.discoveredSpecies = saved.discoveredSpecies.filter((v): v is string => typeof v === 'string');
         if (saved.blackHoleTraversals && typeof saved.blackHoleTraversals === 'object') {
           this.data.blackHoleTraversals = { ...saved.blackHoleTraversals };
         }
@@ -170,6 +173,16 @@ export class SaveManager {
     this.data.blackHoleTraversals[id] = count;
     this.save();
     return count;
+  }
+  isSpeciesDiscovered(speciesId: string): boolean {
+    return this.data.discoveredSpecies?.includes(speciesId) ?? false;
+  }
+  discoverSpecies(speciesId: string): boolean {
+    if (!this.data.discoveredSpecies) this.data.discoveredSpecies = [];
+    if (this.data.discoveredSpecies.includes(speciesId)) return false;
+    this.data.discoveredSpecies.push(speciesId);
+    this.save();
+    return true;
   }
   reset() { this.data = defaults(); this.save(); }
 }

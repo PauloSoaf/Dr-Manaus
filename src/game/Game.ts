@@ -77,6 +77,7 @@ import { MacroBodyFractureService } from '../world/destruction/MacroBodyFracture
 import { MinorBodyDisruptionService } from '../world/destruction/MinorBodyDisruptionService';
 import { AlienFloraRenderer } from '../world/life/AlienFloraRenderer';
 import { AlienFaunaManager } from '../world/life/AlienFaunaManager';
+import { CosmicSpeciesScanner } from '../world/life/CosmicSpeciesScanner';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
 import { IMPACT_VOLUME_LIMITS } from '../world/planet/volume/PlanetVolumeImpactDemand';
@@ -156,6 +157,7 @@ export class Game {
   readonly volumeRenderer:PlanetVolumeSurfaceRenderer;
   readonly alienFlora: AlienFloraRenderer;
   readonly alienFauna: AlienFaunaManager;
+  readonly speciesScanner: CosmicSpeciesScanner;
   galaxyMaterializer?:GalaxyMaterializer;
   get galaxy():StarSectorProvider|undefined{return this.galaxyMaterializer?.current?.starSectorProvider;}
   get sgra():BlackHoleProvider|undefined{return this.galaxyMaterializer?.current?.centralBlackHole;}
@@ -499,6 +501,7 @@ export class Game {
     this.worldRoot.add(this.alienFlora.root);
     this.alienFauna = new AlienFaunaManager();
     this.worldRoot.add(this.alienFauna.root);
+    this.speciesScanner = new CosmicSpeciesScanner(this.save);
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -2179,6 +2182,8 @@ export class Game {
       'ACTIVE SYSTEM · Epoch':this.universe.time.toFixed(3),
       'ACTIVE SYSTEM · QA arrival mode':this.materializer?.qaArrivalMode?'U1 TEST ARRIVAL':'off',
       'ACTIVE SYSTEM · Boundary':Math.hypot(...this.universe.playerSystemPositionM())>systemDomainLimitM(this.universe.activeSystem)?'INTERSTELLAR HYPERCRUISE REQUIRED':'intra-system',
+      'UNIVERSO VIVO · Espécies': this.save.data.discoveredSpecies?.length ?? 0,
+      'UNIVERSO VIVO · Fauna': this.alienFauna.targets.length,
       ...this.solarDebug(),
       'EARTH MAP · 3D Canvas / Visible / Dim': `${this.hud.isMapOpen ? 'aberto' : 'fechado'} / ${this.hud.universalMapLevel === 'planet' ? '3D ativo' : '2D universal'} / 800x600`,
       'EARTH MAP · Rotation yaw / pitch / zoom': `${(this.hud.mapRenderer3D?.yaw ?? 1.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.pitch ?? 0.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.zoomLevel ?? 1.0).toFixed(1)}x`,
