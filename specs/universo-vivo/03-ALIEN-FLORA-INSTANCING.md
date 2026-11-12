@@ -22,3 +22,4 @@ Implementar um sistema de renderização e distribuição de flora alienígena d
 
 4. **Descarte Real / Suporte a Mundos Estéreis**:
    - Mundos estéreis (`lifeTier === 'sterile'`), corpos de vácuo sem atmosfera, ou coordenadas com `vegetationDensity == 0` (calotas glaciais, oceanos profundos) geram 0 instâncias.
+

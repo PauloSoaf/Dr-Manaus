@@ -43,3 +43,4 @@ Definir o serviço canônico e autoritativo de clima e biomas planetários (`Pla
      - `vegetationDensity`: fator $0.0 \dots 1.0$ (dita instancing de flora em VIVO-03).
      - `floraArchetype`: arquétipo de modelos a instanciar.
      - `colorPalette`: `{ surface: number, rock: number, foliage: number, liquid: number }`.
+

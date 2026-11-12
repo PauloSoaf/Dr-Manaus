@@ -25,3 +25,4 @@ Implementar o scanner cósmico de espécies alienígenas (`CosmicSpeciesScanner`
      - Retorna `isNewDiscovery: true`.
      - Registra em `saveManager.discoverSpecies(speciesId)`.
      - Dispara notificação no HUD: `"NOVA ESPÉCIE DESCOBERTA · [Nome Comum]"`.
+

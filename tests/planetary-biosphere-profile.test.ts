@@ -152,3 +152,4 @@ test('T_VIVO01_05_BODY_PROFILE_LAZY_ATTACHMENT', () => {
   assert.ok(pMoon.environment?.biosphere, 'bodyProfile(moon) must lazily resolve biosphere');
   assert.equal(pMoon.environment.biosphere.lifeTier, 'sterile');
 });
+

@@ -24,3 +24,4 @@ Implementar o gerador autoritativo de biosferas (`PlanetaryBiosphereProfile` e `
    - Corpos celestes do SolarSystem canônicos e sistemas procedurais recebem `biosphere` resolvida.
 4. Testes:
    - `tests/planetary-biosphere-profile.test.ts`.
+

@@ -534,7 +534,7 @@ export class Game {
     this.destruction=new DestructionSystem(this.worldRoot,this.destructible);
     this.player.beforeMove=(position,velocity,dt)=>{if(!this.manausSimulationActive)return [];this.destruction.plough(position,velocity,dt,true);this.gatherColliders();if(FEATURES.curvedManaus)this.curveColliders();return FEATURES.curvedManaus?this.curvedColliders:this.colliders;};
     this.powers=new PowerSystem(this.actorRoot,this.player,this.rendering.camera,this.input,{
-      canDeformSurface:()=>this.manausSimulationActive,
+      canDeformSurface:()=>this.manausSimulationActive || (this.travelDomain.localPhysicsActive && !!this.universe.telemetry.dominantBody),
       targets:()=>{
         const localTargets = this.manausSimulationActive ? [...this.population.targets, ...this.missions.targets] : [];
         return [...localTargets, ...this.alienFauna.targets];
@@ -545,14 +545,14 @@ export class Game {
       },
       reconstruct:(position,radius)=>{
         const faunaRestored = this.alienFauna.reconstruct(position, radius);
-        if(!this.manausSimulationActive)return faunaRestored;
+        const floraRestored = this.alienFlora.reconstruct(position, radius);
+        if(!this.manausSimulationActive)return faunaRestored + floraRestored;
         this.destruction.restoreAt(position,radius);
-        this.alienFlora.clear();
         let flat = position;
         if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
           flat = this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z);
         }
-        return faunaRestored + this.population.reconstruct(flat,radius)+this.realCity.restore(flat,radius)+this.streamer.restore(flat,radius)+this.landmarks.restore(flat,radius)+this.largo.restore(flat,radius)+this.airport.restore(flat,radius)+this.terrain.restoreAt(flat,radius);
+        return faunaRestored + floraRestored + this.population.reconstruct(flat,radius)+this.realCity.restore(flat,radius)+this.streamer.restore(flat,radius)+this.landmarks.restore(flat,radius)+this.largo.restore(flat,radius)+this.airport.restore(flat,radius)+this.terrain.restoreAt(flat,radius);
       },
       impulse:(position,radius,force)=>{
         if(!this.manausSimulationActive)return;
@@ -563,7 +563,25 @@ export class Game {
         this.population.impulse(flat,radius,force);this.traffic?.impulse(flat,radius,force);this.camera.shake(.45);
       },
       impact:(point,footprint)=>this.applyLocalImpact(point,footprint),
-      damage:(point,radius,amount,deform)=>this.manausSimulationActive?this.destruction.damageAt(point,radius,amount,deform):0,prepare:destination=>this.manausSimulationActive?this.streamer.prepare(destination):Promise.resolve(),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
+      damage:(point,radius,amount,deform)=>{
+        let count = 0;
+        if (this.manausSimulationActive) {
+          count += this.destruction.damageAt(point, radius, amount, deform);
+        }
+        count += this.alienFlora.destroyInRadius(point, radius);
+        count += this.alienFauna.damageInRadius(point, radius, amount, 25);
+        if (!this.manausSimulationActive && (deform || amount >= 5000)) {
+          const bodyId = this.universe.telemetry.dominantBody;
+          const body = this.universe.activeSystem?.bodies.find(b => b.id === bodyId);
+          if (body && body.frameId) {
+            const currentFrame = this.universe.player.frame;
+            const centerBF = this.universe.frames.convertPosition(currentFrame, body.frameId, [point.x, point.y, point.z]);
+            this.planetExcavation.carveSphere(bodyId, centerBF, Math.min(radius, 250));
+            count += 1;
+          }
+        }
+        return count;
+      },prepare:destination=>this.manausSimulationActive?this.streamer.prepare(destination):Promise.resolve(),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
       universalTeleport: async (rayOrigin, rayDirection) => {
         const res = this.universalTeleport.resolveFromAim(rayOrigin, rayDirection);
         if (!res) {
@@ -1091,20 +1109,34 @@ export class Game {
       return this.terrain.damageAt(flat,radius,damage,depth);
     },
   };
-  /** Local Manaus authority; C4 celestial events and D0 volume collision remain isolated. */
+  /** Local Manaus authority and planetary celestial surface impact handling. */
   applyLocalImpact(point: Vector3, footprint: ImpactResult): number {
-    if (!this.manausSimulationActive) return 0;
-    const collapsed = this.destruction.impactAt(point,footprint);
-    const flat = FEATURES.curvedManaus && this.travelDomain.localPhysicsActive
-      ? this.surfaceService.renderLocalToLegacyPoint(point.x,point.y,point.z) : point;
-    const response = this.population.applyImpact(flat,footprint);
-    this.population.impulse(flat,footprint.impulseRadiusM,footprint.impulse);
-    this.traffic?.impulse(flat,footprint.impulseRadiusM,footprint.impulse);
-    const stats = this.destruction.lastImpact;
-    if (stats) { stats.vehicles+=this.traffic?.lastImpulseWrecks??0;
-      stats.npcAffected=response.affected; stats.npcDisabled=response.disabled;
-      stats.npcKnocked=response.knocked; stats.npcFleeing=response.fleeing; }
-    return collapsed;
+    if (this.manausSimulationActive) {
+      const collapsed = this.destruction.impactAt(point,footprint);
+      const flat = FEATURES.curvedManaus && this.travelDomain.localPhysicsActive
+        ? this.surfaceService.renderLocalToLegacyPoint(point.x,point.y,point.z) : point;
+      const response = this.population.applyImpact(flat,footprint);
+      this.population.impulse(flat,footprint.impulseRadiusM,footprint.impulse);
+      this.traffic?.impulse(flat,footprint.impulseRadiusM,footprint.impulse);
+      const stats = this.destruction.lastImpact;
+      if (stats) { stats.vehicles+=this.traffic?.lastImpulseWrecks??0;
+        stats.npcAffected=response.affected; stats.npcDisabled=response.disabled;
+        stats.npcKnocked=response.knocked; stats.npcFleeing=response.fleeing; }
+      return collapsed;
+    }
+
+    const bodyId = this.universe.telemetry.dominantBody;
+    const body = this.universe.activeSystem?.bodies.find(b => b.id === bodyId);
+    let affected = 0;
+    if (body && body.frameId) {
+      const currentFrame = this.universe.player.frame;
+      const centerBF = this.universe.frames.convertPosition(currentFrame, body.frameId, [point.x, point.y, point.z]);
+      this.planetExcavation.carveSphere(bodyId, centerBF, Math.min(footprint.craterRadiusM, 500));
+      affected += 1;
+    }
+    affected += this.alienFlora.destroyInRadius(point, footprint.craterRadiusM * 1.5);
+    affected += this.alienFauna.damageInRadius(point, footprint.impulseRadiusM, footprint.damage, footprint.impulse);
+    return affected;
   }
   /** Register newly built surfaces once, including streamed roads and plaza LOD changes. */
   private readonly watchedGround=new WeakSet<import('three/webgpu').Object3D>();

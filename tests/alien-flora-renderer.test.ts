@@ -130,3 +130,4 @@ describe('AlienFloraRenderer (VIVO-03)', () => {
     assert.strictEqual(renderer.getActiveCount('canopy-broadleaf'), 0);
   });
 });
+

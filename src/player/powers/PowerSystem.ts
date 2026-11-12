@@ -466,7 +466,14 @@ export class PowerSystem {
       (this.laserRing.material as MeshBasicMaterial).opacity=.7*(1-(this.time*3)%1);
     }
     this.player.powerPose('energy',.15);this.laserTick-=dt;
-    if(this.laserTick<=0){this.laserTick=.1;if(hit)this.hooks.damage?.(this.aimPoint,3*Math.pow(this.player.size,.7),220*this.player.size);}
+    if(this.laserTick<=0){
+      this.laserTick=.1;
+      if(hit)this.hooks.damage?.(this.aimPoint,3*Math.pow(this.player.size,.7),220*this.player.size);
+      const target = this.acquireTarget(Math.max(1600, this.player.size * 24));
+      if (target && target.position.distanceTo(this.aimPoint) < target.radius + 3) {
+        this.hooks.hit(target.id, 25 * this.player.size);
+      }
+    }
   }
 
   private energy(): void {

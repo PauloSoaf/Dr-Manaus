@@ -30,3 +30,4 @@ Transformação do Dr-Manaus em um universo verdadeiramente habitado e vivo, com
 14. **VIVO-14:** Pós-ruptura: física, renderização, Atlas, mapas, pouso, entidades e save reconhecendo a destruição; reconstrução explícita.
 15. **VIVO-15:** Eventos, missões, primeiro contato, ruínas, colossos, biodiversidade e anomalias.
 16. **VIVO-16:** Benchmarks, polimento, otimizações e fechamento de regressões.
+

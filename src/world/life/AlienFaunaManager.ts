@@ -463,13 +463,14 @@ export class AlienFaunaManager {
   /**
    * Applies damage and physical impulse to a creature when hit by Dr-Manaus powers.
    */
-  hit(id: string, force: number, damage = 35): boolean {
+  hit(id: string, force: number, damage?: number): boolean {
     const creature = this.creatures.find(c => c.id === id);
     if (!creature || !creature.active || creature.state === 'defeated') {
       return false;
     }
 
-    creature.health -= damage;
+    const effectiveDamage = damage ?? Math.max(35, force * 0.5);
+    creature.health -= effectiveDamage;
     if (creature.health <= 0) {
       creature.health = 0;
       creature.state = 'defeated';
@@ -490,6 +491,48 @@ export class AlienFaunaManager {
       );
     }
     return true;
+  }
+
+  /**
+   * Applies area damage and radial physical impulse to all creatures within radius.
+   */
+  damageInRadius(center: Vector3, radiusM: number, damage: number, impulse = 20): number {
+    let affected = 0;
+    const rSq = radiusM * radiusM;
+
+    for (const c of this.creatures) {
+      if (!c.active || c.state === 'defeated') continue;
+
+      const distSq = c.position.distanceToSquared(center);
+      if (distSq <= rSq) {
+        c.health -= damage;
+        affected++;
+
+        const dist = Math.sqrt(distSq);
+        const dirX = dist > 0.001 ? (c.position.x - center.x) / dist : (Math.random() - 0.5);
+        const dirZ = dist > 0.001 ? (c.position.z - center.z) / dist : (Math.random() - 0.5);
+
+        if (c.health <= 0) {
+          c.health = 0;
+          c.state = 'defeated';
+          c.active = false;
+          this.defeatedIds.add(c.id);
+          while (this.defeatedIds.size > MAX_FAUNA_HISTORY) {
+            const first = this.defeatedIds.values().next().value;
+            if (first) this.defeatedIds.delete(first);
+          }
+        } else {
+          c.state = 'knocked';
+          c.timer = 2.0;
+          c.velocity.set(
+            dirX * impulse * 0.4,
+            Math.max(4.0, impulse * 0.3),
+            dirZ * impulse * 0.4,
+          );
+        }
+      }
+    }
+    return affected;
   }
 
   /**

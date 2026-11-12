@@ -27,3 +27,4 @@ Implementar o gerenciador de fauna e criaturas alienígenas (`AlienFaunaManager`
 4. **Integração com Combate (`Target`)**:
    - Cada criatura viva é registrada como `Target` com `kind: 'creature'`, `radius: 1.5m` a `3.0m`, `position`, `velocity` e `active: true`.
    - Pode ser travada por mira assistida, atingida por socos/chutes, lasers e ondas de choque.
+

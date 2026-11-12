@@ -88,6 +88,20 @@ export class PlanetExcavationService {
   }
 
   /**
+   * Carves a spherical impact crater or blast cavity on a celestial body.
+   */
+  carveSphere(bodyId: string, centerBodyFixedM: BodyFixedPoint, radiusM: number): string {
+    const editId = `${bodyId}:crater:${++this.tunnelCounter}:${Math.floor(Math.random() * 10000)}`;
+    this.options.edits.subtractSphere({
+      id: editId,
+      bodyId,
+      centerBodyFixedM,
+      radiusM,
+    });
+    return editId;
+  }
+
+  /**
    * Plans and carves a straight tunnel through or into a planet using a directed ray.
    * If the ray penetrates completely, carves a planet-spanning through-body capsule.
    * If maxDepthM is specified, carves a subterranean borehole stopping at that depth.

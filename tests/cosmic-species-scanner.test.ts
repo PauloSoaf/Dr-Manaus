@@ -137,3 +137,4 @@ describe('CosmicSpeciesScanner (VIVO-05)', () => {
     assert.strictEqual(secondScan.isNewDiscovery, false);
   });
 });
+

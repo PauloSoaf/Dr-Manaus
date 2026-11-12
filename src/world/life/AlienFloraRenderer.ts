@@ -370,6 +370,36 @@ export class AlienFloraRenderer {
   }
 
   /**
+   * Restores destroyed flora in a radius around center, allowing them to regrow.
+   */
+  reconstruct(center: Vector3, radiusM: number): number {
+    let restored = 0;
+    const rSq = radiusM * radiusM;
+
+    for (const id of Array.from(this.destroyedIds)) {
+      // id format: `${bodyId}:${cx}:${cz}:${i}`
+      const parts = id.split(':');
+      if (parts.length >= 3) {
+        const cx = parseInt(parts[1], 10);
+        const cz = parseInt(parts[2], 10);
+        if (!isNaN(cx) && !isNaN(cz)) {
+          const cellMidX = cx * FLORA_CELL_SIZE;
+          const cellMidZ = cz * FLORA_CELL_SIZE;
+          if ((cellMidX - center.x) ** 2 + (cellMidZ - center.z) ** 2 <= rSq) {
+            this.destroyedIds.delete(id);
+            restored++;
+          }
+        }
+      }
+    }
+
+    if (restored > 0) {
+      this.currentCellKey = ''; // Force refresh so flora reappears
+    }
+    return restored;
+  }
+
+  /**
    * Completely clears and hides all instanced meshes.
    */
   clear(): void {
