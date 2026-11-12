@@ -4,6 +4,7 @@ import { SPACE } from '../core/config';
 import { spaceFactorFor } from './SpaceLayer';
 import type { TimeKind, WeatherKind } from '../core/types';
 import { LOCAL_SUN_ELEVATION_RAD, NIGHT_FILL_INTENSITY, localLightPlan } from './SolarElevation';
+import type { PlanetaryAtmospherePalette } from '../world/life/PlanetaryHazardService';
 /** Colours are parsed once: `update` runs every frame and must never re-parse a CSS string. */
 const TIMES: Record<TimeKind, { top: Color; horizon: Color; zenith: Color; glow: Color; sun: Color; warm: number; intensity: number; elevation: number; azimuth: number; hour: string }> = {
   Morning: { top: new Color('#4d86ad'), horizon: new Color('#f7dcb2'), zenith: new Color('#1e4f84'), glow: new Color('#ffb877'), sun: new Color('#ffdab2'), warm: .9, intensity: 3, elevation: .27, azimuth: -2.4, hour: '06:24' },
@@ -23,6 +24,10 @@ export class Atmosphere {
    * because `update` runs every frame and would put its own answer back.
    */
   planetaryView = false;
+  private planetaryPalette: PlanetaryAtmospherePalette | null = null;
+  /** Sets or clears a custom planetary atmosphere palette (e.g. Mars, Venus, or exoplanets). Pass null for Earth. */
+  setPlanetaryAtmosphere(palette: PlanetaryAtmospherePalette | null) { this.planetaryPalette = palette; }
+  get activePaletteLabel(): string { return this.planetaryPalette?.label ?? 'Terra (Padrão)'; }
   readonly sun = new DirectionalLight('#ffcc94', 3.1);
   readonly ambient = new HemisphereLight('#d5e5df', '#665c44', 2.3);
   /** Unit vector from the player toward the sun. SpaceLayer needs it to place its disc and limb glow. */
@@ -92,12 +97,20 @@ export class Atmosphere {
     const blend = 1 - Math.exp(-step * 1.5);
     this.spaceBlend += (spaceFactorFor(this.altitude) - this.spaceBlend) * blend;
     this.space.value = this.spaceBlend;
-    this.top.value.lerp(rain ? RAIN.top : state.top, blend);
-    this.horizon.value.lerp(rain ? RAIN.horizon : state.horizon, blend);
-    this.zenith.value.lerp(rain ? RAIN.zenith : state.zenith, blend);
-    this.glow.value.lerp(rain ? RAIN.glow : state.glow, blend);
-    this.warmth.value += ((rain ? RAIN.warm : state.warm) - this.warmth.value) * blend;
-    this.sun.color.lerp(state.sun, blend);
+    if (this.planetaryPalette) {
+      this.top.value.lerp(this.planetaryPalette.top, blend);
+      this.horizon.value.lerp(this.planetaryPalette.horizon, blend);
+      this.zenith.value.lerp(this.planetaryPalette.zenith, blend);
+      this.glow.value.lerp(this.planetaryPalette.glow, blend);
+      this.sun.color.lerp(this.planetaryPalette.sunColor, blend);
+    } else {
+      this.top.value.lerp(rain ? RAIN.top : state.top, blend);
+      this.horizon.value.lerp(rain ? RAIN.horizon : state.horizon, blend);
+      this.zenith.value.lerp(rain ? RAIN.zenith : state.zenith, blend);
+      this.glow.value.lerp(rain ? RAIN.glow : state.glow, blend);
+      this.warmth.value += ((rain ? RAIN.warm : state.warm) - this.warmth.value) * blend;
+      this.sun.color.lerp(state.sun, blend);
+    }
     // Vacuum sunlight is harder and the sky stops bouncing any of it back.
     this.sun.intensity += ((rain ? .7 : state.intensity) * (1 + this.spaceBlend * .3) - this.sun.intensity) * blend;
     this.ambient.intensity += ((this.time === 'Night' ? .75 : rain ? 1.6 : 2.05) * (1 - this.spaceBlend * .45) - this.ambient.intensity) * blend;
@@ -115,19 +128,26 @@ export class Atmosphere {
     this.temp.copy(this.lightDirection).multiplyScalar(620);
     this.sun.position.copy(playerLocal).add(this.temp); this.sun.target.position.copy(playerLocal);
     this.clouds.position.set(playerLocal.x, 0, playerLocal.z);
-    this.clouds.visible = !this.planetaryView && this.altitude < SPACE.karman && this.weather !== 'clear';
+    this.clouds.visible = !this.planetaryPalette && !this.planetaryView && this.altitude < SPACE.karman && this.weather !== 'clear';
     // The dome is drawn around the player, so from orbit it paints straight over the planet the
     // far pass just drew. It stands down with the flat ground it belongs to.
-    this.sky.visible = !this.planetaryView;
+    const hasDome = this.planetaryPalette ? this.planetaryPalette.hasSkyDome : true;
+    this.sky.visible = !this.planetaryView && hasDome;
     this.cloudMaterial.color.copy(this.time === 'Night' ? CLOUD_NIGHT : rain ? CLOUD_RAIN : CLOUD_DAY);
     // Thin air means the horizon stops being a wall, so the city survives being looked at from orbit.
     const climb = Math.min(1, Math.max(0, (this.altitude - 900) / 25100));
     const lift = 1 + climb * climb * (3 - 2 * climb) * 14;
     const orbitLift = this.planetaryView ? 1 + this.spaceBlend * 50 : 1;
     const fog = this.scene.fog as Fog;
-    this.transition.copy(this.horizon.value).multiplyScalar(1 - this.spaceBlend * .85);
-    fog.color.lerp(this.transition, blend);
-    fog.near += ((rain ? 300 : 2800) * lift * orbitLift - fog.near) * blend;
-    fog.far += ((rain ? 6500 : 27000) * lift * orbitLift - fog.far) * blend;
+    if (this.planetaryPalette) {
+      fog.color.lerp(this.planetaryPalette.fogColor, blend);
+      fog.near += (this.planetaryPalette.fogNear * lift * orbitLift - fog.near) * blend;
+      fog.far += (this.planetaryPalette.fogFar * lift * orbitLift - fog.far) * blend;
+    } else {
+      this.transition.copy(this.horizon.value).multiplyScalar(1 - this.spaceBlend * .85);
+      fog.color.lerp(this.transition, blend);
+      fog.near += ((rain ? 300 : 2800) * lift * orbitLift - fog.near) * blend;
+      fog.far += ((rain ? 6500 : 27000) * lift * orbitLift - fog.far) * blend;
+    }
   }
 }

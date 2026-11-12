@@ -1,27 +1,33 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `VIVO-08 / VIVO-09` (Assentamentos Alienígenas Modulares, Cúpulas, Torres, Habitantes e Reputação de Facções)
-- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.727/1.727 testes unitários, 638/638 regressões, typecheck 0 erros, build OK)
+- **Patch:** `VIVO-11` (Atmosfera Dinâmica Planetária, Perigos Ambientais, Névoas Alienígenas e Áudio Multi-Meio)
+- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.735/1.735 testes unitários, typecheck 0 erros)
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-12T13:00:00-04:00
+- **Atualizado:** 2026-11-12T13:12:00-04:00
 
 ## Mudanças do Patch
-1. `src/world/life/AlienSettlementManager.ts`:
-   - Criado subsistema de assentamentos modulares com renderização `InstancedMesh`.
-   - 5 arquétipos estruturais: `habitat-dome`, `comm-tower`, `energy-pylon`, `perimeter-wall` e `ancient-monolith`.
-   - 4 papéis sociais de habitantes: `worker`, `guard`, `elder`, `sentinel`.
-   - Lógica de disposição diplomática baseada em reputação: `friendly` (saudação ao herói), `neutral`, `hostile`, `guardians`.
-   - Mobilização tática de guardas e fuga de civis ao sofrer dano ou ataque.
-   - Suporte a destruição estrutural e reconstrução completa via poder `reconstruct`.
-2. `src/core/SaveManager.ts`:
-   - Adicionado campo `factionReputations?: Record<string, number>` a `SaveData`.
-   - Implementados métodos de consulta e modificação diplomática `getFactionReputation(factionId)` e `modifyFactionReputation(factionId, delta)` com clamps $[-100, +100]$ e persistência automática.
-3. `src/game/Game.ts`:
-   - Instanciado `alienSettlements` e anexado a `worldRoot`.
-   - Integrado `alienSettlements.targets` ao `PowerSystem`.
-   - Conectados hooks de `hit`, `damageInRadius` e `reconstruct` do jogador aos assentamentos.
-   - Conectado ciclo de `update` por frame e telemetria no HUD F3.
-4. `specs/universo-vivo/08-ALIEN-SETTLEMENTS-AND-FACTIONS.md`:
-   - Especificação técnica consolidada para arquitetura modular, diplomacia e combate em assentamentos.
-5. `tests/alien-settlement-manager.test.ts`:
-   - Suíte de 6 testes unitários cobrindo ciclo de vida, supressão em mundos estéreis, spawn modular, saudação amigável, mobilização defensiva e reconstrução com ganho de reputação.
+1. `src/world/life/PlanetaryHazardService.ts`:
+   - Criado serviço puro e determinístico para avaliação de perigos ambientais (`PlanetaryHazardService.evaluateHazard`).
+   - 7 arquétipos de perigos: `none`, `radiation-storm`, `acidic-downpour`, `cryogenic-blizzard`, `toxic-spores`, `thermal-scorch`, `vacuum-exposure`.
+   - Níveis de alerta (`nominal`, `caution`, `critical`), dano por segundo, dicas de mitigação e rótulos para HUD.
+   - Gerador de paletas atmosféricas e abóbada celeste (`PlanetaryAtmospherePalette`): cores de céu, horizonte, zênite, brilho, sol, névoa e densidade de espalhamento óptico.
+2. `src/world/life/PlanetaryHazardRenderer.ts`:
+   - Renderizador volumétrico de intempéries alienígenas com GPU `LineSegments` via nós TSL (`positionLocal`, `time`, `vec3`).
+   - 0 alocações por frame; ancoragem de posição em torno do jogador.
+   - Tintura e opacidade dinâmicas por perigo (violeta ionizado para tempestade de radiação, verde ácido para chuva corrosiva, ciano para nevascas criogênicas, esmeralda para esporos).
+3. `src/audio/AudioManager.ts`:
+   - Ampliado suporte de meios atmosféricos em `AudioEnvironment.medium`: `'earth-atmosphere' | 'alien-dense' | 'alien-thin' | 'alien-toxic' | 'cryogenic-winds' | 'vacuum' | 'airless-surface'`.
+   - Curvas de transferência acústica e resposta em frequência adaptadas por meio planetário em `environmentalAudioMix`.
+   - Sintetizador sonoro para perigos e alertas: alarmes periódicos, clicks de radiação e rajadas de vendaval.
+4. `src/rendering/Atmosphere.ts`:
+   - Adicionado suporte a paletas planetárias dinâmicas via `setPlanetaryAtmosphere(palette | null)`.
+   - Interpolação suave (`lerp`) entre abóbadas e névoas planetárias, com supressão em mundos sem atmosfera e preservação 100% canônica do ciclo dia/noite da Terra em Manaus.
+5. `src/game/Game.ts`:
+   - Instanciado `PlanetaryHazardRenderer` e integrado ao ciclo de atualização de frame.
+   - Conectada avaliação contínua de perigos e atmosfera ao corpo dominante ativo.
+   - Disparo de notificações e áudio de alerta ambiental (`ALERTA AMBIENTAL: ...`) em perigos cautelares ou críticos.
+   - Exibição de telemetria no HUD F3: `'UNIVERSO VIVO · Perigo'` e `'UNIVERSO VIVO · Atmosfera'`.
+6. `specs/universo-vivo/11-PLANETARY-HAZARDS-AND-SKY.md`:
+   - Especificação técnica consolidada do subsistema.
+7. `tests/planetary-hazards-and-sky.test.ts`:
+   - Suíte de 8 testes cobrindo segurança na Terra, vácuo na Lua e asteroides, perfil marciano, tempestade ácida em Vênus, nevasca e sobreaquecimento, esporos fúngicos, acústica multi-meio e ciclo de vida do renderizador.

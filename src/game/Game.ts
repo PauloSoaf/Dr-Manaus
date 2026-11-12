@@ -79,6 +79,9 @@ import { AlienFloraRenderer } from '../world/life/AlienFloraRenderer';
 import { AlienFaunaManager } from '../world/life/AlienFaunaManager';
 import { AlienSettlementManager } from '../world/life/AlienSettlementManager';
 import { CosmicSpeciesScanner } from '../world/life/CosmicSpeciesScanner';
+import { PlanetaryHazardService, type PlanetaryHazardState } from '../world/life/PlanetaryHazardService';
+import { PlanetaryHazardRenderer } from '../world/life/PlanetaryHazardRenderer';
+import type { AtmosphericMedium } from '../audio/AudioManager';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
 import { IMPACT_VOLUME_LIMITS } from '../world/planet/volume/PlanetVolumeImpactDemand';
@@ -160,6 +163,18 @@ export class Game {
   readonly alienFauna: AlienFaunaManager;
   readonly alienSettlements: AlienSettlementManager;
   readonly speciesScanner: CosmicSpeciesScanner;
+  readonly planetaryHazardRenderer: PlanetaryHazardRenderer;
+  private activeHazardState: PlanetaryHazardState = {
+    type: 'none',
+    alertLevel: 'nominal',
+    intensity: 0,
+    label: 'Ambiente Benigno',
+    description: 'Condições nominais.',
+    damagePerSecond: 0,
+    mitigationHint: 'Operação padrão.',
+  };
+  private lastAudioMedium: AtmosphericMedium = 'earth-atmosphere';
+  private hazardAlertTimer = 0;
   galaxyMaterializer?:GalaxyMaterializer;
   get galaxy():StarSectorProvider|undefined{return this.galaxyMaterializer?.current?.starSectorProvider;}
   get sgra():BlackHoleProvider|undefined{return this.galaxyMaterializer?.current?.centralBlackHole;}
@@ -506,6 +521,7 @@ export class Game {
     this.alienSettlements = new AlienSettlementManager(this.save);
     this.worldRoot.add(this.alienSettlements.root);
     this.speciesScanner = new CosmicSpeciesScanner(this.save);
+    this.planetaryHazardRenderer = new PlanetaryHazardRenderer(this.worldRoot);
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -976,31 +992,107 @@ export class Game {
     this.player.character.setCosmicLevel(this.cosmicLevel(),speedNow,this.direction);if(local)this.powers.update(dt,worldDt);
     this.playerLocal.copy(this.player.position).sub(this.renderOriginVec);
     const altitudeNow = manaus ? this.player.position.y : this.universe.telemetry.altitudeM;
-    const skyAltitude=!this.universalTravelController?.active&&this.universe.telemetry.dominantBody==='earth'?altitudeNow:1_000_000;
-    this.atmosphere.setAltitude(skyAltitude);this.atmosphere.update(worldDt,this.playerLocal);this.space.update(skyAltitude,this.atmosphere.sunDirection,this.atmosphere.time==='Night',worldDt,this.atmosphere.weather==='clear'?0:1);this.spaceFactor=this.space.spaceFactor;const flash=manaus?this.weather.update(worldDt,this.player.position,this.atmosphere.weather):0;if(flash)this.atmosphere.sun.intensity+=flash;
-    if (this.district === 'FOTOSFERA' || this.physicsDomain === 'sun' || this.universe.telemetry.dominantBody !== 'earth') {
+    const dominantBodyId = this.universe.telemetry.dominantBody;
+    const dominantBodyDef = dominantBodyId ? this.universe.activeSystem?.bodies?.find(b => b.id === dominantBodyId) : undefined;
+    const dominantBodyProf = dominantBodyDef ? bodyProfile(dominantBodyDef) : (dominantBodyId === 'earth' ? SOLAR_BODY_PROFILES.earth : undefined);
+    const dominantBiosphere = dominantBodyProf?.environment?.biosphere;
+    const isEarth = dominantBodyId === 'earth';
+    const bodyHasAtmosphere = dominantBodyProf?.hasAtmosphere ?? isEarth;
+
+    if (!isEarth && bodyHasAtmosphere && local) {
+      const palette = PlanetaryHazardService.getAtmospherePalette({
+        bodyId: dominantBodyId ?? 'unknown',
+        classification: dominantBodyProf?.environment?.classification,
+        biosphere: dominantBiosphere,
+      });
+      this.atmosphere.setPlanetaryAtmosphere(palette);
+    } else if (isEarth) {
+      this.atmosphere.setPlanetaryAtmosphere(null);
+    }
+
+    const skyAltitude = !this.universalTravelController?.active && bodyHasAtmosphere && (isEarth || local) ? altitudeNow : 1_000_000;
+    this.atmosphere.setAltitude(skyAltitude);
+    this.atmosphere.update(worldDt, this.playerLocal);
+    this.space.update(skyAltitude, this.atmosphere.sunDirection, this.atmosphere.time === 'Night', worldDt, this.atmosphere.weather === 'clear' ? 0 : 1);
+    this.spaceFactor = this.space.spaceFactor;
+    const flash = manaus ? this.weather.update(worldDt, this.player.position, this.atmosphere.weather) : 0;
+    if (flash) this.atmosphere.sun.intensity += flash;
+
+    if (this.district === 'FOTOSFERA' || this.physicsDomain === 'sun') {
       this.atmosphere.sky.visible = false;
       this.atmosphere.clouds.visible = false;
       this.atmosphere.planetaryView = true;
       this.space.planetaryView = true;
-      if (this.district === 'FOTOSFERA' || this.physicsDomain === 'sun') {
-        const fog = this.rendering.scene.fog as any;
-        if (fog) { fog.near = 1e8; fog.far = 1e9; }
-      }
+      const fog = this.rendering.scene.fog as any;
+      if (fog) { fog.near = 1e8; fog.far = 1e9; }
+    } else if (!isEarth && (!bodyHasAtmosphere || !local)) {
+      this.atmosphere.sky.visible = false;
+      this.atmosphere.clouds.visible = false;
+      this.atmosphere.planetaryView = true;
+      this.space.planetaryView = true;
+    } else if (!isEarth && bodyHasAtmosphere && local) {
+      this.atmosphere.clouds.visible = false;
+      this.atmosphere.planetaryView = false;
+      this.space.planetaryView = false;
     }
+
+    const hazardState = PlanetaryHazardService.evaluateHazard({
+      bodyId: dominantBodyId ?? 'earth',
+      classification: dominantBodyProf?.environment?.classification,
+      biosphere: dominantBiosphere,
+      altitudeM: altitudeNow,
+      temperatureK: dominantBiosphere?.averageTemperatureK,
+      timeSeconds: this.universe.time,
+    });
+    this.activeHazardState = hazardState;
+    this.planetaryHazardRenderer.update(dt, this.player.position, hazardState);
+
+    if (hazardState.alertLevel === 'critical' || hazardState.alertLevel === 'caution') {
+      this.hazardAlertTimer += dt;
+      if (this.hazardAlertTimer > 15) {
+        this.hazardAlertTimer = 0;
+        this.hud.notify(`ALERTA AMBIENTAL: ${hazardState.label.toUpperCase()}`);
+        this.audio.play('hazard-alarm');
+      }
+    } else {
+      this.hazardAlertTimer = 0;
+    }
+
     const viewportHeight = this.rendering.renderer.domElement.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 1080);
     this.galaxyMaterializer?.update(
       [this.rendering.camera.position.x, this.rendering.camera.position.y, this.rendering.camera.position.z],
       altitudeNow,
       { fov: this.rendering.camera.fov, aspect: this.rendering.camera.aspect, viewportHeightPx: viewportHeight },
     );
-    const audioBody=this.universe.telemetry.dominantBody;
+
+    let audioMedium: AtmosphericMedium = 'vacuum';
+    if (!this.universalTravelController?.active) {
+      if (dominantBodyId === 'earth') {
+        audioMedium = 'earth-atmosphere';
+      } else if (local && bodyHasAtmosphere) {
+        if (dominantBiosphere?.atmosphereBreathability === 'corrosive-hazard' || dominantBodyId === 'venus') {
+          audioMedium = 'alien-toxic';
+        } else if (dominantBodyProf?.environment?.classification === 'dense-atmosphere-rocky' || dominantBodyProf?.bodyClass === 'gas-giant') {
+          audioMedium = 'alien-dense';
+        } else if (dominantBiosphere?.averageTemperatureK && dominantBiosphere.averageTemperatureK < 165) {
+          audioMedium = 'cryogenic-winds';
+        } else {
+          audioMedium = 'alien-thin';
+        }
+      } else if (local) {
+        audioMedium = 'airless-surface';
+      }
+    }
+    this.lastAudioMedium = audioMedium;
+
     this.audio.update({
-      medium:this.universalTravelController?.active?'vacuum':audioBody==='earth'?'earth-atmosphere':local?'airless-surface':'vacuum',
-      atmosphericDensity01:!this.universalTravelController?.active&&audioBody==='earth'?earthAtmosphericDensity01(altitudeNow):0,
-      speedMps:speedNow,altitudeM:altitudeNow,
-      rain:manaus&&['rain','storm'].includes(this.atmosphere.weather),
-      river:manaus&&!isLand(this.player.position.x,this.player.position.z),
+      medium: audioMedium,
+      atmosphericDensity01: this.universalTravelController?.active ? 0 : (dominantBodyId === 'earth' ? earthAtmosphericDensity01(altitudeNow) : bodyHasAtmosphere && local ? 0.85 : 0),
+      speedMps: speedNow,
+      altitudeM: altitudeNow,
+      rain: manaus && ['rain', 'storm'].includes(this.atmosphere.weather),
+      river: manaus && !isLand(this.player.position.x, this.player.position.z),
+      hazardIntensity: hazardState.intensity,
     });
     if(manaus){
       this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
@@ -2257,6 +2349,8 @@ export class Game {
       'UNIVERSO VIVO · Fauna': this.alienFauna.targets.length,
       'UNIVERSO VIVO · Corpos Rupturados': this.save.data.rupturedBodies?.length ?? 0,
       'UNIVERSO VIVO · Assentamentos': this.alienSettlements.activeSettlements.length,
+      'UNIVERSO VIVO · Perigo': `${this.activeHazardState.type} [${(this.activeHazardState.intensity * 100).toFixed(0)}%] (${this.activeHazardState.alertLevel})`,
+      'UNIVERSO VIVO · Atmosfera': `${this.atmosphere.activePaletteLabel} · ${this.lastAudioMedium}`,
       ...this.solarDebug(),
       'EARTH MAP · 3D Canvas / Visible / Dim': `${this.hud.isMapOpen ? 'aberto' : 'fechado'} / ${this.hud.universalMapLevel === 'planet' ? '3D ativo' : '2D universal'} / 800x600`,
       'EARTH MAP · Rotation yaw / pitch / zoom': `${(this.hud.mapRenderer3D?.yaw ?? 1.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.pitch ?? 0.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.zoomLevel ?? 1.0).toFixed(1)}x`,
