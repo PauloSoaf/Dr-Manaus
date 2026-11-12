@@ -33,3 +33,5 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 - c260032 (D3 Geomechanical Crust Fracture): push run 43091828500 SUCCESS; PR run 43091841173 SUCCESS. 1.666/1.666 passed. 2026-11-11T15:58:00-04:00
 - d22efdd (D4 Partial Planetary Fracture & Debris Rings): push run 43093427827 SUCCESS; PR run 43093436603 SUCCESS. 1.671/1.671 passed. 2026-11-11T16:08:00-04:00
 - 72e6468 (D5 Minor Body Disruption & Asteroid Fields): push run 43094667147 SUCCESS; PR run 43094679407 SUCCESS. 1.676/1.676 passed. 2026-11-11T16:17:00-04:00
+- 365a5cc (Documentation & Master Tracker Sync): push run 43095309023 SUCCESS. 1.676/1.676 passed. 2026-11-11T16:22:00-04:00
+- eaeab77 (VIVO-01 Deterministic Biosphere Profile & Seed Channels): push run 43248198129 SUCCESS; PR run 43248209627 SUCCESS. 1.681/1.681 passed, 638/638 regressions. 100% verde. 2026-11-12T11:31:00-04:00

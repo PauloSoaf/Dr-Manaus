@@ -1,25 +1,27 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `VIVO-01` (Sementes de Canal Ortogonais Determinísticas e Perfil de Biosfera Planetária)
-- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.681/1.681 testes vitest, 638/638 regressões, typecheck OK, build OK)
+- **Patch:** `VIVO-02` (Clima e Biomas Determinísticos por Coordenada e Habitat Planetário)
+- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.687/1.687 testes vitest, 638/638 regressões, typecheck 0 erros, build OK)
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-12T11:28:00-04:00
+- **Atualizado:** 2026-11-12T11:35:00-04:00
 
 ## Mudanças do Patch
-1. `src/world/life/PlanetaryBiosphere.ts`:
-   - Geração de canais de semente ortogonais independentes (`deriveSeedChannels`): `climateSeed`, `lifeSeed`, `floraSeed`, `faunaSeed`, `factionSeed` a partir do `bodyId` e `systemSeed`.
-   - Perfil de biosfera determinístico (`generatePlanetaryBiosphere` / `PlanetaryBiosphereProfile`):
-     - Habitabilidade (`habitabilityScore` 0-1) e tiers de vida (`sterile`, `microbial`, `vegetative`, `fauna`, `civilized`).
-     - Bioquímica de base (`carbon`, `silicon`, `ammonia`, `methane-solvent`, `prebiotic-none`).
-     - Perfis canônicos para corpos do Sistema Solar (Terra, Marte, Titã, Lua, Mercúrio, Vênus, Sol) e classificação paramétrica para qualquer corpo procedural.
-2. `src/world/celestial/CelestialBodyProfile.ts`:
-   - Adicionada propriedade opcional `biosphere?: PlanetaryBiosphereProfile` em `WorldEnvironment`.
-   - `bodyProfile()` resolve deterministicamente o perfil de biosfera para qualquer corpo celeste com ambiente.
-3. `src/world/celestial/SystemGenerator.ts`:
-   - Estrela central, planetas e luas procedurais recebem profiles com `biosphere` sem alterar o fluxo PRNG do gerador orbital.
-4. `src/world/exploration/CosmicAtlasModel.ts`:
-   - Cache de metadados planetários (`bodyMetadataCache`) e entradas de consulta (`CosmicAtlasEntry`) expõem `biosphere`.
-5. `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` & `specs/universo-vivo/01-BIOSPHERE-AND-SEEDS.md`:
-   - Especificação e roadmap completo da expansão Universo Vivo.
-6. `tests/planetary-biosphere-profile.test.ts`:
-   - 5 testes cobrindo derivação determinística e ortogonal de canais, perfis canônicos (Terra habitável, Lua estéril, Titã microbiana com solvente de metano), classificação procedural, e imutabilidade do stream PRNG estelar/planetário.
+1. `src/world/life/PlanetaryBiomeService.ts`:
+   - Serviço autoritativo de clima e classificação contínua de biomas planetários (`PlanetaryBiomeService`).
+   - Termodinâmica determinística:
+     - Gradiente latitudinal de insolação (equador mais quente, polos mais frios com queda de 35K a 80K).
+     - Gradiente adiabático de altitude ($\approx 6.5\text{ K/km}$ escalonado pela pressão atmosférica).
+     - Perturbação trigonométrica harmônica contínua livre de descontinuidades baseada em `climateSeed`.
+   - Modelo de precipitação/umidade latitudinal (máximo equatorial ITCZ, cinturão árido subtropical a $\pm 25^\circ$, tempestades temperadas e secura polar).
+   - Taxonomia de 25 biomas distribuídos entre marinhos (`deep-abyss`, `oceanic-shelf`, `coastal-waters`, `methane-sea`, `ammonia-basin`), estéreis/vácuo (`barren-rock`, `cratered-highlands`, `basalt-plains`, `vacuum-dust`, `extreme-cryo-ice`), hostis/vulcânicos (`magma-fields`, `sulfuric-wastes`, `scorched-crags`, `crystal-desert`), criogênicos (`tholin-plateaus`, `cryo-dunes`, `nitrogen-plains`) e vivos (`alien-rainforest`, `fungal-canopy`, `bioluminescent-wetlands`, `temperate-woodland`, `savanna-steppe`, `alien-taiga`, `subpolar-lichen`, `glacial-cap`).
+   - Paletas de cores hexadecimais para terreno, rocha, folhagem e líquidos, além de densidade de vegetação e arquétipo de flora.
+2. `src/world/planet/PlanetSurface.ts`:
+   - Adicionado método opcional `biomeAt?(direction: Vec3): PlanetaryBiomeSample` em `PlanetSurfaceGenerator`.
+3. `src/world/planet/ProceduralPlanetSurface.ts`:
+   - Integração de amostragem de bioma por direção geocêntrica em `createProceduralPlanetSurface`.
+4. `specs/universo-vivo/02-BIOMES-AND-CLIMATE.md`:
+   - Especificação técnica completa de clima e biomas por habitat.
+5. `tests/planetary-biome-service.test.ts`:
+   - Suíte de 6 testes unitários cobrindo determinismo, gradientes térmicos de latitude/altitude, estratificação marinha batimétrica, mundos estéreis, mundos criogênicos de metano (Titã), matriz de Whittaker e integração direta na superfície procedural.
+6. `docs/autonomous-development/CI-HISTORY.md` & `SPEC-MASTER-TRACKER.md`:
+   - Registrado CI aprovado para VIVO-01 (`eaeab77`, 1.681 testes) e status `IMPLEMENTED` para VIVO-02.

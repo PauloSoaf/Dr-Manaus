@@ -3,6 +3,7 @@ import type { PlanetBody } from './PlanetBody';
 import type { PlanetSurfaceGenerator } from './PlanetSurface';
 import type { CelestialBody } from '../celestial/CelestialBody';
 import type { CelestialBodyProfile, WorldClassification } from '../celestial/CelestialBodyProfile';
+import { PlanetaryBiomeService, type PlanetaryBiomeSample } from '../life/PlanetaryBiomeService';
 
 /**
  * Deterministic procedural surface generator for procedural rocky and icy bodies.
@@ -395,6 +396,20 @@ export function createProceduralPlanetSurface(
     return proceduralNormalEnu(heightAt, radiusM, direction, out);
   };
 
+  const biosphere = profile.environment?.biosphere;
+  const biomeAt = biosphere ? (direction: Vec3): PlanetaryBiomeSample => {
+    const latRad = Math.asin(Math.max(-1, Math.min(1, direction[2])));
+    const lonRad = Math.atan2(direction[1], direction[0]);
+    const h = heightAt(direction);
+    return PlanetaryBiomeService.sampleBiome({
+      biosphere,
+      latRad,
+      lonRad,
+      altitudeM: h,
+      seaLevelM: 0,
+    });
+  } : undefined;
+
   return {
     body: model,
     radiusM,
@@ -403,5 +418,6 @@ export function createProceduralPlanetSurface(
     heightAt,
     normalEnu,
     colourAt,
+    biomeAt,
   };
 }
