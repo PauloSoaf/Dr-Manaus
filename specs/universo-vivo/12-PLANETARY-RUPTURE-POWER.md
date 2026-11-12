@@ -66,3 +66,4 @@ O subsistema possui cobertura completa em `tests/planet-rupture-power.test.ts`:
 - `T_RUPTURE_03_SAVE_PERSISTENCE`: Idempotência e persistência via `SaveManager`.
 - `T_RUPTURE_04_PLANETARY_RECONSTRUCTION`: Limpeza integral de edições CSG volumétricas e restauração via poder `reconstruct`.
 - `T_RUPTURE_05_MINOR_BODY_DISRUPTION_AND_RESTORATION`: Ciclo de vida completo para corpos celestes menores.
+

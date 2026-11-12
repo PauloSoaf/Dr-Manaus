@@ -1,33 +1,20 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `VIVO-12 / VIVO-13 / VIVO-14` (Ruptura Planetária Catastrófica, Cinturão de Destroços e Reconstrução Cósmica)
-- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.716/1.716 testes unitários, 638/638 regressões, typecheck 0 erros, build OK)
+- **Patch:** `VIVO-07` (IA Ecológica Avançada: Predação, Manadas Flocking, Pirâmide Trófica e Alarme Coletivo)
+- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.721/1.721 testes unitários, 638/638 regressões, typecheck 0 erros, build OK)
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-12T12:39:00-04:00
+- **Atualizado:** 2026-11-12T12:50:00-04:00
 
 ## Mudanças do Patch
-1. `src/player/powers/PowerSystem.ts`:
-   - Adicionada habilidade `planetRupture` com atalho de teclado `Digit9` e dock no HUD.
-   - Adicionado mecanismo de acúmulo de carga de 2,5s com intensificação procedural de tremor e aura antes do impacto cósmico ($10^{28}\text{ J}$).
-   - Integrada a reconstrução cósmica (`reconstruct`, tecla `R`) ao ciclo de vida planetário, acionando o hook `restoreBody` para desfazer rupturas planetárias e disrupções de corpos menores.
-2. `src/world/destruction/MacroBodyFractureService.ts`:
-   - Adicionado método `rupturePlanet(bodyId, energyJoules)` esculpindo cavidade primária e 5 calotas de fissura ortogonais e antípodas através de CSG no `PlanetVolumeEditStore`.
-   - Adicionado anel de destroços keplerianos (`CelestialDebrisRing`) com 16 fragmentos discretos.
-   - Adicionado método `restorePlanet(bodyId)` expurgando todas as edições volumétricas subtrativas e restaurando o estado do planeta.
-   - Adicionados métodos de consulta `isBodyFracturedOrRuptured(bodyId)` e `getPlan(bodyId)`.
-3. `src/world/destruction/MinorBodyDisruptionService.ts`:
-   - Adicionado método `restoreBody(bodyId)` desfazendo a disrupção e limpando o enxame de asteroides do corpo menor.
-   - Adicionados métodos de consulta `isBodyDisrupted(bodyId)` e `getPlan(bodyId)`.
-4. `src/core/SaveManager.ts`:
-   - Adicionado campo `rupturedBodies?: string[]` a `SaveData`.
-   - Implementadas operações idempotentes `isBodyRuptured`, `recordBodyRupture` e `recordBodyRestoration` com persistência automática.
-5. `src/game/Game.ts`:
-   - Conectados hooks `planetRupture`, `restoreBody` e `getActiveBodyId` ao `PowerSystem`.
-   - Restaurado o estado de corpos rompidos no `initialize()` a partir do `save.data.rupturedBodies`.
-   - Adicionada métrica `'UNIVERSO VIVO · Corpos Rupturados'` aos relatórios de telemetria e HUD F3.
-6. `src/ui/icons.ts`:
-   - Adicionado ícone e atalho visual de Ruptura Planetária (`planetRupture`) ao dock de superpoderes.
-7. `specs/universo-vivo/12-PLANETARY-RUPTURE-POWER.md`:
-   - Especificação técnica consolidada para destruição e reconstrução de escala cósmica.
-8. `tests/planet-rupture-power.test.ts`:
-   - Suíte de 5 testes unitários cobrindo o acionamento do poder, calotas ortogonais, persistência no `SaveManager`, restauração planetária e disrupção/restauração de corpos menores.
+1. `src/world/life/AlienFaunaManager.ts`:
+   - Adicionado tipo `EcologicalRole = 'herbivore' | 'carnivore' | 'scavenger' | 'apex'`.
+   - Implementada distribuição trófica determinística em mundos complexos ($\sim 75\%$ herbívoros, $\sim 25\%$ predadores/apex).
+   - Implementado ciclo de predação autônomo: predadores escaneiam presas herbívoras ($< 35\text{ m}$), perseguem em alta velocidade ($1.5\times$), desferem mordidas em raio de combate ($< 2.8\text{ m}$) e entram em repouso após se alimentarem.
+   - Implementada dinâmica de manadas (flocking tangencial) com repulsão $< 3.5\text{ m}$ para evitar sobreposição e coesão de direção ao centro de massa do grupo.
+   - Implementado sistema de alarme coletivo (`alertNearbyHerd`): ataques de predadores ou do Dr-Manaus transmitem choque sísmico/acústico dispersando herbívoros em debandada (`fleeing`).
+   - Introduzido gerador pseudo-aleatório estritamente determinístico `hashFauna(seed, index, tick)` para decisões e rotinas de patrulha.
+   - Atualizado sombreamento de instâncias com paletas biológicas distintas: herbívoros calmos `#5f755a`, em fuga `#c48256`, predadores `#7d3a3a`, em caça `#d44030`, e predadores apex `#4a2c5a` / `#bf3060`.
+2. `specs/universo-vivo/07-ECOLOGICAL-AI-AND-HERDS.md`:
+   - Especificação técnica completa de IA trófica, flocking, predação e propagação de alarme.
+3. `tests/alien-fauna-ecological-ai.test.ts`:
+   - 5 novos testes unitários validando pirâmide trófica, perseguição e mordida predatória, propagação de alarme, repulsão de manada e determinismo exato.

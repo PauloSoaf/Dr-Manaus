@@ -38,14 +38,18 @@ export type CreatureBehaviorState =
   | 'knocked'
   | 'defeated';
 
+export type EcologicalRole = 'herbivore' | 'carnivore' | 'scavenger' | 'apex';
+
 export interface CreatureEntity extends Target {
   id: string;
   readonly index: number;
   morphology: DominantFaunaType;
+  role: EcologicalRole;
   readonly base: Vector3;
   readonly position: Vector3;
   readonly velocity: Vector3;
   readonly targetPos: Vector3;
+  targetCreatureId: string | null;
   headingRad: number;
   state: CreatureBehaviorState;
   health: number;
@@ -63,6 +67,19 @@ function safeMerge(geos: BufferGeometry[]): BufferGeometry {
     if (!geos.includes(g)) g.dispose();
   }
   return merged ?? new BoxGeometry(1, 1, 1);
+}
+
+/**
+ * Deterministic pseudo-random hash generator for fauna behavior.
+ */
+function hashFauna(seed: number, index: number, salt: number): number {
+  let h = (seed ^ (index * 0x65d63f7b) ^ (salt * 0x517cc1b7)) >>> 0;
+  h ^= h >>> 16;
+  h = Math.imul(h, 0x517cc1b7);
+  h ^= h >>> 13;
+  h = Math.imul(h, 0xa5a7c293);
+  h ^= h >>> 16;
+  return (h >>> 0) / 0xffffffff;
 }
 
 /**
@@ -179,10 +196,12 @@ export class AlienFaunaManager {
         index: i,
         kind: 'creature',
         morphology: 'chitinous-quadrupeds',
+        role: 'herbivore',
         base: new Vector3(),
         position: new Vector3(),
         velocity: new Vector3(),
         targetPos: new Vector3(),
+        targetCreatureId: null,
         headingRad: 0,
         radius: 1.5,
         active: false,
@@ -232,7 +251,7 @@ export class AlienFaunaManager {
     const isAiTick = this.aiTickAccumulator >= FAUNA_AI_TICK_SEC;
     if (isAiTick) {
       this.aiTickAccumulator = 0;
-      this.updateAI(playerPos);
+      this.updateAI(playerPos, biosphere.seeds.faunaSeed);
     }
 
     // 2. Continuous Physics & Transform Integration (60 FPS)
@@ -282,11 +301,46 @@ export class AlienFaunaManager {
       const dir: Vec3 = [this.dirVec.x, this.dirVec.y, this.dirVec.z];
       const terrainHeight = surface.heightAt(dir);
 
-      const isAirborne = dominantMorph === 'avian-gliders';
+      // Assign morphology and ecological role based on planetary biosphere complexity
+      let morph = dominantMorph;
+      let role: EcologicalRole = 'herbivore';
+      let speed = 4.5;
+      let maxHealth = 120;
+      let radius = 1.5;
+
+      if (biosphere.lifeTier === 'civilized' || (biosphere.lifeTier === 'fauna' && biosphere.habitabilityScore > 0.6)) {
+        if (i > 0 && i % 4 === 0) {
+          morph = 'bipedal-predators';
+          role = (i % 8 === 0) ? 'apex' : 'carnivore';
+          speed = role === 'apex' ? 7.5 : 6.0;
+          maxHealth = role === 'apex' ? 200 : 150;
+          radius = role === 'apex' ? 2.0 : 1.6;
+        } else if (dominantMorph === 'bipedal-predators') {
+          morph = i % 2 === 0 ? 'chitinous-quadrupeds' : 'amphibious-crawlers';
+          role = 'herbivore';
+          speed = 4.5;
+          maxHealth = 110;
+        } else {
+          morph = dominantMorph;
+          role = 'herbivore';
+          speed = dominantMorph === 'avian-gliders' ? 12.0 : 4.5;
+          maxHealth = dominantMorph === 'avian-gliders' ? 60 : 120;
+        }
+      } else {
+        morph = dominantMorph;
+        role = dominantMorph === 'bipedal-predators' ? 'carnivore' : 'herbivore';
+        speed = dominantMorph === 'avian-gliders' ? 12.0 : (dominantMorph === 'bipedal-predators' ? 6.0 : 4.5);
+        maxHealth = dominantMorph === 'avian-gliders' ? 60 : 120;
+      }
+
+      const isAirborne = morph === 'avian-gliders';
       const altitude = isAirborne ? terrainHeight + 15 : terrainHeight;
 
       creature.id = instanceId;
-      creature.morphology = dominantMorph;
+      creature.morphology = morph;
+      creature.role = role;
+      creature.radius = radius;
+      creature.targetCreatureId = null;
       creature.base.set(spawnX, terrainHeight, spawnZ);
       creature.position.set(spawnX, altitude, spawnZ);
       creature.targetPos.copy(creature.position);
@@ -294,60 +348,203 @@ export class AlienFaunaManager {
       creature.headingRad = angle + Math.PI;
       creature.active = true;
       creature.state = 'idle';
-      creature.health = creature.maxHealth = isAirborne ? 60 : 120;
+      creature.health = creature.maxHealth = maxHealth;
       creature.timer = 1.0 + (i % 3);
       creature.isAirborne = isAirborne;
-      creature.speedMps = isAirborne ? 12.0 : 4.5;
+      creature.speedMps = speed;
     }
   }
 
-  private updateAI(playerPos: Vector3): void {
-    for (const c of this.creatures) {
-      if (!c.active || c.state === 'defeated') continue;
+  private aiTickCount = 0;
+
+  private updateAI(playerPos: Vector3, faunaSeed = 1337): void {
+    this.aiTickCount++;
+    const activeCreatures = this.creatures.filter(c => c.active && c.state !== 'defeated');
+
+    for (const c of activeCreatures) {
+      if (c.state === 'knocked') {
+        c.timer -= FAUNA_AI_TICK_SEC;
+        if (c.timer <= 0 && c.velocity.lengthSq() < 1.0) {
+          c.state = 'fleeing';
+          c.timer = 5.0;
+        }
+        continue;
+      }
 
       const distToPlayer = c.position.distanceTo(playerPos);
 
-      // React to player proximity: flee if player approaches rapidly or gets within 20m
-      if (c.state !== 'knocked') {
-        if (distToPlayer < 22) {
-          c.state = 'fleeing';
-          // Move away from player
-          this.moveDir.subVectors(c.position, playerPos).normalize();
-          c.targetPos.copy(c.position).addScaledVector(this.moveDir, 35);
-          c.timer = 4.0;
-        } else if (c.state === 'fleeing') {
+      // 1. Reaction to Dr-Manaus
+      if (distToPlayer < 22) {
+        c.state = 'fleeing';
+        this.moveDir.subVectors(c.position, playerPos).normalize();
+        c.targetPos.copy(c.position).addScaledVector(this.moveDir, 35);
+        c.timer = 4.0;
+        this.alertNearbyHerd(c.position, 25);
+        continue;
+      }
+
+      // 2. Predator / Carnivore AI
+      if (c.role === 'carnivore' || c.role === 'apex') {
+        if (c.state === 'aggressive' && c.targetCreatureId) {
+          const prey = activeCreatures.find(other => other.id === c.targetCreatureId && other.active && other.state !== 'defeated');
+          if (prey) {
+            const distToPrey = c.position.distanceTo(prey.position);
+            c.targetPos.copy(prey.position);
+            c.timer -= FAUNA_AI_TICK_SEC;
+
+            if (distToPrey < 2.8) {
+              // Predator attack strike
+              const biteDamage = c.role === 'apex' ? 65 : 40;
+              prey.health -= biteDamage;
+              prey.state = 'knocked';
+              prey.timer = 1.5;
+              prey.velocity.set(0, 4.0, 0);
+              this.alertNearbyHerd(prey.position, 25);
+
+              if (prey.health <= 0) {
+                prey.health = 0;
+                prey.state = 'defeated';
+                prey.active = false;
+                this.defeatedIds.add(prey.id);
+              }
+              // Meal finished: rest
+              c.state = 'idle';
+              c.timer = 5.0;
+              c.targetCreatureId = null;
+            } else if (c.timer <= 0 || distToPrey > 50) {
+              // Lost track
+              c.state = 'idle';
+              c.timer = 3.0;
+              c.targetCreatureId = null;
+            }
+          } else {
+            c.state = 'idle';
+            c.timer = 2.0;
+            c.targetCreatureId = null;
+          }
+          continue;
+        } else if (c.state === 'idle' || c.state === 'patrolling') {
+          // Scan for nearest active herbivore within 35m
+          let closestPrey: CreatureEntity | null = null;
+          let closestDist = 35;
+          for (const other of activeCreatures) {
+            if (other.role === 'herbivore' && other.state !== 'knocked') {
+              const d = c.position.distanceTo(other.position);
+              if (d < closestDist) {
+                closestDist = d;
+                closestPrey = other;
+              }
+            }
+          }
+
+          if (closestPrey) {
+            c.state = 'aggressive';
+            c.targetCreatureId = closestPrey.id;
+            c.targetPos.copy(closestPrey.position);
+            c.timer = 6.0;
+            continue;
+          }
+        }
+      }
+
+      // 3. Herbivore Herd / Flocking AI
+      if (c.role === 'herbivore') {
+        if (c.state === 'fleeing') {
           c.timer -= FAUNA_AI_TICK_SEC;
           if (c.timer <= 0) {
             c.state = 'idle';
             c.timer = 2.0;
           }
-        } else if (c.state === 'idle') {
-          c.timer -= FAUNA_AI_TICK_SEC;
-          if (c.timer <= 0) {
-            // Pick new wandering waypoint within 20m of base
-            c.state = 'patrolling';
-            const wanderAngle = Math.random() * Math.PI * 2;
-            const wanderDist = 10 + Math.random() * 20;
-            c.targetPos.set(
-              c.base.x + Math.cos(wanderAngle) * wanderDist,
-              c.position.y,
-              c.base.z + Math.sin(wanderAngle) * wanderDist,
-            );
-            c.timer = 5.0;
-          }
-        } else if (c.state === 'patrolling') {
-          c.timer -= FAUNA_AI_TICK_SEC;
-          if (c.position.distanceTo(c.targetPos) < 2.5 || c.timer <= 0) {
-            c.state = 'idle';
-            c.timer = 2.0 + Math.random() * 3.0;
+          continue;
+        }
+
+        // Check flock neighbors within 18m
+        let flockCenterX = 0;
+        let flockCenterZ = 0;
+        let flockCount = 0;
+        let separationX = 0;
+        let separationZ = 0;
+
+        for (const other of activeCreatures) {
+          if (other.id !== c.id && other.role === 'herbivore' && other.morphology === c.morphology) {
+            const dx = other.position.x - c.position.x;
+            const dz = other.position.z - c.position.z;
+            const d = Math.hypot(dx, dz);
+
+            if (d < 18) {
+              flockCenterX += other.position.x;
+              flockCenterZ += other.position.z;
+              flockCount++;
+
+              if (d < 3.5 && d > 0.001) {
+                separationX -= (dx / d) * (3.5 - d);
+                separationZ -= (dz / d) * (3.5 - d);
+              }
+            }
           }
         }
-      } else {
-        // Knocked recovery countdown
+
+        // Apply separation nudge
+        if (separationX !== 0 || separationZ !== 0) {
+          c.position.x += separationX * 0.15;
+          c.position.z += separationZ * 0.15;
+        }
+
+        // Herd cohesion when patrolling
+        if (flockCount > 0 && c.state === 'patrolling') {
+          const avgX = flockCenterX / flockCount;
+          const avgZ = flockCenterZ / flockCount;
+          c.targetPos.x = c.targetPos.x * 0.7 + avgX * 0.3;
+          c.targetPos.z = c.targetPos.z * 0.7 + avgZ * 0.3;
+        }
+      }
+
+      // 4. Default wandering / state transitions
+      if (c.state === 'fleeing') {
         c.timer -= FAUNA_AI_TICK_SEC;
-        if (c.timer <= 0 && c.velocity.lengthSq() < 1.0) {
-          c.state = 'fleeing';
+        if (c.timer <= 0) {
+          c.state = 'idle';
+          c.timer = 2.0;
+        }
+      } else if (c.state === 'idle') {
+        c.timer -= FAUNA_AI_TICK_SEC;
+        if (c.timer <= 0) {
+          c.state = 'patrolling';
+          const h1 = hashFauna(faunaSeed, c.index, this.aiTickCount * 3 + 1);
+          const h2 = hashFauna(faunaSeed, c.index, this.aiTickCount * 3 + 2);
+          const wanderAngle = h1 * Math.PI * 2;
+          const wanderDist = 10 + h2 * 20;
+          c.targetPos.set(
+            c.base.x + Math.cos(wanderAngle) * wanderDist,
+            c.position.y,
+            c.base.z + Math.sin(wanderAngle) * wanderDist,
+          );
           c.timer = 5.0;
+        }
+      } else if (c.state === 'patrolling') {
+        c.timer -= FAUNA_AI_TICK_SEC;
+        if (c.position.distanceTo(c.targetPos) < 2.5 || c.timer <= 0) {
+          c.state = 'idle';
+          const h3 = hashFauna(faunaSeed, c.index, this.aiTickCount * 3 + 3);
+          c.timer = 2.0 + h3 * 3.0;
+        }
+      }
+    }
+  }
+
+  private alertNearbyHerd(origin: Vector3, alertRadiusM: number): void {
+    const rSq = alertRadiusM * alertRadiusM;
+    for (const other of this.creatures) {
+      if (!other.active || other.state === 'defeated' || other.state === 'knocked') continue;
+      if (other.role === 'herbivore' && other.state !== 'fleeing') {
+        if (other.position.distanceToSquared(origin) <= rSq) {
+          other.state = 'fleeing';
+          this.moveDir.subVectors(other.position, origin);
+          this.moveDir.y = 0;
+          if (this.moveDir.lengthSq() < 0.001) this.moveDir.set(1, 0, 0);
+          else this.moveDir.normalize();
+          other.targetPos.copy(other.position).addScaledVector(this.moveDir, 30);
+          other.timer = 4.0;
         }
       }
     }
@@ -375,7 +572,7 @@ export class AlienFaunaManager {
           c.position.y = terrainH;
           c.velocity.set(0, 0, 0);
         }
-      } else if (c.state === 'patrolling' || c.state === 'fleeing') {
+      } else if (c.state === 'patrolling' || c.state === 'fleeing' || c.state === 'aggressive') {
         // Steer towards target position
         this.moveDir.subVectors(c.targetPos, c.position);
         this.moveDir.y = 0;
@@ -386,7 +583,8 @@ export class AlienFaunaManager {
           const targetHeading = Math.atan2(this.moveDir.x, this.moveDir.z);
           c.headingRad = targetHeading;
 
-          const currentSpeed = c.state === 'fleeing' ? c.speedMps * 2.0 : c.speedMps;
+          const speedMultiplier = c.state === 'fleeing' ? 2.0 : (c.state === 'aggressive' ? 1.5 : 1.0);
+          const currentSpeed = c.speedMps * speedMultiplier;
           c.position.addScaledVector(this.moveDir, currentSpeed * dt);
         }
 
@@ -435,11 +633,15 @@ export class AlienFaunaManager {
 
       mesh.setMatrixAt(idx, this.dummy.matrix);
 
-      // Color coding by state / morph
-      if (c.state === 'fleeing') {
-        this.color.set('#c48256'); // startled orange-brown
-      } else if (c.state === 'knocked') {
+      // Color coding by state / role / morph
+      if (c.state === 'knocked') {
         this.color.set('#9c4545'); // damaged reddish
+      } else if (c.role === 'apex') {
+        this.color.set(c.state === 'aggressive' ? '#bf3060' : '#4a2c5a');
+      } else if (c.role === 'carnivore') {
+        this.color.set(c.state === 'aggressive' ? '#d44030' : '#7d3a3a');
+      } else if (c.state === 'fleeing') {
+        this.color.set('#c48256'); // startled orange-brown
       } else {
         this.color.set('#5f755a'); // natural muted green-gray
       }
@@ -490,6 +692,7 @@ export class AlienFaunaManager {
         (Math.random() - 0.5) * force * 0.15,
       );
     }
+    this.alertNearbyHerd(creature.position, 30);
     return true;
   }
 
@@ -532,6 +735,7 @@ export class AlienFaunaManager {
         }
       }
     }
+    if (affected > 0) this.alertNearbyHerd(center, radiusM + 15);
     return affected;
   }
 
