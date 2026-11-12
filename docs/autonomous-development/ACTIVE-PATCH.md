@@ -1,24 +1,25 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `D5` (Ruptura Catastrófica de Corpos Menores, Energia de Ligação Gravitacional e Dispersão de Enxame de Asteroides)
-- **Status:** APROVADO EM CI REMOTO (Runs #43094667147 push / #43094679407 PR, 1.676/1.676 testes, 638/638 regressões, 100% verde)
+- **Patch:** `VIVO-01` (Sementes de Canal Ortogonais Determinísticas e Perfil de Biosfera Planetária)
+- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.681/1.681 testes vitest, 638/638 regressões, typecheck OK, build OK)
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-11T16:13:00-04:00
+- **Atualizado:** 2026-11-12T11:28:00-04:00
 
 ## Mudanças do Patch
-1. `src/world/destruction/MinorBodyDisruptionService.ts`:
-   - Serviço autoritativo de ruptura catastrófica de corpos menores astronômicos (`MinorBodyDisruptionService`).
-   - Cálculo exato de energia de ligação auto-gravitacional $U = \frac{3}{5}\frac{GM^2}{R}$ e limiar dinâmico de dispersão catastrófica $Q_D^* \cdot M = U + M \cdot q_{\text{strength}}$ ($q_{\text{strength}} = 100\text{ kJ/kg}$).
-   - Classificação estrita de imunidade: corpos maiores ($R > 500\text{ km}$, e.g. Terra, Lua, Marte, gigantes gasosos) são protegidos contra desintegração total, exigindo escavação ou fratura (D2/D3/D4).
-   - Conversão de energia cinética excedente em velocidade de dispersão isotrópica/impulsiva de enxame de escombros ($v_{\text{disp}} = \sqrt{2(E - E_{\text{thresh}})/M}$).
-   - Geração de aglomerado de asteroides (`AsteroidFieldCluster`) com 32 fragmentos em órbitas Keplerianas heliocêntricas determinísticas e distribuição de massa em lei de potência $N(r) \propto r^{-2.8}$.
-   - Transição de estado de ciclo de vida do corpo para `'DISRUPTED'`.
-2. `src/player/powers/PowerSystem.ts`:
-   - Adicionado hook de poderes `disruptMinorBody(bodyId, energyJoules)` em `PowerHooks`.
-3. `src/game/Game.ts`:
-   - Instanciado `MinorBodyDisruptionService` acoplado ao `PlanetVolumeEditStore` e catálogo de corpos do sistema ativo.
-   - Conexão do hook `disruptMinorBody` no `PowerSystem` e métricas de corpos destruídos em `universeDebug()`.
-4. `tests/minor-body-disruption-service.test.ts`:
-   - Suíte de 5 testes unitários validando cálculo de energia de ligação, imunidade garantida de grandes corpos, corte por limiar energético, geração de enxame orbital com conservação de massa e isolamento multicorpo.
-5. `docs/autonomous-development/SPEC-MASTER-TRACKER.md`:
-   - Atualizado status de `DEST-07` (D5) para `IMPLEMENTED`.
+1. `src/world/life/PlanetaryBiosphere.ts`:
+   - Geração de canais de semente ortogonais independentes (`deriveSeedChannels`): `climateSeed`, `lifeSeed`, `floraSeed`, `faunaSeed`, `factionSeed` a partir do `bodyId` e `systemSeed`.
+   - Perfil de biosfera determinístico (`generatePlanetaryBiosphere` / `PlanetaryBiosphereProfile`):
+     - Habitabilidade (`habitabilityScore` 0-1) e tiers de vida (`sterile`, `microbial`, `vegetative`, `fauna`, `civilized`).
+     - Bioquímica de base (`carbon`, `silicon`, `ammonia`, `methane-solvent`, `prebiotic-none`).
+     - Perfis canônicos para corpos do Sistema Solar (Terra, Marte, Titã, Lua, Mercúrio, Vênus, Sol) e classificação paramétrica para qualquer corpo procedural.
+2. `src/world/celestial/CelestialBodyProfile.ts`:
+   - Adicionada propriedade opcional `biosphere?: PlanetaryBiosphereProfile` em `WorldEnvironment`.
+   - `bodyProfile()` resolve deterministicamente o perfil de biosfera para qualquer corpo celeste com ambiente.
+3. `src/world/celestial/SystemGenerator.ts`:
+   - Estrela central, planetas e luas procedurais recebem profiles com `biosphere` sem alterar o fluxo PRNG do gerador orbital.
+4. `src/world/exploration/CosmicAtlasModel.ts`:
+   - Cache de metadados planetários (`bodyMetadataCache`) e entradas de consulta (`CosmicAtlasEntry`) expõem `biosphere`.
+5. `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` & `specs/universo-vivo/01-BIOSPHERE-AND-SEEDS.md`:
+   - Especificação e roadmap completo da expansão Universo Vivo.
+6. `tests/planetary-biosphere-profile.test.ts`:
+   - 5 testes cobrindo derivação determinística e ortogonal de canais, perfis canônicos (Terra habitável, Lua estéril, Titã microbiana com solvente de metano), classificação procedural, e imutabilidade do stream PRNG estelar/planetário.

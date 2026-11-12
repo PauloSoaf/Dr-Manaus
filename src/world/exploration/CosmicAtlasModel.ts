@@ -70,6 +70,7 @@ export interface CosmicAtlasEntry {
   readonly landingMode?: 'none' | 'surface' | 'photosphere';
   readonly temperatureK?: number;
   readonly hasRings?: boolean;
+  readonly biosphere?: import('../life/PlanetaryBiosphere').PlanetaryBiosphereProfile;
 }
 
 export interface ExplorationHistoryEvent {
@@ -122,6 +123,7 @@ export class CosmicAtlasModel {
     landingMode?: 'none' | 'surface' | 'photosphere';
     temperatureK?: number;
     hasRings?: boolean;
+    biosphere?: import('../life/PlanetaryBiosphere').PlanetaryBiosphereProfile;
   }>();
   private cachedTargetMap: Map<string, UniversalTargetDescriptor> | null = null;
 
@@ -376,6 +378,7 @@ export class CosmicAtlasModel {
                     landingMode: body.profile.landingMode,
                     temperatureK: body.profile.environment?.temperatureK,
                     hasRings: !!body.profile.visual.rings || !!body.profile.environment?.hasRings,
+                    biosphere: body.profile.environment?.biosphere,
                   });
                 }
               }
@@ -424,6 +427,7 @@ export class CosmicAtlasModel {
     landingMode?: 'none' | 'surface' | 'photosphere';
     temperatureK?: number;
     hasRings?: boolean;
+    biosphere?: import('../life/PlanetaryBiosphere').PlanetaryBiosphereProfile;
   } {
     const key = universalTargetKey(desc);
     const cached = this.bodyMetadataCache.get(key);
@@ -434,6 +438,7 @@ export class CosmicAtlasModel {
     let landingModeBody: 'none' | 'surface' | 'photosphere' | undefined;
     let temperatureK: number | undefined;
     let hasRings: boolean | undefined;
+    let biosphere: import('../life/PlanetaryBiosphere').PlanetaryBiosphereProfile | undefined;
 
     const solar = desc.bodyId ? SOLAR_BODY_PROFILES[desc.bodyId] : (desc.objectId in SOLAR_BODY_PROFILES ? SOLAR_BODY_PROFILES[desc.objectId] : undefined);
     if (solar) {
@@ -442,6 +447,7 @@ export class CosmicAtlasModel {
       landingModeBody = solar.landingMode;
       temperatureK = solar.environment?.temperatureK;
       hasRings = !!solar.visual.rings || !!solar.environment?.hasRings;
+      biosphere = solar.environment?.biosphere;
     } else if (desc.address && 'sector' in desc.address && desc.address.systemId) {
       const p = this.catalog.proceduralDescriptor(desc.address.galaxyId, desc.address.sector, desc.address.systemId);
       const cand = p?.system.bodies.find(b => b.id === (desc.bodyId ?? desc.objectId));
@@ -451,6 +457,7 @@ export class CosmicAtlasModel {
         landingModeBody = cand.profile.landingMode;
         temperatureK = cand.profile.environment?.temperatureK;
         hasRings = !!cand.profile.visual.rings || !!cand.profile.environment?.hasRings;
+        biosphere = cand.profile.environment?.biosphere;
       }
     }
 
@@ -460,6 +467,7 @@ export class CosmicAtlasModel {
       landingMode: landingModeBody,
       temperatureK,
       hasRings,
+      biosphere,
     };
     this.bodyMetadataCache.set(key, meta);
     return meta;
@@ -713,6 +721,7 @@ export class CosmicAtlasModel {
       let landingModeBody: 'none' | 'surface' | 'photosphere' | undefined;
       let temperatureK: number | undefined;
       let hasRings: boolean | undefined;
+      let biosphere: import('../life/PlanetaryBiosphere').PlanetaryBiosphereProfile | undefined;
 
       if (desc.kind === 'body' || desc.kind === 'star') {
         const meta = this.getBodyMetadata(desc);
@@ -721,6 +730,7 @@ export class CosmicAtlasModel {
         landingModeBody = meta.landingMode;
         temperatureK = meta.temperatureK;
         hasRings = meta.hasRings;
+        biosphere = meta.biosphere;
       }
 
       // Query filter with short-circuit evaluation
@@ -787,6 +797,7 @@ export class CosmicAtlasModel {
         landingMode: landingModeBody,
         temperatureK,
         hasRings,
+        biosphere,
       };
 
       allEntries.push(entry);

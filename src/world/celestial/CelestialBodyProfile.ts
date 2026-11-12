@@ -1,4 +1,5 @@
 import type { CelestialBody } from './CelestialBody';
+import { generatePlanetaryBiosphere, type PlanetaryBiosphereProfile } from '../life/PlanetaryBiosphere';
 
 export interface BodyVisualProfile {
   readonly albedo: readonly [number, number, number];
@@ -41,6 +42,7 @@ export interface WorldEnvironment {
   readonly description: string;
   readonly atmosphericPressureAtm?: number;
   readonly hasRings?: boolean;
+  readonly biosphere?: PlanetaryBiosphereProfile;
 }
 
 /** Capabilities only. Physics and ephemerides remain owned by CelestialBody. */
@@ -157,13 +159,20 @@ export const PROCEDURAL_STAR_PROFILE: CelestialBodyProfile = {
 };
 
 export function bodyProfile(body: CelestialBody): CelestialBodyProfile {
+  let profile: CelestialBodyProfile;
   if (SOLAR_BODY_PROFILES[body.id]) {
-    return SOLAR_BODY_PROFILES[body.id];
+    profile = SOLAR_BODY_PROFILES[body.id];
+  } else if (body.profile) {
+    profile = body.profile;
+  } else {
+    profile = body.parentId ? UNKNOWN_PROFILE : PROCEDURAL_STAR_PROFILE;
   }
-  if (body.profile) {
-    return body.profile;
+
+  if (profile.environment && !profile.environment.biosphere) {
+    (profile.environment as { biosphere?: unknown }).biosphere = generatePlanetaryBiosphere(body, profile);
   }
-  return body.parentId ? UNKNOWN_PROFILE : PROCEDURAL_STAR_PROFILE;
+
+  return profile;
 }
 
 export type LandingSupportKind = 'none' | 'surface' | 'photosphere';

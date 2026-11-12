@@ -155,3 +155,20 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `CITY-01` | `05-manaus-migration.md` | Grafo viário de Manaus e navegação autônoma de veículos terrestres | P2 | `CI_VERIFIED` | `baseline` | `tests/regression/manaus.test.ts` |
 | `CITY-02` | `08-SUN-RENDERING-AND-LIGHTING.md` | Ciclo dia/noite e iluminação dinâmica com elevação solar precisa | P1 | `CI_VERIFIED` | `baseline` | `tests/regression/solar.test.ts` |
 | `CITY-03` | `WeatherSystem.ts` | Sistema de clima dinâmico e cobertura de chuva equatorial | P2 | `CI_VERIFIED` | `baseline` | `tests/regression/` |
+
+---
+
+### Módulo N — Universo Vivo: Biosferas, Biomas, Vida Alienígena e Destruição Cósmica
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `VIVO-01` | `specs/universo-vivo/01-BIOSPHERE-AND-SEEDS.md` | Sementes de canal ortogonais determinísticas e perfil de biosfera planetária (`PlanetaryBiosphereProfile`) | P0 | `IMPLEMENTED` | `HEAD` | `tests/planetary-biosphere-profile.test.ts` (5/5 pass) |
+| `VIVO-02` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Clima e biomas determinísticos por tile e habitat (`PlanetaryBiomeService`) | P0 | `PLANNED` | — | `tests/planetary-biome-service.test.ts` |
+| `VIVO-03` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Flora visual alienígena por instancing e LOD com descarte real (`AlienFloraRenderer`) | P1 | `PLANNED` | — | `tests/alien-flora-renderer.test.ts` |
+| `VIVO-04` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Fauna alienígena, taxonomia morfológica e spawn seguro (`AlienFaunaManager`) | P1 | `PLANNED` | — | `tests/alien-fauna-manager.test.ts` |
+| `VIVO-05` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Scanner cósmico de espécies e catálogo no Atlas | P1 | `PLANNED` | — | `tests/cosmic-species-scanner.test.ts` |
+| `VIVO-06` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Combate `PowerSystem` multi-domínio em planetas ativos | P0 | `PLANNED` | — | `tests/planetary-combat-integration.test.ts` |
+| `VIVO-10` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Teleporte universal transacional seguro entre planetas e galáxias com validação de física | P0 | `PLANNED` | — | `tests/universal-teleport-interplanetary.test.ts` |
+| `VIVO-12` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Poder cósmico `planetRupture` com seleção de alvo, charging e persistência de ruptura | P0 | `PLANNED` | — | `tests/planet-rupture-power.test.ts` |
+| `VIVO-13` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Fragmentação planetária física em macro-blocos e campo de escombros pós-ruptura | P0 | `PLANNED` | — | `tests/planet-rupture-fragmentation.test.ts` |
+| `VIVO-14` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Estado pós-ruptura consistente no Atlas, navegação, colisão e reconstrução explícita | P0 | `PLANNED` | — | `tests/planet-rupture-persistence.test.ts` |
+

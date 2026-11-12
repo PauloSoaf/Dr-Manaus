@@ -1,6 +1,7 @@
 import { circularOrbitRateRadS, GRAVITATIONAL_CONSTANT_SI, type CelestialBody } from './CelestialBody';
 import type { GeneratedStar } from './StarSector';
 import type { CelestialBodyProfile, WorldClassification, WorldEnvironment } from './CelestialBodyProfile';
+import { generatePlanetaryBiosphere } from '../life/PlanetaryBiosphere';
 
 export type { WorldClassification, WorldEnvironment };
 
@@ -127,7 +128,29 @@ export function generateSystem(starId: string, starSeed: bigint, properties: num
   const starAlbedo = stellarAlbedo(star.temperatureK, star.spectralClass);
   const starGlow = stellarSolarGlow(star.spectralClass, star.luminositySolar);
 
-  bodies.push({
+  const starProfile: CelestialBodyProfile = {
+    bodyClass: 'star',
+    hasSolidSurface: false,
+    canLand: false,
+    landingMode: 'none',
+    hasAtmosphere: false,
+    supportsVolumeDestruction: false,
+    surfaceKind: 'none',
+    visual: {
+      albedo: starAlbedo,
+      solarGlow: starGlow,
+      labelPriority: 10,
+    },
+    environment: {
+      classification: 'star',
+      label: `Estrela Classe ${star.spectralClass}`,
+      temperatureK: Math.round(star.temperatureK),
+      surfaceGravityMps2: calculateSurfaceGravityMps2(starMassKg, starRadiusM),
+      description: describeSpectralClass(star.spectralClass, star.temperatureK, star.luminositySolar),
+    },
+  };
+
+  const starBody: CelestialBody = {
     id: starId,
     name: starName,
     equatorialRadiusM: starRadiusM,
@@ -140,28 +163,14 @@ export function generateSystem(starId: string, starSeed: bigint, properties: num
       luminositySolar: star.luminositySolar,
       spectralClass: star.spectralClass,
     },
-    profile: {
-      bodyClass: 'star',
-      hasSolidSurface: false,
-      canLand: false,
-      landingMode: 'none',
-      hasAtmosphere: false,
-      supportsVolumeDestruction: false,
-      surfaceKind: 'none',
-      visual: {
-        albedo: starAlbedo,
-        solarGlow: starGlow,
-        labelPriority: 10,
-      },
-      environment: {
-        classification: 'star',
-        label: `Estrela Classe ${star.spectralClass}`,
-        temperatureK: Math.round(star.temperatureK),
-        surfaceGravityMps2: calculateSurfaceGravityMps2(starMassKg, starRadiusM),
-        description: describeSpectralClass(star.spectralClass, star.temperatureK, star.luminositySolar),
-      },
-    },
-  });
+    profile: starProfile,
+  };
+
+  if (starProfile.environment) {
+    (starProfile.environment as { biosphere?: unknown }).biosphere = generatePlanetaryBiosphere(starBody, starProfile, starSeed);
+  }
+
+  bodies.push(starBody);
 
   let currentOrbitM = Math.max(5e10, starRadiusM * 12);
 
@@ -352,7 +361,7 @@ export function generateSystem(starId: string, starSeed: bigint, properties: num
       };
     }
 
-    bodies.push({
+    const planetBody: CelestialBody = {
       id: planetId,
       name: planetName,
       parentId: starId,
@@ -368,7 +377,13 @@ export function generateSystem(starId: string, starSeed: bigint, properties: num
         angularRateRadS: circularOrbitRateRadS(currentOrbitM, starMassKg),
         inclinationRad,
       },
-    });
+    };
+
+    if (profile.environment) {
+      (profile.environment as { biosphere?: unknown }).biosphere = generatePlanetaryBiosphere(planetBody, profile, starSeed);
+    }
+
+    bodies.push(planetBody);
 
     const moonCount = giant ? nextInt(1, 5) : nextInt(0, 2);
     let moonOrbitM = radiusM * 3;
@@ -466,7 +481,7 @@ export function generateSystem(starId: string, starSeed: bigint, properties: num
         };
       }
 
-      bodies.push({
+      const moonBody: CelestialBody = {
         id: moonId,
         name: planetName + ' ' + ['I', 'II', 'III', 'IV', 'V'][m],
         parentId: planetId,
@@ -482,7 +497,13 @@ export function generateSystem(starId: string, starSeed: bigint, properties: num
           angularRateRadS: circularOrbitRateRadS(moonOrbitM, massKg),
           inclinationRad: moonInclinationRad,
         },
-      });
+      };
+
+      if (moonProfile.environment) {
+        (moonProfile.environment as { biosphere?: unknown }).biosphere = generatePlanetaryBiosphere(moonBody, moonProfile, starSeed);
+      }
+
+      bodies.push(moonBody);
     }
   }
 
