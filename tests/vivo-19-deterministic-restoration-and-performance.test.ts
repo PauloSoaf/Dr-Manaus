@@ -211,3 +211,4 @@ test('T_VIVO19_03_SAFE_TRANSITION_ON_EARTH_RUPTURE', () => {
   assert.ok(playerPosY >= 2500, 'Player must be elevated to safe orbit altitude');
   assert.equal(physicsDistrict, 'DESTROÇOS', 'Ground physics must transition to debris field');
 });
+

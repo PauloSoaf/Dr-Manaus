@@ -48,4 +48,4 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 - 6920ca8 (VIVO-15 Ruínas Ancestrais, Colossos Mecânicos e Primeiro Contato): push run 43268650312 SUCCESS; PR run 43268662875 SUCCESS. 1.741/1.741 passed, 638/638 regressions. 100% verde. 2026-11-12T13:21:00-04:00
 - 5c0474a (VIVO-16 Benchmarks de Desempenho, Estabilidade de Heap e Polimento Final): push run 43269394686 SUCCESS; PR run 43269409524 SUCCESS. 1.746/1.746 passed, 638/638 regressions. 100% verde. 2026-11-12T13:25:00-04:00
 - 0e4c56e (Docs & Consolidacao): push run 43270554841 SUCCESS. 1.746/1.746 passed, 638/638 regressions. 100% verde.
-- PENDING (VIVO-17 a VIVO-19 Ruptura Planetária Visível, Máquina de Estados e Integridade de Ecossistemas): Local: 1.755/1.755 unit tests, 638/638 permanent regressions, 0 TS errors, Vite build approved. 2026-11-12T14:26:00-04:00
+- ddc0651 (VIVO-17 a VIVO-19 Ruptura Planetária Visível, Máquina de Estados e Integridade de Ecossistemas): push run 43279810593 SUCCESS; PR run 43279821204 SUCCESS. 1.755/1.755 passed, 638/638 regressions. 100% verde. 2026-11-12T14:28:00-04:00

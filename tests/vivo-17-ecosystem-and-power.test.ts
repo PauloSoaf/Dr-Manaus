@@ -228,3 +228,4 @@ test('T_VIVO17_02_PLANET_RUPTURE_STATE_MACHINE_AND_HOLD_CHARGE', () => {
 
   powers.dispose();
 });
+
