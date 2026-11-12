@@ -79,6 +79,7 @@ import { AlienFloraRenderer } from '../world/life/AlienFloraRenderer';
 import { AlienFaunaManager } from '../world/life/AlienFaunaManager';
 import { AlienSettlementManager } from '../world/life/AlienSettlementManager';
 import { CosmicSpeciesScanner } from '../world/life/CosmicSpeciesScanner';
+import { CosmicAnomaliesAndRuinsManager } from '../world/life/CosmicAnomaliesAndRuinsManager';
 import { PlanetaryHazardService, type PlanetaryHazardState } from '../world/life/PlanetaryHazardService';
 import { PlanetaryHazardRenderer } from '../world/life/PlanetaryHazardRenderer';
 import type { AtmosphericMedium } from '../audio/AudioManager';
@@ -163,6 +164,7 @@ export class Game {
   readonly alienFauna: AlienFaunaManager;
   readonly alienSettlements: AlienSettlementManager;
   readonly speciesScanner: CosmicSpeciesScanner;
+  readonly cosmicRuins: CosmicAnomaliesAndRuinsManager;
   readonly planetaryHazardRenderer: PlanetaryHazardRenderer;
   private activeHazardState: PlanetaryHazardState = {
     type: 'none',
@@ -521,6 +523,8 @@ export class Game {
     this.alienSettlements = new AlienSettlementManager(this.save);
     this.worldRoot.add(this.alienSettlements.root);
     this.speciesScanner = new CosmicSpeciesScanner(this.save);
+    this.cosmicRuins = new CosmicAnomaliesAndRuinsManager(this.save, msg => this.hud.notify(msg), name => this.audio.play(name));
+    this.worldRoot.add(this.cosmicRuins.root);
     this.planetaryHazardRenderer = new PlanetaryHazardRenderer(this.worldRoot);
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
@@ -557,24 +561,26 @@ export class Game {
       canDeformSurface:()=>this.manausSimulationActive || (this.travelDomain.localPhysicsActive && !!this.universe.telemetry.dominantBody),
       targets:()=>{
         const localTargets = this.manausSimulationActive ? [...this.population.targets, ...this.missions.targets] : [];
-        return [...localTargets, ...this.alienFauna.targets, ...this.alienSettlements.targets];
+        return [...localTargets, ...this.alienFauna.targets, ...this.alienSettlements.targets, ...this.cosmicRuins.targets];
       },
       hit:(id,force)=>{
         if(this.manausSimulationActive && (this.missions.hit(id,force) || this.population.hit(id,force))) return;
         if(this.alienSettlements.hit(id, force)) return;
+        if(this.cosmicRuins.hit(id, force)) return;
         this.alienFauna.hit(id, force);
       },
       reconstruct:(position,radius)=>{
         const faunaRestored = this.alienFauna.reconstruct(position, radius);
         const floraRestored = this.alienFlora.reconstruct(position, radius);
         const settlementRestored = this.alienSettlements.reconstruct(position, radius);
-        if(!this.manausSimulationActive)return faunaRestored + floraRestored + settlementRestored;
+        const ruinsRestored = this.cosmicRuins.reconstruct(position, radius);
+        if(!this.manausSimulationActive)return faunaRestored + floraRestored + settlementRestored + ruinsRestored;
         this.destruction.restoreAt(position,radius);
         let flat = position;
         if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
           flat = this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z);
         }
-        return faunaRestored + floraRestored + settlementRestored + this.population.reconstruct(flat,radius)+this.realCity.restore(flat,radius)+this.streamer.restore(flat,radius)+this.landmarks.restore(flat,radius)+this.largo.restore(flat,radius)+this.airport.restore(flat,radius)+this.terrain.restoreAt(flat,radius);
+        return faunaRestored + floraRestored + settlementRestored + ruinsRestored + this.population.reconstruct(flat,radius)+this.realCity.restore(flat,radius)+this.streamer.restore(flat,radius)+this.landmarks.restore(flat,radius)+this.largo.restore(flat,radius)+this.airport.restore(flat,radius)+this.terrain.restoreAt(flat,radius);
       },
       impulse:(position,radius,force)=>{
         if(!this.manausSimulationActive)return;
@@ -593,6 +599,7 @@ export class Game {
         count += this.alienFlora.destroyInRadius(point, radius);
         count += this.alienFauna.damageInRadius(point, radius, amount, 25);
         count += this.alienSettlements.damageInRadius(point, radius, amount);
+        count += this.cosmicRuins.damageInRadius(point, radius, amount);
         if (!this.manausSimulationActive && (deform || amount >= 5000)) {
           const bodyId = this.universe.telemetry.dominantBody;
           const body = this.universe.activeSystem?.bodies.find(b => b.id === bodyId);
@@ -1109,6 +1116,7 @@ export class Game {
       this.alienFlora.update(this.player.position, activeSurface, activeBiosphere);
       this.alienFauna.update(dt, this.player.position, activeSurface, activeBiosphere);
       this.alienSettlements.update(dt, this.player.position, activeSurface, activeBiosphere);
+      this.cosmicRuins.update(dt, this.player.position, activeSurface, activeBiosphere);
     }
     const transit=this.universalTravelController?.state;
     const bhTransit = this.blackHoleRuntime?.transit.active
@@ -1267,6 +1275,7 @@ export class Game {
     affected += this.alienFlora.destroyInRadius(point, footprint.craterRadiusM * 1.5);
     affected += this.alienFauna.damageInRadius(point, footprint.impulseRadiusM, footprint.damage, footprint.impulse);
     affected += this.alienSettlements.damageInRadius(point, footprint.impulseRadiusM, footprint.damage);
+    affected += this.cosmicRuins.damageInRadius(point, footprint.impulseRadiusM, footprint.damage);
     return affected;
   }
   /** Register newly built surfaces once, including streamed roads and plaza LOD changes. */
@@ -2349,6 +2358,8 @@ export class Game {
       'UNIVERSO VIVO · Fauna': this.alienFauna.targets.length,
       'UNIVERSO VIVO · Corpos Rupturados': this.save.data.rupturedBodies?.length ?? 0,
       'UNIVERSO VIVO · Assentamentos': this.alienSettlements.activeSettlements.length,
+      'UNIVERSO VIVO · Ruínas': this.cosmicRuins.ruins.length,
+      'UNIVERSO VIVO · Colossos': this.cosmicRuins.colossi.filter(c => c.health > 0).length,
       'UNIVERSO VIVO · Perigo': `${this.activeHazardState.type} [${(this.activeHazardState.intensity * 100).toFixed(0)}%] (${this.activeHazardState.alertLevel})`,
       'UNIVERSO VIVO · Atmosfera': `${this.atmosphere.activePaletteLabel} · ${this.lastAudioMedium}`,
       ...this.solarDebug(),

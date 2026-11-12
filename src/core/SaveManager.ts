@@ -25,6 +25,8 @@ export interface SaveData {
   blackHoleTraversals?: Record<string, number>;
   rupturedBodies?: string[];
   factionReputations?: Record<string, number>;
+  discoveredRuins?: string[];
+  defeatedColossi?: string[];
 }
 const defaults = (): SaveData => ({
   version: 1,
@@ -57,6 +59,8 @@ export class SaveManager {
         if (Array.isArray(saved.visitedTargets)) this.data.visitedTargets = saved.visitedTargets.filter((v): v is string => typeof v === 'string');
         if (Array.isArray(saved.discoveredTargets)) this.data.discoveredTargets = saved.discoveredTargets.filter((v): v is string => typeof v === 'string');
         if (Array.isArray(saved.discoveredSpecies)) this.data.discoveredSpecies = saved.discoveredSpecies.filter((v): v is string => typeof v === 'string');
+        if (Array.isArray(saved.discoveredRuins)) this.data.discoveredRuins = saved.discoveredRuins.filter((v): v is string => typeof v === 'string');
+        if (Array.isArray(saved.defeatedColossi)) this.data.defeatedColossi = saved.defeatedColossi.filter((v): v is string => typeof v === 'string');
         if (saved.blackHoleTraversals && typeof saved.blackHoleTraversals === 'object') {
           this.data.blackHoleTraversals = { ...saved.blackHoleTraversals };
         }
@@ -214,6 +218,26 @@ export class SaveManager {
     this.data.factionReputations[factionId] = updated;
     this.save();
     return updated;
+  }
+  isRuinDiscovered(ruinId: string): boolean {
+    return this.data.discoveredRuins?.includes(ruinId) ?? false;
+  }
+  discoverRuin(ruinId: string): boolean {
+    if (!this.data.discoveredRuins) this.data.discoveredRuins = [];
+    if (this.data.discoveredRuins.includes(ruinId)) return false;
+    this.data.discoveredRuins.push(ruinId);
+    this.save();
+    return true;
+  }
+  isColossusDefeated(colossusId: string): boolean {
+    return this.data.defeatedColossi?.includes(colossusId) ?? false;
+  }
+  recordColossusDefeat(colossusId: string): boolean {
+    if (!this.data.defeatedColossi) this.data.defeatedColossi = [];
+    if (this.data.defeatedColossi.includes(colossusId)) return false;
+    this.data.defeatedColossi.push(colossusId);
+    this.save();
+    return true;
   }
   reset() { this.data = defaults(); this.save(); }
 }
