@@ -1,4 +1,4 @@
-import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../travel/UniversalTargetCatalog';
+﻿import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../travel/UniversalTargetCatalog';
 import {
   type UniversalTargetDescriptor,
   type UniversalNavigationTarget,
@@ -565,6 +565,11 @@ export class CosmicAtlasModel {
     return this.computeStatistics(targetMap, currentGalaxyId);
   }
 
+  invalidateCache(): void {
+    this.cachedTargetMap = null;
+    this.bodyMetadataCache.clear();
+  }
+
   query(options: CosmicAtlasFilterOptions = {}, currentGalaxyId?: string): CosmicAtlasQueryResult {
     const rawQuery = options.query?.trim() ?? '';
     const query = rawQuery.startsWith('drm:v1://') ? rawQuery.slice(9) : rawQuery;
@@ -769,11 +774,21 @@ export class CosmicAtlasModel {
         }
       }
 
+      const isRuptured = Boolean(desc.bodyId && this.save?.isBodyRuptured(desc.bodyId));
+      const effectiveDisplayName = isRuptured
+        ? `${desc.displayName} [MUNDO EM RUÍNAS - CINTURÃO DE DESTROÇOS]`
+        : desc.displayName;
+      const effectiveWorldType = isRuptured
+        ? 'Cinturão de Destroços Cósmicos (Mundo Rupturado)'
+        : worldType;
+      const effectiveCanLand = isRuptured ? false : canLandBody;
+      const effectiveLandingMode = isRuptured ? 'none' : landingModeBody;
+
       const entry: CosmicAtlasEntry = {
         key,
         descriptor: desc,
         target,
-        displayName: desc.displayName,
+        displayName: effectiveDisplayName,
         kind: desc.kind,
         objectId: desc.objectId,
         galaxyId: desc.galaxyId,
@@ -792,9 +807,9 @@ export class CosmicAtlasModel {
         guidanceStatus,
         shortcutHint,
         canTravel,
-        worldType,
-        canLand: canLandBody,
-        landingMode: landingModeBody,
+        worldType: effectiveWorldType,
+        canLand: effectiveCanLand,
+        landingMode: effectiveLandingMode,
         temperatureK,
         hasRings,
         biosphere,

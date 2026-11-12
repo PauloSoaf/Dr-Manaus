@@ -1,4 +1,4 @@
-/**
+﻿/**
  * CosmicAnomaliesAndRuinsManager.ts
  *
  * Procedural generation, multi-phase boss combat, and persistence of ancient cosmic ruins,
@@ -247,19 +247,14 @@ export class CosmicAnomaliesAndRuinsManager {
 
       // Align height to planetary surface
       if (this.currentSurface) {
-        const pLen = colossus.position.length();
-        if (pLen > 1) {
-          this.dummyDir[0] = colossus.position.x / pLen;
-          this.dummyDir[1] = colossus.position.y / pLen;
-          this.dummyDir[2] = colossus.position.z / pLen;
-          const h = this.currentSurface.heightAt(this.dummyDir);
-          const targetRad = this.currentSurface.radiusM + h;
-          colossus.position.set(
-            this.dummyDir[0] * targetRad,
-            this.dummyDir[1] * targetRad,
-            this.dummyDir[2] * targetRad,
-          );
-        }
+        const hyp = Math.hypot(colossus.position.x, colossus.position.z);
+        const originRadius = this.currentSurface.radiusM;
+        const radY = Math.sqrt(Math.max(1, originRadius * originRadius - hyp * hyp));
+        this.dummyDir[0] = colossus.position.x / originRadius;
+        this.dummyDir[1] = radY / originRadius;
+        this.dummyDir[2] = colossus.position.z / originRadius;
+        const h = this.currentSurface.heightAt(this.dummyDir);
+        colossus.position.y = h;
       }
     }
 
@@ -297,24 +292,21 @@ export class CosmicAnomaliesAndRuinsManager {
 
     const seed = biosphere.seeds?.factionSeed ?? 101;
     const siteCount = Math.min(this.maxRuins, 6);
+    const originRadius = surface.radiusM;
 
     for (let i = 0; i < siteCount; i++) {
       const angle = (i * 2.3999) + (seed % 100);
-      const lat = ((Math.sin(seed + i * 17) * 0.45));
-      const lon = angle % (Math.PI * 2);
-
-      const cosLat = Math.cos(lat);
-      this.dummyDir[0] = Math.cos(lon) * cosLat;
-      this.dummyDir[1] = Math.sin(lat);
-      this.dummyDir[2] = Math.sin(lon) * cosLat;
+      const dist = 70 + ((seed * 13 + i * 47) % 350);
+      const ruinX = Math.cos(angle) * dist;
+      const ruinZ = Math.sin(angle) * dist;
+      const hyp = Math.hypot(ruinX, ruinZ);
+      const radY = Math.sqrt(Math.max(1, originRadius * originRadius - hyp * hyp));
+      this.dummyDir[0] = ruinX / originRadius;
+      this.dummyDir[1] = radY / originRadius;
+      this.dummyDir[2] = ruinZ / originRadius;
 
       const height = surface.heightAt(this.dummyDir);
-      const rad = surface.radiusM + height;
-      const pos = new Vector3(
-        this.dummyDir[0] * rad,
-        this.dummyDir[1] * rad,
-        this.dummyDir[2] * rad,
-      );
+      const pos = new Vector3(ruinX, height, ruinZ);
 
       surface.normalEnu(this.dummyDir, this.dummyNormal);
       const normal = new Vector3(...this.dummyNormal).normalize();
@@ -505,6 +497,14 @@ export class CosmicAnomaliesAndRuinsManager {
       this.notify?.(`RUÍNAS RESTAURADAS (+15 REPUTAÇÃO)`);
     }
     return restored;
+  }
+
+  clear(): void {
+    this.ruins.length = 0;
+    this.colossi.length = 0;
+    this.targetList.length = 0;
+    this.activeBodyId = null;
+    this.clearMeshes();
   }
 
   private clearMeshes(): void {

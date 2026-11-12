@@ -1,4 +1,4 @@
-import { UniversalTravelController } from '../world/travel/UniversalTravelController';
+﻿import { UniversalTravelController } from '../world/travel/UniversalTravelController';
 import { BlackHoleRuntime, nearestBlackHole, withAbsolutePosition } from '../world/travel/BlackHoleRuntime';
 import { BlackHoleTransitController } from '../world/travel/BlackHoleTransitNetwork';
 import type { BlackHoleDescriptor } from '../world/celestial/BlackHoleDescriptor';
@@ -82,6 +82,7 @@ import { CosmicSpeciesScanner } from '../world/life/CosmicSpeciesScanner';
 import { CosmicAnomaliesAndRuinsManager } from '../world/life/CosmicAnomaliesAndRuinsManager';
 import { PlanetaryHazardService, type PlanetaryHazardState } from '../world/life/PlanetaryHazardService';
 import { PlanetaryHazardRenderer } from '../world/life/PlanetaryHazardRenderer';
+import { PlanetaryRupturePresentation } from '../rendering/celestial/PlanetaryRupturePresentation';
 import type { AtmosphericMedium } from '../audio/AudioManager';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
@@ -140,6 +141,8 @@ export class Game {
   readonly planetaryRoot = new Group();
   readonly localWorldRoot = new Group();
   readonly actorRoot = new Group();
+  readonly activePlanetaryLifeRoot = new Group();
+  private lastActiveEcosystemBodyId: string | null = null;
   /** Backward-compatible aliases */
   readonly localRoot = this.localWorldRoot;
   readonly worldRoot = this.localWorldRoot;
@@ -166,6 +169,7 @@ export class Game {
   readonly speciesScanner: CosmicSpeciesScanner;
   readonly cosmicRuins: CosmicAnomaliesAndRuinsManager;
   readonly planetaryHazardRenderer: PlanetaryHazardRenderer;
+  readonly planetaryRupturePresentation: PlanetaryRupturePresentation;
   private activeHazardState: PlanetaryHazardState = {
     type: 'none',
     alertLevel: 'nominal',
@@ -433,9 +437,11 @@ export class Game {
     this.planetaryRoot.name='Planetary · camera-relative celestial bodies';
     this.localWorldRoot.name='Manaus · local city/terrain';
     this.actorRoot.name='Actors · player & dynamic entities';
+    this.activePlanetaryLifeRoot.name='Planetary Life · Fauna, Flora, Settlements, Ruins & Hazards';
     this.rendering.scene.add(this.celestialRoot);
     this.rendering.scene.add(this.planetaryRoot);
     this.rendering.scene.add(this.actorRoot);
+    this.actorRoot.add(this.activePlanetaryLifeRoot);
     this.atmosphere=new Atmosphere(this.rendering.scene);
     // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
     this.space=new SpaceLayer(this.celestialRoot,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
@@ -517,15 +523,16 @@ export class Game {
       bodyById: id => this.universe.activeSystem.bodies.find(b => b.id === id),
     });
     this.alienFlora = new AlienFloraRenderer();
-    this.worldRoot.add(this.alienFlora.root);
+    this.activePlanetaryLifeRoot.add(this.alienFlora.root);
     this.alienFauna = new AlienFaunaManager();
-    this.worldRoot.add(this.alienFauna.root);
+    this.activePlanetaryLifeRoot.add(this.alienFauna.root);
     this.alienSettlements = new AlienSettlementManager(this.save);
-    this.worldRoot.add(this.alienSettlements.root);
+    this.activePlanetaryLifeRoot.add(this.alienSettlements.root);
     this.speciesScanner = new CosmicSpeciesScanner(this.save);
     this.cosmicRuins = new CosmicAnomaliesAndRuinsManager(this.save, msg => this.hud.notify(msg), name => this.audio.play(name));
-    this.worldRoot.add(this.cosmicRuins.root);
-    this.planetaryHazardRenderer = new PlanetaryHazardRenderer(this.worldRoot);
+    this.activePlanetaryLifeRoot.add(this.cosmicRuins.root);
+    this.planetaryHazardRenderer = new PlanetaryHazardRenderer(this.activePlanetaryLifeRoot);
+    this.planetaryRupturePresentation = new PlanetaryRupturePresentation(this.planetRoot);
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -672,6 +679,16 @@ export class Game {
         const plan = this.macroBodyFracture.rupturePlanet(bodyId, energyJoules);
         if (plan) {
           this.save.recordBodyRupture(bodyId);
+          const body = this.universe.activeSystem?.bodies.find(b => b.id === bodyId);
+          const radiusM = body?.equatorialRadiusM ?? 6371000;
+          this.planetaryRupturePresentation.startRupture(bodyId, plan, radiusM);
+
+          if (bodyId === 'earth') {
+            this.player.state = 'Flight';
+            this.player.position.y += 2500;
+            this.bindSurfacePhysics();
+            this.hud.notify('ALERTA CATASTRÓFICO: Terra fragmentada · Propulsão orbital de emergência ativada!');
+          }
           return true;
         }
         return false;
@@ -681,10 +698,12 @@ export class Game {
         const mRestored = this.minorBodyDisruption.restoreBody(bodyId);
         if (pRestored || mRestored) {
           this.save.recordBodyRestoration(bodyId);
+          this.planetaryRupturePresentation.restore(bodyId);
           return true;
         }
         return false;
       },
+      getTargetBodyId: () => this.navigationLock?.bodyId ?? this.universe.telemetry.dominantBody ?? null,
       getActiveBodyId: () => this.universe.telemetry.dominantBody ?? null,
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
@@ -726,7 +745,12 @@ export class Game {
     void this.assets.json('/geodata/manaus.json').catch(()=>undefined);
     if (this.save.data.rupturedBodies?.length) {
       for (const bodyId of this.save.data.rupturedBodies) {
-        if (!this.macroBodyFracture.rupturePlanet(bodyId, 1e28)) {
+        const plan = this.macroBodyFracture.rupturePlanet(bodyId, 1e28);
+        if (plan) {
+          const body = this.universe.activeSystem?.bodies.find(b => b.id === bodyId);
+          const radiusM = body?.equatorialRadiusM ?? 6371000;
+          this.planetaryRupturePresentation.loadPersistedRupture(bodyId, plan, radiusM);
+        } else {
           this.minorBodyDisruption.disruptMinorBody(bodyId, 1e25);
         }
       }
@@ -917,6 +941,19 @@ export class Game {
     // Process streaming based on updated presentation state
     this.universe.updateStreaming(dt);
 
+    // Suppress intact globes for ruptured bodies & drive rupture presentation
+    for (const [id, provider] of this.planetProviders) {
+      if (this.save?.isBodyRuptured(id) || this.planetaryRupturePresentation?.isGlobeSuppressed(id)) {
+        provider.setVisible(false);
+      }
+    }
+    if (this.earth && (this.save?.isBodyRuptured('earth') || this.planetaryRupturePresentation?.isGlobeSuppressed('earth'))) {
+      this.earth.globe.visible = false;
+    }
+    const dominantBodyForRupture = this.universe.telemetry.dominantBody;
+    const dominantCenterArr = this.universe.activeSystem.positionOf(dominantBodyForRupture) ?? [0, 0, 0];
+    this.planetaryRupturePresentation?.update(dt, this.rendering.camera, new Vector3(...dominantCenterArr));
+
     // One ground at a time. The flat backdrop and the curved planet cannot both be the surface,
     // and above the handover altitude the curvature is what the player is looking at.
     if(this.earth){
@@ -996,7 +1033,7 @@ export class Game {
     // After the camera settles: the portal skin samples in screen space, so a stale matrix would
     // stretch the galaxy by the viewport and leave it static as the player looks around.
     this.player.character.updateCosmicView(this.rendering.camera);
-    this.player.character.setCosmicLevel(this.cosmicLevel(),speedNow,this.direction);if(local)this.powers.update(dt,worldDt);
+    this.player.character.setCosmicLevel(this.cosmicLevel(),speedNow,this.direction);if(!this.universalTravelController?.active)this.powers.update(dt,worldDt);
     this.playerLocal.copy(this.player.position).sub(this.renderOriginVec);
     const altitudeNow = manaus ? this.player.position.y : this.universe.telemetry.altitudeM;
     const dominantBodyId = this.universe.telemetry.dominantBody;
@@ -1110,13 +1147,21 @@ export class Game {
       this.volumeRenderer.update();
       this.photosphereGround.update(dt,this.player.position,this.district==='FOTOSFERA'||this.physicsDomain==='sun');
       const activeBodyId = this.universe.navigationState.bodyId ?? (this.manausSimulationActive ? 'earth' : undefined);
-      const activeBody = activeBodyId ? this.universe.activeSystem.bodies.find(b => b.id === activeBodyId) : undefined;
-      const activeSurface = activeBody ? surfaceForBody(activeBody) : undefined;
-      const activeBiosphere = activeBody ? bodyProfile(activeBody).environment?.biosphere : undefined;
-      this.alienFlora.update(this.player.position, activeSurface, activeBiosphere);
-      this.alienFauna.update(dt, this.player.position, activeSurface, activeBiosphere);
-      this.alienSettlements.update(dt, this.player.position, activeSurface, activeBiosphere);
-      this.cosmicRuins.update(dt, this.player.position, activeSurface, activeBiosphere);
+      if (activeBodyId !== this.lastActiveEcosystemBodyId) {
+        this.clearEcosystemEntities();
+        this.lastActiveEcosystemBodyId = activeBodyId ?? null;
+      }
+      if (activeBodyId && this.save?.isBodyRuptured(activeBodyId)) {
+        this.clearEcosystemEntities();
+      } else {
+        const activeBody = activeBodyId ? this.universe.activeSystem.bodies.find(b => b.id === activeBodyId) : undefined;
+        const activeSurface = activeBody ? surfaceForBody(activeBody) : undefined;
+        const activeBiosphere = activeBody ? bodyProfile(activeBody).environment?.biosphere : undefined;
+        this.alienFlora.update(this.player.position, activeSurface, activeBiosphere);
+        this.alienFauna.update(dt, this.player.position, activeSurface, activeBiosphere);
+        this.alienSettlements.update(dt, this.player.position, activeSurface, activeBiosphere);
+        this.cosmicRuins.update(dt, this.player.position, activeSurface, activeBiosphere);
+      }
     }
     const transit=this.universalTravelController?.state;
     const bhTransit = this.blackHoleRuntime?.transit.active
@@ -1277,6 +1322,13 @@ export class Game {
     affected += this.alienSettlements.damageInRadius(point, footprint.impulseRadiusM, footprint.damage);
     affected += this.cosmicRuins.damageInRadius(point, footprint.impulseRadiusM, footprint.damage);
     return affected;
+  }
+
+  private clearEcosystemEntities(): void {
+    this.alienFlora.clear();
+    this.alienFauna.clear();
+    this.alienSettlements.clear();
+    this.cosmicRuins.clear();
   }
   /** Register newly built surfaces once, including streamed roads and plaza LOD changes. */
   private readonly watchedGround=new WeakSet<import('three/webgpu').Object3D>();
@@ -1848,6 +1900,7 @@ export class Game {
   }
 
   private surfaceReadyForLanding(bodyId:string):boolean {
+    if (this.save?.isBodyRuptured(bodyId) || this.planetaryRupturePresentation?.isRuptured(bodyId)) return false;
     const body=this.universe.activeSystem.bodies.find(candidate=>candidate.id===bodyId);
     if(!body||!bodyProfile(body).canLand)return false;
     if(bodyId==='earth')return true;
@@ -1994,6 +2047,14 @@ export class Game {
 
   private bindSurfacePhysics():void {
     const bodyId=this.universe.navigationState.bodyId;
+    if (bodyId && (this.save?.isBodyRuptured(bodyId) || this.planetaryRupturePresentation?.isRuptured(bodyId))) {
+      PhysicsWorld.setVolumeCollision(null);
+      PhysicsWorld.setTerrain(null);
+      this.player.setSurfaceGravity(0);
+      this.district = 'DESTROÇOS';
+      this.physicsDomain = 'debris';
+      return;
+    }
     const provider=bodyId?this.surfaceProvider(bodyId):undefined;
     const body=this.universe.activeSystem.bodies.find(b=>b.id===bodyId),surface=provider?.surface??(body&&surfaceForBody(body));
     const isPhotosphere=bodyId==='sun'||(body&&bodyProfile(body).landingMode==='photosphere');

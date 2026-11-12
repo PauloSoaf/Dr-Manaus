@@ -15,10 +15,17 @@
 - **VIVO-12 a VIVO-14** — Poder cósmico `planetRupture`, fragmentação de calotas, anel Kepleriano de detritos, persistência global e poder `reconstruct`.
 - **VIVO-15** — Ruínas ancestrais, santuários megalíticos, colossos mecânicos de 20m com combate multifásico (enrage/escudos) e missões de primeiro contato.
 - **VIVO-16** — Suíte de benchmarks e polimento: validação de orçamento de IA (< 3.0 ms), estabilidade de heap em 1.000 quadros, troca limpa de corpos celestes e teardown sem memory leaks.
+- **VIVO-17** — Máquina de estados estrita para `planetRupture` (hold 2,5s, proteção de re-disparo, suporte em voo orbital e prioridade de mira bloqueada), desacoplamento de entidades de vida de `worldRoot` para `activePlanetaryLifeRoot` e coordenadas ENU em ruínas ancestrais.
+- **VIVO-18** — Apresentação visual da ruptura planetária em 7 fases observáveis (`PlanetaryRupturePresentation`), ocultação do globo intacto, anel persistente de destroços e bloqueio de pouso/colisão em mundos em ruínas.
+- **VIVO-19** — Persistência determinística de cortes CSG (remoção de `Date.now()`), restauração cósmica integral reversível e documentação de benchmarks de desempenho.
+
+## Nota Técnica sobre Desempenho e Telemetria
+- Os testes unitários e de estresse (`VIVO-16`, `VIVO-19`) executados no ambiente Node.js mensuram e garantem com rigor o orçamento de CPU de IA ($\le 3,0\text{ ms}$ por tick a 8 Hz), ausência de memory leaks de heap ($< 20\text{ MB}$ de delta em 1.000 quadros) e descarte limpo de buffers de GPU no Three.js.
+- A comprovação empírica de 60 FPS estáveis na GPU sob alta densidade de instâncias de flora e chunks de fragmentação depende da execução direta no runtime do navegador com aceleração de hardware WebGPU/WebGL2 via Playwright ou sessão interativa.
 
 ## Estado Geral do Projeto
-- **Total de Testes Unitários:** 1.746 / 1.746 Aprovados (100%)
+- **Total de Testes Unitários:** 1.755 / 1.755 Aprovados (100%)
 - **Testes de Regressão Permanente:** 638 / 638 Aprovados (100%)
 - **Typecheck TypeScript:** 0 Erros
-- **Vite Production Build:** Aprovado (1.19s)
-- **Todas as 56 Especificações do Backlog Integradas e Validadas.**
+- **Vite Production Build:** Aprovado (1.34s)
+- **Status do Repositório:** Pronto para publicação e verificação no CI do GitHub Actions.

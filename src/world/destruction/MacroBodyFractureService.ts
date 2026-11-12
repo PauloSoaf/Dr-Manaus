@@ -1,4 +1,4 @@
-import { GRAVITATIONAL_CONSTANT } from '../celestial/BlackHoleDescriptor';
+﻿import { GRAVITATIONAL_CONSTANT } from '../celestial/BlackHoleDescriptor';
 import type { CelestialBody } from '../celestial/CelestialBody';
 import type { BodyFixedPoint, SubtractSphereEdit } from '../planet/volume/PlanetVolumeEdit';
 import { PlanetVolumeEditStore } from '../planet/volume/PlanetVolumeEditStore';
@@ -429,7 +429,7 @@ export class MacroBodyFractureService {
 
     for (let i = 0; i < antipodalAxes.length; i++) {
       const axis = antipodalAxes[i];
-      const editId = `${bodyId}:rupture_cap_${i}:${Date.now()}`;
+      const editId = `${plan.planId}:rupture_cap_${i}`;
       this.options.edits.subtractSphere({
         id: editId,
         bodyId,

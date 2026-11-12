@@ -1,4 +1,4 @@
-import test from 'node:test';
+﻿import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Group, PerspectiveCamera, Vector3 } from 'three/webgpu';
 import { PowerSystem, type PowerHooks } from '../src/player/powers/PowerSystem';
@@ -109,13 +109,90 @@ test('T_RUPTURE_01_POWER_HOOK_TRIGGER', () => {
 
   const powers = new PowerSystem(root, player, camera, input, hooks);
 
-  // Trigger planet rupture power
+  // 1. Selecting planet rupture MUST NOT execute immediately
   powers.use('planetRupture');
+  assert.equal(powers.selected, 'planetRupture');
+  assert.equal(powers.planetRuptureState, 'idle', 'State must remain idle after arming');
+  assert.equal(hookBodyId, null, 'Must not execute upon arming/selection');
+  assert.ok(notifications.some(n => n.includes('Ruptura planetária armada')));
 
+  // 2. Early release cancels charge
+  input.press('Digit9');
+  powers.update(1.0, 1.0);
+  assert.equal(powers.planetRuptureState, 'charging', 'Must enter charging state while held');
+  assert.ok(powers.planetRuptureCharge >= 1.0);
+  input.release('Digit9');
+  powers.update(0.016, 0.016);
+  assert.equal(powers.planetRuptureState, 'idle', 'Early release must abort back to idle');
+  assert.equal(powers.planetRuptureCharge, 0, 'Charge must reset to 0');
+  assert.equal(hookBodyId, null, 'No rupture executed on early release');
+
+  // 3. Full 2.5s charge triggers execution and initiates cooldown
+  input.press('Digit9');
+  powers.update(1.2, 1.2);
+  powers.update(1.4, 1.4); // total charge = 2.6s >= 2.5s
   assert.equal(hookBodyId, 'earth', 'Dominant body must be passed to planetRupture hook');
   assert.equal(hookEnergy, 1e28, 'Planetary rupture energy must match canonical 1e28 Joules');
   assert.equal(powers.cooldowns.planetRupture, 5.0, 'Cooldown must be set to 5.0s');
+  assert.equal(powers.planetRuptureState, 'cooldown', 'State must enter cooldown');
   assert.ok(notifications.some(n => n.includes('Ruptura planetária catastrófica executada')));
+
+  // 4. Holding while on cooldown must not trigger or charge
+  powers.update(1.0, 1.0);
+  assert.equal(powers.planetRuptureState, 'cooldown');
+  assert.equal(powers.planetRuptureCharge, 0);
+
+  // 5. Cooldown expiration returns state to idle
+  powers.update(4.1, 4.1);
+  assert.equal(powers.planetRuptureState, 'idle');
+
+  powers.dispose();
+});
+
+test('T_RUPTURE_01B_TARGET_RESOLUTION_PRIORITY', () => {
+  const root = new Group();
+  const player = createMockPlayer();
+  const camera = new PerspectiveCamera();
+  const input = createMockInput();
+
+  let targetLock: string | null = 'mars';
+  let executedTarget: string | null = null;
+
+  const hooks: PowerHooks = {
+    targets: () => [],
+    hit: () => {},
+    reconstruct: () => 0,
+    impulse: () => {},
+    prepare: async () => {},
+    notify: () => {},
+    sound: () => {},
+    getOrigin: () => new Vector3(),
+    getColliders: () => [],
+    getTargetBodyId: () => targetLock,
+    getActiveBodyId: () => 'earth',
+    planetRupture: (bodyId) => {
+      executedTarget = bodyId;
+      return true;
+    },
+  };
+
+  const powers = new PowerSystem(root, player, camera, input, hooks);
+
+  // When targetLock exists, it takes precedence over dominant body (mars > earth)
+  input.press('Digit9');
+  powers.update(2.6, 2.6);
+  assert.equal(executedTarget, 'mars', 'Navigation lock target must take precedence over active dominant body');
+
+  // Release trigger and clear cooldown for next activation
+  input.release('Digit9');
+  targetLock = null;
+  powers.cooldowns.planetRupture = 0;
+  powers.update(0.016, 0.016);
+  assert.equal(powers.planetRuptureState, 'idle');
+
+  input.press('Digit9');
+  powers.update(2.6, 2.6);
+  assert.equal(executedTarget, 'earth', 'Fallback to active dominant body when no explicit lock');
 
   powers.dispose();
 });
