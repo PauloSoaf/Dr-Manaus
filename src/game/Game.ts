@@ -75,6 +75,7 @@ import { PlanetExcavationService } from '../world/destruction/PlanetExcavationSe
 import { GeomechanicalFractureService } from '../world/destruction/GeomechanicalFractureService';
 import { MacroBodyFractureService } from '../world/destruction/MacroBodyFractureService';
 import { MinorBodyDisruptionService } from '../world/destruction/MinorBodyDisruptionService';
+import { AlienFloraRenderer } from '../world/life/AlienFloraRenderer';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
 import { IMPACT_VOLUME_LIMITS } from '../world/planet/volume/PlanetVolumeImpactDemand';
@@ -152,6 +153,7 @@ export class Game {
   readonly macroBodyFracture: MacroBodyFractureService;
   readonly minorBodyDisruption: MinorBodyDisruptionService;
   readonly volumeRenderer:PlanetVolumeSurfaceRenderer;
+  readonly alienFlora: AlienFloraRenderer;
   galaxyMaterializer?:GalaxyMaterializer;
   get galaxy():StarSectorProvider|undefined{return this.galaxyMaterializer?.current?.starSectorProvider;}
   get sgra():BlackHoleProvider|undefined{return this.galaxyMaterializer?.current?.centralBlackHole;}
@@ -491,6 +493,8 @@ export class Game {
       edits: this.universe.volume.edits,
       bodyById: id => this.universe.activeSystem.bodies.find(b => b.id === id),
     });
+    this.alienFlora = new AlienFloraRenderer();
+    this.worldRoot.add(this.alienFlora.root);
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -529,6 +533,7 @@ export class Game {
       reconstruct:(position,radius)=>{
         if(!this.manausSimulationActive)return 0;
         this.destruction.restoreAt(position,radius);
+        this.alienFlora.clear();
         let flat = position;
         if (FEATURES.curvedManaus && this.travelDomain.localPhysicsActive) {
           flat = this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z);
@@ -932,7 +937,16 @@ export class Game {
       this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     }
     if(manaus){this.terrain.update(this.player.position,this.renderOriginVec);this.forest.update(this.player.position);}
-    if(!this.universalTravelController?.active){this.bindSurfacePhysics();this.volumeRenderer.update();this.photosphereGround.update(dt,this.player.position,this.district==='FOTOSFERA'||this.physicsDomain==='sun');}
+    if(!this.universalTravelController?.active){
+      this.bindSurfacePhysics();
+      this.volumeRenderer.update();
+      this.photosphereGround.update(dt,this.player.position,this.district==='FOTOSFERA'||this.physicsDomain==='sun');
+      const activeBodyId = this.universe.navigationState.bodyId ?? (this.manausSimulationActive ? 'earth' : undefined);
+      const activeBody = activeBodyId ? this.universe.activeSystem.bodies.find(b => b.id === activeBodyId) : undefined;
+      const activeSurface = activeBody ? surfaceForBody(activeBody) : undefined;
+      const activeBiosphere = activeBody ? bodyProfile(activeBody).environment?.biosphere : undefined;
+      this.alienFlora.update(this.player.position, activeSurface, activeBiosphere);
+    }
     const transit=this.universalTravelController?.state;
     const bhTransit = this.blackHoleRuntime?.transit.active
       ? { phase: this.blackHoleRuntime.transit.phase, progress01: this.blackHoleRuntime.transit.progress01 }

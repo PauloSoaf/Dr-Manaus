@@ -1,27 +1,26 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `VIVO-02` (Clima e Biomas Determinísticos por Coordenada e Habitat Planetário)
-- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.687/1.687 testes vitest, 638/638 regressões, typecheck 0 erros, build OK)
+- **Patch:** `VIVO-03` (Flora Visual Alienígena por Instancing, Células Espaciais e Alinhamento à Normal)
+- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.692/1.692 testes vitest, 638/638 regressões, typecheck 0 erros, build OK)
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-12T11:35:00-04:00
+- **Atualizado:** 2026-11-12T11:42:00-04:00
 
 ## Mudanças do Patch
-1. `src/world/life/PlanetaryBiomeService.ts`:
-   - Serviço autoritativo de clima e classificação contínua de biomas planetários (`PlanetaryBiomeService`).
-   - Termodinâmica determinística:
-     - Gradiente latitudinal de insolação (equador mais quente, polos mais frios com queda de 35K a 80K).
-     - Gradiente adiabático de altitude ($\approx 6.5\text{ K/km}$ escalonado pela pressão atmosférica).
-     - Perturbação trigonométrica harmônica contínua livre de descontinuidades baseada em `climateSeed`.
-   - Modelo de precipitação/umidade latitudinal (máximo equatorial ITCZ, cinturão árido subtropical a $\pm 25^\circ$, tempestades temperadas e secura polar).
-   - Taxonomia de 25 biomas distribuídos entre marinhos (`deep-abyss`, `oceanic-shelf`, `coastal-waters`, `methane-sea`, `ammonia-basin`), estéreis/vácuo (`barren-rock`, `cratered-highlands`, `basalt-plains`, `vacuum-dust`, `extreme-cryo-ice`), hostis/vulcânicos (`magma-fields`, `sulfuric-wastes`, `scorched-crags`, `crystal-desert`), criogênicos (`tholin-plateaus`, `cryo-dunes`, `nitrogen-plains`) e vivos (`alien-rainforest`, `fungal-canopy`, `bioluminescent-wetlands`, `temperate-woodland`, `savanna-steppe`, `alien-taiga`, `subpolar-lichen`, `glacial-cap`).
-   - Paletas de cores hexadecimais para terreno, rocha, folhagem e líquidos, além de densidade de vegetação e arquétipo de flora.
-2. `src/world/planet/PlanetSurface.ts`:
-   - Adicionado método opcional `biomeAt?(direction: Vec3): PlanetaryBiomeSample` em `PlanetSurfaceGenerator`.
-3. `src/world/planet/ProceduralPlanetSurface.ts`:
-   - Integração de amostragem de bioma por direção geocêntrica em `createProceduralPlanetSurface`.
-4. `specs/universo-vivo/02-BIOMES-AND-CLIMATE.md`:
-   - Especificação técnica completa de clima e biomas por habitat.
-5. `tests/planetary-biome-service.test.ts`:
-   - Suíte de 6 testes unitários cobrindo determinismo, gradientes térmicos de latitude/altitude, estratificação marinha batimétrica, mundos estéreis, mundos criogênicos de metano (Titã), matriz de Whittaker e integração direta na superfície procedural.
-6. `docs/autonomous-development/CI-HISTORY.md` & `SPEC-MASTER-TRACKER.md`:
-   - Registrado CI aprovado para VIVO-01 (`eaeab77`, 1.681 testes) e status `IMPLEMENTED` para VIVO-02.
+1. `src/world/life/AlienFloraRenderer.ts`:
+   - Sistema de altíssimo desempenho para renderização e distribuição de flora alienígena instanciada (`AlienFloraRenderer`).
+   - 7 arquétipos procedurais de baixo polígono via `InstancedMesh`: `canopy-broadleaf`, `alien-conifers`, `giant-spore-trees`, `bioluminescent-fungi`, `crystalline-spires`, `xenoflora-succulents`, `hydrocarbon-tendrils`.
+   - Geometrias procedurais mescladas com `BufferGeometryUtils.mergeGeometries` sem dependência de assets proprietários.
+   - Particionamento espacial por células de grade de $64\text{ m}$ com culling além do raio ativo ($192\text{ m}$), zero realocação por frame e matrizes reutilizadas.
+   - Alinhamento de orientação local $+Y$ ao vetor normal da superfície elipsoidal/topográfica ($\hat{n} = \text{normalEnu}(\vec{D})$) com rotação azimutal determinística e escala variável derivadas de `floraSeed`.
+   - Modulação de cor individual por instância (`setColorAt`) vinculada à paleta de folhagem do bioma local (`biome.colorPalette.foliage`).
+   - Destruição seletiva por raio de impacto com persistência em buffer limitado (`destroyInRadius`) e recomposição limpa (`clear`).
+2. `src/game/Game.ts`:
+   - Instanciado `alienFlora` na árvore de cena `worldRoot`.
+   - Conectado ao loop principal de atualização contínua de superfície (`this.alienFlora.update(this.player.position, activeSurface, activeBiosphere)`).
+   - Conectado à restauração planetária (`reconstruct`) limpando instâncias destruídas.
+3. `specs/universo-vivo/03-ALIEN-FLORA-INSTANCING.md`:
+   - Especificação técnica completa de instanciamento e culling de flora.
+4. `tests/alien-flora-renderer.test.ts`:
+   - Suíte de 5 testes unitários cobrindo inicialização de arquétipos, supressão estrita em mundos estéreis (Lua), geração de instâncias válidas em mundos habitáveis (Terra), destruição seletiva em raio de cratera e liberação de memória GPU no `dispose()`.
+5. `docs/autonomous-development/CI-HISTORY.md` & `SPEC-MASTER-TRACKER.md`:
+   - Registrado CI aprovado para VIVO-02 (`e39ddf5`, 1.687 testes) e status `IMPLEMENTED` para VIVO-03.

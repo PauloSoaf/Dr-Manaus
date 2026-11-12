@@ -162,8 +162,8 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- |
 | `VIVO-01` | `specs/universo-vivo/01-BIOSPHERE-AND-SEEDS.md` | Sementes de canal ortogonais determinísticas e perfil de biosfera planetária (`PlanetaryBiosphereProfile`) | P0 | `CI_VERIFIED` | `eaeab77` | `tests/planetary-biosphere-profile.test.ts` (5/5 pass) |
-| `VIVO-02` | `specs/universo-vivo/02-BIOMES-AND-CLIMATE.md` | Clima e biomas determinísticos por tile e habitat (`PlanetaryBiomeService`) | P0 | `IMPLEMENTED` | `HEAD` | `tests/planetary-biome-service.test.ts` (6/6 pass) |
-| `VIVO-03` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Flora visual alienígena por instancing e LOD com descarte real (`AlienFloraRenderer`) | P1 | `PLANNED` | — | `tests/alien-flora-renderer.test.ts` |
+| `VIVO-02` | `specs/universo-vivo/02-BIOMES-AND-CLIMATE.md` | Clima e biomas determinísticos por tile e habitat (`PlanetaryBiomeService`) | P0 | `CI_VERIFIED` | `e39ddf5` | `tests/planetary-biome-service.test.ts` (6/6 pass) |
+| `VIVO-03` | `specs/universo-vivo/03-ALIEN-FLORA-INSTANCING.md` | Flora visual alienígena por instancing e LOD com descarte real (`AlienFloraRenderer`) | P1 | `IMPLEMENTED` | `HEAD` | `tests/alien-flora-renderer.test.ts` (5/5 pass) |
 | `VIVO-04` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Fauna alienígena, taxonomia morfológica e spawn seguro (`AlienFaunaManager`) | P1 | `PLANNED` | — | `tests/alien-fauna-manager.test.ts` |
 | `VIVO-05` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Scanner cósmico de espécies e catálogo no Atlas | P1 | `PLANNED` | — | `tests/cosmic-species-scanner.test.ts` |
 | `VIVO-06` | `specs/universo-vivo/00-ROADMAP-UNIVERSO-VIVO.md` | Combate `PowerSystem` multi-domínio em planetas ativos | P0 | `PLANNED` | — | `tests/planetary-combat-integration.test.ts` |

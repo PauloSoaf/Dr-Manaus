@@ -35,3 +35,4 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 - 72e6468 (D5 Minor Body Disruption & Asteroid Fields): push run 43094667147 SUCCESS; PR run 43094679407 SUCCESS. 1.676/1.676 passed. 2026-11-11T16:17:00-04:00
 - 365a5cc (Documentation & Master Tracker Sync): push run 43095309023 SUCCESS. 1.676/1.676 passed. 2026-11-11T16:22:00-04:00
 - eaeab77 (VIVO-01 Deterministic Biosphere Profile & Seed Channels): push run 43248198129 SUCCESS; PR run 43248209627 SUCCESS. 1.681/1.681 passed, 638/638 regressions. 100% verde. 2026-11-12T11:31:00-04:00
+- e39ddf5 (VIVO-02 Deterministic Biomes & Climate Service): push run 43249484116 SUCCESS; PR run 43249500485 SUCCESS. 1.687/1.687 passed, 638/638 regressions. 100% verde. 2026-11-12T11:37:00-04:00
