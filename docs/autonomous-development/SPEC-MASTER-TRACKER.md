@@ -176,5 +176,5 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `VIVO-13` | `specs/universo-vivo/12-PLANETARY-RUPTURE-POWER.md` | Fragmentação física por calotas ortogonais e anel orbital de detritos keplerianos | P0 | `CI_VERIFIED` | `1a0c951` | `tests/planet-rupture-power.test.ts` (5/5 pass) |
 | `VIVO-14` | `specs/universo-vivo/12-PLANETARY-RUPTURE-POWER.md` | Reconstrução cósmica via poder `reconstruct` e persistência de estado em `SaveManager` | P0 | `CI_VERIFIED` | `1a0c951` | `tests/planet-rupture-power.test.ts` (5/5 pass) |
 | `VIVO-15` | `specs/universo-vivo/15-ANOMALIES-RUINS-AND-COLOSSI.md` | Ruínas ancestrais, santuários megalíticos, colossos guardiões e missões de primeiro contato | P1 | `IMPLEMENTED` | `local` | `tests/cosmic-anomalies-and-ruins.test.ts` (6/6 pass) |
-| `VIVO-16` | `specs/universo-vivo/16-BENCHMARKS-AND-POLISH.md` | Benchmarks de desempenho em alta densidade, profiling de memória e polimento final do Universo Vivo | P1 | `PLANNED` | `pending` | `tests/universo-vivo-benchmarks.test.ts` |
+| `VIVO-16` | `specs/universo-vivo/16-BENCHMARKS-AND-POLISH.md` | Benchmarks de desempenho em alta densidade, profiling de memória e polimento final do Universo Vivo | P1 | `IMPLEMENTED` | `local` | `tests/universo-vivo-benchmarks.test.ts` (5/5 pass) |
 

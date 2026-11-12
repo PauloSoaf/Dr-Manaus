@@ -432,5 +432,6 @@ export class AlienFloraRenderer {
       this.root.remove(mesh);
     }
     this.meshes.clear();
+    this.root.removeFromParent();
   }
 }

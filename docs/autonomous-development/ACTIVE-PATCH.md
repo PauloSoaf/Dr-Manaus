@@ -1,29 +1,19 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `VIVO-15` (Ruínas Ancestrais, Colossos Mecânicos, Primeiro Contato e Anomalias Cósmicas)
+- **Patch:** `VIVO-16` (Benchmarks de Desempenho em Alta Densidade, Profiling de Memória e Polimento Final)
 - **Status:** IMPLEMENTED & LOCAL VALIDATION IN PROGRESS
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-12T13:20:00-04:00
+- **Atualizado:** 2026-11-12T13:24:00-04:00
 
 ## Mudanças do Patch
-1. `src/world/life/CosmicAnomaliesAndRuinsManager.ts`:
-   - Subsistema procedural completo para sítios arqueológicos monumentais e chefes colossais.
-   - 3 arquétipos de ruínas: `ancient-sanctuary` (complexo escalonado com 4 obeliscos perimétricos), `hyper-relic` (núcleo octaédrico levitante) e `guardian-spire`.
-   - Entidade de chefe `ColossusBossTarget` (1.200 HP, escala 20m) com lógica de combate multifásica:
-     - Fase 1 (100% - 50% HP): marcha pesada (6 m/s), pisões sísmicos radiais.
-     - Fase 2 (< 50% HP): sobrecarga/enrage (10.5 m/s) com escudos defletores (dano absorvido em 50%).
-   - Primeiro contato: detecção de aproximação (< 38m) marcando descoberta em `SaveManager.discoverRuin`, concedendo +20 de reputação com facção de guardiões e despertando sentinelas colossais adormecidos.
-   - Derrota de colossos: registra id em `SaveManager.recordColossusDefeat`, concede +35 de reputação e notifica jogador.
-   - Restauração: poder `reconstruct` conserta ruínas avariadas e premia +15 de reputação.
-2. `src/core/SaveManager.ts`:
-   - Adicionados campos persistentes `discoveredRuins?: string[]` e `defeatedColossi?: string[]`.
-   - Implementados métodos `isRuinDiscovered`, `discoverRuin`, `isColossusDefeated` e `recordColossusDefeat`.
-3. `src/game/Game.ts`:
-   - Instanciado `CosmicAnomaliesAndRuinsManager` e anexado a `worldRoot`.
-   - Conectados alvos de ruínas e colossos a `PowerSystem.targets`.
-   - Conectados hooks de `hit`, `damageInRadius` e `reconstruct`.
-   - Conectada atualização por frame e métricas no HUD F3 (`UNIVERSO VIVO · Ruínas`, `UNIVERSO VIVO · Colossos`).
-4. `specs/universo-vivo/15-ANOMALIES-RUINS-AND-COLOSSI.md`:
-   - Especificação técnica consolidada para ruínas, primeiro contato e combate com titãs.
-5. `tests/cosmic-anomalies-and-ruins.test.ts`:
-   - Suíte de 6 testes unitários cobrindo inicialização, supressão em mundos estéreis, spawn arqueológico, primeiro contato, combate com fases/escudo/derrota e restauração por reconstrução.
+1. `tests/universo-vivo-benchmarks.test.ts`:
+   - Criada suíte completa de testes de estresse, benchmarking e estabilidade de heap.
+   - `T_VIVO16_01_AI_TICK_EXECUTION_BUDGET`: validação de execução de IA econômica em $\le 3.0\text{ ms}$ por tick a 8 Hz para 50+ entidades ativas.
+   - `T_VIVO16_02_ZERO_MEMORY_LEAK_OVER_1000_FRAMES`: validação de crescimento de heap limitado ($< 20\text{ MB}$) ao longo de 1.000 quadros contínuos de simulação espacial.
+   - `T_VIVO16_03_RAPID_CELESTIAL_BODY_HANDOFF_STABILITY`: transição rápida entre 6 corpos celestes heterogêneos sem exceções ou estado órfão.
+   - `T_VIVO16_04_SAVE_AND_RESTORE_INTEGRITY_CYCLE`: ciclo completo de serialização JSON e recuperação de descobertas de espécies, corpos rupturados, reputação de facções, ruínas e colossos derrotados.
+   - `T_VIVO16_05_COMPLETE_DISPOSAL_CLEANUP`: liberação completa de geometrias, materiais e desanexação de nós pais via `.dispose()`.
+2. `src/world/life/AlienFloraRenderer.ts`, `src/world/life/AlienFaunaManager.ts`, `src/world/life/AlienSettlementManager.ts`:
+   - Corrigidos métodos `dispose()` para invocar `this.root.removeFromParent()`, garantindo teardown limpo da cena Three.js sem nós fantasmas em memória.
+3. `specs/universo-vivo/16-BENCHMARKS-AND-POLISH.md`:
+   - Especificação técnica consolidada para metas de 60 FPS, estabilidade de memória e fechamento de regressões.

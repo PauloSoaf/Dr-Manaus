@@ -759,5 +759,6 @@ export class AlienSettlementManager {
     this.inhabitantMesh.geometry.dispose();
     (this.inhabitantMesh.material as MeshStandardMaterial).dispose();
     this.inhabitantMesh.removeFromParent();
+    this.root.removeFromParent();
   }
 }

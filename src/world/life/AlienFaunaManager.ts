@@ -789,5 +789,6 @@ export class AlienFaunaManager {
       this.root.remove(mesh);
     }
     this.meshes.clear();
+    this.root.removeFromParent();
   }
 }
