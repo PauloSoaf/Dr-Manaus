@@ -39,3 +39,4 @@ Este documento rastreia os runs oficiais de validação do GitHub Actions no rep
 - 2b3c8f8 (VIVO-03 Instanced Alien Flora Renderer): push run 43250867443 SUCCESS; PR run 43250880996 SUCCESS. 1.692/1.692 passed, 638/638 regressions. 100% verde. 2026-11-12T11:45:00-04:00
 - f037141 (VIVO-04 Alien Fauna Manager & Economic AI): push run 43252195971 SUCCESS; PR run 43252212393 SUCCESS. 1.697/1.697 passed, 638/638 regressions. 100% verde. 2026-11-12T11:53:00-04:00
 - b479840 (VIVO-05 Scanner Cósmico de Espécies Alienígenas): push run 43253323529 SUCCESS; PR run 43253338186 SUCCESS. 1.701/1.701 passed, 638/638 regressions. 100% verde. 2026-11-12T11:59:00-04:00
+- f9ed8ae (VIVO-06 Combate Multi-Domínio com Alvos Planetários em PowerSystem e Game): push run 43255766467 SUCCESS; PR run 43255780686 SUCCESS. 1.706/1.706 passed, 638/638 regressions. 100% verde. 2026-11-12T12:12:00-04:00

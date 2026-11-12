@@ -1,25 +1,18 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `VIVO-06` (Combate Multi-Domínio com Alvos Planetários em PowerSystem e Game)
-- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.706/1.706 testes unitários, 638/638 regressões, typecheck 0 erros, build OK)
+- **Patch:** `VIVO-10` (Teleporte Universal Interplanetário e Intergaláctico Seguro com Rollback Transacional)
+- **Status:** IMPLEMENTED & LOCAL VALIDATION COMPLETE (1.711/1.711 testes unitários, 638/638 regressões, typecheck 0 erros, build OK)
 - **Branch:** `feat/universe-map`
-- **Atualizado:** 2026-11-12T12:09:00-04:00
+- **Atualizado:** 2026-11-12T12:22:00-04:00
 
 ## Mudanças do Patch
-1. `src/player/powers/PowerSystem.ts`:
-   - Mira e dano do feixe de laser conectados diretamente a alvos e criaturas extraterrestres no campo de visão.
-   - Detecção de alvos unificada em combate corpo a corpo, socos cinéticos e meteor slam.
-2. `src/world/life/AlienFaunaManager.ts`:
-   - Adicionado método de dano em área com impulso radial: `damageInRadius(center, radiusM, damage, impulse)`.
-   - Escalonamento dinâmico de dano em `hit(id, force, damage)`.
-3. `src/world/life/AlienFloraRenderer.ts`:
-   - Adicionado método de regeneração de flora: `reconstruct(center, radiusM)` permitindo que espécimes erradicados ressurjam deterministicamente.
-4. `src/world/destruction/PlanetExcavationService.ts`:
-   - Adicionado método de escavação de crateras esféricas em volumes planetários: `carveSphere(bodyId, centerBodyFixedM, radiusM)`.
-5. `src/game/Game.ts`:
-   - Autorização dinâmica de deformação de superfície planetária (`canDeformSurface`) em qualquer corpo com física local ativa.
-   - Handlers unificados de `damage`, `impact` e `reconstruct`, coordenando danos estruturais, erradicação/regeneração de flora, dano/ressurreição de fauna e crateramento volumétrico.
-6. `specs/universo-vivo/06-MULTI-DOMAIN-PLANETARY-COMBAT.md`:
-   - Especificação técnica completa de combate cósmico multi-domínio.
-7. `tests/planetary-combat-integration.test.ts`:
-   - Suíte de 5 testes de integração cobrindo alvos de criaturas, dano em área e knockback, destruição e reconstituição de flora, crateras planetárias e fluxo orquestrado de poderes do Dr-Manaus.
+1. `src/world/travel/UniversalTeleportService.ts`:
+   - Adicionado suporte a pouso direto na superfície de Marte (`mars`) com ancoramento em `mars/fixed` e cálculo analítico de geodésica.
+   - Adicionado suporte universal a pouso na superfície de qualquer corpo celeste e planeta procedural gerado (`ensureDynamicSurfaceFrame`), gerando frames ENU com base ortogonal e política de descarte FIFO (máximo 32 frames dinâmicos).
+   - Implementado handoff transacional entre sistemas estelares e galáxias com invocação de `prepareSystem()` e commit.
+   - Implementada arquitetura de **Rollback Transacional Atômico** em `teleport()`: captura snapshot completo (frame, posição, orientação, endereço, coordenadas locais e velocidades do jogador) e restaura integralmente caso qualquer validação física, sinal ou transição falhe.
+   - Adicionada detecção analítica de mira em Estágio 2 para superfícies de Marte e corpos procedurais sob o observador.
+2. `specs/universo-vivo/10-UNIVERSAL-INTERPLANETARY-TELEPORT.md`:
+   - Especificação técnica completa de teleporte interplanetário e intergaláctico seguro com garantia transacional.
+3. `tests/universal-teleport-interplanetary.test.ts`:
+   - Suíte de 5 testes unitários validando pouso em Marte, pouso em planeta procedural, handoff inter-sistemas, rollback atômico e resolução de mira orbital em Estágio 2.

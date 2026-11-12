@@ -14,6 +14,8 @@ import { TravelDomain } from './TravelDomain';
 import type { TeleportTarget, CosmologicalAddress } from '../spatial/UniverseLocation';
 import { UniverseCoordinates } from '../spatial/UniverseCoordinates';
 import {
+  intersectEllipsoidRay,
+  intersectSphereRay,
   intersectEarthWGS84,
   intersectMoonSurface,
   intersectMarsSurface,
@@ -207,6 +209,58 @@ export class UniversalTeleportService {
           },
         };
       }
+    } else if (dominantBody === 'mars' && universe.frames.has(currentFrame) && universe.frames.has('mars/fixed')) {
+      const originVec: Vec3 = [rayOrigin.x, rayOrigin.y, rayOrigin.z];
+      const dirVec: Vec3 = [rayDirection.x, rayDirection.y, rayDirection.z];
+      const originMars = universe.frames.convertPosition(currentFrame, 'mars/fixed', originVec);
+      const dirMars = universe.frames.convertDirection(currentFrame, 'mars/fixed', dirVec);
+      const marsHit = intersectMarsSurface(originMars, dirMars);
+      if (marsHit) {
+        const r = Math.hypot(...marsHit.point);
+        const latDeg = radToDeg(Math.asin(marsHit.point[1] / Math.max(1, r)));
+        const lonDeg = radToDeg(Math.atan2(marsHit.point[0], marsHit.point[2]));
+        return {
+          kind: 'surface-geodetic',
+          displayName: `Marte (${latDeg.toFixed(2)}°, ${lonDeg.toFixed(2)}°)`,
+          target: {
+            kind: 'surface-geodetic',
+            galaxyId: 'milky_way',
+            systemId: 'sol',
+            bodyId: 'mars',
+            latDeg,
+            lonDeg,
+            altitudeM: 2.0,
+          },
+        };
+      }
+    } else if (dominantBody && universe.frames.has(currentFrame)) {
+      const body = universe.activeSystem.bodies.find(b => b.id === dominantBody);
+      const fixedFrameId = `${dominantBody}/fixed`;
+      if (body && universe.frames.has(fixedFrameId)) {
+        const originVec: Vec3 = [rayOrigin.x, rayOrigin.y, rayOrigin.z];
+        const dirVec: Vec3 = [rayDirection.x, rayDirection.y, rayDirection.z];
+        const originBody = universe.frames.convertPosition(currentFrame, fixedFrameId, originVec);
+        const dirBody = universe.frames.convertDirection(currentFrame, fixedFrameId, dirVec);
+        const sphereHit = intersectSphereRay(originBody, dirBody, [0, 0, 0], body.equatorialRadiusM);
+        if (sphereHit) {
+          const r = Math.hypot(...sphereHit.point);
+          const latDeg = radToDeg(Math.asin(sphereHit.point[1] / Math.max(1, r)));
+          const lonDeg = radToDeg(Math.atan2(sphereHit.point[0], sphereHit.point[2]));
+          return {
+            kind: 'surface-geodetic',
+            displayName: `${body.name ?? dominantBody} (${latDeg.toFixed(2)}°, ${lonDeg.toFixed(2)}°)`,
+            target: {
+              kind: 'surface-geodetic',
+              galaxyId: universe.address.galaxyId,
+              systemId: universe.address.systemId,
+              bodyId: dominantBody,
+              latDeg,
+              lonDeg,
+              altitudeM: 2.0,
+            },
+          };
+        }
+      }
     }
 
     // Stage 3: Celestial angular target from celestial runtime
@@ -307,6 +361,17 @@ export class UniversalTeleportService {
     this.currentAbortController = new AbortController();
     const effectiveSignal = signal ?? this.currentAbortController.signal;
 
+    const rollbackSnapshot = {
+      playerPose: {
+        frame: this.context.universe.player.frame,
+        position: cloneVec3(this.context.universe.player.position),
+        orientation: [...this.context.universe.player.orientation] as [number, number, number, number],
+      },
+      address: { ...this.context.universe.address },
+      playerPosition: { x: this.context.player.position.x, y: this.context.player.position.y, z: this.context.player.position.z },
+      playerVelocity: { x: this.context.player.velocity.x, y: this.context.player.velocity.y, z: this.context.player.velocity.z },
+    };
+
     this.isTeleporting = true;
     try {
       let resolvedTarget: TeleportTarget | Vector3;
@@ -348,6 +413,13 @@ export class UniversalTeleportService {
 
       return result;
     } catch (error) {
+      // Transactional rollback on error
+      this.context.universe.setPlayerPose(rollbackSnapshot.playerPose.frame, rollbackSnapshot.playerPose.position);
+      this.context.universe.player.orientation = rollbackSnapshot.playerPose.orientation;
+      this.context.universe.address = rollbackSnapshot.address;
+      this.context.player.teleport(rollbackSnapshot.playerPosition);
+      this.context.player.velocity.set(rollbackSnapshot.playerVelocity.x, rollbackSnapshot.playerVelocity.y, rollbackSnapshot.playerVelocity.z);
+
       if (effectiveSignal.aborted) {
         return { success: false, message: 'Teleporte anterior abortado.', transitionKind: 'local' };
       }
@@ -441,7 +513,7 @@ export class UniversalTeleportService {
           }
 
           // Earth outside Manaus: generate local ENU surface frame
-          const frameId = this.ensureDynamicSurfaceFrame(target.latDeg, target.lonDeg);
+          const frameId = this.ensureDynamicSurfaceFrame('earth', target.latDeg, target.lonDeg);
 
           // Atomic commit for arbitrary Earth coordinates
           travelDomain.reset();
@@ -468,7 +540,17 @@ export class UniversalTeleportService {
 
         if (bodyId === 'moon') {
           if (!universe.frames.has('moon/fixed')) {
-            throw new Error('Frame lunar indisponível.');
+            const moonBody = universe.activeSystem.bodies.find(b => b.id === 'moon');
+            if (moonBody && universe.frames.has(moonBody.frameId)) {
+              universe.frames.register(referenceFrame({
+                id: 'moon/fixed',
+                parentId: moonBody.frameId,
+                kind: 'body-fixed',
+                label: 'moon (fixo)',
+              }));
+            } else {
+              throw new Error('Frame lunar indisponível.');
+            }
           }
 
           travelDomain.reset();
@@ -494,11 +576,79 @@ export class UniversalTeleportService {
           };
         }
 
-        throw new Error(`Superfície não suportada para o corpo "${bodyId}"`);
+        // Mars and all procedural or other celestial bodies
+        if (target.systemId && target.systemId !== universe.address.systemId && this.context.prepareSystem) {
+          const navTarget = createUniversalTarget({
+            kind: 'body',
+            displayName: bodyId,
+            objectId: bodyId,
+            galaxyId: target.galaxyId ?? universe.address.galaxyId,
+            systemId: target.systemId,
+            bodyId,
+            address: {
+              galaxyId: target.galaxyId ?? universe.address.galaxyId,
+              sector: universe.address.sector,
+              systemId: target.systemId,
+              bodyId,
+            },
+          });
+          const prep = this.context.prepareSystem(navTarget);
+          prep.commit();
+        }
+
+        const body = universe.activeSystem.bodies.find(b => b.id === bodyId);
+        if (!body) {
+          throw new Error(`Corpo celeste "${bodyId}" não encontrado no sistema.`);
+        }
+
+        const radiusM = body.equatorialRadiusM || (bodyId === 'mars' ? MARS_RADIUS_EQUATORIAL_M : 3_000_000);
+        const frameId = this.ensureDynamicSurfaceFrame(bodyId, target.latDeg, target.lonDeg, radiusM);
+
+        travelDomain.reset();
+        const safeAlt = Math.max(1.0, Number.isFinite(target.altitudeM) ? target.altitudeM : 2.0);
+        const targetPos: Vec3 = [0, safeAlt, 0];
+        universe.setPlayerPose(frameId, targetPos);
+        universe.address = {
+          galaxyId: target.galaxyId ?? universe.address.galaxyId,
+          sector: universe.address.sector,
+          systemId: target.systemId ?? universe.address.systemId,
+          bodyId,
+          childFrame: frameId,
+        };
+        universe.floatingOrigin.reset(universe.player);
+        this.context.player.teleport({ x: 0, y: safeAlt, z: 0 });
+        this.context.player.velocity.set(0, 0, 0);
+
+        return {
+          success: true,
+          message: `Chegada à superfície de ${body.name ?? bodyId} (${target.latDeg.toFixed(2)}°, ${target.lonDeg.toFixed(2)}°)`,
+          target,
+          transitionKind: 'local',
+        };
       }
 
       case 'body-orbit': {
         const bodyId = target.bodyId;
+
+        if (target.systemId && target.systemId !== universe.address.systemId && this.context.prepareSystem) {
+          const navTarget = createUniversalTarget({
+            kind: 'body',
+            displayName: bodyId,
+            objectId: bodyId,
+            galaxyId: target.galaxyId ?? universe.address.galaxyId,
+            systemId: target.systemId,
+            bodyId,
+            address: {
+              galaxyId: target.galaxyId ?? universe.address.galaxyId,
+              sector: universe.address.sector,
+              systemId: target.systemId,
+              bodyId,
+            },
+          });
+          const prep = this.context.prepareSystem(navTarget);
+          prep.commit();
+        }
+
         const body = universe.activeSystem.bodies.find(b => b.id === bodyId);
         if (!body) {
           throw new Error(`Corpo celeste "${bodyId}" não encontrado no sistema ativo.`);
@@ -656,11 +806,16 @@ export class UniversalTeleportService {
   }
 
   /**
-   * Generates or retrieves an ENU surface reference frame at arbitrary Earth geodetic coordinates.
+   * Generates or retrieves an ENU surface reference frame at arbitrary celestial geodetic coordinates.
    * Enforces bounded memory by evicting older dynamic frames from the ReferenceFrameGraph.
    */
-  private ensureDynamicSurfaceFrame(latDeg: number, lonDeg: number): string {
-    const frameId = `earth/surface/${latDeg.toFixed(4)}_${lonDeg.toFixed(4)}`;
+  private ensureDynamicSurfaceFrame(
+    bodyId: string,
+    latDeg: number,
+    lonDeg: number,
+    equatorialRadiusM = 6378137,
+  ): string {
+    const frameId = `${bodyId}/surface/${latDeg.toFixed(4)}_${lonDeg.toFixed(4)}`;
     const { frames } = this.context.universe;
 
     if (frames.has(frameId)) {
@@ -673,31 +828,78 @@ export class UniversalTeleportService {
       frames.remove(oldest);
     }
 
-    const anchorEcef = geodeticToEcef({
-      latRad: degToRad(latDeg),
-      lonRad: degToRad(lonDeg),
-      heightM: 0,
-    });
+    if (bodyId === 'earth') {
+      const anchorEcef = geodeticToEcef({
+        latRad: degToRad(latDeg),
+        lonRad: degToRad(lonDeg),
+        heightM: 0,
+      });
 
-    const basis = enuBasis({
-      latRad: degToRad(latDeg),
-      lonRad: degToRad(lonDeg),
-      heightM: 0,
-    });
+      const basis = enuBasis({
+        latRad: degToRad(latDeg),
+        lonRad: degToRad(lonDeg),
+        heightM: 0,
+      });
 
-    const south = scaleVec3(cloneVec3(basis.north), -1, [0, 0, 0]);
-    const rotationToParent = quatFromBasis(cloneVec3(basis.east), cloneVec3(basis.up), south);
+      const south = scaleVec3(cloneVec3(basis.north), -1, [0, 0, 0]);
+      const rotationToParent = quatFromBasis(cloneVec3(basis.east), cloneVec3(basis.up), south);
 
-    frames.register(
-      referenceFrame({
-        id: frameId,
-        parentId: EARTH_FIXED_FRAME_ID,
-        kind: 'surface-enu',
-        originInParent: [anchorEcef.xM, anchorEcef.yM, anchorEcef.zM],
-        rotationToParent,
-        label: `Terra (${latDeg.toFixed(2)}°, ${lonDeg.toFixed(2)}°)`,
-      }),
-    );
+      frames.register(
+        referenceFrame({
+          id: frameId,
+          parentId: EARTH_FIXED_FRAME_ID,
+          kind: 'surface-enu',
+          originInParent: [anchorEcef.xM, anchorEcef.yM, anchorEcef.zM],
+          rotationToParent,
+          label: `Terra (${latDeg.toFixed(2)}°, ${lonDeg.toFixed(2)}°)`,
+        }),
+      );
+    } else {
+      const fixedFrameId = `${bodyId}/fixed`;
+      if (!frames.has(fixedFrameId)) {
+        const body = this.context.universe.activeSystem.bodies.find(b => b.id === bodyId);
+        const parentId = body && frames.has(body.frameId) ? body.frameId : this.context.universe.activeSystem.systemFrameId;
+        frames.register(
+          referenceFrame({
+            id: fixedFrameId,
+            parentId,
+            kind: 'body-fixed',
+            label: `${bodyId} (fixo)`,
+          }),
+        );
+      }
+
+      const latRad = degToRad(latDeg);
+      const lonRad = degToRad(lonDeg);
+      const cosLat = Math.cos(latRad);
+      const sinLat = Math.sin(latRad);
+      const cosLon = Math.cos(lonRad);
+      const sinLon = Math.sin(lonRad);
+
+      const x = equatorialRadiusM * cosLat * cosLon;
+      const y = equatorialRadiusM * sinLat;
+      const z = equatorialRadiusM * cosLat * sinLon;
+
+      const basis = enuBasis({
+        latRad,
+        lonRad,
+        heightM: 0,
+      });
+
+      const south = scaleVec3(cloneVec3(basis.north), -1, [0, 0, 0]);
+      const rotationToParent = quatFromBasis(cloneVec3(basis.east), cloneVec3(basis.up), south);
+
+      frames.register(
+        referenceFrame({
+          id: frameId,
+          parentId: fixedFrameId,
+          kind: 'surface-enu',
+          originInParent: [x, y, z],
+          rotationToParent,
+          label: `${bodyId} (${latDeg.toFixed(2)}°, ${lonDeg.toFixed(2)}°)`,
+        }),
+      );
+    }
 
     this.dynamicFrames.push(frameId);
     return frameId;
