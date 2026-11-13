@@ -11,6 +11,9 @@ import {
   tileKeyToString,
 } from '../streaming/TileDemand';
 import type { CoverageClaim, SpatialContext, StreamingContext, WorldProvider } from './WorldProvider';
+import {
+  clampStarSectorRing, clampStarsPerSector, COSMIC_LOD_HARD_CAPS,
+} from '../streaming/CosmicLodBudget';
 
 /**
  * The galaxy, as a streamed provider.
@@ -89,8 +92,11 @@ export class StarSectorProvider implements WorldProvider {
     parent.add(this.group);
     this.options = {
       galaxyId: options.galaxyId ?? 'milky_way',
-      ringSectors: Math.max(0, Math.round(finite(options.ringSectors, DEFAULT_RING))),
-      maxStarsPerSector: Math.max(1, Math.round(finite(options.maxStarsPerSector, DEFAULT_MAX_STARS))),
+      ringSectors: clampStarSectorRing(finite(options.ringSectors, DEFAULT_RING)),
+      maxStarsPerSector: clampStarsPerSector(
+        finite(options.maxStarsPerSector, DEFAULT_MAX_STARS),
+        finite(options.ringSectors, DEFAULT_RING),
+      ),
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 200_000)),
       universeSeed: effectiveSeed,
     };

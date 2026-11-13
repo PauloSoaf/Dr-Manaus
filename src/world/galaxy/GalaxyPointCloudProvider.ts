@@ -12,7 +12,7 @@ import type { QualityPreset } from '../../core/config';
 export const GALAXY_POINT_BUDGETS: Record<QualityPreset, number> = {
   Low: 10_000,
   Medium: 40_000,
-  High: 100_000,
+  High: 80_000,
   Ultra: 160_000,
 };
 

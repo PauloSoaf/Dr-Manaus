@@ -162,7 +162,7 @@ test('T_U42_03_PARTICLE_BUDGETS_AND_PRESETS: particle counts respect engineering
 
   assert.equal(GALAXY_POINT_BUDGETS.Low, 10_000);
   assert.equal(GALAXY_POINT_BUDGETS.Medium, 40_000);
-  assert.equal(GALAXY_POINT_BUDGETS.High, 100_000);
+  assert.equal(GALAXY_POINT_BUDGETS.High, 80_000);
   assert.equal(GALAXY_POINT_BUDGETS.Ultra, 160_000);
 
   const geomLow = provider.getGeometry(desc, 'Low');
@@ -332,7 +332,7 @@ test('T_U421_01_CACHE_IDENTITY_COLLISION_RESISTANCE_AND_LRU: distinct keys avoid
 
   // C. Presets and visual parameters differentiate cache keys:
   const keyLow = buildPointCloudCacheKey(procA, 'Low', 10_000);
-  const keyHigh = buildPointCloudCacheKey(procA, 'High', 100_000);
+  const keyHigh = buildPointCloudCacheKey(procA, 'High', 80_000);
   assert.notEqual(keyLow, keyHigh, 'Different presets must produce distinct cache keys');
 
   // D. Morphological divergence on identical seed must produce distinct cache key:
@@ -452,7 +452,7 @@ test('T_U421_04_QUALITY_PRESET_DYNAMIC_SWITCHING: updates particle count and geo
 
   // Materialize LOD2
   renderer.forceLod(2);
-  assert.equal(renderer.particleCount, 100_000); // Default: High
+  assert.equal(renderer.particleCount, 80_000); // Default: High
 
   // Switch to Low
   renderer.setQuality('Low');
@@ -473,7 +473,7 @@ test('T_U421_04_QUALITY_PRESET_DYNAMIC_SWITCHING: updates particle count and geo
   assert.equal(provider.stats.particleCount, 10_000);
 
   provider.setQuality('High');
-  assert.equal(provider.stats.particleCount, 100_000);
+  assert.equal(provider.stats.particleCount, 80_000);
 
   provider.dispose();
   renderer.dispose();

@@ -12,18 +12,17 @@
 - **EARTH-01 (`MAN-05`)** — Classificação determinística da superfície terrestre (`classifyEarthSurface`), biomas, oceano, calotas polares de gelo e mancha urbana de Manaus (`specs/dr-manaus-cosmic-night-specs/03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md`). Validado no CI com SHA `c596bc8` (Runs #43461716161 e #43461727550 SUCCESS).
 - **GRAV-01 (`06-ZERO-G-AND-GRAVITY-DOMAINS.md`)** — Fontes de gravidade celeste (`GravitySource`), point-mass Newton ($a = -\mu \vec{r}/r^3$), regime zero-g inercial, threshold de gameplay e dinâmica orbital qualitativa em `InterplanetaryController`. Validado no CI com SHA `badfa32` (Runs #43462682665 e #43462669631 SUCCESS).
 - **TRANS-01 (`04-EARTH-ALTITUDE-TRANSITION.md`)** — Transição contínua da Terra de 0m a 400.000m, eliminação formal do chão preto (`localWeight + planetWeight >= 0.99`), desvanecimento atmosférico contínuo e histerese segura de ownership. Validado no CI com SHA `51eb4df` (Runs #43463682957 e #43463672694 SUCCESS).
+- **LOD-STREAM-01 (`14-COSMIC-LOD-STREAMING-PERFORMANCE.md`)** — Hard caps High centralizados para tiles planetários, setores estelares, estrelas visíveis e pontos de galáxia, preservando SSE, cache LRU e budgets do scheduler.
 
-## Patch Atual: Perfis Visuais e Sistema Solar Completo
-- **SOLAR-02 (`PLAN-07` / `07-SOLAR-SYSTEM-COMPLETE.md`)** — Perfis visuais unificados de planetas (`PlanetVisualProfile`), anéis de Saturno, tipagem de superfície e limites canônicos de relevo. 4 novos testes unitários adicionados.
+## Patch Atual: LOD e Streaming Cósmico
+- **LOD-STREAM-01 (`14-COSMIC-LOD-STREAMING-PERFORMANCE.md`)** — Auditoria de streaming SSE, budgets e caps de residência: 160 tiles planetários, 27 setores, 16k estrelas locais e 80k pontos representativos em High. 2 novos testes unitários adicionados.
 
 ## Próximos Passos de Engenharia (Roadmap Contínuo)
-1. **LOD-STREAM-01 (`14-COSMIC-LOD-STREAMING-PERFORMANCE.md`)**:
-   - Auditoria de streaming de LOD angular e orçamento de memória de geometria celeste.
-2. **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)**:
+1. **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)**:
    - Consolidação de grandes atratores e nós de superaglomerados na Teia Cósmica.
 
 ## Estado Geral do Projeto
-- **Total de Testes Unitários:** 1.777 / 1.777 Aprovados (100%)
+- **Total de Testes Unitários:** 1.779 / 1.779 Aprovados (100%)
 - **Testes de Regressão Permanente:** 638 / 638 Aprovados (100%)
 - **Typecheck TypeScript:** 0 Erros
 - **Vite Production Build:** Aprovado

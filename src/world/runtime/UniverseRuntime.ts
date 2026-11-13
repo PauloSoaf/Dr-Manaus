@@ -105,7 +105,7 @@ export class UniverseRuntime {
     this.registerMoonFrames();
 
     this.scheduler = new GlobalStreamingScheduler(this.providers);
-    this.earthQuadtree = new PlanetQuadtree(EARTH, { maxTiles: 192, maxLevel: 16 });
+    this.earthQuadtree = new PlanetQuadtree(EARTH, { maxTiles: 160, maxLevel: 16 });
     this.playerPose = pose(MANAUS_FRAME_ID, [0, 0, 0]);
     this.floatingOrigin = new FloatingOrigin3D(pose(MANAUS_FRAME_ID, [0, 0, 0]), {
       thresholdM: 2048, gridM: 1024,

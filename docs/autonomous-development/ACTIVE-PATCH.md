@@ -1,14 +1,23 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `SOLAR-02` — Perfis Visuais Unificados de Planetas, Anéis de Saturno e Tipagem de Superfície (`specs/dr-manaus-cosmic-night-specs/07-SOLAR-SYSTEM-COMPLETE.md`)
-- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.777/1.777 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript, build Vite aprovado)
+- **Patch:** `LOD-STREAM-01` — Hard Caps de LOD e Streaming Cósmico (`specs/dr-manaus-cosmic-night-specs/14-COSMIC-LOD-STREAMING-PERFORMANCE.md`)
+- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.779/1.779 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript)
 - **Branch:** `feat/universe-map`
 - **SHA:** A ser gerado no commit
 - **Atualizado:** 2026-11-13T12:35:00-04:00
 
 ## Mudanças do Patch
 
-### 1. `src/world/celestial/PlanetVisualProfile.ts` (Novo Módulo Canônico):
+### 1. `src/world/streaming/CosmicLodBudget.ts` (Novo Módulo Canônico):
+- Centraliza os hard caps High do spec 14: 160 tiles planetários, 27 setores estelares, 16.000 estrelas locais e 80.000 pontos representativos de galáxia.
+- Limita anéis de setores e pontos por qualidade antes de chegarem ao scheduler.
+
+### 2. Providers celestes:
+- `EarthProvider`, `RockyPlanetProvider` e `UniverseRuntime` respeitam o limite de 160 tiles.
+- `StarSectorProvider` limita o anel a 27 setores e a densidade a 16.000 estrelas visíveis.
+- `GalaxyPointCloudProvider` limita o preset High a 80.000 pontos.
+
+### 3. `src/world/celestial/PlanetVisualProfile.ts`:
 - Implementada a interface `PlanetVisualProfile`:
   - `bodyId: string`: Identificador do corpo celeste normalizado.
   - `surfaceType: 'rocky' | 'ice' | 'gas' | 'star'`: Classificação física de superfície.
@@ -25,7 +34,10 @@
   - Saturno: Anéis analíticos autênticos com raio interno de 75.335.000m ($1,25 \times R$) e raio externo de 138.616.400m ($2,30 \times R$).
   - Gigantes de gelo (Urano e Netuno): `surfaceType: 'ice'`, sem pouso sólido convencional.
 
-### 2. `tests/planet-visual-profiles.test.ts` (4 Novos Testes):
+### 4. `tests/cosmic-lod-streaming.test.ts` (2 Novos Testes):
+- Verificação dos hard caps e normalização de entradas inválidas.
+
+### 5. `tests/planet-visual-profiles.test.ts` (4 Novos Testes):
 - `T_PLANET_PROFILE_01_SOLAR_COVERAGE`: Cobertura de todos os 10 corpos principais do Sistema Solar e albedo RGB.
 - `T_PLANET_PROFILE_02_SATURN_RINGS`: Dimensões físicas dos anéis de Saturno e relações de raio interno/externo.
 - `T_PLANET_PROFILE_03_ATMOSPHERE_AND_TERRAIN`: Relevos canônicos da Terra, Lua e Marte com atmosferas correspondentes.
