@@ -109,6 +109,26 @@ test('T_VIVO18_02_PERSISTED_RUPTURE_IMMEDIATE_PHASE_SEVEN', () => {
   presentation.dispose();
 });
 
+test('T_VIVO18_04_MULTIPLE_RUPTURES_KEEP_INDEPENDENT_SESSIONS', () => {
+  const presentation = new PlanetaryRupturePresentation(new Group());
+  presentation.startRupture('earth', 6378137);
+  presentation.startRupture('mars', 3389500);
+  presentation.setBodyPosition('earth', new Vector3(100, 0, 0));
+  presentation.setBodyPosition('mars', new Vector3(-200, 0, 0));
+
+  presentation.update(5);
+  assert.equal(presentation.currentPhase('earth'), 5);
+  assert.equal(presentation.currentPhase('mars'), 5);
+  assert.deepEqual(presentation.bodyPosition('earth')?.toArray(), [100, 0, 0]);
+  assert.deepEqual(presentation.bodyPosition('mars')?.toArray(), [-200, 0, 0]);
+
+  presentation.restore('earth');
+  assert.equal(presentation.isRuptured('earth'), false);
+  assert.equal(presentation.isRuptured('mars'), true);
+  assert.equal(presentation.currentPhase('mars'), 5);
+  presentation.dispose();
+});
+
 test('T_VIVO18_03_COSMIC_ATLAS_RUPTURED_BODY_METADATA', () => {
   const save = new SaveManager();
   save.reset();

@@ -1,22 +1,33 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `SOLAR-03` — Consumo do perfil visual unificado (`specs/dr-manaus-cosmic-night-specs/07-SOLAR-SYSTEM-COMPLETE.md`)
-- **Status:** IMPLEMENTED & VALIDATED LOCALLY (typecheck aprovado, testes de perfil visual 4/4; suíte completa pendente deste patch)
+- **Patch:** `BUGS-02.1` — Diversidade procedural e ruptura planetária por corpo (`specs/dr-manaus-cosmic-night-specs/02-REMAINING-BUGS.md`)
+- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.782/1.782 testes gerais, 638/638 regressões, 0 erros TypeScript, build Vite aprovado)
 - **Branch:** `feat/universe-map`
 - **SHA:** A ser gerado no commit
-- **Atualizado:** 2026-11-13T15:40:00-04:00
+- **Atualizado:** 2026-11-13T16:10:00-04:00
 
 ## Mudanças do Patch
 
 ### 1. `src/rendering/celestial/CelestialBodyVisualLayer.ts`:
-- O renderer consulta `getPlanetVisualProfile` como fonte canônica de albedo e escalas de anéis.
-- Perfis legados continuam fornecendo parâmetros de iluminação e apresentação específicos, sem duplicar a classificação visual.
+- `PlanetVisualProfile` só é aplicado aos IDs presentes em `SOLAR_BODY_PROFILES`.
+- Mundos procedurais preservam albedo, anéis, bandas, haze e demais parâmetros determinísticos do `CelestialBodyProfile`.
 
-### 2. `tests/wgs84.test.ts`:
-- Verifica identidade do frame por tile, cache e transformação de collider.
+### 2. `src/rendering/celestial/PlanetaryRupturePresentation.ts`:
+- Cada `bodyId` possui meshes, materiais, posição e estado visual independentes.
+- Restauração remove somente a sessão do corpo solicitado; múltiplos planetas podem permanecer destruídos.
+- Posições são atualizadas individualmente no frame de renderização.
 
-### 3. `src/world/celestial/PlanetVisualProfile.ts`:
-- Implementada a interface `PlanetVisualProfile`:
+### 3. `src/game/Game.ts` e `src/player/powers/PowerSystem.ts`:
+- O globo permanece visível durante as fases iniciais mesmo após o save registrar a ruptura.
+- Posições de ruptura são convertidas por `RenderSpaceService`.
+- A entrada pública de ruptura não ignora mais a carga de 2,5 segundos.
+
+### 4. Testes:
+- `tests/planet-visual-profiles.test.ts`: diversidade de três mundos procedurais e preservação de anéis.
+- `tests/vivo-18-planetary-rupture-presentation.test.ts`: sessões simultâneas e restauração isolada.
+
+### 5. Histórico de SOLAR-02:
+- `src/world/celestial/PlanetVisualProfile.ts` permanece como contrato canônico:
   - `bodyId: string`: Identificador do corpo celeste normalizado.
   - `surfaceType: 'rocky' | 'ice' | 'gas' | 'star'`: Classificação física de superfície.
   - `atmosphere: AtmosphereProfile`: Parâmetros de atmosfera (pressão em atm, scale height em m, espalhamento Rayleigh e névoas).

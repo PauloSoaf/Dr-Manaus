@@ -657,9 +657,7 @@ export class PowerSystem {
   }
 
   planetRupture(): void {
-    this.executePlanetRupture();
-    this.cooldowns.planetRupture = 5.0;
-    this._planetRuptureState = 'cooldown';
+    this.use('planetRupture');
   }
 
   private giant(): void {

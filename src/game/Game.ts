@@ -944,16 +944,24 @@ export class Game {
 
     // Suppress intact globes for ruptured bodies & drive rupture presentation
     for (const [id, provider] of this.planetProviders) {
-      if (this.save?.isBodyRuptured(id) || this.planetaryRupturePresentation?.isGlobeSuppressed(id)) {
+      if ((this.save?.isBodyRuptured(id) && !this.planetaryRupturePresentation?.isRuptured(id))
+        || this.planetaryRupturePresentation?.isGlobeSuppressed(id)) {
         provider.setVisible(false);
       }
     }
-    if (this.earth && (this.save?.isBodyRuptured('earth') || this.planetaryRupturePresentation?.isGlobeSuppressed('earth'))) {
+    if (this.earth && ((this.save?.isBodyRuptured('earth') && !this.planetaryRupturePresentation?.isRuptured('earth'))
+      || this.planetaryRupturePresentation?.isGlobeSuppressed('earth'))) {
       this.earth.globe.visible = false;
     }
-    const dominantBodyForRupture = this.universe.telemetry.dominantBody;
-    const dominantCenterArr = this.universe.activeSystem.positionOf(dominantBodyForRupture) ?? [0, 0, 0];
-    this.planetaryRupturePresentation?.update(dt, this.rendering.camera, new Vector3(...dominantCenterArr));
+    for (const bodyId of this.planetaryRupturePresentation?.bodyIds() ?? []) {
+      const body = this.universe.activeSystem.bodies.find(candidate => candidate.id === bodyId);
+      if (!body) continue;
+      const renderPosition = this.universe.renderSpace.logicalToRender(body.frameId, [0, 0, 0]);
+      if (this.universe.renderSpace.isRenderSafe(renderPosition)) {
+        this.planetaryRupturePresentation.setBodyPosition(bodyId, new Vector3(...renderPosition));
+      }
+    }
+    this.planetaryRupturePresentation?.update(dt, this.rendering.camera);
 
     // One ground at a time. The flat backdrop and the curved planet cannot both be the surface,
     // and above the handover altitude the curvature is what the player is looking at.

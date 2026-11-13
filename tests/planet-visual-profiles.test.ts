@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { getPlanetVisualProfile } from '../src/world/celestial/PlanetVisualProfile';
+import { resolveRendererProfile } from '../src/rendering/celestial/CelestialBodyVisualLayer';
+import type { CelestialBodyProfile } from '../src/world/celestial/CelestialBodyProfile';
 
 test('T_PLANET_PROFILE_01_SOLAR_COVERAGE', () => {
   const bodies = [
@@ -65,5 +67,31 @@ test('T_PLANET_PROFILE_04_GAS_GIANTS_CANNOT_LAND', () => {
   assert.equal(sun.terrain.hasSolidSurface, false);
   assert.equal(sun.terrain.canLand, true);
   assert.equal(sun.terrain.landingMode, 'photosphere');
+});
+
+test('T_PLANET_PROFILE_05_PROCEDURAL_VISUAL_DIVERSITY_IS_PRESERVED', () => {
+  const makeSource = (albedo: [number, number, number], rings?: { innerRadius: number; outerRadius: number }): CelestialBodyProfile => ({
+    bodyClass: 'rocky',
+    hasSolidSurface: true,
+    canLand: true,
+    landingMode: 'surface',
+    hasAtmosphere: false,
+    supportsVolumeDestruction: true,
+    surfaceKind: 'synthetic-base',
+    visual: { albedo, rings, bands: 3, pointBrightness: 0.8 },
+  });
+  const procedural = [
+    resolveRendererProfile('milky-way-proc-a', makeSource([0.8, 0.2, 0.1])),
+    resolveRendererProfile('milky-way-proc-b', makeSource([0.1, 0.7, 0.3], { innerRadius: 1.2, outerRadius: 2.1 })),
+    resolveRendererProfile('andromeda-proc-a', makeSource([0.2, 0.3, 0.9])),
+  ];
+
+  assert.deepEqual(procedural.map(profile => profile.visual.albedo), [
+    [0.8, 0.2, 0.1],
+    [0.1, 0.7, 0.3],
+    [0.2, 0.3, 0.9],
+  ]);
+  assert.deepEqual(procedural[1].visual.rings, { innerRadius: 1.2, outerRadius: 2.1 });
+  assert.equal(procedural[0].visual.bands, 3);
 });
 

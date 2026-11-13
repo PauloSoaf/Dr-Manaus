@@ -41,10 +41,20 @@ export interface ActiveRuptureSession {
   phase: RuptureVisualPhase;
   intactGlobeHidden: boolean;
   positionM: Vector3;
+  visuals: RuptureVisualSet;
 }
 
 const CHUNK_COUNT = 8;
 const DEBRIS_CAPACITY = 128;
+
+interface RuptureVisualSet {
+  readonly root: Group;
+  readonly fissureLines: LineSegments;
+  readonly coreSphere: Mesh;
+  readonly shockwaveSphere: Mesh;
+  readonly crustChunksMesh: InstancedMesh;
+  readonly debrisRingMesh: InstancedMesh;
+}
 
 export class PlanetaryRupturePresentation {
   readonly root = new Group();
@@ -135,15 +145,39 @@ export class PlanetaryRupturePresentation {
     this.debrisRingMesh.count = 0;
     this.debrisGroup.add(this.debrisRingMesh);
 
-    this.root.add(this.fissureGroup);
-    this.root.add(this.coreGroup);
-    this.root.add(this.chunksGroup);
-    this.root.add(this.shockwaveGroup);
-    this.root.add(this.debrisGroup);
-
     if (parent) {
       parent.add(this.root);
     }
+  }
+
+  private createVisualSet(): RuptureVisualSet {
+    const root = new Group();
+    const fissureLines = new LineSegments(
+      this.fissureLines.geometry,
+      (this.fissureLines.material as LineBasicMaterial).clone()
+    );
+    const coreSphere = new Mesh(
+      this.coreSphere.geometry,
+      (this.coreSphere.material as MeshBasicMaterial).clone()
+    );
+    const shockwaveSphere = new Mesh(
+      this.shockwaveSphere.geometry,
+      (this.shockwaveSphere.material as MeshBasicMaterial).clone()
+    );
+    const crustChunksMesh = new InstancedMesh(
+      this.crustChunksMesh.geometry,
+      (this.crustChunksMesh.material as MeshBasicMaterial).clone(),
+      CHUNK_COUNT
+    );
+    const debrisRingMesh = new InstancedMesh(
+      this.debrisRingMesh.geometry,
+      (this.debrisRingMesh.material as MeshBasicMaterial).clone(),
+      DEBRIS_CAPACITY
+    );
+    crustChunksMesh.count = 0;
+    debrisRingMesh.count = 0;
+    root.add(fissureLines, coreSphere, shockwaveSphere, crustChunksMesh, debrisRingMesh);
+    return { root, fissureLines, coreSphere, shockwaveSphere, crustChunksMesh, debrisRingMesh };
   }
 
   /**
@@ -152,6 +186,8 @@ export class PlanetaryRupturePresentation {
   startRupture(bodyId: string, planOrRadius?: MacroBodyFracturePlan | number, radiusM = 6371000): void {
     const radius = typeof planOrRadius === 'number' ? planOrRadius : radiusM;
     const plan = typeof planOrRadius === 'object' && planOrRadius ? planOrRadius : ({ planId: `rupture_${bodyId}`, bodyId, cuts: [] } as any);
+    const previous = this.activeSessions.get(bodyId);
+    if (previous) this.disposeVisualSet(previous.visuals);
     const session: ActiveRuptureSession = {
       bodyId,
       plan,
@@ -160,7 +196,9 @@ export class PlanetaryRupturePresentation {
       phase: 1,
       intactGlobeHidden: false,
       positionM: new Vector3(),
+      visuals: this.createVisualSet(),
     };
+    this.root.add(session.visuals.root);
     this.activeSessions.set(bodyId, session);
   }
 
@@ -170,6 +208,8 @@ export class PlanetaryRupturePresentation {
   loadPersistedRupture(bodyId: string, planOrRadius?: MacroBodyFracturePlan | number, radiusM = 6371000): void {
     const radius = typeof planOrRadius === 'number' ? planOrRadius : radiusM;
     const plan = typeof planOrRadius === 'object' && planOrRadius ? planOrRadius : ({ planId: `rupture_${bodyId}`, bodyId, cuts: [] } as any);
+    const previous = this.activeSessions.get(bodyId);
+    if (previous) this.disposeVisualSet(previous.visuals);
     const session: ActiveRuptureSession = {
       bodyId,
       plan,
@@ -178,7 +218,9 @@ export class PlanetaryRupturePresentation {
       phase: 7,
       intactGlobeHidden: true,
       positionM: new Vector3(),
+      visuals: this.createVisualSet(),
     };
+    this.root.add(session.visuals.root);
     this.activeSessions.set(bodyId, session);
   }
 
@@ -186,18 +228,27 @@ export class PlanetaryRupturePresentation {
    * Restores a ruptured body, clearing its active session and visuals.
    */
   restore(bodyId: string): void {
+    const session = this.activeSessions.get(bodyId);
+    if (!session) return;
+    this.disposeVisualSet(session.visuals);
     this.activeSessions.delete(bodyId);
-    this.crustChunksMesh.count = 0;
-    this.crustChunksMesh.instanceMatrix.needsUpdate = true;
-    this.debrisRingMesh.count = 0;
-    this.debrisRingMesh.instanceMatrix.needsUpdate = true;
-    (this.fissureLines.material as LineBasicMaterial).opacity = 0;
-    (this.coreSphere.material as MeshBasicMaterial).opacity = 0;
-    (this.shockwaveSphere.material as MeshBasicMaterial).opacity = 0;
   }
 
   isRuptured(bodyId: string): boolean {
     return this.activeSessions.has(bodyId);
+  }
+
+  bodyIds(): readonly string[] {
+    return [...this.activeSessions.keys()];
+  }
+
+  setBodyPosition(bodyId: string, positionM: Vector3): void {
+    this.activeSessions.get(bodyId)?.positionM.copy(positionM);
+  }
+
+  bodyPosition(bodyId: string): Vector3 | undefined {
+    const position = this.activeSessions.get(bodyId)?.positionM;
+    return position?.clone();
   }
 
   isGlobeSuppressed(bodyId: string): boolean {
@@ -213,16 +264,8 @@ export class PlanetaryRupturePresentation {
    * Frame update driving the 7 observable phases of all active ruptures.
    */
   update(dt: number, camera?: PerspectiveCamera, bodyPositionM?: Vector3): void {
-    if (this.activeSessions.size === 0) {
-      this.fissureLines.visible = false;
-      this.coreSphere.visible = false;
-      this.shockwaveSphere.visible = false;
-      this.crustChunksMesh.visible = false;
-      this.debrisRingMesh.visible = false;
-      return;
-    }
-
     for (const session of this.activeSessions.values()) {
+      const { fissureLines, coreSphere, shockwaveSphere, crustChunksMesh, debrisRingMesh } = session.visuals;
       session.timeS += dt;
       if (bodyPositionM) {
         session.positionM.copy(bodyPositionM);
@@ -234,51 +277,51 @@ export class PlanetaryRupturePresentation {
       // Phase 1: Glowing fissure network (0.0s - 1.5s)
       if (t < 1.5) {
         session.phase = 1;
-        this.fissureLines.visible = true;
-        this.coreSphere.visible = false;
-        this.shockwaveSphere.visible = false;
-        this.crustChunksMesh.visible = false;
-        this.debrisRingMesh.visible = false;
+        fissureLines.visible = true;
+        coreSphere.visible = false;
+        shockwaveSphere.visible = false;
+        crustChunksMesh.visible = false;
+        debrisRingMesh.visible = false;
 
         const progress = t / 1.5;
-        this.fissureLines.position.copy(pos);
-        this.fissureLines.scale.setScalar(R * 1.002);
-        const mat = this.fissureLines.material as LineBasicMaterial;
+        fissureLines.position.copy(pos);
+        fissureLines.scale.setScalar(R * 1.002);
+        const mat = fissureLines.material as LineBasicMaterial;
         mat.opacity = progress * 0.9;
         mat.color.setHex(0xff5500);
       }
       // Phase 2: Incandescent core glow exposure (1.5s - 3.0s)
       else if (t < 3.0) {
         session.phase = 2;
-        this.fissureLines.visible = true;
-        this.coreSphere.visible = true;
-        this.shockwaveSphere.visible = false;
-        this.crustChunksMesh.visible = false;
-        this.debrisRingMesh.visible = false;
+        fissureLines.visible = true;
+        coreSphere.visible = true;
+        shockwaveSphere.visible = false;
+        crustChunksMesh.visible = false;
+        debrisRingMesh.visible = false;
 
         const progress = (t - 1.5) / 1.5;
-        this.fissureLines.position.copy(pos);
-        this.fissureLines.scale.setScalar(R * (1.002 + progress * 0.03));
-        (this.fissureLines.material as LineBasicMaterial).opacity = 0.9 + progress * 0.1;
-        (this.fissureLines.material as LineBasicMaterial).color.setHex(0xffaa00);
+        fissureLines.position.copy(pos);
+        fissureLines.scale.setScalar(R * (1.002 + progress * 0.03));
+        (fissureLines.material as LineBasicMaterial).opacity = 0.9 + progress * 0.1;
+        (fissureLines.material as LineBasicMaterial).color.setHex(0xffaa00);
 
-        this.coreSphere.position.copy(pos);
-        this.coreSphere.scale.setScalar(R * (0.85 + progress * 0.1));
-        (this.coreSphere.material as MeshBasicMaterial).opacity = progress * 0.85;
+        coreSphere.position.copy(pos);
+        coreSphere.scale.setScalar(R * (0.85 + progress * 0.1));
+        (coreSphere.material as MeshBasicMaterial).opacity = progress * 0.85;
       }
       // Phase 3: Macroscopic crust chunks splitting & detachment (3.0s - 4.5s)
       else if (t < 4.5) {
         session.phase = 3;
-        this.fissureLines.visible = true;
-        this.coreSphere.visible = true;
-        this.shockwaveSphere.visible = false;
-        this.crustChunksMesh.visible = true;
-        this.debrisRingMesh.visible = false;
+        fissureLines.visible = true;
+        coreSphere.visible = true;
+        shockwaveSphere.visible = false;
+        crustChunksMesh.visible = true;
+        debrisRingMesh.visible = false;
 
         const progress = (t - 3.0) / 1.5;
         // Position 8 octant crust chunks moving outward radially
         const separationDist = progress * R * 0.15;
-        this.updateCrustChunks(pos, R, separationDist, progress);
+        this.updateCrustChunks(session, pos, R, separationDist, progress);
       }
       // Phase 4: Intact globe suppression (at 4.5s)
       // Phase 5: Fragment drift & core explosion (4.5s - 6.0s)
@@ -286,38 +329,38 @@ export class PlanetaryRupturePresentation {
         session.phase = t < 5.0 ? 4 : 5;
         session.intactGlobeHidden = true; // Globe explicitly hidden!
 
-        this.fissureLines.visible = false;
-        this.coreSphere.visible = true;
-        this.shockwaveSphere.visible = false;
-        this.crustChunksMesh.visible = true;
-        this.debrisRingMesh.visible = false;
+        fissureLines.visible = false;
+        coreSphere.visible = true;
+        shockwaveSphere.visible = false;
+        crustChunksMesh.visible = true;
+        debrisRingMesh.visible = false;
 
         const progress = (t - 4.5) / 1.5;
         const driftDist = R * 0.15 + progress * R * 0.45;
-        this.updateCrustChunks(pos, R, driftDist, 1.0 + progress);
-        this.coreSphere.position.copy(pos);
-        this.coreSphere.scale.setScalar(R * (0.95 + progress * 0.3));
-        (this.coreSphere.material as MeshBasicMaterial).opacity = Math.max(0, 0.85 - progress * 0.4);
+        this.updateCrustChunks(session, pos, R, driftDist, 1.0 + progress);
+        coreSphere.position.copy(pos);
+        coreSphere.scale.setScalar(R * (0.95 + progress * 0.3));
+        (coreSphere.material as MeshBasicMaterial).opacity = Math.max(0, 0.85 - progress * 0.4);
       }
       // Phase 6: Expanding shockwave shell (6.0s - 7.0s)
       else if (t < 7.0) {
         session.phase = 6;
         session.intactGlobeHidden = true;
 
-        this.fissureLines.visible = false;
-        this.coreSphere.visible = false;
-        this.shockwaveSphere.visible = true;
-        this.crustChunksMesh.visible = true;
-        this.debrisRingMesh.visible = true;
+        fissureLines.visible = false;
+        coreSphere.visible = false;
+        shockwaveSphere.visible = true;
+        crustChunksMesh.visible = true;
+        debrisRingMesh.visible = true;
 
         const progress = (t - 6.0) / 1.0;
         // Shockwave expands up to 3x planet radius
         const shockRadius = R * (1.2 + progress * 2.2);
-        this.shockwaveSphere.position.copy(pos);
-        this.shockwaveSphere.scale.setScalar(shockRadius);
-        (this.shockwaveSphere.material as MeshBasicMaterial).opacity = (1.0 - progress) * 0.75;
+        shockwaveSphere.position.copy(pos);
+        shockwaveSphere.scale.setScalar(shockRadius);
+        (shockwaveSphere.material as MeshBasicMaterial).opacity = (1.0 - progress) * 0.75;
 
-        this.updateCrustChunks(pos, R, R * 0.6 + progress * R * 0.3, 2.0);
+        this.updateCrustChunks(session, pos, R, R * 0.6 + progress * R * 0.3, 2.0);
         this.updateDebrisRing(session, pos, progress);
       }
       // Phase 7: Persistent Keplerian Debris Ring (7.0s+)
@@ -325,18 +368,18 @@ export class PlanetaryRupturePresentation {
         session.phase = 7;
         session.intactGlobeHidden = true;
 
-        this.fissureLines.visible = false;
-        this.coreSphere.visible = false;
-        this.shockwaveSphere.visible = false;
-        this.crustChunksMesh.visible = false;
-        this.debrisRingMesh.visible = true;
+        fissureLines.visible = false;
+        coreSphere.visible = false;
+        shockwaveSphere.visible = false;
+        crustChunksMesh.visible = false;
+        debrisRingMesh.visible = true;
 
         this.updateDebrisRing(session, pos, 1.0);
       }
     }
   }
 
-  private updateCrustChunks(bodyPos: Vector3, radiusM: number, separationDist: number, scaleMultiplier: number): void {
+  private updateCrustChunks(session: ActiveRuptureSession, bodyPos: Vector3, radiusM: number, separationDist: number, scaleMultiplier: number): void {
     let idx = 0;
     // 8 octants on sphere
     const octants = [
@@ -360,11 +403,11 @@ export class PlanetaryRupturePresentation {
       this.dummyScale.setScalar(radiusM * 0.5 * Math.max(0.6, 1.2 - scaleMultiplier * 0.2));
 
       this.dummyMatrix.compose(this.dummyVec, this.dummyQuat, this.dummyScale);
-      this.crustChunksMesh.setMatrixAt(idx++, this.dummyMatrix);
+      session.visuals.crustChunksMesh.setMatrixAt(idx++, this.dummyMatrix);
     }
 
-    this.crustChunksMesh.count = idx;
-    this.crustChunksMesh.instanceMatrix.needsUpdate = true;
+    session.visuals.crustChunksMesh.count = idx;
+    session.visuals.crustChunksMesh.instanceMatrix.needsUpdate = true;
   }
 
   private updateDebrisRing(session: ActiveRuptureSession, bodyPos: Vector3, ringAlpha: number): void {
@@ -387,10 +430,10 @@ export class PlanetaryRupturePresentation {
         this.dummyScale.setScalar(fragScale);
 
         this.dummyMatrix.compose(this.dummyVec, this.dummyQuat, this.dummyScale);
-        this.debrisRingMesh.setMatrixAt(idx++, this.dummyMatrix);
+        session.visuals.debrisRingMesh.setMatrixAt(idx++, this.dummyMatrix);
       }
-      this.debrisRingMesh.count = idx;
-      this.debrisRingMesh.instanceMatrix.needsUpdate = true;
+        session.visuals.debrisRingMesh.count = idx;
+        session.visuals.debrisRingMesh.instanceMatrix.needsUpdate = true;
       return;
     }
 
@@ -416,14 +459,24 @@ export class PlanetaryRupturePresentation {
       this.dummyScale.setScalar(fragScale);
 
       this.dummyMatrix.compose(this.dummyVec, this.dummyQuat, this.dummyScale);
-      this.debrisRingMesh.setMatrixAt(idx++, this.dummyMatrix);
+      session.visuals.debrisRingMesh.setMatrixAt(idx++, this.dummyMatrix);
     }
 
-    this.debrisRingMesh.count = idx;
-    this.debrisRingMesh.instanceMatrix.needsUpdate = true;
+    session.visuals.debrisRingMesh.count = idx;
+    session.visuals.debrisRingMesh.instanceMatrix.needsUpdate = true;
+  }
+
+  private disposeVisualSet(visuals: RuptureVisualSet): void {
+    visuals.root.removeFromParent();
+    (visuals.fissureLines.material as LineBasicMaterial).dispose();
+    (visuals.coreSphere.material as MeshBasicMaterial).dispose();
+    (visuals.shockwaveSphere.material as MeshBasicMaterial).dispose();
+    (visuals.crustChunksMesh.material as MeshBasicMaterial).dispose();
+    (visuals.debrisRingMesh.material as MeshBasicMaterial).dispose();
   }
 
   dispose(): void {
+    for (const session of this.activeSessions.values()) this.disposeVisualSet(session.visuals);
     this.fissureLines.geometry.dispose();
     (this.fissureLines.material as LineBasicMaterial).dispose();
     this.coreSphere.geometry.dispose();
