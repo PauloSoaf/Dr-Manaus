@@ -69,6 +69,7 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `COSMIC-WEB-01` | `12-GREAT-ATTRACTOR-COSMIC-WEB.md` | Campo esparso analítico de teia cósmica, filamentos, vazios e anchors reais de clusters, incluindo Norma / Grande Atrator | P0 | `IMPLEMENTED` | `HEAD` | `tests/cosmological-structure-u6.test.ts` (7/7 pass) |
 | `WGS84-MANAUS-01` | `05-MANAUS-FULL-WGS84-UNIFICATION.md` | Facade canônica de frame por tile e transformação de colliders entre a projeção legacy e o frame render-local WGS84 | P0 | `IMPLEMENTED` | `HEAD` | `tests/wgs84.test.ts` |
 | `BUGS-02.1` | `02-REMAINING-BUGS.md` | Preservação de diversidade procedural, ruptura visual independente por corpo, posições em render-space, visibilidade faseada e entrada de poder sem bypass | P0 | `IMPLEMENTED` | `HEAD` | `tests/planet-visual-profiles.test.ts` (5/5), `tests/vivo-18-planetary-rupture-presentation.test.ts` (4/4) |
+| `BUGS-02.2` | `02-REMAINING-BUGS.md` | Invalidação de frames quando o centro do tile muda e cache WGS84 LRU bounded | P1 | `IMPLEMENTED` | `HEAD` | `tests/wgs84.test.ts` (16/16), typecheck, build |
 
 ---
 

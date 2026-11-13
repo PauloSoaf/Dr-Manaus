@@ -6,9 +6,11 @@ import { ecefToTrueLocal, legacyLocalToEcef, trueLocalToEcef, ecefToLegacyLocal,
 export class SurfaceFrameService {
   private readonly bodyId: string;
   private readonly cache = new Map<string, SurfaceTileFrame>();
+  private readonly cacheLimit: number;
 
-  constructor(bodyId: string = 'earth') {
+  constructor(bodyId: string = 'earth', cacheLimit = 512) {
     this.bodyId = bodyId;
+    this.cacheLimit = Math.max(1, Math.floor(cacheLimit));
   }
 
   frameForTile(tileKey: string, legacyCentreX: number, legacyCentreZ: number): SurfaceTileFrame;
@@ -23,13 +25,25 @@ export class SurfaceFrameService {
     const tileKey = maybeCentreZ === undefined ? bodyOrTile : String(tileOrCentreX);
     const legacyCentreX = maybeCentreZ === undefined ? Number(tileOrCentreX) : centreXOrCentreZ;
     const legacyCentreZ = maybeCentreZ === undefined ? centreXOrCentreZ : maybeCentreZ;
-    const cacheKey = `${bodyId}:${tileKey}`;
-    if (this.cache.has(cacheKey)) {
-      return this.cache.get(cacheKey)!;
+    const cacheKey = `${bodyId}:${tileKey}:${legacyCentreX}:${legacyCentreZ}`;
+    const cached = this.cache.get(cacheKey);
+    if (cached) {
+      this.cache.delete(cacheKey);
+      this.cache.set(cacheKey, cached);
+      return cached;
     }
     const frame = createSurfaceTileFrame(bodyId, tileKey, legacyCentreX, legacyCentreZ);
     this.cache.set(cacheKey, frame);
+    while (this.cache.size > this.cacheLimit) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest === undefined) break;
+      this.cache.delete(oldest);
+    }
     return frame;
+  }
+
+  get cachedFrameCount(): number {
+    return this.cache.size;
   }
 
   /**

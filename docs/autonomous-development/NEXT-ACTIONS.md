@@ -16,7 +16,8 @@
 - **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)** — Campo esparso analítico de densidade, filamentos, vazios e candidatos de clusters reais no `LargeScaleStructureProvider`, com Norma/Great Attractor como anchor físico.
 - **WGS84-MANAUS-01 (`05-MANAUS-FULL-WGS84-UNIFICATION.md`)** — Facade `SurfaceFrameService` com frame por tile, conversão legacy→render-local e transformação de colliders, mantendo cache por corpo/tile.
 
-## Patch Atual: BUGS-02.1
+## Patch Atual: BUGS-02.2
+- O cache WGS84 agora invalida frames quando o centro do tile muda e possui limite LRU.
 - Correção da regressão de diversidade visual procedural.
 - Rupturas planetárias agora possuem sessões visuais independentes por `bodyId`, com posições em render-space e restauração isolada.
 - O caminho de `PowerSystem.planetRupture()` não executa mais ruptura sem carga.
@@ -24,9 +25,10 @@
 ## Próximos Passos de Engenharia (Roadmap Contínuo)
 1. **BUGS-02 (`02-REMAINING-BUGS.md`)**:
    - Propagar o `SurfaceFrameService` para roads, água, landmarks, tráfego e colliders restantes.
+   - Auditar conversão de direção/velocidade e alinhamento de HLOD/terrain no frame WGS84.
 
 ## Estado Geral do Projeto
-- **Total de Testes Unitários:** 1.782 / 1.782 Aprovados (100%)
+- **Total de Testes Unitários:** 1.783 / 1.783 Aprovados (100%)
 - **Testes de Regressão Permanente:** 638 / 638 Aprovados (100%)
 - **Typecheck TypeScript:** 0 Erros
 - **Vite Production Build:** Aprovado

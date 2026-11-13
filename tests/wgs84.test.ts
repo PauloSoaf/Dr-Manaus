@@ -250,6 +250,18 @@ test('the surface frame facade shares tile transforms with gameplay colliders', 
   assert.ok(Math.hypot(curved.x, curved.z) > 0);
 });
 
+test('surface frame cache invalidates moved centres and stays bounded', () => {
+  const service = new SurfaceFrameService('earth', 2);
+  const first = service.frameForTile('tile-0', 0, 0);
+  const moved = service.frameForTile('tile-0', 32, 0);
+  assert.notEqual(first, moved, 'a moved tile centre must not reuse the previous frame');
+  assert.equal(service.cachedFrameCount, 2);
+
+  service.frameForTile('tile-1', 64, 0);
+  assert.equal(service.cachedFrameCount, 2, 'frame cache must remain bounded');
+  assert.equal(service.frameForTile('tile-0', 32, 0), moved, 'recent frame should remain cached');
+});
+
 test('haversine distance agrees with the local projection over short ranges', () => {
   const a = geodeticFromDegrees(MANAUS_ANCHOR.latDeg, MANAUS_ANCHOR.lonDeg, 0);
   const b = geodeticFromDegrees(-3.1302764, -60.0232792, 0);
