@@ -13,6 +13,7 @@ import {
 } from '../src/world/spatial/ManausFrameAdapter.ts';
 import { GEO_ORIGIN, latLonToWorld, worldToLatLon } from '../src/world/geodata/geodata.ts';
 import { SurfaceFrameService } from '../src/world/spatial/SurfaceFrameService.ts';
+import { manausTileSceneMatrix } from '../src/world/spatial/ManausSurfacePresentation.ts';
 
 test('the ellipsoid uses the defining WGS84 constants, not fitted ones', () => {
   assert.equal(WGS84.semiMajorAxisM, 6_378_137.0);
@@ -260,6 +261,11 @@ test('surface frame cache invalidates moved centres and stays bounded', () => {
   service.frameForTile('tile-1', 64, 0);
   assert.equal(service.cachedFrameCount, 2, 'frame cache must remain bounded');
   assert.equal(service.frameForTile('tile-0', 32, 0), moved, 'recent frame should remain cached');
+});
+
+test('Manaus tile presentation resolves through the shared surface-frame facade', () => {
+  const matrix = manausTileSceneMatrix('tile-0', 0, 0);
+  assert.ok(matrix.elements.every(Number.isFinite));
 });
 
 test('haversine distance agrees with the local projection over short ranges', () => {

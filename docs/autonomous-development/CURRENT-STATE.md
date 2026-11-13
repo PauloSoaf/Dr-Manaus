@@ -17,7 +17,7 @@
   - `ISSUE-04`: Transição contínua e polimento atmosférico WGS84/orbital (Concluído e Validado)
 - **Status de Typecheck:** Aprovado (`tsc --noEmit` 0 erros).
 - **Status de Build:** Aprovado (Vite 8.3.0).
-- **Cobertura de Testes Globais:** 1.783 / 1.783 testes aprovados.
+- **Cobertura de Testes Globais:** 1.784 / 1.784 testes aprovados.
 - **Suíte de Regressão Permanente:** 638 / 638 testes aprovados.
-- **Bloqueios Ativos:** Nenhum técnico; CI do patch BUGS-02.2 será consultado após a publicação.
+- **Bloqueios Ativos:** Nenhum técnico; CI do patch BUGS-02.3 será consultado após a publicação.
 - **Servidor Dev:** Ativo em localhost:9999.

@@ -1,6 +1,6 @@
 import { Matrix4 } from 'three/webgpu';
 import { FEATURES } from '../../core/config';
-import { createSurfaceTileFrame } from './SurfaceTileFrame';
+import { SurfaceFrameService } from './SurfaceFrameService';
 
 /**
  * One switch for local city presentation; logical ECEF/planet frames are independent.
@@ -19,10 +19,12 @@ export function localManausPresentationMode(): 'flat' | 'curved' {
 /** Intact local physics/building bases are Y=0; asphalt remains 22–34 mm above this sheet. */
 export const MANAUS_GROUND_COVER_Y = 0;
 
+const surfaceService = new SurfaceFrameService('earth');
+
 /** Authored geometry is tile-local in both modes. Curved frames stay dormant in flat Manaus. */
 export function manausTileSceneMatrix(tileId: string, originX: number, originZ: number,
   out = new Matrix4()): Matrix4 {
   return localManausPresentationMode() === 'curved'
-    ? out.copy(createSurfaceTileFrame('earth', tileId, originX, originZ).getSceneMatrix())
+    ? out.copy(surfaceService.frameForTile(tileId, originX, originZ).getSceneMatrix())
     : out.makeTranslation(originX, 0, originZ);
 }

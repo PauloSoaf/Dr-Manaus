@@ -1,16 +1,17 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `BUGS-02.2` — Cache WGS84 por centro de tile (`specs/dr-manaus-cosmic-night-specs/02-REMAINING-BUGS.md`)
-- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.783/1.783 testes gerais, 638/638 regressões, 0 erros TypeScript, build Vite aprovado)
+- **Patch:** `BUGS-02.3` — Fachada WGS84 no transform de tiles Manaus (`specs/dr-manaus-cosmic-night-specs/02-REMAINING-BUGS.md`)
+- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.784/1.784 testes gerais, 638/638 regressões, 0 erros TypeScript, build Vite aprovado)
 - **Branch:** `feat/universe-map`
 - **SHA:** A ser gerado no commit
 - **Atualizado:** 2026-11-13T16:25:00-04:00
 
-## Mudanças do Patch BUGS-02.2
+## Mudanças do Patch BUGS-02.3
 
 - `SurfaceFrameService` agora invalida frames quando o centro do tile muda.
 - O cache usa LRU bounded (limite configurável, padrão 512) para evitar crescimento indefinido.
-- `tests/wgs84.test.ts` cobre invalidação, limite e retenção do frame mais recente.
+- `ManausSurfacePresentation` resolve matrizes de tile pela fachada compartilhada, sem criar frames diretamente.
+- `tests/wgs84.test.ts` cobre invalidação, limite, retenção e o caminho de apresentação.
 
 ## Mudanças do Patch
 
