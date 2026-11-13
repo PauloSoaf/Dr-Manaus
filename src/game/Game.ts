@@ -129,6 +129,7 @@ import { CelestialBodyVisualLayer } from '../rendering/celestial/CelestialBodyVi
 import { CelestialPresentationController } from '../rendering/celestial/CelestialPresentationController';
 import { CelestialLabelLayer } from '../rendering/celestial/CelestialLabelLayer';
 import { solarDiagnostics } from '../rendering/celestial/solarPresentation';
+import { gravitySourceFromBody } from '../world/celestial/GravitySource';
 export interface FrameSample { fps:number; cpu:number; drawCalls:number; triangles:number; geometries:number; textures:number; active:number; cached:number; queued:number; loadedMB:number; streamMs:number; x:number; z:number }
 export class Game {
   surfaceReturnTrace?: {
@@ -1475,6 +1476,9 @@ export class Game {
     const bodyDef = this.universe.activeSystem.bodies.find(b=>b.id===t.dominantBody);
     const bodyVel = this.universe.activeSystem.stateOf(t.dominantBody)?.velocityMps ?? [0,0,0];
     const bodyPos = this.universe.activeSystem.positionOf(t.dominantBody) ?? [0,0,0];
+    const gravitySources = this.universe.activeSystem.bodies
+      .filter(body => (body.massKg ?? 0) > 0)
+      .map(body => gravitySourceFromBody(body, this.universe.activeSystem.positionOf(body.id) ?? [0, 0, 0]));
 
     const ctx = {
       altitudeM: t.altitudeM,
@@ -1484,6 +1488,7 @@ export class Game {
       bodyRadiusM: bodyDef?.equatorialRadiusM ?? 6378137,
       bodyPositionM: bodyPos,
       bodyVelocityMps: bodyVel,
+      gravitySources,
       bodyId: t.dominantBody,
       systemId: this.universe.address.systemId!,
       envelopeMarginM: bodyDef?bodyArrivalPolicy(bodyDef).exclusionMarginM:1000,
