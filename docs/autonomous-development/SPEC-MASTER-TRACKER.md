@@ -65,6 +65,7 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `PLAN-06` | `21-status-SUN-APPROACH-P0.md` | Aproximação à fotosfera solar, radiação e pouso em atmosfera estelar | P0 | `CI_VERIFIED` | `baseline` | `tests/sun-approach.test.ts` |
 | `PLAN-07` | `07-SOLAR-SYSTEM-COMPLETE.md` | Perfil visual unificado (`PlanetVisualProfile`), tipagem de superfície (`rocky`, `ice`, `gas`, `star`), anéis analíticos de Saturno, atmosfera e relevos canônicos | P0 | `CI_VERIFIED` | `7d5ce9b` | `tests/planet-visual-profiles.test.ts` (4/4 pass) |
 | `COSMIC-WEB-01` | `12-GREAT-ATTRACTOR-COSMIC-WEB.md` | Campo esparso analítico de teia cósmica, filamentos, vazios e anchors reais de clusters, incluindo Norma / Grande Atrator | P0 | `IMPLEMENTED` | `HEAD` | `tests/cosmological-structure-u6.test.ts` (7/7 pass) |
+| `WGS84-MANAUS-01` | `05-MANAUS-FULL-WGS84-UNIFICATION.md` | Facade canônica de frame por tile e transformação de colliders entre a projeção legacy e o frame render-local WGS84 | P0 | `IMPLEMENTED` | `HEAD` | `tests/wgs84.test.ts` |
 
 ---
 

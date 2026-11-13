@@ -11,12 +11,24 @@ export class SurfaceFrameService {
     this.bodyId = bodyId;
   }
 
-  frameForTile(tileKey: string, legacyCentreX: number, legacyCentreZ: number): SurfaceTileFrame {
-    if (this.cache.has(tileKey)) {
-      return this.cache.get(tileKey)!;
+  frameForTile(tileKey: string, legacyCentreX: number, legacyCentreZ: number): SurfaceTileFrame;
+  frameForTile(bodyId: string, tileKey: string, legacyCentreX: number, legacyCentreZ: number): SurfaceTileFrame;
+  frameForTile(
+    bodyOrTile: string,
+    tileOrCentreX: string | number,
+    centreXOrCentreZ: number,
+    maybeCentreZ?: number,
+  ): SurfaceTileFrame {
+    const bodyId = maybeCentreZ === undefined ? this.bodyId : bodyOrTile;
+    const tileKey = maybeCentreZ === undefined ? bodyOrTile : String(tileOrCentreX);
+    const legacyCentreX = maybeCentreZ === undefined ? Number(tileOrCentreX) : centreXOrCentreZ;
+    const legacyCentreZ = maybeCentreZ === undefined ? centreXOrCentreZ : maybeCentreZ;
+    const cacheKey = `${bodyId}:${tileKey}`;
+    if (this.cache.has(cacheKey)) {
+      return this.cache.get(cacheKey)!;
     }
-    const frame = createSurfaceTileFrame(this.bodyId, tileKey, legacyCentreX, legacyCentreZ);
-    this.cache.set(tileKey, frame);
+    const frame = createSurfaceTileFrame(bodyId, tileKey, legacyCentreX, legacyCentreZ);
+    this.cache.set(cacheKey, frame);
     return frame;
   }
 

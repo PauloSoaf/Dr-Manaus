@@ -1,18 +1,19 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `COSMIC-WEB-01` — Teia Cósmica Analítica e Grande Atrator (`specs/dr-manaus-cosmic-night-specs/12-GREAT-ATTRACTOR-COSMIC-WEB.md`)
-- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.779/1.779 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript, build Vite aprovado)
+- **Patch:** `WGS84-MANAUS-01` — Unificação WGS84 de Manaus (`specs/dr-manaus-cosmic-night-specs/05-MANAUS-FULL-WGS84-UNIFICATION.md`)
+- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.780/1.780 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript, build Vite aprovado)
 - **Branch:** `feat/universe-map`
 - **SHA:** A ser gerado no commit
 - **Atualizado:** 2026-11-13T12:35:00-04:00
 
 ## Mudanças do Patch
 
-### 1. `src/world/cosmology/CosmologicalStructure.ts`:
-- Implementada `evaluateCosmicWebCell`, com densidade esparsa, direção do filamento dominante, fator de vazio e resolução dos anchors reais próximos.
+### 1. `src/world/spatial/SurfaceFrameService.ts`:
+- A facade aceita frame por corpo/tile com cache composto, preservando a sobrecarga legacy existente.
+- Colliders continuam em coordenadas source e são projetados para o frame render-local sem sobrescrever o dado original.
 
-### 2. `src/world/providers/LargeScaleStructureProvider.ts`:
-- Expõe amostragem de células e telemetria de filamentos sem materializar milhões de objetos.
+### 2. `tests/wgs84.test.ts`:
+- Verifica identidade do frame por tile, cache e transformação de collider.
 
 ### 3. `src/world/celestial/PlanetVisualProfile.ts`:
 - Implementada a interface `PlanetVisualProfile`:

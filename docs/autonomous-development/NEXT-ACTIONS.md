@@ -14,13 +14,14 @@
 - **TRANS-01 (`04-EARTH-ALTITUDE-TRANSITION.md`)** — Transição contínua da Terra de 0m a 400.000m, eliminação formal do chão preto (`localWeight + planetWeight >= 0.99`), desvanecimento atmosférico contínuo e histerese segura de ownership. Validado no CI com SHA `51eb4df` (Runs #43463682957 e #43463672694 SUCCESS).
 - **LOD-STREAM-01 (`14-COSMIC-LOD-STREAMING-PERFORMANCE.md`)** — Hard caps High centralizados para tiles planetários, setores estelares, estrelas visíveis e pontos de galáxia, preservando SSE, cache LRU e budgets do scheduler.
 - **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)** — Campo esparso analítico de densidade, filamentos, vazios e candidatos de clusters reais no `LargeScaleStructureProvider`, com Norma/Great Attractor como anchor físico.
+- **WGS84-MANAUS-01 (`05-MANAUS-FULL-WGS84-UNIFICATION.md`)** — Facade `SurfaceFrameService` com frame por tile, conversão legacy→render-local e transformação de colliders, mantendo cache por corpo/tile.
 
-## Patch Atual: Teia Cósmica e Grande Atrator
-- **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)** — Amostragem determinística de células cósmicas com densidade normalizada, direção de filamento, fator de vazio e anchors reais. 1 teste de integração ampliado.
+## Patch Atual: Unificação WGS84 de Manaus
+- **WGS84-MANAUS-01 (`05-MANAUS-FULL-WGS84-UNIFICATION.md`)** — Contrato canônico de transformação de tiles e colliders entre a projeção legacy e o frame verdadeiro local. 1 teste de integração adicionado.
 
 ## Próximos Passos de Engenharia (Roadmap Contínuo)
-1. **WGS84-MANAUS-01 (`05-MANAUS-FULL-WGS84-UNIFICATION.md`)**:
-   - Auditoria final do frame geodésico de Manaus e integração com o referencial planetário.
+1. **BUGS-02 (`02-BUGS-REMAINING.md`)**:
+   - Fechamento dos bugs restantes após a unificação de frames.
 
 ## Estado Geral do Projeto
 - **Total de Testes Unitários:** 1.779 / 1.779 Aprovados (100%)

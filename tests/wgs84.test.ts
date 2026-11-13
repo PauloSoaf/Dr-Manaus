@@ -12,6 +12,7 @@ import {
   geodeticToTrueLocal, legacyDivergenceM, legacyLocalToEcef, legacyLocalToGeo,
 } from '../src/world/spatial/ManausFrameAdapter.ts';
 import { GEO_ORIGIN, latLonToWorld, worldToLatLon } from '../src/world/geodata/geodata.ts';
+import { SurfaceFrameService } from '../src/world/spatial/SurfaceFrameService.ts';
 
 test('the ellipsoid uses the defining WGS84 constants, not fitted ones', () => {
   assert.equal(WGS84.semiMajorAxisM, 6_378_137.0);
@@ -234,6 +235,19 @@ test('the true local frame keeps the game axis convention', () => {
   assert.ok(east[0] > 5000, `a step east must be +X, got ${east[0]}`);
   const up = geodeticToTrueLocal(geodeticFromDegrees(MANAUS_ANCHOR.latDeg, MANAUS_ANCHOR.lonDeg, 750));
   assert.ok(Math.abs(up[1] - 750) < 1e-6, `a step up must be +Y, got ${up[1]}`);
+});
+
+test('the surface frame facade shares tile transforms with gameplay colliders', () => {
+  const service = new SurfaceFrameService();
+  const frame = service.frameForTile('earth', '0,0', 0, 0);
+  assert.equal(frame.bodyId, 'earth');
+  assert.equal(frame.localFrameId, 'earth/tile/0,0');
+  assert.equal(service.frameForTile('earth', '0,0', 0, 0), frame, 'tile frames must be cached');
+
+  const source = { id: 'road/test', x: 5400, y: 12, z: -7400, width: 8, height: 2, depth: 30 };
+  const curved = service.legacyColliderToRenderLocal(source, { ...source });
+  assert.ok(Number.isFinite(curved.x) && Number.isFinite(curved.y) && Number.isFinite(curved.z));
+  assert.ok(Math.hypot(curved.x, curved.z) > 0);
 });
 
 test('haversine distance agrees with the local projection over short ranges', () => {
