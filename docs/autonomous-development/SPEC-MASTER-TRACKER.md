@@ -38,7 +38,8 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `MAN-03` | `07-EARTH-TERRAIN-DEM.md` | Relevo global ETOPO5 do NOAA (5 arc-minute) downsampleado a 5.742m max | P0 | `CI_VERIFIED` | `baseline` | `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` |
 | `MAN-04` | `CLAUDE_NO_RUSH_EARTH_VISUAL_HARDENING` | Renderizador vetorial de rios continentais e bacia amazônica sem artefatos | P1 | `CI_VERIFIED` | `22e765d` | `tests/earth-orbital-rivers.test.ts` |
 | `MAN-05` | `03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md` | Classificação determinística da superfície terrestre (`EarthSurfaceClass`): oceano, terra, calotas de gelo (Antártica, Groenlândia, Ártico) e mancha urbana de Manaus | P0 | `CI_VERIFIED` | `c596bc8` | `tests/earth-surface-biomes-ocean-ice.test.ts` (4/4 pass) |
-| `GRAV-01` | `06-ZERO-G-AND-GRAVITY-DOMAINS.md` | Fontes de gravidade celeste (`GravitySource`), point-mass Newton ($a = -\mu \vec{r}/r^3$), regime zero-g inercial, threshold de gameplay e dinâmica orbital qualitativa em `InterplanetaryController` | P0 | `IMPLEMENTED` | `HEAD` | `tests/zero-g-and-gravity-domains.test.ts` (7/7 pass) |
+| `TRANS-01` | `04-EARTH-ALTITUDE-TRANSITION.md` | Transição contínua da Terra de 0m a 400.000m, eliminação de chão preto (`localWeight + planetWeight >= 0.99`), atenuação atmosférica contínua e histerese segura de ownership | P0 | `IMPLEMENTED` | `HEAD` | `tests/earth-altitude-transition.test.ts` (7/7 pass) |
+| `GRAV-01` | `06-ZERO-G-AND-GRAVITY-DOMAINS.md` | Fontes de gravidade celeste (`GravitySource`), point-mass Newton ($a = -\mu \vec{r}/r^3$), regime zero-g inercial, threshold de gameplay e dinâmica orbital qualitativa em `InterplanetaryController` | P0 | `CI_VERIFIED` | `badfa32` | `tests/zero-g-and-gravity-domains.test.ts` (7/7 pass) |
 
 ---
 

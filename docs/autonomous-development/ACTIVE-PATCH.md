@@ -1,42 +1,29 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `GRAV-01` — Fontes de Gravidade Celeste, Regime Zero-G Inercial e Dinâmica Orbital em `InterplanetaryController` (`specs/dr-manaus-cosmic-night-specs/06-ZERO-G-AND-GRAVITY-DOMAINS.md`)
-- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.766/1.766 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript, build Vite 100% verde)
+- **Patch:** `TRANS-01` — Transição Contínua de Altitude da Terra, Eliminação de Chão Preto e Desvanecimento Atmosférico (`specs/dr-manaus-cosmic-night-specs/04-EARTH-ALTITUDE-TRANSITION.md`)
+- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.773/1.773 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript, build Vite aprovado)
 - **Branch:** `feat/universe-map`
 - **SHA:** A ser gerado no commit
-- **Atualizado:** 2026-11-13T12:26:00-04:00
+- **Atualizado:** 2026-11-13T12:32:00-04:00
 
 ## Mudanças do Patch
 
-### 1. `src/world/celestial/GravitySource.ts` (Novo Módulo Canônico):
-- Implementada a interface `GravitySource`:
-  - `id: string`: Identificador do corpo celeste.
-  - `frameId: string`: Referencial físico do corpo.
-  - `mu: number`: Parâmetro gravitacional padrão $\mu = G \cdot M$ ($\text{m}^3/\text{s}^2$).
-  - `collisionRadiusM: number`: Raio equatorial de colisão física.
-  - `influenceRadiusM: number`: Raio da esfera de influência (Laplace/Hill).
-  - `accelerationAt(positionM: Vec3): Vec3`: Função de aceleração gravitacional vetorial baseada na lei do inverso do quadrado $\vec{a} = -\mu \frac{\vec{r}}{r^3}$ com suavização geométrica no núcleo.
-- Implementado helper `createPointMassGravitySource` e gerador de fonte a partir de `CelestialBody` (`gravitySourceFromBody`).
-- Implementadas funções utilitárias:
-  - `netGravityAcceleration(sources, pos)`: Soma vetorial N-corpos.
-  - `dominantGravitySource(sources, pos)`: Identificação da fonte de atração primária.
-  - `isZeroG(sources, pos, threshold)`: Verificação do threshold inercial de gameplay (`GAMEPLAY_ZERO_G_ACCEL_THRESHOLD = 1e-4 m/s^2`).
+### 1. `src/world/providers/EarthTransitionController.ts`:
+- Refinamento das 4 bandas contínuas de altitude:
+  - `0 - 8 km`: Representação local 1.0, planeta 0.0, domínio local, atmosfera 1.0.
+  - `8 - 15 km`: Crossfade suave entre superfície local e globo planetário (`OVERLAP_SAFE`). No ponto médio (11,5 km), o domínio de apresentação transiciona para `planetary`.
+  - `15 - 60 km`: Domínio planetário dominante (`PLANET_DOMINANT`), representação local desanexada com segurança.
+  - `60 km+`: Domínio orbital (`PLANET_ONLY`), globo 1.0.
+  - `100 km`: Linha de Kármán — atenuação atmosférica atinge o vácuo espacial absoluto ($0.0$).
+- Garantia formal de invariante: `localWeight + planetWeight >= 0.99` em qualquer altitude de 0m a 400.000m, eliminando lacunas de representação e o "chão preto" transitório.
+- Reforço do portão de prontidão (`targetCoverageReady`): a representação local nunca é desativada antes que a cobertura planetária/regional confirme readiness, garantindo transição contínua sem depender de frames vazios.
+- Histerese estável de propriedade da superfície (`groundOwner`): transição para `planet` aos 15 km e retorno para `local` aos 13 km, eliminando qualquer oscilação em vôo nivelado.
 
-### 2. `src/world/travel/InterplanetaryController.ts`:
-- Adicionado suporte à aceleração gravitacional celeste no método `update()`.
-- Se fontes de gravidade (`context.gravitySources`) ou aceleração direta (`context.netGravityMps2`) estiverem presentes, a aceleração gravitacional é integrada ao vetor de velocidade relativa e do sistema.
-- Se nenhuma fonte estiver presente ou o jogador estiver longe de corpos celestes (zero-g), a velocidade é estritamente conservada segundo a primeira lei de Newton (deriva inercial pura sem drag implícito e sem queda em -Y).
-- A desaceleração (`brake`) permanece estritamente vinculada a uma ação/poder ativo do jogador, nunca a atrito atmosférico artificial no vácuo espacial.
-- Expostos métodos de consulta: `gravityAt(pos, context)`, `isZeroG(pos, context)` e `dominantGravity(pos, context)`.
-
-### 3. `src/world/travel/TravelDomain.ts`:
-- Expandido `TravelContext` com campos tipados `gravitySources?: readonly GravitySource[]` e `netGravityMps2?: Vec3`.
-
-### 4. `tests/zero-g-and-gravity-domains.test.ts` (7 Novos Testes):
-- `T_ZERO_G_01_NO_SOURCE_VELOCITY_PRESERVED`: Conservação inercial sem arrasto nem queda ao soltar comandos.
-- `T_ZERO_G_02_EARTH_ACCELERATION_POINTS_INWARD`: Aceleração da Terra orientada diretamente ao baricentro com módulo $\frac{\mu}{r^2}$.
-- `T_ZERO_G_03_INVERSE_SQUARE_LAW_DOUBLE_DISTANCE`: Validação empírica da lei de gravitação universal ao dobrar a distância ($\approx \frac{1}{4}$).
-- `T_ZERO_G_04_MOON_DOMINANT_NEARBY`: Predomínio do campo lunar em sua esfera de influência.
-- `T_ZERO_G_05_ZERO_G_THRESHOLD_AND_IS_ZERO_G`: Classificação binária do estado de microgravidade para a física do jogador.
-- `T_ZERO_G_06_QUALITATIVE_ORBITAL_MOTION`: Estabilidade de órbita circular qualitativa ($v = \sqrt{\mu / r}$) com desvio radial $< 0,5\%$.
-- `T_ZERO_G_07_SYSTEM_COORDINATES_SEPARATE_FROM_LOCAL`: Coordenadas astronômicas em float64 preservadas fora do PhysicsWorld local.
+### 2. `tests/earth-altitude-transition.test.ts` (7 Novos Testes):
+- `T_EARTH_TRANS_01_LOCAL_BAND_0_TO_8KM`: Condições de solo e baixa altitude mantendo exclusivamente a malha local.
+- `T_EARTH_TRANS_02_CROSSFADE_BAND_8_TO_15KM`: Crossfade de pesos complementares sem gap em 11,5 km.
+- `T_EARTH_TRANS_03_PLANETARY_DOMINANT_15_TO_60KM`: Predomínio do globo com atenuação atmosférica gradual.
+- `T_EARTH_TRANS_04_ORBITAL_BAND_ABOVE_60KM`: Domínio orbital e transição para vácuo no Kármán line.
+- `T_EARTH_TRANS_05_NO_BLACK_GROUND_INVARIANT`: Varredura em 22 amostras de altitude (0 a 400 km) comprovando cobertura ininterrupta.
+- `T_EARTH_TRANS_06_READINESS_GATE_PRESERVES_FALLBACK`: Retenção do fallback local quando tiles planetários ainda não estão prontos.
+- `T_EARTH_TRANS_07_GROUND_OWNER_HYSTERESIS`: Prevenção de oscilação rápida de renderizador na faixa 13-15 km.
