@@ -11,18 +11,19 @@
 - **VALIDAÇÃO IN-BROWSER PLAYWRIGHT 60 FPS** — Suíte executada em Chromium real com aceleração gráfica (`scripts/universo-vivo-browser-validation.mjs`), aprovando todos os 6 critérios de aceitação e 60.0 FPS estáveis.
 - **EARTH-01 (`MAN-05`)** — Classificação determinística da superfície terrestre (`classifyEarthSurface`), biomas, oceano, calotas polares de gelo e mancha urbana de Manaus (`specs/dr-manaus-cosmic-night-specs/03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md`). Validado no CI com SHA `c596bc8` (Runs #43461716161 e #43461727550 SUCCESS).
 - **GRAV-01 (`06-ZERO-G-AND-GRAVITY-DOMAINS.md`)** — Fontes de gravidade celeste (`GravitySource`), point-mass Newton ($a = -\mu \vec{r}/r^3$), regime zero-g inercial, threshold de gameplay e dinâmica orbital qualitativa em `InterplanetaryController`. Validado no CI com SHA `badfa32` (Runs #43462682665 e #43462669631 SUCCESS).
+- **TRANS-01 (`04-EARTH-ALTITUDE-TRANSITION.md`)** — Transição contínua da Terra de 0m a 400.000m, eliminação formal do chão preto (`localWeight + planetWeight >= 0.99`), desvanecimento atmosférico contínuo e histerese segura de ownership. Validado no CI com SHA `51eb4df` (Runs #43463682957 e #43463672694 SUCCESS).
 
-## Patch Atual: Transição de Altitude e Apresentação Atmosférica
-- **TRANS-01 (`04-EARTH-ALTITUDE-TRANSITION.md`)** — Transição contínua da Terra de 0m a 400.000m, eliminação formal do chão preto (`localWeight + planetWeight >= 0.99`), desvanecimento atmosférico contínuo e histerese segura de ownership. 7 novos testes unitários adicionados.
+## Patch Atual: Perfis Visuais e Sistema Solar Completo
+- **SOLAR-02 (`PLAN-07` / `07-SOLAR-SYSTEM-COMPLETE.md`)** — Perfis visuais unificados de planetas (`PlanetVisualProfile`), anéis de Saturno, tipagem de superfície e limites canônicos de relevo. 4 novos testes unitários adicionados.
 
 ## Próximos Passos de Engenharia (Roadmap Contínuo)
 1. **LOD-STREAM-01 (`14-COSMIC-LOD-STREAMING-PERFORMANCE.md`)**:
    - Auditoria de streaming de LOD angular e orçamento de memória de geometria celeste.
-2. **SOLAR-02 (`07-SOLAR-SYSTEM-COMPLETE.md`)**:
-   - Consolidação de órbitas e anéis planetários detalhados (Saturno, Júpiter, Urano, Netuno).
+2. **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)**:
+   - Consolidação de grandes atratores e nós de superaglomerados na Teia Cósmica.
 
 ## Estado Geral do Projeto
-- **Total de Testes Unitários:** 1.773 / 1.773 Aprovados (100%)
+- **Total de Testes Unitários:** 1.777 / 1.777 Aprovados (100%)
 - **Testes de Regressão Permanente:** 638 / 638 Aprovados (100%)
 - **Typecheck TypeScript:** 0 Erros
 - **Vite Production Build:** Aprovado
