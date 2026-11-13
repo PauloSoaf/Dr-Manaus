@@ -1,4 +1,4 @@
-﻿import { UniversalTravelController } from '../world/travel/UniversalTravelController';
+import { UniversalTravelController } from '../world/travel/UniversalTravelController';
 import { BlackHoleRuntime, nearestBlackHole, withAbsolutePosition } from '../world/travel/BlackHoleRuntime';
 import { BlackHoleTransitController } from '../world/travel/BlackHoleTransitNetwork';
 import type { BlackHoleDescriptor } from '../world/celestial/BlackHoleDescriptor';

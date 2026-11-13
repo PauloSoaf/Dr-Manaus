@@ -1,4 +1,4 @@
-﻿/**
+/**
  * CosmicAnomaliesAndRuinsManager.ts
  *
  * Procedural generation, multi-phase boss combat, and persistence of ancient cosmic ruins,

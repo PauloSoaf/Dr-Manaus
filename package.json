@@ -25,7 +25,8 @@
     "test:browser:regression": "node scripts/regression-browser.mjs",
     "test:browser:hypercruise": "node scripts/hypercruise-browser.mjs",
     "test:browser:polish": "node scripts/planetary-polish-browser.mjs",
-    "test:browser:continuous-e2e": "node scripts/continuous-gameplay-e2e-browser.mjs"
+    "test:browser:continuous-e2e": "node scripts/continuous-gameplay-e2e-browser.mjs",
+    "test:browser:universo-vivo": "node scripts/universo-vivo-browser-validation.mjs"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.5.0",

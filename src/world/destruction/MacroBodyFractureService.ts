@@ -1,4 +1,4 @@
-﻿import { GRAVITATIONAL_CONSTANT } from '../celestial/BlackHoleDescriptor';
+import { GRAVITATIONAL_CONSTANT } from '../celestial/BlackHoleDescriptor';
 import type { CelestialBody } from '../celestial/CelestialBody';
 import type { BodyFixedPoint, SubtractSphereEdit } from '../planet/volume/PlanetVolumeEdit';
 import { PlanetVolumeEditStore } from '../planet/volume/PlanetVolumeEditStore';

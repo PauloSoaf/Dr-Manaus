@@ -149,11 +149,13 @@ export class PlanetaryRupturePresentation {
   /**
    * Triggers a live 7-phase rupture presentation for a celestial body.
    */
-  startRupture(bodyId: string, plan: MacroBodyFracturePlan, radiusM = 6371000): void {
+  startRupture(bodyId: string, planOrRadius?: MacroBodyFracturePlan | number, radiusM = 6371000): void {
+    const radius = typeof planOrRadius === 'number' ? planOrRadius : radiusM;
+    const plan = typeof planOrRadius === 'object' && planOrRadius ? planOrRadius : ({ planId: `rupture_${bodyId}`, bodyId, cuts: [] } as any);
     const session: ActiveRuptureSession = {
       bodyId,
       plan,
-      radiusM,
+      radiusM: radius,
       timeS: 0,
       phase: 1,
       intactGlobeHidden: false,
@@ -165,11 +167,13 @@ export class PlanetaryRupturePresentation {
   /**
    * Initializes or loads a body already in ruptured state (Phase 7 persistent ring).
    */
-  loadPersistedRupture(bodyId: string, plan: MacroBodyFracturePlan, radiusM = 6371000): void {
+  loadPersistedRupture(bodyId: string, planOrRadius?: MacroBodyFracturePlan | number, radiusM = 6371000): void {
+    const radius = typeof planOrRadius === 'number' ? planOrRadius : radiusM;
+    const plan = typeof planOrRadius === 'object' && planOrRadius ? planOrRadius : ({ planId: `rupture_${bodyId}`, bodyId, cuts: [] } as any);
     const session: ActiveRuptureSession = {
       bodyId,
       plan,
-      radiusM,
+      radiusM: radius,
       timeS: 10.0, // beyond initial animation -> immediate phase 7
       phase: 7,
       intactGlobeHidden: true,
@@ -208,7 +212,7 @@ export class PlanetaryRupturePresentation {
   /**
    * Frame update driving the 7 observable phases of all active ruptures.
    */
-  update(dt: number, camera: PerspectiveCamera, bodyPositionM: Vector3): void {
+  update(dt: number, camera?: PerspectiveCamera, bodyPositionM?: Vector3): void {
     if (this.activeSessions.size === 0) {
       this.fissureLines.visible = false;
       this.coreSphere.visible = false;
@@ -220,7 +224,10 @@ export class PlanetaryRupturePresentation {
 
     for (const session of this.activeSessions.values()) {
       session.timeS += dt;
-      session.positionM.copy(bodyPositionM);
+      if (bodyPositionM) {
+        session.positionM.copy(bodyPositionM);
+      }
+      const pos = session.positionM;
       const t = session.timeS;
       const R = session.radiusM;
 
@@ -234,7 +241,7 @@ export class PlanetaryRupturePresentation {
         this.debrisRingMesh.visible = false;
 
         const progress = t / 1.5;
-        this.fissureLines.position.copy(bodyPositionM);
+        this.fissureLines.position.copy(pos);
         this.fissureLines.scale.setScalar(R * 1.002);
         const mat = this.fissureLines.material as LineBasicMaterial;
         mat.opacity = progress * 0.9;
@@ -250,12 +257,12 @@ export class PlanetaryRupturePresentation {
         this.debrisRingMesh.visible = false;
 
         const progress = (t - 1.5) / 1.5;
-        this.fissureLines.position.copy(bodyPositionM);
+        this.fissureLines.position.copy(pos);
         this.fissureLines.scale.setScalar(R * (1.002 + progress * 0.03));
         (this.fissureLines.material as LineBasicMaterial).opacity = 0.9 + progress * 0.1;
         (this.fissureLines.material as LineBasicMaterial).color.setHex(0xffaa00);
 
-        this.coreSphere.position.copy(bodyPositionM);
+        this.coreSphere.position.copy(pos);
         this.coreSphere.scale.setScalar(R * (0.85 + progress * 0.1));
         (this.coreSphere.material as MeshBasicMaterial).opacity = progress * 0.85;
       }
@@ -271,7 +278,7 @@ export class PlanetaryRupturePresentation {
         const progress = (t - 3.0) / 1.5;
         // Position 8 octant crust chunks moving outward radially
         const separationDist = progress * R * 0.15;
-        this.updateCrustChunks(bodyPositionM, R, separationDist, progress);
+        this.updateCrustChunks(pos, R, separationDist, progress);
       }
       // Phase 4: Intact globe suppression (at 4.5s)
       // Phase 5: Fragment drift & core explosion (4.5s - 6.0s)
@@ -287,8 +294,8 @@ export class PlanetaryRupturePresentation {
 
         const progress = (t - 4.5) / 1.5;
         const driftDist = R * 0.15 + progress * R * 0.45;
-        this.updateCrustChunks(bodyPositionM, R, driftDist, 1.0 + progress);
-        this.coreSphere.position.copy(bodyPositionM);
+        this.updateCrustChunks(pos, R, driftDist, 1.0 + progress);
+        this.coreSphere.position.copy(pos);
         this.coreSphere.scale.setScalar(R * (0.95 + progress * 0.3));
         (this.coreSphere.material as MeshBasicMaterial).opacity = Math.max(0, 0.85 - progress * 0.4);
       }
@@ -306,12 +313,12 @@ export class PlanetaryRupturePresentation {
         const progress = (t - 6.0) / 1.0;
         // Shockwave expands up to 3x planet radius
         const shockRadius = R * (1.2 + progress * 2.2);
-        this.shockwaveSphere.position.copy(bodyPositionM);
+        this.shockwaveSphere.position.copy(pos);
         this.shockwaveSphere.scale.setScalar(shockRadius);
         (this.shockwaveSphere.material as MeshBasicMaterial).opacity = (1.0 - progress) * 0.75;
 
-        this.updateCrustChunks(bodyPositionM, R, R * 0.6 + progress * R * 0.3, 2.0);
-        this.updateDebrisRing(session, bodyPositionM, progress);
+        this.updateCrustChunks(pos, R, R * 0.6 + progress * R * 0.3, 2.0);
+        this.updateDebrisRing(session, pos, progress);
       }
       // Phase 7: Persistent Keplerian Debris Ring (7.0s+)
       else {
@@ -324,7 +331,7 @@ export class PlanetaryRupturePresentation {
         this.crustChunksMesh.visible = false;
         this.debrisRingMesh.visible = true;
 
-        this.updateDebrisRing(session, bodyPositionM, 1.0);
+        this.updateDebrisRing(session, pos, 1.0);
       }
     }
   }
@@ -361,7 +368,32 @@ export class PlanetaryRupturePresentation {
   }
 
   private updateDebrisRing(session: ActiveRuptureSession, bodyPos: Vector3, ringAlpha: number): void {
-    const frags = session.plan.debrisRing.fragments;
+    const frags = session.plan?.debrisRing?.fragments ?? [];
+    if (frags.length === 0) {
+      // Fallback synthetic keplerian debris ring
+      const syntheticCount = 48;
+      let idx = 0;
+      const rotAngle = session.timeS * 0.05;
+      for (let i = 0; i < syntheticCount; i++) {
+        const angle = (i / syntheticCount) * Math.PI * 2 + rotAngle * (1.0 + (i % 5) * 0.1);
+        const ringR = session.radiusM * (1.5 + (i % 6) * 0.15);
+        const px = bodyPos.x + Math.cos(angle) * ringR;
+        const py = bodyPos.y + (((i % 7) - 3) / 3) * session.radiusM * 0.06;
+        const pz = bodyPos.z + Math.sin(angle) * ringR;
+
+        this.dummyVec.set(px, py, pz);
+        this.dummyQuat.setFromAxisAngle(new Vector3(0, 1, 0), angle + i);
+        const fragScale = Math.max(session.radiusM * 0.02, 50000) * ringAlpha;
+        this.dummyScale.setScalar(fragScale);
+
+        this.dummyMatrix.compose(this.dummyVec, this.dummyQuat, this.dummyScale);
+        this.debrisRingMesh.setMatrixAt(idx++, this.dummyMatrix);
+      }
+      this.debrisRingMesh.count = idx;
+      this.debrisRingMesh.instanceMatrix.needsUpdate = true;
+      return;
+    }
+
     const count = Math.min(frags.length, DEBRIS_CAPACITY);
     let idx = 0;
 

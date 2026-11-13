@@ -1,4 +1,4 @@
-﻿import { AdditiveBlending, SphereGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, TorusGeometry, Vector3 } from 'three/webgpu';
+import { AdditiveBlending, SphereGeometry, CylinderGeometry, Group, Mesh, MeshBasicMaterial, PerspectiveCamera, TorusGeometry, Vector3 } from 'three/webgpu';
 import { DESTRUCTION } from '../../core/config';
 import type { Collider, Target } from '../../core/types';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
