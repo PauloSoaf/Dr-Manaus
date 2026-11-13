@@ -13,13 +13,14 @@
 - **GRAV-01 (`06-ZERO-G-AND-GRAVITY-DOMAINS.md`)** — Fontes de gravidade celeste (`GravitySource`), point-mass Newton ($a = -\mu \vec{r}/r^3$), regime zero-g inercial, threshold de gameplay e dinâmica orbital qualitativa em `InterplanetaryController`. Validado no CI com SHA `badfa32` (Runs #43462682665 e #43462669631 SUCCESS).
 - **TRANS-01 (`04-EARTH-ALTITUDE-TRANSITION.md`)** — Transição contínua da Terra de 0m a 400.000m, eliminação formal do chão preto (`localWeight + planetWeight >= 0.99`), desvanecimento atmosférico contínuo e histerese segura de ownership. Validado no CI com SHA `51eb4df` (Runs #43463682957 e #43463672694 SUCCESS).
 - **LOD-STREAM-01 (`14-COSMIC-LOD-STREAMING-PERFORMANCE.md`)** — Hard caps High centralizados para tiles planetários, setores estelares, estrelas visíveis e pontos de galáxia, preservando SSE, cache LRU e budgets do scheduler.
+- **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)** — Campo esparso analítico de densidade, filamentos, vazios e candidatos de clusters reais no `LargeScaleStructureProvider`, com Norma/Great Attractor como anchor físico.
 
-## Patch Atual: LOD e Streaming Cósmico
-- **LOD-STREAM-01 (`14-COSMIC-LOD-STREAMING-PERFORMANCE.md`)** — Auditoria de streaming SSE, budgets e caps de residência: 160 tiles planetários, 27 setores, 16k estrelas locais e 80k pontos representativos em High. 2 novos testes unitários adicionados.
+## Patch Atual: Teia Cósmica e Grande Atrator
+- **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)** — Amostragem determinística de células cósmicas com densidade normalizada, direção de filamento, fator de vazio e anchors reais. 1 teste de integração ampliado.
 
 ## Próximos Passos de Engenharia (Roadmap Contínuo)
-1. **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)**:
-   - Consolidação de grandes atratores e nós de superaglomerados na Teia Cósmica.
+1. **WGS84-MANAUS-01 (`05-MANAUS-FULL-WGS84-UNIFICATION.md`)**:
+   - Auditoria final do frame geodésico de Manaus e integração com o referencial planetário.
 
 ## Estado Geral do Projeto
 - **Total de Testes Unitários:** 1.779 / 1.779 Aprovados (100%)

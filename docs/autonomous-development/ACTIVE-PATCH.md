@@ -1,21 +1,18 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `LOD-STREAM-01` — Hard Caps de LOD e Streaming Cósmico (`specs/dr-manaus-cosmic-night-specs/14-COSMIC-LOD-STREAMING-PERFORMANCE.md`)
-- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.779/1.779 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript)
+- **Patch:** `COSMIC-WEB-01` — Teia Cósmica Analítica e Grande Atrator (`specs/dr-manaus-cosmic-night-specs/12-GREAT-ATTRACTOR-COSMIC-WEB.md`)
+- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.779/1.779 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript, build Vite aprovado)
 - **Branch:** `feat/universe-map`
 - **SHA:** A ser gerado no commit
 - **Atualizado:** 2026-11-13T12:35:00-04:00
 
 ## Mudanças do Patch
 
-### 1. `src/world/streaming/CosmicLodBudget.ts` (Novo Módulo Canônico):
-- Centraliza os hard caps High do spec 14: 160 tiles planetários, 27 setores estelares, 16.000 estrelas locais e 80.000 pontos representativos de galáxia.
-- Limita anéis de setores e pontos por qualidade antes de chegarem ao scheduler.
+### 1. `src/world/cosmology/CosmologicalStructure.ts`:
+- Implementada `evaluateCosmicWebCell`, com densidade esparsa, direção do filamento dominante, fator de vazio e resolução dos anchors reais próximos.
 
-### 2. Providers celestes:
-- `EarthProvider`, `RockyPlanetProvider` e `UniverseRuntime` respeitam o limite de 160 tiles.
-- `StarSectorProvider` limita o anel a 27 setores e a densidade a 16.000 estrelas visíveis.
-- `GalaxyPointCloudProvider` limita o preset High a 80.000 pontos.
+### 2. `src/world/providers/LargeScaleStructureProvider.ts`:
+- Expõe amostragem de células e telemetria de filamentos sem materializar milhões de objetos.
 
 ### 3. `src/world/celestial/PlanetVisualProfile.ts`:
 - Implementada a interface `PlanetVisualProfile`:
@@ -34,8 +31,8 @@
   - Saturno: Anéis analíticos autênticos com raio interno de 75.335.000m ($1,25 \times R$) e raio externo de 138.616.400m ($2,30 \times R$).
   - Gigantes de gelo (Urano e Netuno): `surfaceType: 'ice'`, sem pouso sólido convencional.
 
-### 4. `tests/cosmic-lod-streaming.test.ts` (2 Novos Testes):
-- Verificação dos hard caps e normalização de entradas inválidas.
+### 4. `tests/cosmological-structure-u6.test.ts`:
+- Verifica células densas na região Norma/Great Attractor e células vazias distantes.
 
 ### 5. `tests/planet-visual-profiles.test.ts` (4 Novos Testes):
 - `T_PLANET_PROFILE_01_SOLAR_COVERAGE`: Cobertura de todos os 10 corpos principais do Sistema Solar e albedo RGB.

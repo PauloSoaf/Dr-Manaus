@@ -40,7 +40,7 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `MAN-05` | `03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md` | Classificação determinística da superfície terrestre (`EarthSurfaceClass`): oceano, terra, calotas de gelo (Antártica, Groenlândia, Ártico) e mancha urbana de Manaus | P0 | `CI_VERIFIED` | `c596bc8` | `tests/earth-surface-biomes-ocean-ice.test.ts` (4/4 pass) |
 | `TRANS-01` | `04-EARTH-ALTITUDE-TRANSITION.md` | Transição contínua da Terra de 0m a 400.000m, eliminação de chão preto (`localWeight + planetWeight >= 0.99`), atenuação atmosférica contínua e histerese segura de ownership | P0 | `CI_VERIFIED` | `51eb4df` | `tests/earth-altitude-transition.test.ts` (7/7 pass) |
 | `GRAV-01` | `06-ZERO-G-AND-GRAVITY-DOMAINS.md` | Fontes de gravidade celeste (`GravitySource`), point-mass Newton ($a = -\mu \vec{r}/r^3$), regime zero-g inercial, threshold de gameplay e dinâmica orbital qualitativa em `InterplanetaryController` | P0 | `CI_VERIFIED` | `badfa32` | `tests/zero-g-and-gravity-domains.test.ts` (7/7 pass) |
-| `LOD-STREAM-01` | `14-COSMIC-LOD-STREAMING-PERFORMANCE.md` | Hard caps High para tiles planetários (160), setores estelares (27), estrelas locais (16k) e pontos representativos de galáxia (80k), preservando SSE e budgets | P0 | `IMPLEMENTED` | `HEAD` | `tests/cosmic-lod-streaming.test.ts` (2/2 pass) |
+| `LOD-STREAM-01` | `14-COSMIC-LOD-STREAMING-PERFORMANCE.md` | Hard caps High para tiles planetários (160), setores estelares (27), estrelas locais (16k) e pontos representativos de galáxia (80k), preservando SSE e budgets | P0 | `CI_VERIFIED` | `6fd79da` | `tests/cosmic-lod-streaming.test.ts` (2/2 pass) |
 
 ---
 
@@ -64,6 +64,7 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `PLAN-05` | `U4.5.4` | Hidrosfera coerente: mundos oceânicos com mar plano a 0m e continentes elevados | P0 | `CI_VERIFIED` | `d41fc2d` | `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` |
 | `PLAN-06` | `21-status-SUN-APPROACH-P0.md` | Aproximação à fotosfera solar, radiação e pouso em atmosfera estelar | P0 | `CI_VERIFIED` | `baseline` | `tests/sun-approach.test.ts` |
 | `PLAN-07` | `07-SOLAR-SYSTEM-COMPLETE.md` | Perfil visual unificado (`PlanetVisualProfile`), tipagem de superfície (`rocky`, `ice`, `gas`, `star`), anéis analíticos de Saturno, atmosfera e relevos canônicos | P0 | `CI_VERIFIED` | `7d5ce9b` | `tests/planet-visual-profiles.test.ts` (4/4 pass) |
+| `COSMIC-WEB-01` | `12-GREAT-ATTRACTOR-COSMIC-WEB.md` | Campo esparso analítico de teia cósmica, filamentos, vazios e anchors reais de clusters, incluindo Norma / Grande Atrator | P0 | `IMPLEMENTED` | `HEAD` | `tests/cosmological-structure-u6.test.ts` (7/7 pass) |
 
 ---
 

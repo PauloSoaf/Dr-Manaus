@@ -6,7 +6,9 @@ import type { CoverageClaim, SpatialContext, StreamingContext, WorldProvider } f
 import { finite } from '../spatial/units';
 
 import { KNOWN_COSMIC_ANCHORS, OBSERVABLE_HORIZON_MPC } from '../celestial/CosmicAnchorCatalog';
-import { evaluateObservableHorizon, type ObservableHorizonDescriptor } from '../cosmology/CosmologicalStructure';
+import {
+  evaluateCosmicWebCell, evaluateObservableHorizon, type CosmicCellField, type ObservableHorizonDescriptor,
+} from '../cosmology/CosmologicalStructure';
 export { KNOWN_COSMIC_ANCHORS, type CosmicAnchor } from '../celestial/CosmicAnchorCatalog';
 
 export interface LargeScaleStructureProviderOptions {
@@ -95,7 +97,11 @@ export class LargeScaleStructureProvider {
   }
 
   get stats() {
-    return { visible: this.group.visible, clusters: KNOWN_COSMIC_ANCHORS.length };
+    return { visible: this.group.visible, clusters: KNOWN_COSMIC_ANCHORS.length, filaments: 3 };
+  }
+
+  sampleCell(localMpc: import('../spatial/units').Vec3, cellRadiusMpc = 1): CosmicCellField {
+    return evaluateCosmicWebCell(localMpc, cellRadiusMpc);
   }
 
   getHorizonDescriptor(observer?: import('../spatial/UniverseAddress').CosmologicalAddress): ObservableHorizonDescriptor {

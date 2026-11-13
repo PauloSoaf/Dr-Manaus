@@ -69,6 +69,17 @@ export interface ObservableHorizonDescriptor {
   readonly horizonCenterLocalMpc: Vec3;
 }
 
+export interface CosmicCellField {
+  /** Combined matter concentration in the cell, normalized to [0, 1]. */
+  readonly density01: number;
+  /** Direction of the strongest local filament, or zero in a void. */
+  readonly filamentDirection: Vec3;
+  /** Inverse density signal useful for sparse void rendering and navigation. */
+  readonly voidFactor01: number;
+  /** Curated real anchors represented by this cell or its immediate neighbourhood. */
+  readonly clusterCandidates: readonly string[];
+}
+
 /**
  * Calculates the Hubble parameter H(z) at redshift z in km/s/Mpc according to the Friedmann equation.
  * H(z) = H_0 * sqrt(Omega_m * (1+z)^3 + Omega_Lambda + Omega_k * (1+z)^2).
@@ -224,4 +235,66 @@ export function evaluateCosmicFilament(
   const density01 = Math.exp(-0.5 * Math.pow(distanceToSpineMpc / coreRadiusMpc, 2));
 
   return { distanceToSpineMpc, density01 };
+}
+
+const COSMIC_FILAMENT_PAIRS: readonly [string, string][] = [
+  ['local_group', 'virgo_cluster'],
+  ['virgo_cluster', 'norma_cluster'],
+  ['norma_cluster', 'shapley_supercluster'],
+];
+
+/**
+ * Samples a sparse, observer-relative cosmic web field.
+ *
+ * The field is analytic rather than a millions-of-objects catalogue: known anchors remain
+ * authoritative, while the connecting filaments provide deterministic procedural density between
+ * them. The returned direction is the tangent toward the strongest filament spine.
+ */
+export function evaluateCosmicWebCell(sampleMpc: Vec3, cellRadiusMpc = 1): CosmicCellField {
+  let density01 = 0;
+  let bestDensity = 0;
+  let bestDirection: Vec3 = [0, 0, 0];
+  for (const [aId, bId] of COSMIC_FILAMENT_PAIRS) {
+    const anchorA = KNOWN_COSMIC_ANCHORS.find(anchor => anchor.id === aId);
+    const anchorB = KNOWN_COSMIC_ANCHORS.find(anchor => anchor.id === bId);
+    if (!anchorA || !anchorB) continue;
+    const field = evaluateCosmicFilament(sampleMpc, anchorA, anchorB, Math.max(0.1, cellRadiusMpc));
+    const massWeight = Math.min(1, Math.log10(Math.max(1, Math.min(anchorA.massSolar, anchorB.massSolar))) / 17);
+    const weighted = field.density01 * (0.35 + massWeight * 0.65);
+    density01 = Math.max(density01, weighted);
+    if (weighted > bestDensity) {
+      bestDensity = weighted;
+      const dx = anchorB.positionMpc[0] - anchorA.positionMpc[0];
+      const dy = anchorB.positionMpc[1] - anchorA.positionMpc[1];
+      const dz = anchorB.positionMpc[2] - anchorA.positionMpc[2];
+      const length = Math.hypot(dx, dy, dz);
+      bestDirection = length > 0 ? [dx / length, dy / length, dz / length] : [0, 0, 0];
+    }
+  }
+
+  const clusterCandidates = KNOWN_COSMIC_ANCHORS
+    .filter(anchor => Math.hypot(
+      sampleMpc[0] - anchor.positionMpc[0],
+      sampleMpc[1] - anchor.positionMpc[1],
+      sampleMpc[2] - anchor.positionMpc[2],
+    ) <= Math.max(2, cellRadiusMpc * 2))
+    .map(anchor => anchor.id);
+
+  for (const anchor of KNOWN_COSMIC_ANCHORS) {
+    const distance = Math.hypot(
+      sampleMpc[0] - anchor.positionMpc[0],
+      sampleMpc[1] - anchor.positionMpc[1],
+      sampleMpc[2] - anchor.positionMpc[2],
+    );
+    const clusterDensity = Math.min(1, Math.log10(Math.max(1, anchor.massSolar)) / 17)
+      * Math.exp(-0.5 * (distance / Math.max(0.5, cellRadiusMpc)) ** 2);
+    density01 = Math.max(density01, clusterDensity);
+  }
+
+  return {
+    density01: Math.max(0, Math.min(1, density01)),
+    filamentDirection: bestDirection,
+    voidFactor01: 1 - Math.max(0, Math.min(1, density01)),
+    clusterCandidates,
+  };
 }

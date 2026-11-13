@@ -15,6 +15,7 @@ import {
   evaluateObservableHorizon,
   cosmologicalDistanceMpc,
   evaluateCosmicFilament,
+  evaluateCosmicWebCell,
   KNOWN_COSMIC_ANCHORS,
   type CosmicAnchor,
 } from '../src/world/cosmology/CosmologicalStructure';
@@ -223,6 +224,17 @@ test('T_U6_07_LSS_PROVIDER_LIFECYCLE_AND_HORIZON_STATE', () => {
   const lss = new LargeScaleStructureProvider(root, { drawCMB: true });
 
   assert.equal(lss.stats.clusters, KNOWN_COSMIC_ANCHORS.length);
+  assert.equal(lss.stats.filaments, 3);
+
+  const normaField = lss.sampleCell([68, -10, 20], 1);
+  assert.ok(normaField.density01 > 0.5, 'known Norma anchor must be a dense real cell');
+  assert.ok(normaField.voidFactor01 < 0.5);
+  assert.ok(normaField.clusterCandidates.includes('norma_cluster'));
+
+  const voidField = evaluateCosmicWebCell([500, 500, 500], 1);
+  assert.ok(voidField.density01 < 1e-6, 'distant empty cells must remain sparse');
+  assert.ok(voidField.voidFactor01 > 0.99);
+  assert.deepEqual(voidField.filamentDirection, [0, 0, 0]);
 
   // Evaluates horizon descriptor without throwing
   const horizonDesc = lss.getHorizonDescriptor();
