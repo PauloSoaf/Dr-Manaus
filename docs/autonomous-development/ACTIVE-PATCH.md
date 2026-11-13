@@ -1,10 +1,10 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `VIVO-17 a VIVO-19` (Correção Real de Gameplay, Ruptura Planetária Visível, Integridade dos Referenciais de Vida e Persistência Determinística)
-- **Status:** CI VERIFIED & FULLY DELIVERED (GitHub Actions Run #43279810593 SUCCESS, PR #43279821204 SUCCESS, 1.755/1.755 testes, 638/638 regressões, 0 erros TypeScript)
+- **Patch:** `VIVO-17 a VIVO-19 + Browser Validation` (Correção Real de Gameplay, Ruptura Planetária Visível, Integridade de Vida, Persistência Determinística e Homologação Playwright 60 FPS)
+- **Status:** CI VERIFIED & FULLY DELIVERED (GitHub Actions Run #43459833115 SUCCESS, PR #43459843322 SUCCESS, 1.755/1.755 testes, 638/638 regressões, 0 erros TypeScript, 6/6 testes in-browser aprovados)
 - **Branch:** `feat/universe-map`
-- **SHA:** `ddc0651`
-- **Atualizado:** 2026-11-12T14:30:00-04:00
+- **SHA:** `5250a5e`
+- **Atualizado:** 2026-11-13T12:12:00-04:00
 
 ## Mudanças do Patch
 
