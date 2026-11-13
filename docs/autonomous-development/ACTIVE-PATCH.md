@@ -1,16 +1,17 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `BUGS-02.3` — Fachada WGS84 no transform de tiles Manaus (`specs/dr-manaus-cosmic-night-specs/02-REMAINING-BUGS.md`)
+- **Patch:** `BUGS-02.4` — Reuso da fachada WGS84 na água (`specs/dr-manaus-cosmic-night-specs/02-REMAINING-BUGS.md`)
 - **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.784/1.784 testes gerais, 638/638 regressões, 0 erros TypeScript, build Vite aprovado)
 - **Branch:** `feat/universe-map`
 - **SHA:** A ser gerado no commit
 - **Atualizado:** 2026-11-13T16:25:00-04:00
 
-## Mudanças do Patch BUGS-02.3
+## Mudanças do Patch BUGS-02.4
 
 - `SurfaceFrameService` agora invalida frames quando o centro do tile muda.
 - O cache usa LRU bounded (limite configurável, padrão 512) para evitar crescimento indefinido.
 - `ManausSurfacePresentation` resolve matrizes de tile pela fachada compartilhada, sem criar frames diretamente.
+- `WaterSystem` reutiliza uma única `SurfaceFrameService`, evitando instanciar uma fachada por triângulo curvo.
 - `tests/wgs84.test.ts` cobre invalidação, limite, retenção e o caminho de apresentação.
 
 ## Mudanças do Patch

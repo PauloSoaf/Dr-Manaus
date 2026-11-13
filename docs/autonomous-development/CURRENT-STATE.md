@@ -19,5 +19,5 @@
 - **Status de Build:** Aprovado (Vite 8.3.0).
 - **Cobertura de Testes Globais:** 1.784 / 1.784 testes aprovados.
 - **Suíte de Regressão Permanente:** 638 / 638 testes aprovados.
-- **Bloqueios Ativos:** Nenhum técnico; CI do patch BUGS-02.3 será consultado após a publicação.
+- **Bloqueios Ativos:** Nenhum técnico; CI do patch BUGS-02.4 será consultado após a publicação.
 - **Servidor Dev:** Ativo em localhost:9999.

@@ -16,7 +16,8 @@
 - **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)** — Campo esparso analítico de densidade, filamentos, vazios e candidatos de clusters reais no `LargeScaleStructureProvider`, com Norma/Great Attractor como anchor físico.
 - **WGS84-MANAUS-01 (`05-MANAUS-FULL-WGS84-UNIFICATION.md`)** — Facade `SurfaceFrameService` com frame por tile, conversão legacy→render-local e transformação de colliders, mantendo cache por corpo/tile.
 
-## Patch Atual: BUGS-02.3
+## Patch Atual: BUGS-02.4
+- `WaterSystem` reutiliza a fachada WGS84 durante a conversão de vértices curvos.
 - `ManausSurfacePresentation` agora usa a fachada WGS84 compartilhada para matrizes de tiles.
 - O cache WGS84 agora invalida frames quando o centro do tile muda e possui limite LRU.
 - Correção da regressão de diversidade visual procedural.

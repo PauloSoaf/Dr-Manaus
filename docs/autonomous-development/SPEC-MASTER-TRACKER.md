@@ -71,6 +71,7 @@ Este documento consolida, reconcilia e rastreia o status de todos os requisitos 
 | `BUGS-02.1` | `02-REMAINING-BUGS.md` | Preservação de diversidade procedural, ruptura visual independente por corpo, posições em render-space, visibilidade faseada e entrada de poder sem bypass | P0 | `IMPLEMENTED` | `HEAD` | `tests/planet-visual-profiles.test.ts` (5/5), `tests/vivo-18-planetary-rupture-presentation.test.ts` (4/4) |
 | `BUGS-02.2` | `02-REMAINING-BUGS.md` | Invalidação de frames quando o centro do tile muda e cache WGS84 LRU bounded | P1 | `IMPLEMENTED` | `HEAD` | `tests/wgs84.test.ts` (16/16), typecheck, build |
 | `BUGS-02.3` | `02-REMAINING-BUGS.md` | Matriz de apresentação de tiles Manaus resolvida pela fachada WGS84 compartilhada | P1 | `IMPLEMENTED` | `HEAD` | `tests/wgs84.test.ts` (17/17), typecheck |
+| `BUGS-02.4` | `02-REMAINING-BUGS.md` | Reuso de `SurfaceFrameService` na conversão da geometria de água curva | P1 | `IMPLEMENTED` | `HEAD` | typecheck, build |
 
 ---
 
