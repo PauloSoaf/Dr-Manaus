@@ -1,5 +1,7 @@
 import type { UniverseRuntime } from '../runtime/UniverseRuntime';
-import { addressSeparationM, observerGlobalPositionM } from '../galaxy/GalaxyCoordinates';
+import { addressSeparationM, getProceduralUniverseSeed, observerGlobalPositionM } from '../galaxy/GalaxyCoordinates';
+import { isCanonicalGalaxyId } from '../celestial/GalaxyDefinition';
+import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import { sectorsEqual, type UniverseAddress } from '../spatial/UniverseAddress';
 import { LIGHT_YEAR_M, type Vec3 } from '../spatial/units';
 import { createUniversalTarget, isUniverseAddress, type UniversalNavigationTarget } from './UniversalNavigationTarget';
@@ -12,6 +14,7 @@ export interface TravelAnchor {
   readonly offsetM:Vec3;
   /** Metadata only. Never copied into a render transform or physics pose. */
   readonly globalPositionM?:Vec3;
+  readonly universeSeed?:bigint;
 }
 export interface UniversalTravelPlan {
   readonly id:string;
@@ -26,31 +29,45 @@ export interface UniversalTravelPlan {
   readonly arrivalPolicy:'safe-system-corridor';
   readonly finalBodyTarget?:UniversalNavigationTarget;
 }
-export const sameSystem=(a:UniverseAddress,b:UniverseAddress)=>a.galaxyId===b.galaxyId
-  && a.systemId===b.systemId && sectorsEqual(a.sector,b.sector);
+export const sameSystem=(a:UniverseAddress,b:UniverseAddress,seedA?:bigint,seedB?:bigint):boolean=>{
+  if(a.galaxyId!==b.galaxyId || a.systemId!==b.systemId || !sectorsEqual(a.sector,b.sector))return false;
+  if(isCanonicalGalaxyId(a.galaxyId))return true;
+  if(seedA===undefined && seedB===undefined)return true;
+  return seedA!==undefined && seedB!==undefined && seedA===seedB;
+};
 const clamp=(n:number,min:number,max:number)=>Math.min(max,Math.max(min,n));
 export function hypercruiseDuration(distanceM:number,domain:UniversalTravelDomain):number {
   const ly=distanceM/LIGHT_YEAR_M;
   return domain==='interstellar'?clamp(5+4*Math.log10(1+ly/4),5,25)
     :clamp(17+5*Math.log10(1+ly/1e6),15,30);
 }
-export function travelAnchor(address:UniverseAddress,offsetM:Vec3):TravelAnchor {
+export function travelAnchor(address:UniverseAddress,offsetM:Vec3,universeSeed?:bigint):TravelAnchor {
   const a=Object.freeze({...address,sector:Object.freeze({...address.sector})});
-  const global=observerGlobalPositionM(a,offsetM);
+  const effectiveSeed = isCanonicalGalaxyId(a.galaxyId) ? undefined : (universeSeed ?? getProceduralUniverseSeed());
+  const global=observerGlobalPositionM(a,offsetM,effectiveSeed);
   return Object.freeze({address:a,offsetM:Object.freeze([...offsetM]) as unknown as Vec3,
-    globalPositionM:global?Object.freeze(global) as Vec3:undefined});
+    globalPositionM:global?Object.freeze(global) as Vec3:undefined,universeSeed:effectiveSeed});
 }
 export function createTravelPlan(u:UniverseRuntime,catalog:UniversalTargetCatalog,
-  requested:UniversalNavigationTarget,id:string,origin=travelAnchor(u.address,u.location.sectorOffsetM??u.playerSystemPositionM())):UniversalTravelPlan {
+  requested:UniversalNavigationTarget,id:string,origin?:TravelAnchor):UniversalTravelPlan {
   if(!catalog.resolve(requested)) throw Error('Invalid destination');
   if(!['star','system','body','galaxy'].includes(requested.kind)) throw Error('Travel unavailable for this target');
+  const uSeed = catalog.discovery.universeSeed;
+  const originSeed = isCanonicalGalaxyId(u.address.galaxyId)
+    ? undefined
+    : (u.activeGalaxy.universeSeed ?? (u.activeSystem instanceof ProceduralSystemRuntime ? u.activeSystem.universeSeed : undefined) ?? uSeed);
+  const actualOrigin = origin ?? travelAnchor(u.address, u.location.sectorOffsetM ?? u.playerSystemPositionM(), originSeed);
   const resolved=new GalaxyEntryResolver(catalog).resolve(requested),a=resolved.address;
   if(!a||!isUniverseAddress(a)||!a.systemId) throw Error('Destination needs a canonical system address');
+  const destSeed = isCanonicalGalaxyId(a.galaxyId) ? undefined : uSeed;
   const offset:Vec3=a.systemId==='sol'?[0,0,0]:catalog.proceduralDescriptor(a.galaxyId,a.sector,a.systemId)!.star.offsetM;
-  const destination=travelAnchor(a,offset),domain=origin.address.galaxyId===a.galaxyId?'interstellar':'intergalactic';
-  const distance=addressSeparationM(origin.address,origin.offsetM,a,offset);
+  const destination=travelAnchor(a,offset,destSeed);
+  const sameGalaxy = actualOrigin.address.galaxyId === a.galaxyId
+    && (isCanonicalGalaxyId(a.galaxyId) || actualOrigin.universeSeed === destination.universeSeed);
+  const domain = sameGalaxy ? 'interstellar' : 'intergalactic';
+  const distance=addressSeparationM(actualOrigin.address,actualOrigin.offsetM,a,offset,{ originSeed: actualOrigin.universeSeed, destinationSeed: destination.universeSeed });
   if(!Number.isFinite(distance)||distance===undefined||distance<=0) throw Error('Destination distance unavailable');
-  return Object.freeze({id,origin,destination,requestedTarget:createUniversalTarget(requested,requested.source,requested.selectedAtS,requested.mode),
+  return Object.freeze({id,origin:actualOrigin,destination,requestedTarget:createUniversalTarget(requested,requested.source,requested.selectedAtS,requested.mode),
     resolvedDestination:createUniversalTarget(resolved,resolved.source,resolved.selectedAtS,resolved.mode),domain,logicalDistanceM:distance,
     durationS:hypercruiseDuration(distance,domain),departureEpochS:u.time,arrivalPolicy:'safe-system-corridor',
     finalBodyTarget:requested.kind==='body'?createUniversalTarget(requested,requested.source,requested.selectedAtS,requested.mode):undefined});

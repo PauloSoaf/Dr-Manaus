@@ -14,6 +14,7 @@ const paths: Record<string,string> = {
   sound:'<path d="m11 4-6 5H2v6h3l6 5V4Zm4 4a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/>',
   help:'<circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 1 1 4 2.8V15m-1 3h.01"/>',
   pin:'<path d="M19 9c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 14 0Z"/><circle cx="12" cy="9" r="2"/>',
+  planetRupture:'<circle cx="12" cy="12" r="9"/><path d="M12 3v6l3 3-2 3 3 6M3 12h5l3-2 2 3h8"/>',
 };
 export const icon=(name:string,size=22)=>`<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]??paths.energy}</svg>`;
-export const POWERS=[['energy','Emissão','1'],['teleport','Translocar','E'],['shockwave','Onda','Q'],['reconstruct','Reconstruir','R'],['giant','Magnitude','G'],['clone','Ecos','C'],['temporal','Temporal','T'],['laser','Laser','L']] as const;
+export const POWERS=[['energy','Emissão','1'],['teleport','Translocar','E'],['shockwave','Onda','Q'],['reconstruct','Reconstruir','R'],['giant','Magnitude','G'],['clone','Ecos','C'],['temporal','Temporal','T'],['laser','Laser','L'],['planetRupture','Ruptura','9']] as const;

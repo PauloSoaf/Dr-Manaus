@@ -19,6 +19,7 @@ export class PlanetVisual {
   private readonly uPointMix = uniform(0);
   private readonly uRingOpacity = uniform(1);
   private readonly uDirectSunlight = uniform(1);
+  private readonly uPhaseFloor = uniform(0);
 
   constructor(albedoRGB: [number, number, number], ambientRGB: [number, number, number] = [0.02, 0.02, 0.02],
     profile?: BodyVisualProfile) {
@@ -29,6 +30,7 @@ export class PlanetVisual {
     } else {
       this.uAmbient.value.set(ambientRGB[0], ambientRGB[1], ambientRGB[2]);
     }
+    this.uPhaseFloor.value = profile?.phaseFloor ?? 0;
 
     const geometry = new PlaneGeometry(2, 2);
     
@@ -62,7 +64,7 @@ export class PlanetVisual {
       : float(1);
     const lit = this.uAlbedo.mul(bands).mul(nDotL.pow(profile?.phaseExponent ?? 0.8)).mul(this.uDirectSunlight);
     
-    const earthshine = this.uAmbient.mul(float(1).sub(nDotL));
+    const earthshine = this.uAlbedo.mul(this.uPhaseFloor).add(this.uAmbient).mul(float(1).sub(nDotL)).mul(this.uDirectSunlight);
     
     // The optical radius ends at 0.9, matching the quad scale and the bounded proxy budget.
     const drop = normR.sub(this.uDiscRadius).max(0).div(float(0.9).sub(this.uDiscRadius).max(0.001));

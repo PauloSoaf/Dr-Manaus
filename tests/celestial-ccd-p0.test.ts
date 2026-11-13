@@ -215,13 +215,26 @@ for (const [name,fast] of [['T_MOON_CONTACT_GROUNDED',true],['T_MOON_SLOW_LANDIN
   } finally {player.character.dispose();PhysicsWorld.setTerrain(null);}
 });
 
-for (const [name,ids] of [['T_GAS_GIANT_HAS_BROAD_COLLISION_BUT_NO_GROUND_HANDOFF',['jupiter','saturn','uranus','neptune']],
-  ['T_STAR_HAS_BROAD_COLLISION_BUT_NO_GROUND_HANDOFF',['sun']]] as const) test(name, () => {
-  const system=new SolarSystem();for(const id of ids) {
-    const body=system.bodies.find(b=>b.id===id)!;assert.equal(bodyProfile(body).canLand,false);
-    assert.ok(bodyExclusionEnvelopes(system).find(e=>e.bodyId===id));
-    const domain=new TravelDomain(),context={altitudeM:10000,speedMps:0,requested:true,nearestColliderM:Infinity,bodyRadiusM:body.equatorialRadiusM};
-    domain.update(context,0);domain.update({...context,altitudeM:0,surfaceReady:bodyProfile(body).canLand},0);
-    assert.equal(domain.kind,'interplanetary');
+import { generateSystem } from '../src/world/celestial/SystemGenerator.ts';
+
+test('T_GAS_GIANT_HAS_BROAD_COLLISION_BUT_NO_GROUND_HANDOFF', () => {
+  const system = new SolarSystem();
+  for (const id of ['jupiter', 'saturn', 'uranus', 'neptune']) {
+    const body = system.bodies.find(b => b.id === id)!;
+    assert.equal(bodyProfile(body).canLand, false);
+    assert.ok(bodyExclusionEnvelopes(system).find(e => e.bodyId === id));
+    const domain = new TravelDomain(), context = { altitudeM: 10000, speedMps: 0, requested: true, nearestColliderM: Infinity, bodyRadiusM: body.equatorialRadiusM };
+    domain.update(context, 0);
+    domain.update({ ...context, altitudeM: 0, surfaceReady: bodyProfile(body).canLand }, 0);
+    assert.equal(domain.kind, 'interplanetary');
   }
+});
+
+test('T_STAR_HAS_BROAD_COLLISION_BUT_NO_GROUND_HANDOFF', () => {
+  const proceduralStar = generateSystem('star-0', 1234n, 1.0).bodies[0];
+  assert.equal(bodyProfile(proceduralStar).canLand, false);
+  const domain = new TravelDomain(), context = { altitudeM: 10000, speedMps: 0, requested: true, nearestColliderM: Infinity, bodyRadiusM: proceduralStar.equatorialRadiusM };
+  domain.update(context, 0);
+  domain.update({ ...context, altitudeM: 0, surfaceReady: bodyProfile(proceduralStar).canLand }, 0);
+  assert.equal(domain.kind, 'interplanetary');
 });

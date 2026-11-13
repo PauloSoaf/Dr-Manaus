@@ -6,6 +6,9 @@ import type { CoverageClaim, SpatialContext, StreamingContext, WorldProvider } f
 import { finite } from '../spatial/units';
 
 import { KNOWN_COSMIC_ANCHORS, OBSERVABLE_HORIZON_MPC } from '../celestial/CosmicAnchorCatalog';
+import {
+  evaluateCosmicWebCell, evaluateObservableHorizon, type CosmicCellField, type ObservableHorizonDescriptor,
+} from '../cosmology/CosmologicalStructure';
 export { KNOWN_COSMIC_ANCHORS, type CosmicAnchor } from '../celestial/CosmicAnchorCatalog';
 
 export interface LargeScaleStructureProviderOptions {
@@ -27,8 +30,6 @@ export class LargeScaleStructureProvider {
 
   private cmbMesh?: Mesh;
   private clustersMesh?: InstancedMesh;
-
-  private altitudeM = 0;
 
   constructor(parent: Object3D, options: LargeScaleStructureProviderOptions = {}) {
     this.options = {
@@ -96,7 +97,16 @@ export class LargeScaleStructureProvider {
   }
 
   get stats() {
-    return { visible: this.group.visible, clusters: KNOWN_COSMIC_ANCHORS.length };
+    return { visible: this.group.visible, clusters: KNOWN_COSMIC_ANCHORS.length, filaments: 3 };
+  }
+
+  sampleCell(localMpc: import('../spatial/units').Vec3, cellRadiusMpc = 1): CosmicCellField {
+    return evaluateCosmicWebCell(localMpc, cellRadiusMpc);
+  }
+
+  getHorizonDescriptor(observer?: import('../spatial/UniverseAddress').CosmologicalAddress): ObservableHorizonDescriptor {
+    const obs = observer ?? { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] };
+    return evaluateObservableHorizon(obs);
   }
 
   update(address: import('../spatial/UniverseAddress').UniverseAddress, cameraPosM: import('../spatial/units').Vec3, altitudeM: number): void {

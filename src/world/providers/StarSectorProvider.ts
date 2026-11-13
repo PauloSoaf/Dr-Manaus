@@ -2,6 +2,7 @@ import {
   AdditiveBlending, BufferGeometry, Color, Float32BufferAttribute, Group, type Object3D, Points,
   PointsMaterial,
 } from 'three/webgpu';
+import { isCanonicalGalaxyId } from '../celestial/GalaxyDefinition';
 import { generateStarSector, type StarSectorContent } from '../celestial/StarSector';
 import { SECTOR_SIZE_M, type SectorIndex, sectorIndex } from '../spatial/UniverseAddress';
 import { finite } from '../spatial/units';
@@ -10,6 +11,9 @@ import {
   tileKeyToString,
 } from '../streaming/TileDemand';
 import type { CoverageClaim, SpatialContext, StreamingContext, WorldProvider } from './WorldProvider';
+import {
+  clampStarSectorRing, clampStarsPerSector, COSMIC_LOD_HARD_CAPS,
+} from '../streaming/CosmicLodBudget';
 
 /**
  * The galaxy, as a streamed provider.
@@ -46,11 +50,24 @@ export interface StarSectorProviderOptions {
   maxStarsPerSector?: number;
   /** Below this altitude the galaxy is not drawn: there is a sky and a planet in the way. */
   minAltitudeM?: number;
+  universeSeed?: bigint;
 }
 
 interface SectorPayload {
   readonly content: StarSectorContent;
   readonly geometry: BufferGeometry;
+}
+
+export function starSectorProviderId(galaxyId?: string, universeSeed?: bigint): string {
+  if (!galaxyId || galaxyId === 'milky_way' || galaxyId === 'milky-way') {
+    return 'galaxy/star-sectors';
+  }
+  if (isCanonicalGalaxyId(galaxyId)) {
+    return 'galaxy/star-sectors/' + galaxyId;
+  }
+  return universeSeed !== undefined
+    ? `galaxy/star-sectors/${galaxyId}/${universeSeed.toString(16)}`
+    : `galaxy/star-sectors/${galaxyId}`;
 }
 
 export class StarSectorProvider implements WorldProvider {
@@ -62,21 +79,26 @@ export class StarSectorProvider implements WorldProvider {
   private readonly material: PointsMaterial;
   /** Keyed by tile key, and each entry remembers its own sector so nothing has to be parsed. */
   private readonly sectors = new Map<string, { readonly mesh: Points; readonly sector: SectorIndex }>();
-  private readonly options: Required<StarSectorProviderOptions>;
+  private readonly options: Omit<Required<StarSectorProviderOptions>, 'universeSeed'> & { universeSeed?: bigint };
   private altitudeM = 0;
   /** The sector the last plan was centred on, so recentring needs no context of its own. */
   private centreSector: SectorIndex = sectorIndex(0, 0, 0);
 
   constructor(parent: Object3D, options: StarSectorProviderOptions = {}) {
-    this.id=options.galaxyId && options.galaxyId!=='milky_way' ? 'galaxy/star-sectors/'+options.galaxyId : 'galaxy/star-sectors';
+    const effectiveSeed = isCanonicalGalaxyId(options.galaxyId) ? undefined : options.universeSeed;
+    this.id = starSectorProviderId(options.galaxyId, effectiveSeed);
     this.group.name = 'galaxy';
     this.group.visible = false;
     parent.add(this.group);
     this.options = {
       galaxyId: options.galaxyId ?? 'milky_way',
-      ringSectors: Math.max(0, Math.round(finite(options.ringSectors, DEFAULT_RING))),
-      maxStarsPerSector: Math.max(1, Math.round(finite(options.maxStarsPerSector, DEFAULT_MAX_STARS))),
+      ringSectors: clampStarSectorRing(finite(options.ringSectors, DEFAULT_RING)),
+      maxStarsPerSector: clampStarsPerSector(
+        finite(options.maxStarsPerSector, DEFAULT_MAX_STARS),
+        finite(options.ringSectors, DEFAULT_RING),
+      ),
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 200_000)),
+      universeSeed: effectiveSeed,
     };
     this.material = new PointsMaterial({
       size: 1.4, sizeAttenuation: false, vertexColors: true,
@@ -142,6 +164,7 @@ export class StarSectorProvider implements WorldProvider {
     // Generated, not fetched. The same sector gives the same stars on every machine, forever.
     const content = generateStarSector(this.options.galaxyId, sector, {
       maxStars: this.options.maxStarsPerSector,
+      universeSeed: this.options.universeSeed,
     });
     const geometry = buildSectorGeometry(content);
     const bytes = content.stars.length * 6 * 4;

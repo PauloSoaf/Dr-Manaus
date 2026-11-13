@@ -1,4 +1,5 @@
-import { galaxyLocalPositionM } from '../galaxy/GalaxyCoordinates';
+import { galaxyDefinition, galaxyLocalPositionM } from '../galaxy/GalaxyCoordinates';
+import { evaluateProceduralDensity } from '../galaxy/ProceduralGalaxyGenerator';
 import {
   type SectorIndex, SECTOR_SIZE_M, sectorKey, sectorSeed,
 } from '../spatial/UniverseAddress';
@@ -190,22 +191,26 @@ function classify(massSolar: number): GeneratedStar['spectralClass'] {
 export function generateStarSector(
   galaxyId: string,
   sector: SectorIndex,
-  options: { densityScale?: number; maxStars?: number } = {},
+  options: { densityScale?: number; maxStars?: number; universeSeed?: bigint } = {},
 ): StarSectorContent {
   const seed = sectorSeed(galaxyId, sector);
   const random = new SeededRandom(seed);
 
   // Find the galaxy definition
-  const galDef = LOCAL_GROUP_CATALOG.find(g => g.id === (galaxyId==='milky-way'?'milky_way':galaxyId));
-  const densityScale = (galDef?.densityScale ?? 1) * (options.densityScale ?? 1);
+  const galDef = galaxyDefinition(galaxyId === 'milky-way' ? 'milky_way' : galaxyId, options.universeSeed);
+  const sectorOptionScale = options.densityScale ?? 1;
 
-  const galacticCentrePosM = galDef ? galaxyLocalPositionM(galDef,sector) : [0,0,0] as Vec3;
+  const galacticCentrePosM = galDef ? galaxyLocalPositionM(galDef, sector) : [0, 0, 0] as Vec3;
 
   let density = 0;
-  if (galDef?.densityProfile === 'andromeda') {
-    density = andromedaDensity(galacticCentrePosM) * densityScale;
+  if (galDef?.proceduralMorphology) {
+    // evaluateProceduralDensity already incorporates descriptor.densityScale as intrinsic morphology scale.
+    // Only apply the optional per-sector generation modifier here.
+    density = evaluateProceduralDensity(galDef.proceduralMorphology, galacticCentrePosM) * sectorOptionScale;
+  } else if (galDef?.densityProfile === 'andromeda') {
+    density = andromedaDensity(galacticCentrePosM) * (galDef.densityScale ?? 1) * sectorOptionScale;
   } else {
-    density = milkyWayDensity(galacticCentrePosM) * densityScale;
+    density = milkyWayDensity(galacticCentrePosM) * (galDef?.densityScale ?? 1) * sectorOptionScale;
   }
   const cap=Number.isFinite(options.maxStars)?Math.max(0,Math.min(2000,Math.floor(options.maxStars!))):2000;
   const target = Math.min(cap, Math.round(STARS_PER_SECTOR_BASE * density));

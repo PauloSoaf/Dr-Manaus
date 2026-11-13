@@ -2,11 +2,13 @@ import { addressSeparationM, globalTargetDeltaM, galaxyDefinition, galaxyLocalPo
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import { LOCAL_GROUP_CATALOG } from '../celestial/GalaxyDefinition';
-import { sectorsEqual, sectorIndex, type UniverseAddress } from '../spatial/UniverseAddress';
+import { sectorsEqual, sectorIndex, type UniverseAddress, type CosmologicalAddress } from '../spatial/UniverseAddress';
 import { PARSEC_M, type Vec3 } from '../spatial/units';
 import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from './UniversalTargetCatalog';
 import { isUniverseAddress, type UniversalNavigationTarget } from './UniversalNavigationTarget';
 import { selectBodyDestination } from './BodyNavigation';
+import { COSMOLOGICAL_CELL_SIZE_M, cosmologicalSeparationVectorM, isCellInFloatDomain, cosmologicalPositionM } from '../galaxy/ProceduralGalaxyGenerator';
+import { peekProceduralGalaxyEntry } from './GalaxyEntryResolver';
 
 export type TravelCapability = 'solar'|'intra-system'|'interstellar'|'intergalactic'|'black-hole-future'|'cosmological-future';
 export interface ResolvedUniversalTarget {
@@ -56,13 +58,28 @@ function generatedEphemeris(catalog:UniversalTargetCatalog,p:NonNullable<ReturnT
   if(!runtime){runtime=new ProceduralSystemRuntime(p.system,time);cache.set(p.star.id,runtime);if(cache.size>64)cache.delete(cache.keys().next().value!);}
   if(runtime.time!==time)runtime.update(time);return runtime;
 }
+function observerCosmologicalAddress(context: TargetResolutionContext, currentGalaxyId: string): CosmologicalAddress {
+  if (context.location?.cosmological) {
+    return context.location.cosmological;
+  }
+  // Curated reference positions in Local Group (cell 0,0,0)
+  if (currentGalaxyId === 'andromeda') {
+    return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0.767, 0] };
+  }
+  if (currentGalaxyId === 'triangulum') {
+    return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0.84, 0] };
+  }
+  return { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] };
+}
+
 export class UniversalTargetResolver {
   constructor(readonly catalog:UniversalTargetCatalog,readonly context:TargetResolutionContext){}
   resolve(t:UniversalNavigationTarget):ResolvedUniversalTarget {
     const entry=this.catalog.resolve(t), current=this.context.address??SOLAR_TARGET_ADDRESS;
     const galaxy=t.galaxyId, intergalactic=!!galaxy && galaxy!==current.galaxyId;
-    let domain:ResolvedUniversalTarget['domain']=intergalactic?'intergalactic':t.kind==='body'?'system':'interstellar';
-    let capability:TravelCapability=intergalactic?'intergalactic':'interstellar';
+    const isProceduralGalaxy = t.kind === 'galaxy' && (!galaxy || !LOCAL_GROUP_CATALOG.some(g => g.id === galaxy));
+    let domain:ResolvedUniversalTarget['domain']=isProceduralGalaxy?'cosmological':intergalactic?'intergalactic':t.kind==='body'?'system':'interstellar';
+    let capability:TravelCapability=isProceduralGalaxy?'cosmological-future':intergalactic?'intergalactic':'interstellar';
     if(t.kind==='black-hole')capability='black-hole-future';
     if(['cluster','cosmic-anchor','observable-horizon'].includes(t.kind)){domain='cosmological';capability='cosmological-future';}
     if(!entry)return {target:t,valid:false,materialized:false,domain,travelCapability:capability};
@@ -94,7 +111,32 @@ export class UniversalTargetResolver {
         const live=t.kind==='system'?[0,0,0] as Vec3:this.context.activeSystem.positionOf(t.bodyId!);
         if(live)distanceM=Math.hypot(...live.map((v,i)=>v-observer[i]));
       }else if(positionM)distanceM=addressSeparationM(current,this.context.location?.sectorOffsetM??observer,a,positionM);
-    } else if(entry.globalPositionM){
+    } else if(isProceduralGalaxy && t.galaxyId){
+      frame='cosmological-relative';
+      const desc=this.catalog.discovery.findGalaxyById(t.galaxyId);
+      if(desc){
+        const obsCosmo = observerCosmologicalAddress(this.context, current.galaxyId);
+        const sepVec = cosmologicalSeparationVectorM(obsCosmo, desc.cosmologicalAddress);
+        if (sepVec) {
+          distanceM = Math.hypot(...sepVec);
+          // Relative separation vector in metres from observer to target in cosmological-relative frame
+          positionM = sepVec;
+          // Reachable within safe conversion domain:
+          // Lightweight HUD presentation check: check cached entry availability without triggering expensive multi-sector generation.
+          const entryStatus = peekProceduralGalaxyEntry(t.galaxyId, this.catalog.discovery.universeSeed);
+          capability = entryStatus === false ? 'cosmological-future' : 'intergalactic';
+        } else {
+          // Separation exceeds safe Float64 conversion domain (> 1024 cells)
+          const dx = Number(desc.cell.x - obsCosmo.cell.x);
+          const dy = Number(desc.cell.y - obsCosmo.cell.y);
+          const dz = Number(desc.cell.z - obsCosmo.cell.z);
+          distanceM = Math.hypot(dx, dy, dz) * COSMOLOGICAL_CELL_SIZE_M;
+          // Beyond safe Float64 domain: do not fabricate an imprecise Float64 vector
+          positionM = undefined;
+          capability = 'cosmological-future';
+        }
+      }
+    } else if(entry.globalPositionM && !isProceduralGalaxy){
       frame='local-group-global';positionM=entry.globalPositionM;
       const delta=globalTargetDeltaM(current,this.context.location?.sectorOffsetM??observer,positionM);
       if(delta)distanceM=Math.hypot(...delta);
@@ -105,7 +147,6 @@ export class UniversalTargetResolver {
         distanceM=Math.hypot(...localTarget.map((v,i)=>v-localObserver[i]));
       }
       materialized=t.kind==='black-hole' && t.galaxyId===current.galaxyId;
-
     } else if(a && !isUniverseAddress(a)){
       frame='cosmological-relative';
       const player=this.context.location?.cosmological;
@@ -133,5 +174,6 @@ export class UniversalTargetResolver {
 export function travelCapabilityLabel(capability:TravelCapability):string {
   return {solar:'Piloto automático Solar disponível','intra-system':'Piloto automático no sistema disponível','interstellar':'Hypercruise interestelar disponível em espaço seguro',
     'intergalactic':'Hypercruise intergaláctico disponível em espaço seguro','black-hole-future':'Viagem a buracos negros ainda indisponível',
-    'cosmological-future':'Viagem cosmológica ainda indisponível'}[capability];
+    'cosmological-future':'Navegação intergaláctica procedural disponível em U4.4'}[capability];
 }
+

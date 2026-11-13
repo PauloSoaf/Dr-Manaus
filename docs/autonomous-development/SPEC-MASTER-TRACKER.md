@@ -1,0 +1,196 @@
+# DR-MANAUS | Master Specification Tracker
+
+Este documento consolida, reconcilia e rastreia o status de todos os requisitos do projeto DR-MANAUS derivados de `specs/`, `docs/`, `src/` e `tests/`.
+
+---
+
+## 1. Glossário de Status
+
+- `TODO`: Requisito mapeado, dependências aguardando ou em fila de prioridade.
+- `IN_PROGRESS`: Em especificação ativa ou implementação no sprint corrente.
+- `IMPLEMENTED`: Código de produção desenvolvido e testado localmente.
+- `CI_VERIFIED`: Validado pelo pipeline oficial do GitHub Actions com cobertura integral de testes.
+- `IMPLEMENTED_PENDING_ACCEPTANCE`: Implementação em produção validada por testes de unidade/integração, aguardando inspeção visual humana no navegador.
+- `ACCEPTED`: Homologado formalmente com validação de gameplay e visual.
+- `BLOCKED`: Impedido por dependência externa ou limitação de infraestrutura.
+- `SUPERSEDED`: Requisito histórico substituído por especificação posterior mais avançada.
+- `DEFERRED`: Requisito explicitamente adiado para fases posteriores (ex: destruição avançada D2–D5).
+
+---
+
+## 2. Matriz Consolidada de Especificações
+
+### Módulo A — Estabilidade, Coordenadas e Persistência
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `STAB-01` | `03-COORDINATES-AND-REFERENCE-FRAMES.md` | Coordenadas astronômicas hierárquicas em BigInt e Floating Origin 3D | P0 | `CI_VERIFIED` | `baseline` | `tests/regression/universe.test.ts` |
+| `STAB-02` | `09-PERSISTENCE.md` | Persistência determinística com SaveManager | P1 | `CI_VERIFIED` | `baseline` | `tests/regression/` |
+| `STAB-03` | `U4.5.4` | Persistência atômica em lote (`SaveManager.batch`), eliminando write-amplification | P0 | `CI_VERIFIED` | `d41fc2d` | `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` |
+| `STAB-04` | `U4.5.4.1` | Hotfix de consistência geométrica e autoridade NOAA ETOPO5 de relevo | P0 | `CI_VERIFIED` | `c48fc64` | `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` |
+
+---
+
+### Módulo B — Manaus e Superfície Terrestre
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `MAN-01` | `05-MANAUS-FULL-WGS84-UNIFICATION.md` | Frame ECEF/ENU centrado em Manaus (-3.119028, -60.021731) | P0 | `CI_VERIFIED` | `baseline` | `tests/regression/manaus.test.ts` |
+| `MAN-02` | `04-MANAUS-WGS84-MIGRATION.md` | Georreferenciamento de ruas, Arena da Amazônia e bacia hidrográfica | P1 | `CI_VERIFIED` | `baseline` | `tests/regression/manaus.test.ts` |
+| `MAN-03` | `07-EARTH-TERRAIN-DEM.md` | Relevo global ETOPO5 do NOAA (5 arc-minute) downsampleado a 5.742m max | P0 | `CI_VERIFIED` | `baseline` | `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` |
+| `MAN-04` | `CLAUDE_NO_RUSH_EARTH_VISUAL_HARDENING` | Renderizador vetorial de rios continentais e bacia amazônica sem artefatos | P1 | `CI_VERIFIED` | `22e765d` | `tests/earth-orbital-rivers.test.ts` |
+| `MAN-05` | `03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md` | Classificação determinística da superfície terrestre (`EarthSurfaceClass`): oceano, terra, calotas de gelo (Antártica, Groenlândia, Ártico) e mancha urbana de Manaus | P0 | `CI_VERIFIED` | `c596bc8` | `tests/earth-surface-biomes-ocean-ice.test.ts` (4/4 pass) |
+| `TRANS-01` | `04-EARTH-ALTITUDE-TRANSITION.md` | Transição contínua da Terra de 0m a 400.000m, eliminação de chão preto (`localWeight + planetWeight >= 0.99`), atenuação atmosférica contínua e histerese segura de ownership | P0 | `CI_VERIFIED` | `51eb4df` | `tests/earth-altitude-transition.test.ts` (7/7 pass) |
+| `GRAV-01` | `06-ZERO-G-AND-GRAVITY-DOMAINS.md` | Fontes de gravidade celeste (`GravitySource`), point-mass Newton ($a = -\mu \vec{r}/r^3$), regime zero-g inercial, threshold de gameplay e dinâmica orbital qualitativa em `InterplanetaryController` | P0 | `CI_VERIFIED` | `badfa32` | `tests/zero-g-and-gravity-domains.test.ts` (7/7 pass) |
+| `GRAV-02` | `06-ZERO-G-AND-GRAVITY-DOMAINS.md` | Integração das fontes de gravidade dos corpos ativos no contexto de voo interplanetário do `Game`, sem contaminar a física ENU local | P0 | `IMPLEMENTED` | `HEAD` | `tests/zero-g-and-gravity-domains.test.ts` (7/7 pass), typecheck |
+| `LOD-STREAM-01` | `14-COSMIC-LOD-STREAMING-PERFORMANCE.md` | Hard caps High para tiles planetários (160), setores estelares (27), estrelas locais (16k) e pontos representativos de galáxia (80k), preservando SSE e budgets | P0 | `CI_VERIFIED` | `6fd79da` | `tests/cosmic-lod-streaming.test.ts` (2/2 pass) |
+
+---
+
+### Módulo C — Personagem, Voo e Poderes
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `HERO-01` | `06-ZERO-G-AND-GRAVITY-DOMAINS.md` | Transição física entre gravidade terrestre e gravidade zero espacial | P1 | `CI_VERIFIED` | `baseline` | `tests/regression/solar.test.ts` |
+| `HERO-02` | `06-HIGH-SPEED-TRAVEL.md` | Voo supersônico, hipersônico e controle de atitude orbital | P1 | `CI_VERIFIED` | `baseline` | `tests/space-controls.test.ts` |
+| `HERO-03` | `06-COSMIC-FLIGHT-GEARS.md` | Escala cósmica de engrenagens de warp (convencional, interestelar, intergaláctico até $1.5\times 10^{12}c$) | P0 | `CI_VERIFIED` | `57d058c` | `tests/free-cosmic-flight.test.ts` |
+| `HERO-04` | `06-POWERS-AND-GAMEPLAY.md` | Sistema de habilidades do herói, teleporte local e telemetria de voo | P1 | `CI_VERIFIED` | `baseline` | `tests/player-asset.test.ts` |
+
+---
+
+### Módulo D — Planetas, Mundos Procedurais e Superfícies
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `PLAN-01` | `07-SOLAR-SYSTEM-COMPLETE.md` | 8 planetas do Sistema Solar com órbitas Keplerianas autênticas | P0 | `CI_VERIFIED` | `baseline` | `tests/regression/solar.test.ts` |
+| `PLAN-02` | `08-PLANET-SURFACES-AND-LANDING.md` | Superfícies canônicas da Lua (LRO LOLA) e Marte (Olympus Mons) | P0 | `CI_VERIFIED` | `baseline` | `tests/moon-landing-hardening.test.ts` |
+| `PLAN-03` | `U4.5.3` | Taxonomia de corpos (`WorldClassification`), equilíbrio térmico e gravidade superficial | P0 | `CI_VERIFIED` | `356b98e` | `tests/stellar-planetary-diversity-u453.test.ts` |
+| `PLAN-04` | `U4.5.4` | Terrenos fractais determinísticos para mundos sólidos procedurais (biomas) | P0 | `CI_VERIFIED` | `d41fc2d` | `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` |
+| `PLAN-05` | `U4.5.4` | Hidrosfera coerente: mundos oceânicos com mar plano a 0m e continentes elevados | P0 | `CI_VERIFIED` | `d41fc2d` | `tests/procedural-surfaces-and-atlas-opt-u454.test.ts` |
+| `PLAN-06` | `21-status-SUN-APPROACH-P0.md` | Aproximação à fotosfera solar, radiação e pouso em atmosfera estelar | P0 | `CI_VERIFIED` | `baseline` | `tests/sun-approach.test.ts` |
+| `PLAN-07` | `07-SOLAR-SYSTEM-COMPLETE.md` | Perfil visual unificado (`PlanetVisualProfile`), tipagem de superfície (`rocky`, `ice`, `gas`, `star`), anéis analíticos de Saturno, atmosfera e relevos canônicos | P0 | `CI_VERIFIED` | `7d5ce9b` | `tests/planet-visual-profiles.test.ts` (4/4 pass) |
+| `SOLAR-03` | `07-SOLAR-SYSTEM-COMPLETE.md` | Consumo do `PlanetVisualProfile` pelo renderer canônico para albedo e escalas de anéis | P0 | `IMPLEMENTED` | `HEAD` | `tests/planet-visual-profiles.test.ts` (4/4 pass), typecheck |
+| `COSMIC-WEB-01` | `12-GREAT-ATTRACTOR-COSMIC-WEB.md` | Campo esparso analítico de teia cósmica, filamentos, vazios e anchors reais de clusters, incluindo Norma / Grande Atrator | P0 | `IMPLEMENTED` | `HEAD` | `tests/cosmological-structure-u6.test.ts` (7/7 pass) |
+| `WGS84-MANAUS-01` | `05-MANAUS-FULL-WGS84-UNIFICATION.md` | Facade canônica de frame por tile e transformação de colliders entre a projeção legacy e o frame render-local WGS84 | P0 | `IMPLEMENTED` | `HEAD` | `tests/wgs84.test.ts` |
+| `BUGS-02.1` | `02-REMAINING-BUGS.md` | Preservação de diversidade procedural, ruptura visual independente por corpo, posições em render-space, visibilidade faseada e entrada de poder sem bypass | P0 | `IMPLEMENTED` | `HEAD` | `tests/planet-visual-profiles.test.ts` (5/5), `tests/vivo-18-planetary-rupture-presentation.test.ts` (4/4) |
+| `BUGS-02.2` | `02-REMAINING-BUGS.md` | Invalidação de frames quando o centro do tile muda e cache WGS84 LRU bounded | P1 | `IMPLEMENTED` | `HEAD` | `tests/wgs84.test.ts` (16/16), typecheck, build |
+| `BUGS-02.3` | `02-REMAINING-BUGS.md` | Matriz de apresentação de tiles Manaus resolvida pela fachada WGS84 compartilhada | P1 | `IMPLEMENTED` | `HEAD` | `tests/wgs84.test.ts` (17/17), typecheck |
+| `BUGS-02.4` | `02-REMAINING-BUGS.md` | Reuso de `SurfaceFrameService` na conversão da geometria de água curva | P1 | `IMPLEMENTED` | `HEAD` | typecheck, build |
+
+---
+
+### Módulo E — Navegação Cósmica, Atlas e Hypercruise
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `NAV-01` | `U0-UNIVERSAL-NAVIGATION-TARGET.md` | Descritor imutável de alvo de navegação universal (`UniversalNavigationTarget`) | P0 | `CI_VERIFIED` | `baseline` | `tests/universal-navigation-target.test.ts` |
+| `NAV-02` | `U2-GALAXY-RUNTIME-ANDROMEDA.md` | Sessões de galáxia para Via Láctea e Andrômeda no Grupo Local | P0 | `CI_VERIFIED` | `baseline` | `tests/galaxy-runtime.test.ts` |
+| `NAV-03` | `U3-UNIVERSAL-HYPERCRUISE.md` | Hypercruise interestelar contínuo com aceleração/desaceleração assistida | P0 | `CI_VERIFIED` | `baseline` | `tests/universal-hypercruise.test.ts` |
+| `NAV-04` | `U4-PROCEDURAL-GALAXIES.md` | Geração procedural sob demanda de galáxias espirais, elípticas e irregulares | P0 | `CI_VERIFIED` | `baseline` | `tests/procedural-galaxy-generator.test.ts` |
+| `NAV-05` | `U4.5.2` / `U4.5.3.1` | Atlas Cósmico interativo, busca sem acentos, taxonomia canônica e pouso em fotosfera | P0 | `CI_VERIFIED` | `d9e777f` | `tests/atlas-procedural-integration-u4531.test.ts` |
+| `NAV-06` | `ISSUE-02` | Otimização de escala e cache do Atlas Cósmico com busca $O(N)$ em mapa indexado | P1 | `CI_VERIFIED` | `063190f` | `tests/atlas-scale-opt-issue02.test.ts` |
+
+---
+
+### Módulo F — Buracos Negros, Gravidade Relativística e Trânsito
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `BH-01` | `11-BLACK-HOLES.md` | **BH0:** Descritor `BlackHoleDescriptor`, raio de Schwarzschild $r_s$, horizonte Kerr $r_+$, ISCO e anel de fótons | P0 | `CI_VERIFIED` | `998871d` | `tests/black-hole-astrophysics-bh0.test.ts` |
+| `BH-02` | `11-BLACK-HOLES.md` | **BH0:** Integração de Sagittarius A*, M31 SMBH e buracos negros estelares no Catálogo Universal | P0 | `CI_VERIFIED` | `998871d` | `tests/black-hole-astrophysics-bh0.test.ts` |
+| `BH-03` | `11-BLACK-HOLES.md` | **BH1:** Módulo de gravidade relativística Paczyński-Wiita, arrasto Lense-Thirring e escape de emergência | P0 | `CI_VERIFIED` | `95de474` | `tests/black-hole-gravity-bh1.test.ts` |
+| `BH-04` | `55-status-BH-RUNTIME.md` | **BH1.1:** Integração da gravidade relativística e captura de horizonte no loop principal (`BlackHoleRuntime`) | P0 | `CI_VERIFIED` | `7dc0f57` | `tests/black-hole-runtime-integration.test.ts` |
+| `BH-05` | `55-status-BH-RUNTIME.md` | **BH1.2:** Telemetria HUD em voo cósmico (zona de proximidade, raio $r_s$, dilatação temporal $\tau$) | P1 | `CI_VERIFIED` | `fdad6f7` | `tests/hud-presentation.test.ts` |
+| `BH-06` | `55-status-BH-RUNTIME.md` | **BH1.3:** Buracos negros estelares procedurais ativos no runtime de atração e captura espacial | P0 | `CI_VERIFIED` | `2b677af` | `tests/black-hole-runtime-integration.test.ts` |
+| `BH-07` | `11-BLACK-HOLES.md` | **BH2:** Módulo da rede de trânsito dimensional e roteamento quântico determinístico | P0 | `CI_VERIFIED` | `e28668c` | `tests/black-hole-transit-bh2.test.ts` |
+| `BH-08` | `55-status-BH-RUNTIME.md` | **BH2.1:** Trânsito com persistência transacional (`reserve`/`commit`/`abort`) e handoff seguro fora do horizonte | P0 | `CI_VERIFIED` | `7dc0f57` | `tests/black-hole-runtime-integration.test.ts` |
+| `BH-09` | `55-status-BH-RUNTIME.md` | **BH2.2:** Apresentação 3D do túnel de minhoca (`WormholeTunnelPresentation`) com ribs, streaks e abertura | P1 | `CI_VERIFIED` | `HEAD` | `tests/wormhole-tunnel-presentation.test.ts` |
+| `BH-10` | `ISSUE-01` | Orientação relativística do anel de fótons orientada ao observador no `BlackHoleProvider` | P1 | `CI_VERIFIED` | `2e06284` | `tests/black-hole-astrophysics-bh0.test.ts` |
+
+---
+
+### Módulo G — Escala Cosmológica e Teia Cósmica
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `COSMO-01` | `UNIVERSE-MAP-COMPLETION-EPIC.md` | **U5:** Mapa Universal Interativo multiescala, breadcrumbs canônicos e modelo de coordenadas `drm:v1://` | P0 | `CI_VERIFIED` | `abffab1` | `tests/universal-map-multiscale-u5.test.ts` |
+| `COSMO-02` | `13-OBSERVABLE-UNIVERSE-HORIZON.md`| **U6:** Horizonte cosmológico centrado no observador, sem paredes físicas ou centro absoluto, e filamentos da Teia Cósmica | P1 | `CI_VERIFIED` | `09a13f3` | `tests/cosmological-structure-u6.test.ts` |
+
+---
+
+### Módulo H — Teleporte Universal Infinito e Handoff Seguro
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `TEL-01` | `05-INFINITE-TELEPORT.md` | **U7:** Resolução hierárquica em 4 níveis (colisor local, WGS84/Lua/Marte analítico, mira celeste angular, coordenadas/URI) | P0 | `CI_VERIFIED` | `8845b4d` | `tests/universal-teleport-service.test.ts` |
+| `TEL-02` | `05-INFINITE-TELEPORT.md` | Handoff transacional atômico e reciclagem dinâmica de referenciais de superfície | P0 | `CI_VERIFIED` | `8845b4d` | `tests/universal-teleport-service.test.ts` |
+
+---
+
+### Módulo I — Detecção Contínua de Colisão (CCD) e Segurança Celestial
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `CCD-01` | `02-PATCH-CELESTIAL-CCD-P0.md` | Swept-sphere continuous collision detection contra corpos astronômicos em alta velocidade | P0 | `CI_VERIFIED` | `baseline` | `tests/regression/` |
+| `CCD-02` | `35-status-P0.5.9-PROXIMITY-THROTTLE-GATING.md` | Proximity speed gating e limitação fly-by-wire de empuxo warp | P0 | `CI_VERIFIED` | `baseline` | `tests/space-controls.test.ts` |
+| `CCD-03` | `17-status-CELESTIAL-IMPACT-POLICY.md` | Políticas de impacto celeste (graze, atmospheric drag, catastrophic impact, landing-capture) | P0 | `CI_VERIFIED` | `baseline` | `tests/celestial-impact-policy.test.ts` |
+| `CCD-04` | `36-status-P0.5.10.md` | Envelopes de exclusão dinâmicos e prevenção de tunneling quântico em corpos celestes | P0 | `CI_VERIFIED` | `baseline` | `tests/celestial-impact-events.test.ts` |
+
+---
+
+### Módulo J — Destruição e Física Volumétrica
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `DEST-01` | `18-status-VOLUME-COLLISION-D0.md` | D0 Provedor de terreno volumétrico com Marching Cubes e dual-contouring | P1 | `CI_VERIFIED` | `baseline` | `tests/planet-volume-collision.test.ts` |
+| `DEST-02` | `24-status-D1.1-FINAL-HARDENING.md` | D1.1 Cratera de impacto local em Manaus com malhas de cicatriz e debris pool | P1 | `CI_VERIFIED` | `c92249b` | `tests/destructible-world.test.ts` |
+| `DEST-03` | `23-status-D1.2-HIGH-RES-IMPACT-CORE.md` | D1.2 High-resolution impact core e preservação de integridade de malha | P1 | `CI_VERIFIED` | `baseline` | `tests/rocky-impact-game.test.ts` |
+| `DEST-04` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D2 Escavação profunda e túneis contínuos em relevo volumétrico (`PlanetExcavationService`) | P1 | `CI_VERIFIED` | `7a543e7` | `tests/planet-excavation-service.test.ts` (6/6 pass) |
+| `DEST-05` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D3 Fratura geomecânica em grande escala e propagação de falhas tectônicas (`GeomechanicalFractureService`) | P1 | `CI_VERIFIED` | `c260032` | `tests/geomechanical-fracture-service.test.ts` (5/5 pass) |
+| `DEST-06` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D4 Destruição planetária parcial e ejeção de escombros em órbita (`MacroBodyFractureService`) | P2 | `CI_VERIFIED` | `d22efdd` | `tests/macro-body-fracture-service.test.ts` (5/5 pass) |
+| `DEST-07` | `06-PLANET-VOLUME-NEXT-PHASES.md` | D5 Ruptura de corpos menores e dispersão orbital de asteroides (`MinorBodyDisruptionService`) | P2 | `CI_VERIFIED` | `72e6468` | `tests/minor-body-disruption-service.test.ts` (5/5 pass) |
+
+---
+
+### Módulo K — Streaming Global e Orçamento de Recursos
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `STRM-01` | `07-streaming.md` | Global Streaming Scheduler com priorização dinâmica por velocidade (`budgetForSpeed`) | P0 | `CI_VERIFIED` | `baseline` | `tests/regression/` |
+| `STRM-02` | `07-streaming.md` | Previsão de demanda direcional com PrefetchPredictor | P1 | `CI_VERIFIED` | `baseline` | `tests/regression/` |
+| `STRM-03` | `12-STREAMING-PERFORMANCE-CACHE.md` | Bounded cache enforcement e evição de tiles distantes | P1 | `CI_VERIFIED` | `baseline` | `tests/regression/` |
+| `STRM-04` | `06-DESTINATION-PREPARATION-HANDOFF.md` | Preparação transacional assíncrona de recursos antes de saltos (`prepareDemands`) | P0 | `CI_VERIFIED` | `8845b4d` | `tests/universal-teleport-service.test.ts` |
+
+---
+
+### Módulo L — Renderização Atmosférica e Transição Órbita-Superfície
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `REND-01` | `08-render-domains.md` | Rayleigh e Mie scattering com atenuação atmosférica realista | P1 | `CI_VERIFIED` | `baseline` | `tests/regression/` |
+| `REND-02` | `ISSUE-04` | Transição contínua Manaus-órbita com `orbitLift` e `uAtmosphereOpacity` cúbica Hermite | P1 | `CI_VERIFIED` | `57d058c` | `tests/terrestrial-orbital-transition-issue04.test.ts` |
+| `REND-03` | `25-status-MANAUS-AERIAL-PRESENTATION-P0.md` | Apresentação aérea de Manaus com blending de textura orbital | P1 | `CI_VERIFIED` | `baseline` | `tests/regression/manaus.test.ts` |
+| `REND-04` | `SpeedVFX.ts` | Vinheta óptica de velocidade supersônica com separação cromática periférica | P2 | `CI_VERIFIED` | `baseline` | `tests/regression/` |
+
+---
+
+### Módulo M — Tráfego Urbano, Iluminação e Clima
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `CITY-01` | `05-manaus-migration.md` | Grafo viário de Manaus e navegação autônoma de veículos terrestres | P2 | `CI_VERIFIED` | `baseline` | `tests/regression/manaus.test.ts` |
+| `CITY-02` | `08-SUN-RENDERING-AND-LIGHTING.md` | Ciclo dia/noite e iluminação dinâmica com elevação solar precisa | P1 | `CI_VERIFIED` | `baseline` | `tests/regression/solar.test.ts` |
+| `CITY-03` | `WeatherSystem.ts` | Sistema de clima dinâmico e cobertura de chuva equatorial | P2 | `CI_VERIFIED` | `baseline` | `tests/regression/` |
+
+---
+
+### Módulo N — Universo Vivo: Biosferas, Biomas, Vida Alienígena e Destruição Cósmica
+| ID | Fonte Documental | Descrição | Prioridade | Status | SHA de Implementação | Evidência de Teste |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- |
+| `VIVO-01` | `specs/universo-vivo/01-BIOSPHERE-AND-SEEDS.md` | Sementes de canal ortogonais determinísticas e perfil de biosfera planetária (`PlanetaryBiosphereProfile`) | P0 | `CI_VERIFIED` | `eaeab77` | `tests/planetary-biosphere-profile.test.ts` (5/5 pass) |
+| `VIVO-02` | `specs/universo-vivo/02-BIOMES-AND-CLIMATE.md` | Clima e biomas determinísticos por tile e habitat (`PlanetaryBiomeService`) | P0 | `CI_VERIFIED` | `e39ddf5` | `tests/planetary-biome-service.test.ts` (6/6 pass) |
+| `VIVO-03` | `specs/universo-vivo/03-ALIEN-FLORA-INSTANCING.md` | Flora visual alienígena por instancing e LOD com descarte real (`AlienFloraRenderer`) | P1 | `CI_VERIFIED` | `2b3c8f8` | `tests/alien-flora-renderer.test.ts` (5/5 pass) |
+| `VIVO-04` | `specs/universo-vivo/04-ALIEN-FAUNA-MANAGER.md` | Fauna alienígena, taxonomia morfológica e spawn seguro (`AlienFaunaManager`) | P1 | `CI_VERIFIED` | `f037141` | `tests/alien-fauna-manager.test.ts` (5/5 pass) |
+| `VIVO-05` | `specs/universo-vivo/05-SPECIES-SCANNER-AND-ATLAS.md` | Scanner cósmico de espécies e catálogo no Atlas (`CosmicSpeciesScanner`) | P1 | `CI_VERIFIED` | `b479840` | `tests/cosmic-species-scanner.test.ts` (4/4 pass) |
+| `VIVO-06` | `specs/universo-vivo/06-MULTI-DOMAIN-PLANETARY-COMBAT.md` | Combate `PowerSystem` multi-domínio em planetas ativos | P0 | `CI_VERIFIED` | `f9ed8ae` | `tests/planetary-combat-integration.test.ts` (5/5 pass) |
+| `VIVO-07` | `specs/universo-vivo/07-ECOLOGICAL-AI-AND-HERDS.md` | IA ecológica avançada, predação, manadas (flocking) e propagação de alarme | P1 | `CI_VERIFIED` | `141f193` | `tests/alien-fauna-ecological-ai.test.ts` (5/5 pass) |
+| `VIVO-08` | `specs/universo-vivo/08-ALIEN-SETTLEMENTS-AND-FACTIONS.md` | Assentamentos alienígenas modulares, cúpulas, torres e ruínas (`AlienSettlementManager`) | P1 | `CI_VERIFIED` | `ad2763a` | `tests/alien-settlement-manager.test.ts` (6/6 pass) |
+| `VIVO-09` | `specs/universo-vivo/08-ALIEN-SETTLEMENTS-AND-FACTIONS.md` | Habitantes alienígenas, sentinelas, facções e reputação persistente no `SaveManager` | P1 | `CI_VERIFIED` | `ad2763a` | `tests/alien-settlement-manager.test.ts` (6/6 pass) |
+| `VIVO-10` | `specs/universo-vivo/10-UNIVERSAL-INTERPLANETARY-TELEPORT.md` | Teleporte universal transacional seguro entre planetas e galáxias com validação de física | P0 | `CI_VERIFIED` | `e139447` | `tests/universal-teleport-interplanetary.test.ts` (5/5 pass) |
+| `VIVO-11` | `specs/universo-vivo/11-PLANETARY-HAZARDS-AND-SKY.md` | Céu dinâmico, perigos ambientais (`PlanetaryHazardService`), névoas alienígenas e áudio multi-meio | P1 | `CI_VERIFIED` | `4f3d25a` | `tests/planetary-hazards-and-sky.test.ts` (8/8 pass) |
+| `VIVO-12` | `specs/universo-vivo/12-PLANETARY-RUPTURE-POWER.md` | Poder cósmico `planetRupture` com seleção de alvo, charging e acoplamento em `PowerSystem` | P0 | `CI_VERIFIED` | `1a0c951` | `tests/planet-rupture-power.test.ts` (5/5 pass) |
+| `VIVO-13` | `specs/universo-vivo/12-PLANETARY-RUPTURE-POWER.md` | Fragmentação física por calotas ortogonais e anel orbital de detritos keplerianos | P0 | `CI_VERIFIED` | `1a0c951` | `tests/planet-rupture-power.test.ts` (5/5 pass) |
+| `VIVO-14` | `specs/universo-vivo/12-PLANETARY-RUPTURE-POWER.md` | Reconstrução cósmica via poder `reconstruct` e persistência de estado em `SaveManager` | P0 | `CI_VERIFIED` | `1a0c951` | `tests/planet-rupture-power.test.ts` (5/5 pass) |
+| `VIVO-15` | `specs/universo-vivo/15-ANOMALIES-RUINS-AND-COLOSSI.md` | Ruínas ancestrais, santuários megalíticos, colossos guardiões e missões de primeiro contato | P1 | `CI_VERIFIED` | `6920ca8` | `tests/cosmic-anomalies-and-ruins.test.ts` (6/6 pass) |
+| `VIVO-16` | `specs/universo-vivo/16-BENCHMARKS-AND-POLISH.md` | Benchmarks de desempenho em alta densidade, profiling de memória e polimento final do Universo Vivo | P1 | `CI_VERIFIED` | `5c0474a` | `tests/universo-vivo-benchmarks.test.ts` (5/5 pass) |
+| `VIVO-17` | `specs/universo-vivo/12-PLANETARY-RUPTURE-POWER.md` | Máquina de estados de ruptura (hold 2,5s, single-shot, voo orbital, target lock) e ancoramento de vida em `activePlanetaryLifeRoot` | P0 | `CI_VERIFIED` | `ddc0651` | `tests/vivo-17-ecosystem-and-power.test.ts` (2/2 pass) |
+| `VIVO-18` | `specs/universo-vivo/12-PLANETARY-RUPTURE-POWER.md` | Apresentação visual da ruptura planetária em 7 fases (`PlanetaryRupturePresentation`), ocultação de globo intacto e anel persistente | P0 | `CI_VERIFIED` | `ddc0651` | `tests/vivo-18-planetary-rupture-presentation.test.ts` (3/3 pass) |
+| `VIVO-19` | `specs/universo-vivo/12-PLANETARY-RUPTURE-POWER.md` | Persistência determinística de cortes CSG, reconstrução cósmica e validação de benchmark | P1 | `CI_VERIFIED` | `ddc0651` | `tests/vivo-19-deterministic-restoration-and-performance.test.ts` (3/3 pass) |
+

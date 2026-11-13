@@ -4,10 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "vite --host 0.0.0.0 --port 9999",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "preview": "vite preview --host 0.0.0.0",
+    "preview": "vite preview --host 0.0.0.0 --port 9999",
     "test": "node --import tsx --test tests/*.test.ts",
     "test:browser": "node scripts/browser-test.mjs",
     "test:browser:manaus": "node scripts/manaus-surface-browser.mjs",
@@ -23,7 +23,10 @@
     "test:browser:galaxy": "node scripts/galaxy-runtime-browser.mjs",
     "test:regression": "node --import tsx --test tests/regression/*.test.ts",
     "test:browser:regression": "node scripts/regression-browser.mjs",
-    "test:browser:hypercruise": "node scripts/hypercruise-browser.mjs"
+    "test:browser:hypercruise": "node scripts/hypercruise-browser.mjs",
+    "test:browser:polish": "node scripts/planetary-polish-browser.mjs",
+    "test:browser:continuous-e2e": "node scripts/continuous-gameplay-e2e-browser.mjs",
+    "test:browser:universo-vivo": "node scripts/universo-vivo-browser-validation.mjs"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.5.0",

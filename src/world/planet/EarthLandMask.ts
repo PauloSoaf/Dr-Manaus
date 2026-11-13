@@ -78,42 +78,100 @@ export function isLandAt(latRad: number, lonRad: number): boolean {
   return ((BITS[index >> 3] >> (index & 7)) & 1) === 1;
 }
 
-/** Ocean blue, land green, and the ice that genuinely sits at the poles. */
+/**
+ * Authoritative Earth surface classification according to the cosmic specification
+ * (specs/dr-manaus-cosmic-night-specs/03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md).
+ */
+export enum EarthSurfaceClass {
+  Ocean = 0,
+  Land = 1,
+  Ice = 2,
+  Urban = 3,
+  ShallowWater = 4,
+}
+
+/**
+ * Classifies any geodetic coordinate (latRad, lonRad) into an EarthSurfaceClass.
+ * Deterministic and pure function.
+ */
+export function classifyEarthSurface(latRad: number, lonRad: number): EarthSurfaceClass {
+  if (!Number.isFinite(latRad) || !Number.isFinite(lonRad)) return EarthSurfaceClass.Ocean;
+  const latDeg = latRad * RAD_TO_DEG;
+  const lonDeg = (((lonRad * RAD_TO_DEG + 180) % 360 + 360) % 360) - 180;
+
+  // 1. Manaus urban coverage zone (-3.40 to -2.86 lat, -60.30 to -59.76 lon)
+  if (latDeg >= -3.40 && latDeg <= -2.86 && lonDeg >= -60.30 && lonDeg <= -59.76) {
+    return EarthSurfaceClass.Urban;
+  }
+
+  const land = isLandAt(latRad, lonRad);
+
+  if (land) {
+    // Antarctica continent: south of 60°S
+    if (latDeg < -60) {
+      return EarthSurfaceClass.Ice;
+    }
+    // Greenland ice sheet: 60°N to 84°N and -60°W to -20°W
+    if (latDeg >= 60 && latDeg <= 84 && lonDeg >= -60 && lonDeg <= -20) {
+      return EarthSurfaceClass.Ice;
+    }
+    // High Arctic permanent ice caps / glaciers (e.g. Ellesmere, Svalbard)
+    if (latDeg > 78) {
+      return EarthSurfaceClass.Ice;
+    }
+    return EarthSurfaceClass.Land;
+  }
+
+  // Water: Polar permanent sea ice / ice shelves
+  if (latDeg < -75 || latDeg > 84) {
+    return EarthSurfaceClass.Ice;
+  }
+
+  return EarthSurfaceClass.Ocean;
+}
+
+/** Ocean blue, land green, urban gray/olive, and the ice that genuinely sits at the poles. */
 export const SURFACE_COLOURS = {
   ocean: [0.047, 0.157, 0.314] as const,
   shallow: [0.102, 0.290, 0.451] as const,
   land: [0.196, 0.345, 0.169] as const,
   arid: [0.451, 0.404, 0.255] as const,
   ice: [0.878, 0.898, 0.910] as const,
+  urban: [0.320, 0.340, 0.300] as const,
 } as const;
 
 /**
  * The colour of the surface at a point.
  *
- * Land and sea come from the mask. The ice at the poles and the arid band around the tropics are
- * latitude rules rather than data — they are the two places where a flat green would read as
- * obviously wrong, and both are real features of the planet rather than invented geography. Any
- * more than that needs a land-cover dataset, not a guess.
+ * Land, ocean, ice, and urban features come from the authoritative classification.
  */
 export function surfaceColour(latRad: number, lonRad: number, out: [number, number, number]): [number, number, number] {
-  const latDeg = Math.abs(latRad * RAD_TO_DEG);
-  const land = isLandAt(latRad, lonRad);
+  const surfaceClass = classifyEarthSurface(latRad, lonRad);
   const palette = SURFACE_COLOURS;
 
-  if (!land) {
+  if (surfaceClass === EarthSurfaceClass.Urban) {
+    for (let i = 0; i < 3; i++) out[i] = palette.urban[i];
+    return out;
+  }
+
+  if (surfaceClass === EarthSurfaceClass.Ice) {
+    for (let i = 0; i < 3; i++) out[i] = palette.ice[i];
+    return out;
+  }
+
+  if (surfaceClass === EarthSurfaceClass.Ocean) {
+    const latDeg = Math.abs(latRad * RAD_TO_DEG);
     // A hint of shelf near the poles where sea ice forms, otherwise deep ocean.
     const tint = latDeg > 70 ? Math.min(1, (latDeg - 70) / 15) : 0;
     for (let i = 0; i < 3; i++) out[i] = palette.ocean[i] + (palette.ice[i] - palette.ocean[i]) * tint * 0.7;
     return out;
   }
 
-  // Ice sheets: Greenland and Antarctica really are white.
-  const ice = latDeg > 62 ? Math.min(1, (latDeg - 62) / 10) : 0;
-  // The arid belt around the horse latitudes, where the great deserts actually sit.
+  // Land (with arid variation in horse latitudes)
+  const latDeg = Math.abs(latRad * RAD_TO_DEG);
   const arid = latDeg > 15 && latDeg < 35 ? 1 - Math.abs(latDeg - 25) / 10 : 0;
   for (let i = 0; i < 3; i++) {
-    const base = palette.land[i] + (palette.arid[i] - palette.land[i]) * Math.max(0, arid) * 0.8;
-    out[i] = base + (palette.ice[i] - base) * ice;
+    out[i] = palette.land[i] + (palette.arid[i] - palette.land[i]) * Math.max(0, arid) * 0.8;
   }
   return out;
 }

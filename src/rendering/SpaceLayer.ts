@@ -168,7 +168,8 @@ export class SpaceLayer {
     const allowStars = night || space > 0.05 || metres >= SPACE.atmosphereTop || this.planetaryView;
     this.stars.visible = allowStars && this.uVisible.value > .004;
     this.shell.visible = !FEATURES.earthGlobe && local && this.uShellFade.value > .003;
-    this.disc.visible = !FEATURES.earthGlobe && local && veil > .02;
+    const sunBelowGroundHorizon = this.axis.y < -0.01 && space < 0.3;
+    this.disc.visible = !FEATURES.earthGlobe && local && veil > .02 && !sunBelowGroundHorizon;
 
     // The camera's far plane is set by RenderDomains. Push the stars
     // out to just inside it, so they are physically behind planets and occluded by them.

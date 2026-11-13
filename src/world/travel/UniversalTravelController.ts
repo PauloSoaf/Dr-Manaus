@@ -45,7 +45,7 @@ export class UniversalTravelController {
       if(existing.phase!=='coasting')return 'already-active';
       if(target.key===existing.plan.requestedTarget.key||target.key===existing.plan.resolvedDestination.key){this.resume();return 'resumed';}
       const candidate=createTravelPlan(this.universe,this.catalog,target,'return');
-      if(!sameSystem(candidate.destination.address,existing.plan.origin.address))throw Error('Selecione o destino da viagem para retomar ou o sistema de origem para voltar');
+      if(!sameSystem(candidate.destination.address,existing.plan.origin.address,candidate.destination.universeSeed,existing.plan.origin.universeSeed))throw Error('Selecione o destino da viagem para retomar ou o sistema de origem para voltar');
       // Return from the actual transit point, without changing the anchored source runtime.
       const p=existing.plan,progress=existing.progress;
       const reversed=Object.freeze({...candidate,id:`travel-${++this.serial}`,origin:p.destination,destination:p.origin,
@@ -56,7 +56,7 @@ export class UniversalTravelController {
       || safety.grounded||safety.localPhysics||safety.landing||safety.collision||safety.materializing)
       throw Error('Decole e entre em voo espacial seguro para iniciar Hypercruise');
     const plan=createTravelPlan(this.universe,this.catalog,target,`travel-${++this.serial}`);
-    if(sameSystem(plan.origin.address,plan.destination.address))return 'same-system';
+    if(sameSystem(plan.origin.address,plan.destination.address,plan.origin.universeSeed,plan.destination.universeSeed))return 'same-system';
     this.begin(plan);return 'started';
   }
   private begin(plan:UniversalTravelPlan,progress=0):void {

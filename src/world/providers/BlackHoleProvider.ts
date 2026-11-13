@@ -1,30 +1,24 @@
 import { galaxyDefinition, galaxyLocalPositionM, orientGalaxyVector } from '../galaxy/GalaxyCoordinates';
 import type { Vec3 } from '../spatial/units';
-import { Group, Mesh, Object3D, SphereGeometry, TorusGeometry, MeshBasicMaterial, MeshStandardMaterial, DoubleSide } from 'three/webgpu';
+import { Group, Mesh, Object3D, SphereGeometry, TorusGeometry, RingGeometry, Vector3, MeshBasicMaterial, MeshStandardMaterial, DoubleSide } from 'three/webgpu';
 import { finite } from '../spatial/units';
+import {
+  schwarzschildRadiusM,
+  blackHoleShadowRadiusM,
+  kerrHorizonRadiusM,
+  type BlackHoleDescriptor,
+} from '../celestial/BlackHoleDescriptor';
+import type { BlackHoleDefinition } from '../blackhole/BlackHoleDefinition';
 
-export interface BlackHoleDefinition {
-  id: string;
-  massKg: number;
-  spin01: number;
-  positionM: [number, number, number]; // Position in the local system or galactic frame
-  accretion?: {
-    innerRadiusRs: number;
-    outerRadiusRs: number;
-    temperatureK: number;
-    luminosity: number;
-  };
-}
+export type { BlackHoleDefinition } from '../blackhole/BlackHoleDefinition';
 
 export interface BlackHoleProviderOptions {
-  blackHole: BlackHoleDefinition;
-  galaxyId?:string;
+  blackHole: BlackHoleDefinition | BlackHoleDescriptor;
+  galaxyId?: string;
   /** Below this altitude from the body, the black hole is drawn. */
   minAltitudeM?: number;
 }
 
-const G = 6.6743e-11;
-const C = 299792458;
 const GALAXY_METRES_PER_UNIT = 4e15;
 
 export class BlackHoleProvider {
@@ -35,13 +29,13 @@ export class BlackHoleProvider {
   private readonly options: Required<BlackHoleProviderOptions>;
   private readonly eventHorizon: Mesh;
   private accretionDisk?: Mesh;
-
+  private readonly photonRing: Mesh;
 
   constructor(parent: Object3D, options: BlackHoleProviderOptions) {
     this.id = `blackhole/${options.blackHole.id}`;
     this.options = {
       blackHole: options.blackHole,
-      galaxyId:options.galaxyId??'milky_way',
+      galaxyId: options.galaxyId ?? 'milky_way',
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 0)),
     };
     
@@ -49,25 +43,29 @@ export class BlackHoleProvider {
     this.group.visible = false;
     
     const def = this.options.blackHole;
-    const rsM = (2 * G * def.massKg) / (C * C);
-    // Convert Schwarzschild radius to galactic render units
+    const rsM = 'schwarzschildRadiusM' in def ? def.schwarzschildRadiusM : schwarzschildRadiusM(def.massKg);
+    const shadowM = 'shadowRadiusM' in def ? def.shadowRadiusM : blackHoleShadowRadiusM(def.massKg, def.spin01);
+    
+    // Convert apparent lensed shadow radius to galactic render units
     // Provide a visible minimum radius for galactic scale rendering so it doesn't vanish below float precision
-    const rs = Math.max(rsM / GALAXY_METRES_PER_UNIT, 0.05);
+    const shadowR = Math.max(shadowM / GALAXY_METRES_PER_UNIT, 0.05);
 
-    // Basic event horizon (pitch black sphere)
-    const geometry = new SphereGeometry(rs, 64, 64);
+    // Relativistic event horizon shadow (pitch black sphere with apparent lensed radius)
+    const geometry = new SphereGeometry(shadowR, 64, 64);
     const material = new MeshBasicMaterial({ color: 0x000000 });
     this.eventHorizon = new Mesh(geometry, material);
     this.group.add(this.eventHorizon);
 
-    // Basic accretion disk
+    // Accretion disk
     if (def.accretion) {
-      const inner = def.accretion.innerRadiusRs * rs;
-      const outer = def.accretion.outerRadiusRs * rs;
+      const rs = Math.max(rsM / GALAXY_METRES_PER_UNIT, 0.05);
+      const innerRadiusRs = 'innerRadiusM' in def.accretion ? (def.accretion.innerRadiusM / Math.max(1, rsM)) : (def.accretion as any).innerRadiusRs;
+      const outerRadiusRs = 'outerRadiusM' in def.accretion ? (def.accretion.outerRadiusM / Math.max(1, rsM)) : (def.accretion as any).outerRadiusRs;
+      const inner = Math.max(innerRadiusRs * rs, shadowR * 1.05);
+      const outer = Math.max(outerRadiusRs * rs, inner * 1.5);
       const diskGeom = new TorusGeometry((inner + outer) / 2, (outer - inner) / 2, 16, 100);
       
-      // We will make it extremely bright orange for now, representing hot gas
-      // TSL nodes can be added later for the Doppler beaming and lensing
+      // Hot glowing relativistic accretion plasma
       const diskMat = new MeshStandardMaterial({
         color: 0xffaa00,
         emissive: 0xff5500,
@@ -79,11 +77,29 @@ export class BlackHoleProvider {
       this.group.add(this.accretionDisk);
     }
 
+    // Relativistic photon ring (lensed optical photon sphere boundary)
+    const photonInner = shadowR * 1.002;
+    const photonOuter = shadowR * 1.035;
+    const photonGeom = new RingGeometry(photonInner, photonOuter, 96);
+    const photonMat = new MeshBasicMaterial({
+      color: 0xfff3e0,
+      side: DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+    });
+    this.photonRing = new Mesh(photonGeom, photonMat);
+    this.photonRing.name = 'photon-ring';
+    this.group.add(this.photonRing);
+
     parent.add(this.group);
   }
 
   get stats() {
-    return { visible: this.group.visible };
+    return {
+      visible: this.group.visible,
+      hasAccretion: !!this.accretionDisk,
+      hasPhotonRing: true,
+    };
   }
 
   update(address: import('../spatial/UniverseAddress').UniverseAddress,cameraPosM:Vec3,altitudeM:number,sectorOffsetM:Vec3=[0,0,0],toRenderDirection:(v:Vec3)=>Vec3=v=>v):void {
@@ -97,6 +113,8 @@ export class BlackHoleProvider {
     if(distance<=0){this.group.visible=false;return;}
     const direction=toRenderDirection(delta.map(v=>v/distance) as Vec3);
     this.group.position.set(...direction.map((v,i)=>cameraPosM[i]+v*18_000) as Vec3);
+    // Orient photon ring toward the observer line of sight
+    this.photonRing.lookAt(cameraPosM[0], cameraPosM[1], cameraPosM[2]);
     // Presentation floor, not a physical horizon/capture boundary.
     this.group.scale.setScalar(100);
   }
@@ -108,5 +126,7 @@ export class BlackHoleProvider {
       this.accretionDisk.geometry.dispose();
       (this.accretionDisk.material as any).dispose();
     }
+    this.photonRing.geometry.dispose();
+    (this.photonRing.material as any).dispose();
   }
 }

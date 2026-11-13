@@ -12,6 +12,8 @@ export interface PlanetSurfaceGenerator {
   heightAt(direction: Vec3): number;
   normalEnu(direction: Vec3, out: Vec3): void;
   colourAt(direction: Vec3, out: [number, number, number]): void;
+  /** Optional deterministic biome sample by geocentric direction. */
+  biomeAt?(direction: Vec3): import('../life/PlanetaryBiomeService').PlanetaryBiomeSample;
 }
 
 /** Shared ellipsoid/relief model for streamed vertices and local terrain collision. */

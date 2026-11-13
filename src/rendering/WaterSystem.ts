@@ -9,6 +9,8 @@ import {
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import { localManausPresentationMode } from '../world/spatial/ManausSurfacePresentation';
 
+const surfaceService = new SurfaceFrameService('earth');
+
 /** The compiled river polygons, as `scripts/geodata/compile-real-city.mjs` writes them. */
 export interface WaterPolygon {
   class: string;
@@ -124,7 +126,6 @@ function subdivide(out: Surface, field: ShoreField, stack: number[], silt: numbe
       bx = cx; bz = cz; db = dc; cx = sx; cz = sz; dc = sd;
     }
     if (localManausPresentationMode() === 'curved') {
-      const surfaceService = new SurfaceFrameService('earth');
       const pa = surfaceService.legacyPointToRenderLocal(ax, RIVER_Y, az);
       const pb = surfaceService.legacyPointToRenderLocal(bx, RIVER_Y, bz);
       const pc = surfaceService.legacyPointToRenderLocal(cx, RIVER_Y, cz);

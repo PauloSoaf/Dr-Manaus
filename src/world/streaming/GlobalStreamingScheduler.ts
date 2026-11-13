@@ -120,6 +120,39 @@ export class GlobalStreamingScheduler {
     }
     this.predictor.reset();
   }
+
+  /**
+   * Explicit destination-critical preparation API (Milestone U7 / 06-DESTINATION-PREPARATION-HANDOFF).
+   * Fetches critical demands directly into the tile cache without advancing the world simulation or simulating the route.
+   */
+  async prepareDemands(demands: readonly TileDemand[], signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) throw new Error('Demands preparation aborted');
+    const promises: Promise<void>[] = [];
+    for (const demand of demands) {
+      const provider = this.registry.get(demand.providerId);
+      if (!provider) continue;
+      if (this.cache.get(demand.key)) continue;
+
+      const criticalDemand: TileDemand = {
+        ...demand,
+        gameplayCritical: true,
+      };
+
+      const p = provider.load(criticalDemand, signal ?? new AbortController().signal).then(payload => {
+        if (signal?.aborted) {
+          provider.discard?.(payload);
+          return;
+        }
+        this.cache.set(payload);
+      }).catch(err => {
+        if (!signal?.aborted) {
+          console.warn(`Failed to preload critical demand:`, err);
+        }
+      });
+      promises.push(p);
+    }
+    await Promise.all(promises);
+  }
   /** Retire an unloaded body's jobs, active GPU meshes and dormant decoded payloads. */
   retireProvider(providerId:string,bodyId?:string,galaxyId?:string):void {
     const provider=this.registry.get(providerId),released=new Set<TilePayload>();
