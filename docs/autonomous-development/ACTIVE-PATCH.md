@@ -1,49 +1,36 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `VIVO-17 a VIVO-19 + Browser Validation` (Correção Real de Gameplay, Ruptura Planetária Visível, Integridade de Vida, Persistência Determinística e Homologação Playwright 60 FPS)
-- **Status:** CI VERIFIED & FULLY DELIVERED (GitHub Actions Run #43459833115 SUCCESS, PR #43459843322 SUCCESS, 1.755/1.755 testes, 638/638 regressões, 0 erros TypeScript, 6/6 testes in-browser aprovados)
+- **Patch:** `EARTH-01` — Classificação Determinística da Superfície Terrestre, Biomas, Oceano, Calotas de Gelo e Manaus Urbano (`specs/dr-manaus-cosmic-night-specs/03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md`)
+- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.759/1.759 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript, 6/6 testes Playwright no navegador)
 - **Branch:** `feat/universe-map`
-- **SHA:** `5250a5e`
-- **Atualizado:** 2026-11-13T12:12:00-04:00
+- **SHA:** A ser gerado no commit
+- **Atualizado:** 2026-11-13T12:20:00-04:00
 
 ## Mudanças do Patch
 
-### VIVO-17: Máquina de Estados de Ruptura, Suporte Orbital e Referenciais de Vida
-1. `src/player/powers/PowerSystem.ts`:
-   - Implementada máquina de estados estrita para o poder `planetRupture`: `idle -> charging -> ready -> executing -> cooldown -> idle`.
-   - Tecla 9 seleciona o poder sem disparar ruptura imediata.
-   - Segurar o gatilho (`isHolding`) por 2,5s acumula carga; soltar antes do tempo cancela o carregamento.
-   - Proteção de disparo único por ativação (`ruptureNeedsRelease = true`), impedindo que manter a tecla pressionada dispare um segundo ciclo após o cooldown.
-   - Ativação de poderes autorizada durante voo orbital (`powers.update` executado quando fora de hipercruzeiro/viagem interestelar).
-   - Resolução de alvo prioritária: alvo bloqueado na navegação (`getTargetBodyId`) tem precedência sobre o corpo dominante sob os pés (`getActiveBodyId`).
-2. `src/world/life/CosmicAnomaliesAndRuinsManager.ts`:
-   - Corrigida a geração de ruínas: conversão do raio geocêntrico (~6.371.000m) para coordenadas locais ENU no plano tangente do jogador.
-   - Colossos posicionados na cota do terreno local ENU.
-   - Adicionado método `clear()` e desanexação de nó raiz em `dispose()`.
-3. `src/game/Game.ts`:
-   - Criado nó `activePlanetaryLifeRoot` (filho de `actorRoot`), desacoplando entidades de vida (flora, fauna, assentamentos, ruínas, perigos) de `worldRoot` (`earth.manausSurfaceAnchor`).
-   - Limpeza transacional de entidades de ecossistema (`clearEcosystemEntities`) em handoffs celestes e transições para o espaço profundo.
-4. `tests/vivo-17-ecosystem-and-power.test.ts`:
-   - Suíte dedicada validando máquina de estados, proteção de disparo único e ancoramento correto no referencial ativo.
+### 1. `src/world/planet/EarthLandMask.ts`:
+- Adicionado enum canônico `EarthSurfaceClass`:
+  - `Ocean = 0`: Águas profundas oceânicas.
+  - `Land = 1`: Cobertura vegetal/continental verde.
+  - `Ice = 2`: Calotas de gelo permanentes e geleiras continentais/polares.
+  - `Urban = 3`: Mancha urbana de Manaus.
+  - `ShallowWater = 4`: Plataforma costeira / águas rasas.
+- Implementada função pura e determinística `classifyEarthSurface(latRad, lonRad): EarthSurfaceClass`:
+  - Manaus definida por bounding box geodésico de alta resolução (`[-3.40°, -2.86°]` lat, `[-60.30°, -59.76°]` lon) -> `EarthSurfaceClass.Urban`.
+  - Calotas continentais de gelo: Antártica ($< -60^\circ$ lat), Groenlândia ($[60^\circ, 84^\circ]\text{N}$ e $[-60^\circ, -20^\circ]\text{W}$) e ilhas árticas ($> 78^\circ\text{N}$) -> `EarthSurfaceClass.Ice`.
+  - Banquisas e plataformas de gelo polar no oceano ($< -75^\circ$ ou $> 84^\circ$) -> `EarthSurfaceClass.Ice`.
+  - Terras emersas restantes -> `EarthSurfaceClass.Land`.
+  - Oceanos restantes -> `EarthSurfaceClass.Ocean`.
+- Adicionada paleta urbana `urban: [0.320, 0.340, 0.300]` em `SURFACE_COLOURS`.
+- Atualizado `surfaceColour` para derivar as cores primárias diretamente de `classifyEarthSurface`.
 
-### VIVO-18: Apresentação Visual da Ruptura Planetária e Estado Físico Destruído
-1. `src/rendering/celestial/PlanetaryRupturePresentation.ts`:
-   - Implementadas 7 fases visuais observáveis: fissuras na crosta intacta, brilho incandescente do núcleo, separação de chunks 3D de crosta (`InstancedMesh`), ocultação do globo intacto, deriva radial de fragmentos, onda de choque esférica expansiva e anel kepleriano de destroços persistente.
-   - Suporte a carregamento direto de corpo previamente destruído salvo em disco (`loadPersistedRupture` direto para fase 7).
-   - Suporte a restauração cósmica reversível (`restore`).
-2. `src/game/Game.ts`:
-   - Ocultação e supressão visual do globo planetário intacto para corpos com ruptura confirmada.
-   - Bloqueio de captura e pouso (`surfaceReadyForLanding`) e física de superfície (`bindSurfacePhysics`) em corpos destruídos.
-   - Transição segura caso a Terra seja destruída enquanto o jogador estiver em Manaus: elevação de emergência para `Flight` a +2500m no distrito `DESTROÇOS`.
-3. `src/world/exploration/CosmicAtlasModel.ts`:
-   - Exibição de `[MUNDO EM RUÍNAS - CINTURÃO DE DESTROÇOS]` no Atlas para corpos destruídos.
-   - Métodos de invalidação de cache (`invalidateCache`).
-4. `tests/vivo-18-planetary-rupture-presentation.test.ts`:
-   - Validação da progressão das 7 fases, ocultação de malha intacta e integridade do Atlas.
+### 2. `src/world/planet/EarthSurface.ts`:
+- Exposta a API `classAt(direction: Vec3): EarthSurfaceClass` no objeto canônico `EarthSurfaceGenerator`.
+- Exportado o tipo enum `EarthSurfaceClass`.
 
-### VIVO-19: Persistência Determinística, Reconstrução e Desempenho
-1. `src/world/destruction/MacroBodyFractureService.ts`:
-   - Substituído `Date.now()` em IDs de corte CSG por identificadores determinísticos `${plan.planId}:rupture_cap_${i}`.
-2. `tests/vivo-19-deterministic-restoration-and-performance.test.ts`:
-   - Validação da reconstrução cósmica integral (remoção de cortes, restauração de globo, retorno ao status normal de pouso e Atlas).
-   - Validação de IDs determinísticos de corte CSG entre sessões.
+### 3. `tests/earth-surface-biomes-ocean-ice.test.ts`:
+- Suíte dedicada cobrindo:
+  - `T_EARTH_SURFACE_01_CLASSIFICATION_DETERMINISM`: Garantia de determinismo e estabilidade de amostragem.
+  - `T_EARTH_SURFACE_02_REGIONAL_CLASSES`: Cobertura correta da Amazônia (`Land`), Atlântico (`Ocean`), Antártica (`Ice`), Groenlândia (`Ice`) e Manaus (`Urban`).
+  - `T_EARTH_SURFACE_03_COLOUR_CONSISTENCY`: Coerência entre classes e paletas de cores sRGB.
+  - `T_EARTH_SURFACE_04_SURFACE_ADAPTER_INTEGRATION`: Integração de `EarthSurfaceGenerator.classAt` e `colourAt` a partir de vetores de direção 3D.
