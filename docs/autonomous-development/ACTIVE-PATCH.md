@@ -1,16 +1,16 @@
 # DR-MANAUS | Active Patch Tracker
 
-- **Patch:** `GRAV-02` — Integração de gravidade no runtime (`specs/dr-manaus-cosmic-night-specs/06-ZERO-G-AND-GRAVITY-DOMAINS.md`)
-- **Status:** IMPLEMENTED & VALIDATED LOCALLY (1.780/1.780 testes gerais, 638/638 regressões permanentes, 0 erros TypeScript, build Vite aprovado, CI base #281 SUCCESS, Chromium 6/6)
+- **Patch:** `SOLAR-03` — Consumo do perfil visual unificado (`specs/dr-manaus-cosmic-night-specs/07-SOLAR-SYSTEM-COMPLETE.md`)
+- **Status:** IMPLEMENTED & VALIDATED LOCALLY (typecheck aprovado, testes de perfil visual 4/4; suíte completa pendente deste patch)
 - **Branch:** `feat/universe-map`
 - **SHA:** A ser gerado no commit
 - **Atualizado:** 2026-11-13T15:40:00-04:00
 
 ## Mudanças do Patch
 
-### 1. `src/game/Game.ts`:
-- O loop constrói `GravitySource` para cada corpo ativo com massa válida e posição atual do sistema.
-- O contexto entregue ao voo interplanetário passa a aplicar gravidade celeste real, sem alterar a física ENU local.
+### 1. `src/rendering/celestial/CelestialBodyVisualLayer.ts`:
+- O renderer consulta `getPlanetVisualProfile` como fonte canônica de albedo e escalas de anéis.
+- Perfis legados continuam fornecendo parâmetros de iluminação e apresentação específicos, sem duplicar a classificação visual.
 
 ### 2. `tests/wgs84.test.ts`:
 - Verifica identidade do frame por tile, cache e transformação de collider.

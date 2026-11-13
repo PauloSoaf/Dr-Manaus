@@ -3,9 +3,25 @@ import { SunVisual } from './SunVisual';
 import { PlanetVisual } from './PlanetVisual';
 import type { CelestialRenderSample } from './types';
 import { type CelestialBody, SOLAR_SYSTEM_BODIES } from '../../world/celestial/CelestialBody';
-import { bodyProfile } from '../../world/celestial/CelestialBodyProfile';
+import { bodyProfile, type CelestialBodyProfile } from '../../world/celestial/CelestialBodyProfile';
+import { getPlanetVisualProfile } from '../../world/celestial/PlanetVisualProfile';
 import { GeographicBodyVisual } from './GeographicBodyVisual';
 import type { QualityPreset } from '../../core/config';
+
+function rendererProfile(bodyId: string, source: CelestialBodyProfile) {
+  const canonical = getPlanetVisualProfile(bodyId);
+  return {
+    ...source,
+    visual: {
+      ...source.visual,
+      albedo: canonical.albedo,
+      rings: canonical.rings ? {
+        innerRadius: canonical.rings.innerRadiusScale,
+        outerRadius: canonical.rings.outerRadiusScale,
+      } : undefined,
+    },
+  };
+}
 
 export class CelestialBodyVisualLayer {
   readonly root = new Group();
@@ -21,7 +37,7 @@ export class CelestialBodyVisualLayer {
     
     parent?.add(this.root);
     for (const body of bodies) {
-      const profile = bodyProfile(body);
+      const profile = rendererProfile(body.id, bodyProfile(body));
       if (profile.bodyClass === 'star') continue;
       const visual = new PlanetVisual([...profile.visual.albedo], undefined, profile.visual);
       visual.group.name = `${body.id}-proxy`;
@@ -51,7 +67,8 @@ export class CelestialBodyVisualLayer {
       } else {
         let visual = this.planets.get(sample.bodyId);
         if (!visual && sample.profile) {
-          visual = new PlanetVisual([...sample.profile.visual.albedo],undefined,sample.profile.visual);
+          const profile = rendererProfile(sample.bodyId, sample.profile);
+          visual = new PlanetVisual([...profile.visual.albedo], undefined, profile.visual);
           visual.group.name = sample.bodyId+'-proxy';
           this.planets.set(sample.bodyId,visual);this.root.add(visual.group);
         }

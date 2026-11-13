@@ -16,13 +16,11 @@
 - **COSMIC-WEB-01 (`12-GREAT-ATTRACTOR-COSMIC-WEB.md`)** — Campo esparso analítico de densidade, filamentos, vazios e candidatos de clusters reais no `LargeScaleStructureProvider`, com Norma/Great Attractor como anchor físico.
 - **WGS84-MANAUS-01 (`05-MANAUS-FULL-WGS84-UNIFICATION.md`)** — Facade `SurfaceFrameService` com frame por tile, conversão legacy→render-local e transformação de colliders, mantendo cache por corpo/tile.
 
-## Patch Atual: Integração de gravidade no runtime
-- **GRAV-02 (`06-ZERO-G-AND-GRAVITY-DOMAINS.md`)** — `Game` agora constrói fontes de gravidade a partir dos corpos ativos e as fornece ao contexto de voo interplanetário, mantendo a dinâmica fora da física ENU local.
+## Patch Atual: Consumo do perfil visual unificado
+- **SOLAR-03 (`07-SOLAR-SYSTEM-COMPLETE.md`)** — `CelestialBodyVisualLayer` agora consulta `PlanetVisualProfile` para albedo e escalas canônicas de anéis.
 
 ## Próximos Passos de Engenharia (Roadmap Contínuo)
-1. **SOLAR-03 (`07-SOLAR-SYSTEM-COMPLETE.md`)**:
-   - Consumir `PlanetVisualProfile` na camada visual canônica dos corpos.
-2. **BUGS-02 (`02-BUGS-REMAINING.md`)**:
+1. **BUGS-02 (`02-BUGS-REMAINING.md`)**:
    - Propagar o `SurfaceFrameService` para roads, água, landmarks, tráfego e colliders restantes.
 
 ## Estado Geral do Projeto
