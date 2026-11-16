@@ -169,3 +169,45 @@ test('T_EARTH_TRANS_08_ALTITUDE_SKY_COLOR_PROGRESSION', async () => {
   assert.ok(lum(c60) > lum(c100), 'Karman line (100 km) must be darker than mesosphere (60 km)');
   assert.ok(lum(c100) < 0.002, 'Space vacuum at >= 100 km must be near-zero black vacuum');
 });
+
+
+test('T_EARTH_TRANS_09_MANAUS_REGIONAL_PROXY_AND_COVERAGE_READY', async () => {
+  const { ManausRegionalProxy, classifyManausRegionalPoint } = await import('../src/world/planet/ManausRegionalProxy');
+  const { FEATURES } = await import('../src/core/config');
+  const { Group } = await import('three/webgpu');
+
+  assert.equal(classifyManausRegionalPoint(0, 3200), 'river', 'Rio Negro corridor south of Centro must classify as river');
+  assert.equal(classifyManausRegionalPoint(0, -1000), 'urban', 'Central Manaus north of Rio Negro must classify as urban');
+  assert.equal(classifyManausRegionalPoint(25_000, -20_000), 'forest', 'Surrounding Amazon basin must classify as forest');
+
+  const root = new Group();
+  const proxy = new ManausRegionalProxy(root, 64_000, 17);
+  assert.equal(proxy.group.visible, false, 'Proxy starts hidden at 0 m');
+
+  const w4k = proxy.update(4_000);
+  assert.equal(w4k, 0);
+  assert.equal(proxy.group.visible, false);
+
+  const w20k = proxy.update(20_000);
+  assert.equal(w20k, 1.0, 'Proxy reaches peak weight 1.0 at 20 km');
+  assert.equal(proxy.group.visible, true);
+
+  const w80k = proxy.update(80_000);
+  assert.equal(w80k, 0);
+  assert.equal(proxy.group.visible, false);
+
+  proxy.dispose();
+  assert.equal(root.children.length, 0);
+
+  // Verify curved mode curves the regional patch
+  const prevCurved = FEATURES.curvedManaus;
+  Object.assign(FEATURES, { curvedManaus: true });
+  try {
+    const curvedProxy = new ManausRegionalProxy(undefined, 64_000, 9);
+    const pos = curvedProxy.patchMesh.geometry.getAttribute('position');
+    assert.ok(pos.getY(0) < -50, 'Corner of 64 km curved regional patch must follow WGS84 curvature');
+    curvedProxy.dispose();
+  } finally {
+    Object.assign(FEATURES, { curvedManaus: prevCurved });
+  }
+});
