@@ -2,9 +2,9 @@
 
 ## 1. Fila Priorizada de Execução Autônoma
 
-1. **[EM PUBLICAÇÃO] `EARTH-DETAIL-RELIEF` (`P1-04` & `P1-07` — `02-REMAINING-BUGS.md`)**
-   - Relevo continental hierárquico sub-grid (`hierarchicalElevationAt`) em `EarthElevation.ts` / `EarthGlobe.ts` e progressão contínua da cor do céu com a altitude (`skyColorAtAltitude`) em `Atmosphere.ts`.
-   - Status: Implementado e validado localmente (`1.789/1.789` testes gerais, `638/638` regressões, build limpo). Publicando commit na branch `feat/universe-map`.
+1. **[EM PUBLICAÇÃO] `ACCEPTANCE-ROUTE-01` (`15-CLEAN-CODE-ARCHITECTURE.md` & `16-TESTS-AND-ACCEPTANCE.md`)**
+   - Suíte automatizada de aceitação da rota cósmica de longa sessão (`Manaus -> Lua -> Marte -> Saturno -> Setor da Via Láctea -> M31/Andrômeda -> Grande Atrator -> Horizonte Cosmológico -> Retorno a Manaus`) e verificação de fronteiras arquiteturais Clean Code.
+   - Status: Implementado e validado localmente (`1.791/1.791` testes gerais, `638/638` regressões, build limpo). Publicando commit na branch `feat/universe-map`.
 
-2. **[PRÓXIMA AÇÃO IMEDIATA] `ACCEPTANCE-ROUTE-01` (`16-TESTS-AND-ACCEPTANCE.md` & `15-CLEAN-CODE-ARCHITECTURE.md`)**
-   - Implementar suíte automatizada de rota cósmica de longa sessão (`Manaus -> Moon -> Mars -> outer Solar System -> Milky Way sector -> external Milky Way -> M31 approach -> Great Attractor scale -> horizon representation -> return to Manaus`) validando limites de residência, ausência de coordenadas astronômicas brutas em buffers Float32 e invariantes de camada matemática pura (sem imports de Three.js em módulos matemáticos).
+2. **[PRÓXIMA AÇÃO IMEDIATA] Auditoria Contínua de Regressão e Hardening (`01-FULL-AUDIT-ISSUES.md` & `15-status.md`)**
+   - Monitorar o CI do commit `ACCEPTANCE-ROUTE-01`, sincronizar o relatório de status arquitetural em `docs/world/15-status.md` e validar a suíte completa de regressão.
