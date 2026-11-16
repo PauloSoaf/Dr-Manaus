@@ -286,3 +286,34 @@ test('degrees only appear at the edges, and bad input never becomes NaN', () => 
   assert.equal(wrapped.heightM, 0);
   assert.ok(Math.abs(wrapped.lonRad - degToRad(40)) < 1e-12, '400 degrees east is 40 degrees east');
 });
+
+
+test('legacyPoseToRenderLocalMatrix builds a right-handed orthonormal basis that aligns with curved colliders', () => {
+  const service = new SurfaceFrameService('earth');
+  const probes: Array<[number, number, number]> = [
+    [0, 0, 0],
+    [-3300, 0, -9600], // Airport
+    [-9533.89, 0, -7412.02], // Ponta Negra
+    [9189.89, 0, -13708.40], // MUSA
+  ];
+
+  for (const [x, y, z] of probes) {
+    const mat = service.legacyPoseToRenderLocalMatrix(x, y, z);
+    const e = mat.elements;
+    // Determinant of upper-left 3x3 rotation block must be +1 (right-handed SO(3), never -1)
+    const det =
+      e[0] * (e[5] * e[10] - e[6] * e[9]) -
+      e[4] * (e[1] * e[10] - e[2] * e[9]) +
+      e[8] * (e[1] * e[6] - e[2] * e[5]);
+    assert.ok(Math.abs(det - 1) < 1e-6, `determinant at (${x},${z}) must be +1, got ${det}`);
+
+    // Translation of pose matrix must match curved collider position exactly
+    const collider = service.legacyColliderToRenderLocal(
+      { id: 'probe', x, y, z, width: 10, height: 10, depth: 10 },
+      { id: '', x: 0, y: 0, z: 0, width: 0, height: 0, depth: 0 },
+    );
+    assert.ok(Math.abs(e[12] - collider.x) < 1e-9);
+    assert.ok(Math.abs(e[13] - collider.y) < 1e-9);
+    assert.ok(Math.abs(e[14] - collider.z) < 1e-9);
+  }
+});

@@ -45,6 +45,7 @@ export interface SolarSystemOptions {
  */
 export class SolarSystem implements CelestialSystemRuntime {
   readonly systemFrameId = SOLAR_SYSTEM_FRAME;
+  readonly bodies: readonly CelestialBody[] = SOLAR_SYSTEM_BODIES;
   private readonly ephemeris: EphemerisProvider;
   private readonly states = new Map<string, BodyState>();
   private epochS: number;
@@ -56,14 +57,6 @@ export class SolarSystem implements CelestialSystemRuntime {
   }
 
   get time(): number { return this.epochS; }
-  get bodies(): readonly CelestialBody[] { return this.dynamicBodies; }
-
-  private dynamicBodies: CelestialBody[] = [...SOLAR_SYSTEM_BODIES];
-
-  setSystemBodies(newBodies: readonly CelestialBody[]): void {
-    this.dynamicBodies = [...newBodies];
-    this.update(this.epochS);
-  }
 
   private frameGraph?: ReferenceFrameGraph;
 
@@ -71,10 +64,10 @@ export class SolarSystem implements CelestialSystemRuntime {
   update(epochS: number): void {
     this.epochS = finite(epochS);
     this.states.clear();
-    for (const body of this.dynamicBodies) this.resolve(body);
+    for (const body of this.bodies) this.resolve(body);
 
     if (this.frameGraph) {
-      for (const body of this.dynamicBodies) {
+      for (const body of this.bodies) {
         const state = this.states.get(body.id);
         if (state && this.frameGraph.has(body.frameId)) {
           const frame = this.frameGraph.get(body.frameId);
@@ -101,7 +94,7 @@ export class SolarSystem implements CelestialSystemRuntime {
     const velocity: Vec3 = sample ? cloneVec3(sample.velocityMps) : [0, 0, 0];
 
     if (body.parentId) {
-      const parent = this.dynamicBodies.find(b => b.id === body.parentId);
+      const parent = this.bodies.find(b => b.id === body.parentId);
       if (parent) {
         const parentState = this.resolve(parent);
         addVec3(local, parentState.positionM, local);
@@ -213,7 +206,7 @@ export class SolarSystem implements CelestialSystemRuntime {
     if (!graph.has(SOLAR_SYSTEM_FRAME)) {
       graph.register(referenceFrame({ id: SOLAR_SYSTEM_FRAME, kind: 'system', label: 'Sistema Solar' }));
     }
-    for (const body of this.dynamicBodies) {
+    for (const body of this.bodies) {
       const state = this.states.get(body.id);
       graph.register(referenceFrame({
         id: body.frameId,

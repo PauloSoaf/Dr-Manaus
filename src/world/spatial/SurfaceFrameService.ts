@@ -80,6 +80,21 @@ export class SurfaceFrameService {
   }
 
   /**
+   * Builds a strictly orthonormal right-handed Matrix4 (+X East, +Y Up, +Z South)
+   * in the true rendering local frame for a given legacy point.
+   */
+  legacyPoseToRenderLocalMatrix(x: number, y: number, z: number, out = new Matrix4()): Matrix4 {
+    const pt = this.legacyPointToRenderLocal(x, y, z);
+    const up = this.legacyDirectionToRenderLocal(0, 1, 0, x, y, z).normalize();
+    const eastRaw = this.legacyDirectionToRenderLocal(1, 0, 0, x, y, z).normalize();
+    const south = new Vector3().crossVectors(eastRaw, up).normalize();
+    const east = new Vector3().crossVectors(up, south).normalize();
+    out.makeBasis(east, up, south);
+    out.setPosition(pt);
+    return out;
+  }
+
+  /**
    * Curves a legacy flat collider into the true rendering local frame.
    * Modifies the provided output collider.
    */

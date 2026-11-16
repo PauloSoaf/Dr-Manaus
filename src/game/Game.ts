@@ -568,7 +568,10 @@ export class Game {
     this.powers=new PowerSystem(this.actorRoot,this.player,this.rendering.camera,this.input,{
       canDeformSurface:()=>this.manausSimulationActive || (this.travelDomain.localPhysicsActive && !!this.universe.telemetry.dominantBody),
       targets:()=>{
-        const localTargets = this.manausSimulationActive ? [...this.population.targets, ...this.missions.targets] : [];
+        const rawLocalTargets = this.manausSimulationActive ? [...this.population.targets, ...this.missions.targets] : [];
+        const localTargets = (FEATURES.curvedManaus && this.manausSimulationActive)
+          ? rawLocalTargets.map(t => ({ ...t, position: this.surfaceService.legacyPointToRenderLocal(t.position.x, t.position.y, t.position.z) }))
+          : rawLocalTargets;
         return [...localTargets, ...this.alienFauna.targets, ...this.alienSettlements.targets, ...this.cosmicRuins.targets];
       },
       hit:(id,force)=>{
@@ -619,7 +622,7 @@ export class Game {
           }
         }
         return count;
-      },prepare:destination=>this.manausSimulationActive?this.streamer.prepare(destination):Promise.resolve(),notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
+      },prepare:destination=>{if(!this.manausSimulationActive)return Promise.resolve();const flat=FEATURES.curvedManaus&&this.travelDomain.localPhysicsActive?this.surfaceService.renderLocalToLegacyPoint(destination.x,destination.y,destination.z):destination;return this.streamer.prepare(flat);},notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
       universalTeleport: async (rayOrigin, rayDirection) => {
         const res = this.universalTeleport.resolveFromAim(rayOrigin, rayDirection);
         if (!res) {
@@ -1004,11 +1007,19 @@ export class Game {
       }
     }
     if(manaus){
-      this.streamer.update(this.player.position,this.player.velocity,dt);this.lap('streamer');this.hlod.update(this.player.position,this.streamer.activeKeys);this.lap('hlod');
+      const updatedLegacyPos = FEATURES.curvedManaus
+        ? this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z)
+        : this.player.position;
+      this.streamer.update(updatedLegacyPos,this.player.velocity,dt);this.lap('streamer');this.hlod.update(updatedLegacyPos,this.streamer.activeKeys);this.lap('hlod');
     }
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
-    if(manaus){this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
-    this.traffic?.update(worldDt,this.player.position);this.lap('traffic');}
+    if(manaus){
+      const updatedLegacyPos = FEATURES.curvedManaus
+        ? this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z)
+        : this.player.position;
+      this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
+      this.traffic?.update(worldDt,updatedLegacyPos);this.lap('traffic');
+    }
     // Actors are suppressed as the world starts to blur past: simulating NPCs kilometres behind
     // the player costs the same as simulating them in front, and none of it can be seen.
     this.suppressActors();
@@ -1020,8 +1031,15 @@ export class Game {
     const shake=this.speedVfx.shakeFor((speedNow-this.lastSpeed)/Math.max(dt,.001));
     if(shake>.004)this.camera.shake(shake);
     this.lastSpeed=speedNow;
-    if(manaus)this.largo.update(this.player.position,worldDt);
-    if(manaus){this.landmarks.update(this.player.position,worldDt);this.lap('landmarks');this.population.update(worldDt,this.player.position,this.player.size);this.lap('population');this.missions.update(worldDt,this.player.position);}
+    if(manaus){
+      const updatedLegacyPos = FEATURES.curvedManaus
+        ? this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z)
+        : this.player.position;
+      this.largo.update(updatedLegacyPos,worldDt);
+      this.landmarks.update(updatedLegacyPos,worldDt);this.lap('landmarks');
+      this.population.update(worldDt,updatedLegacyPos,this.player.size);this.lap('population');
+      this.missions.update(worldDt,updatedLegacyPos);
+    }
     this.camera.inSpace = !local;
     this.camera.update(this.player,this.renderOriginVec,dt,local ? (FEATURES.curvedManaus?this.curvedColliders:this.colliders) : []);this.rendering.camera.updateMatrixWorld();
 
@@ -1225,7 +1243,10 @@ export class Game {
     for(const collider of this.hlod.colliders)if(!this.realCity.replacesCollider(collider))list.push(collider);
     for(const collider of this.landmarks.colliders)list.push(collider);
     for(const collider of this.largo.colliders)list.push(collider);
-    this.airport.appendColliders(list,this.player.position,1600);
+    const legacyPlayer = FEATURES.curvedManaus
+      ? this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z)
+      : this.player.position;
+    this.airport.appendColliders(list,legacyPlayer,1600);
     if(this.traffic)for(const collider of this.traffic.colliders)list.push(collider);
     for(const collider of this.population.colliders)list.push(collider);
   }

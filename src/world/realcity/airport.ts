@@ -1,7 +1,11 @@
-import { CylinderGeometry, Group, Mesh } from 'three/webgpu';
+import { BufferAttribute, CylinderGeometry, Group, Mesh } from 'three/webgpu';
 import { GeometryBatch, type PaletteKey } from '../landmarks/GeometryBatch';
 import { latLonToWorld } from '../geodata/geodata';
 import type { AuthoredDestruction } from '../destruction/AuthoredDestruction';
+import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
+import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+
+const surfaceService = new SurfaceFrameService('earth');
 
 /**
  * Aeroporto Internacional Eduardo Gomes. Overture ships no aeroway geometry for Manaus, so the
@@ -143,6 +147,33 @@ function apron(b: GeometryBatch, structures: GeometryBatch): void {
   }
 }
 
+function curveGroupGeometry(group: Group): void {
+  group.traverse(object => {
+    if (!(object instanceof Mesh)) return;
+    const pos = object.geometry.getAttribute('position');
+    if (!(pos instanceof BufferAttribute)) return;
+    const posArr = pos.array as Float32Array;
+    const norm = object.geometry.getAttribute('normal');
+    const normArr = norm instanceof BufferAttribute ? (norm.array as Float32Array) : null;
+    for (let i = 0; i < posArr.length; i += 3) {
+      const ox = posArr[i], oy = posArr[i + 1], oz = posArr[i + 2];
+      const pt = surfaceService.legacyPointToRenderLocal(ox, oy, oz);
+      posArr[i] = pt.x;
+      posArr[i + 1] = pt.y;
+      posArr[i + 2] = pt.z;
+      if (normArr) {
+        const n = surfaceService.legacyDirectionToRenderLocal(normArr[i], normArr[i + 1], normArr[i + 2], ox, oy, oz).normalize();
+        normArr[i] = n.x;
+        normArr[i + 1] = n.y;
+        normArr[i + 2] = n.z;
+      }
+    }
+    pos.needsUpdate = true;
+    if (norm instanceof BufferAttribute) norm.needsUpdate = true;
+    object.geometry.computeBoundingSphere();
+  });
+}
+
 export function createAirport(destruction?: AuthoredDestruction): Group {
   const flat = new GeometryBatch(), built = new GeometryBatch();
   runway(flat); taxiways(flat); apron(flat, built);
@@ -160,6 +191,9 @@ export function createAirport(destruction?: AuthoredDestruction): Group {
   });
   group.add(ground, built.build('airport-structures'));
   if(destruction){for(const box of AIRPORT_COLLIDERS)destruction.addCollider(box);destruction.register(group,'airport:ground',{x:0,z:0});}
+  if (localManausPresentationMode() === 'curved') {
+    curveGroupGeometry(group);
+  }
   return group;
 }
 

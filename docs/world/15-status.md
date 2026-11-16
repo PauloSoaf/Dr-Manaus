@@ -1,6 +1,28 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — Polimento Atmosférico e Transição Terrestre-Orbital (2026-11-11)
+## Current checkpoint — Universo Vivo, Superfície Terrestre, Zero-G, Transição Orbital e Unificação WGS84 (2026-11-16)
+
+Implementado com base no baseline auditado e 100% aprovado no CI (`64a1aa6` + `BUGS-02.5`):
+1. **Programa Universo Vivo (`VIVO-01` a `VIVO-19`) e Homologação In-Browser (`5250a5e`)**:
+   - Biosferas determinísticas, biomas climáticos, flora instanciada WebGPU, fauna com IA ecológica (predação/flocking), assentamentos e facções com reputação persistente, ruínas e colossos, perigos ambientais, ruptura planetária em 7 fases (`PlanetaryRupturePresentation`) com sessões independentes por `bodyId` e reconstrução cósmica reversível.
+   - Validação real no navegador via Playwright a 60.0 FPS (`npm run test:browser:universo-vivo`).
+2. **Superfície Terrestre, Transição de Altitude e Gravidade Zero-G (`c596bc8`, `badfa32`, `51eb4df`, `b423e93`)**:
+   - `classifyEarthSurface` determinístico (`Ocean`, `Land`, `Ice`, `Urban`, `ShallowWater`) com cobertura real para Amazônia, Atlântico, Antártica, Groenlândia e mancha urbana de Manaus.
+   - `EarthTransitionController` garantindo `localWeight + planetWeight >= 0.99` de 0 m a 400 km (zero chão preto), com atenuação atmosférica contínua e histerese 13–15 km.
+   - `GravitySource` e integração gravitacional N-corpos no `InterplanetaryController` e `Game.ts`, preservando deriva inercial pura em zero-g.
+3. **Perfis Visuais Solares, Streaming LOD e Teia Cósmica (`7d5ce9b`, `6fd79da`, `38da789`, `fd0cd3e`)**:
+   - `PlanetVisualProfile` unificado consumido por `CelestialBodyVisualLayer` para os corpos solares, preservando diversidade procedural.
+   - Hard caps de residência LOD (`COSMIC_LOD_HARD_CAPS`) e campo analítico esparso de filamentos/vazios em `LargeScaleStructureProvider` (Norma / Grande Atrator).
+4. **Unificação WGS84 de Manaus e Saneamento (`159a949`, `6294778`, `917c791`, `64a1aa6`, `BUGS-02.5`)**:
+   - `SurfaceFrameService` com cache LRU bounded, invalidação por centro e `legacyPoseToRenderLocalMatrix` ortonormal dextrógira ($\det = +1$).
+   - Alinhamento entre tiles de prédios, ruas, água, HLOD, landmarks, aeroporto, Largo, população, missões e colisores curvos.
+   - Remoção de `setSystemBodies` mutável legado em `SolarSystem.ts`.
+5. **Cobertura Global de Testes**:
+   - 1.785 / 1.785 testes gerais aprovados (100% green).
+   - 638 / 638 testes de regressão permanente aprovados (100% green).
+   - TypeScript `tsc --noEmit` 0 erros e build de produção Vite concluído em ~2.0s.
+
+## Previous checkpoint — Polimento Atmosférico e Transição Terrestre-Orbital (2026-11-11)
 
 Implementado com base no baseline auditado e 100% aprovado no CI:
 1. Resolução da `ISSUE-04` (Polimento da Transição Atmosférica Manaus/Terrestre-Orbital):

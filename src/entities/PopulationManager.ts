@@ -3,6 +3,9 @@ import type { Collider, Target } from '../core/types';
 import { isLand, LANDMARKS } from '../world/geodata/geodata';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { IMPACT, type ImpactFootprint } from '../player/combat/MeteorImpact';
+import { localManausPresentationMode } from '../world/spatial/ManausSurfacePresentation';
+import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
+
 interface Body extends Target { base: Vector3; velocity: Vector3; index: number; angle: number; chunk: string }
 export interface NpcBody { id: string; index: number; base: Vector3; position: Vector3; velocity: Vector3; active: boolean; state: 'walking'|'fleeing'|'knocked'|'disabled'; timer: number }
 const hash=(n:number)=>{const x=Math.sin(n*127.1+311.7)*43758.5453;return x-Math.floor(x);};
@@ -16,6 +19,7 @@ export class PopulationManager {
   npcCount=24; reaction=0; vehicleCount=16;
   private props:InstancedMesh; private people:InstancedMesh; private heads:InstancedMesh;
   private dummy=new Object3D(); private color=new Color(); private cell=''; private elapsed=0;
+  private readonly surfaceService = new SurfaceFrameService('earth');
   constructor(root:Group){
     this.props=new InstancedMesh(new BoxGeometry(1,1,1),new MeshStandardMaterial({color:'#ba8a56',roughness:.8}),48);
     this.people=new InstancedMesh(new CapsuleGeometry(.28,.9,3,6),new MeshStandardMaterial({roughness:.9}),NPC_CAPACITY);
@@ -90,10 +94,12 @@ export class PopulationManager {
   }
   update(dt:number,player:Vector3,size:number){
     this.seed(player);this.elapsed+=dt;this.reaction=Math.max(0,this.reaction-dt);this.colliders.length=0;
+    const curved = localManausPresentationMode() === 'curved';
     for(const body of this.targets){
       const enabled=body.active&&Math.abs(player.y-body.position.y)<250;
       if(enabled){this.advance(body,dt,.7);body.angle+=dt*body.velocity.length()*.07;this.colliders.push({x:body.position.x,y:body.position.y,z:body.position.z,width:1.2,height:1.4,depth:1.2,id:body.id,category:'fragile'});}
-      this.dummy.position.copy(body.position);this.dummy.rotation.set(0,body.angle,0);this.dummy.scale.setScalar(enabled?1.2:0);this.dummy.updateMatrix();this.props.setMatrixAt(body.index,this.dummy.matrix);
+      const renderPos = curved ? this.surfaceService.legacyPointToRenderLocal(body.position.x, body.position.y, body.position.z) : body.position;
+      this.dummy.position.copy(renderPos);this.dummy.rotation.set(0,body.angle,0);this.dummy.scale.setScalar(enabled?1.2:0);this.dummy.updateMatrix();this.props.setMatrixAt(body.index,this.dummy.matrix);
     }
     for(const npc of this.npcs){
       const knocked=npc.state==='knocked'&&npc.timer>0;
@@ -107,7 +113,8 @@ export class PopulationManager {
         if(npc.state==='fleeing'&&npc.timer===0){npc.state='walking';npc.base.copy(npc.position);npc.base.z-=Math.sin(this.elapsed*.07+npc.index)*38;}
       }
       const enabled=(npc.active||knocked)&&npc.index<this.npcCount&&Math.abs(player.y-npc.position.y)<250;
-      this.dummy.position.copy(npc.position);this.dummy.rotation.set(0,0,knocked?1.4:Math.sin(this.elapsed*6+npc.index)*.035);this.dummy.scale.setScalar(enabled?1:0);this.dummy.updateMatrix();this.people.setMatrixAt(npc.index,this.dummy.matrix);
+      const renderPos = curved ? this.surfaceService.legacyPointToRenderLocal(npc.position.x, npc.position.y, npc.position.z) : npc.position;
+      this.dummy.position.copy(renderPos);this.dummy.rotation.set(0,0,knocked?1.4:Math.sin(this.elapsed*6+npc.index)*.035);this.dummy.scale.setScalar(enabled?1:0);this.dummy.updateMatrix();this.people.setMatrixAt(npc.index,this.dummy.matrix);
       this.dummy.position.y+=knocked?.12:.88;this.dummy.updateMatrix();this.heads.setMatrixAt(npc.index,this.dummy.matrix);
     }
     for(const mesh of [this.props,this.people,this.heads])mesh.instanceMatrix.needsUpdate=true;
