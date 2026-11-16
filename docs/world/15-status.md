@@ -2,7 +2,7 @@
 
 ## Current checkpoint — Universo Vivo, Superfície Terrestre, Zero-G, Transição Orbital, Unificação WGS84 e Aceitação Cósmica (2026-11-16)
 
-Implementado com base no baseline auditado e 100% aprovado no CI (`64a1aa6` + `7aa8696` + `13dc5d0` + `9524052` + `48d7208` + `BH-LENS-LOCAL-GROUP-01`):
+Implementado com base no baseline auditado e 100% aprovado no CI (`64a1aa6` + `7aa8696` + `13dc5d0` + `9524052` + `48d7208` + `f80923f` + `84b5520` + `8c20b19`):
 1. **Programa Universo Vivo (`VIVO-01` a `VIVO-19`) e Homologação In-Browser (`5250a5e`)**:
    - Biosferas determinísticas, biomas climáticos, flora instanciada WebGPU, fauna com IA ecológica (predação/flocking), assentamentos e facções com reputação persistente, ruínas e colossos, perigos ambientais, ruptura planetária em 7 fases (`PlanetaryRupturePresentation`) com sessões independentes por `bodyId` e reconstrução cósmica reversível.
    - Validação real no navegador via Playwright a 60.0 FPS (`npm run test:browser:universo-vivo`).
