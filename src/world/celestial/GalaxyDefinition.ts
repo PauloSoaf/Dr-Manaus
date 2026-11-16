@@ -91,3 +91,67 @@ export function isCanonicalGalaxyId(id?: string): boolean {
     || LOCAL_GROUP_CATALOG.some(g => g.id === id);
 }
 
+
+/**
+ * Complete Local Group catalog including M33 and major satellite galaxies from 10-ANDROMEDA-LOCAL-GROUP.md.
+ * Keeps `LOCAL_GROUP_CATALOG` untouched as the primary 2-spiral baseline while exposing the full Local Group.
+ */
+export const LOCAL_GROUP_EXTENDED_CATALOG: readonly GalaxyDefinition[] = [
+  ...LOCAL_GROUP_CATALOG,
+  {
+    id: 'triangulum',
+    name: 'Triangulum (M33)',
+    addressOriginM: [0, 0, 0],
+    type: 'spiral',
+    diameterLy: 60_000,
+    thicknessLy: 1_000,
+    positionM: [0.45e22, 2.58e22, -0.32e22], // ~2.73 Mly
+    orientationEuler: [0.52, -0.35, 0.18],
+    densityProfile: 'andromeda',
+    densityScale: 0.75,
+  },
+  {
+    id: 'large-magellanic-cloud',
+    name: 'Large Magellanic Cloud (LMC)',
+    addressOriginM: [0, 0, 0],
+    type: 'irregular',
+    diameterLy: 14_000,
+    thicknessLy: 2_000,
+    positionM: [-0.05e21, -1.54e21, -0.25e21], // ~163 kly
+    densityProfile: 'irregular',
+    densityScale: 0.45,
+  },
+  {
+    id: 'small-magellanic-cloud',
+    name: 'Small Magellanic Cloud (SMC)',
+    addressOriginM: [0, 0, 0],
+    type: 'irregular',
+    diameterLy: 7_000,
+    thicknessLy: 1_500,
+    positionM: [-0.09e21, -1.90e21, -0.40e21], // ~200 kly
+    densityProfile: 'irregular',
+    densityScale: 0.35,
+  },
+  {
+    id: 'm32',
+    name: 'Messier 32 (M32)',
+    addressOriginM: [0, 0, 0],
+    type: 'elliptical',
+    diameterLy: 6_500,
+    thicknessLy: 6_500,
+    positionM: [0.01e22, 2.37e22, 0.01e22], // M31 satellite
+    densityProfile: 'elliptical',
+    densityScale: 0.9,
+  },
+  {
+    id: 'm110',
+    name: 'Messier 110 (M110)',
+    addressOriginM: [0, 0, 0],
+    type: 'elliptical',
+    diameterLy: 17_000,
+    thicknessLy: 10_000,
+    positionM: [-0.02e22, 2.35e22, -0.01e22], // M31 satellite
+    densityProfile: 'elliptical',
+    densityScale: 0.65,
+  },
+];

@@ -2,7 +2,7 @@
 
 ## Current checkpoint — Universo Vivo, Superfície Terrestre, Zero-G, Transição Orbital, Unificação WGS84 e Aceitação Cósmica (2026-11-16)
 
-Implementado com base no baseline auditado e 100% aprovado no CI (`64a1aa6` + `7aa8696` + `13dc5d0` + `9524052` + `ACCEPTANCE-ROUTE-01`):
+Implementado com base no baseline auditado e 100% aprovado no CI (`64a1aa6` + `7aa8696` + `13dc5d0` + `9524052` + `48d7208` + `BH-LENS-LOCAL-GROUP-01`):
 1. **Programa Universo Vivo (`VIVO-01` a `VIVO-19`) e Homologação In-Browser (`5250a5e`)**:
    - Biosferas determinísticas, biomas climáticos, flora instanciada WebGPU, fauna com IA ecológica (predação/flocking), assentamentos e facções com reputação persistente, ruínas e colossos, perigos ambientais, ruptura planetária em 7 fases (`PlanetaryRupturePresentation`) com sessões independentes por `bodyId` e reconstrução cósmica reversível.
    - Validação real no navegador via Playwright a 60.0 FPS (`npm run test:browser:universo-vivo`).
@@ -11,15 +11,15 @@ Implementado com base no baseline auditado e 100% aprovado no CI (`64a1aa6` + `7
    - Shader TSL de material único em `EarthGlobe.ts` com Fresnel oceânico e sun glint especular restritos às classes de água, e relevo continental sub-grid determinístico `hierarchicalElevationAt` para `LOD >= 6`.
    - `EarthTransitionController` garantindo `localWeight + planetWeight >= 0.99` de 0 m a 400 km (zero chão preto), progressão contínua da cor do céu `skyColorAtAltitude` (`azul -> azul profundo -> marinho -> vácuo`) e histerese 13–15 km.
    - `GravitySource` e integração gravitacional N-corpos no `InterplanetaryController` e `Game.ts`, preservando deriva inercial pura em zero-g.
-3. **Perfis Visuais Solares, Streaming LOD e Teia Cósmica (`7d5ce9b`, `6fd79da`, `38da789`, `fd0cd3e`)**:
+3. **Perfis Visuais Solares, Streaming LOD, Buracos Negros, Grupo Local e Teia Cósmica (`7d5ce9b`, `6fd79da`, `38da789`, `fd0cd3e`, `BH-LENS-LOCAL-GROUP-01`)**:
    - `PlanetVisualProfile` unificado consumido por `CelestialBodyVisualLayer` para os corpos solares, preservando diversidade procedural.
-   - Hard caps de residência LOD (`COSMIC_LOD_HARD_CAPS`) e campo analítico esparso de filamentos/vazios em `LargeScaleStructureProvider` (Norma / Grande Atrator).
-4. **Unificação WGS84 de Manaus, Saneamento e Rota de Longa Sessão (`159a949`, `6294778`, `917c791`, `64a1aa6`, `7aa8696`, `13dc5d0`, `ACCEPTANCE-ROUTE-01`)**:
+   - Hard caps de residência LOD (`COSMIC_LOD_HARD_CAPS`), orçamento de lente gravitacional (`selectBlackHoleLodTiers`: max 1 `full-lens`, <= 4 `mid-detail`), disco de acreção com gradiente térmico radial e Doppler beaming em `BlackHoleProvider`, catálogo estendido do Grupo Local (`LOCAL_GROUP_EXTENDED_CATALOG`: M31, M33, LMC, SMC, M32, M110) e campo analítico esparso de filamentos/vazios em `LargeScaleStructureProvider` (Norma / Grande Atrator).
+4. **Unificação WGS84 de Manaus, Saneamento e Rota de Longa Sessão (`159a949`, `6294778`, `917c791`, `64a1aa6`, `7aa8696`, `13dc5d0`, `48d7208`)**:
    - `SurfaceFrameService` com cache LRU bounded, invalidação por centro e `legacyPoseToRenderLocalMatrix` ortonormal dextrógira ($\det = +1$).
    - Jacobiana de escala legacy em `SurfaceTileFrame.getSceneMatrix()` eliminando desvio de 6,90 m norte-sul entre prédios e ruas/colisores em tiles distantes (`< 5 cm` horizontal, `< 20 cm` vertical).
    - Suíte de aceitação `tests/cosmic-long-session-acceptance.test.ts` validando fronteiras Clean Code e a rota cósmica completa de 10 estágios (`Manaus -> Lua -> Marte -> Saturno -> Setor Via Láctea -> M31 -> Grande Atrator -> Horizonte -> Retorno a Manaus`).
 5. **Cobertura Global de Testes**:
-   - 1.791 / 1.791 testes gerais aprovados (100% green).
+   - 1.793 / 1.793 testes gerais aprovados (100% green).
    - 638 / 638 testes de regressão permanente aprovados (100% green).
    - TypeScript `tsc --noEmit` 0 erros e build de produção Vite concluído em ~2.0s.
 

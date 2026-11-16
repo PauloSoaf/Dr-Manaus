@@ -263,3 +263,61 @@ test('T_ACCEPTANCE_02_LONG_SESSION_FULL_COSMIC_ROUTE_AND_RESIDENCY', async () =>
   lss.dispose();
   assert.equal(lssRoot.children.length, 0);
 });
+
+
+test('T_ACCEPTANCE_03_BLACK_HOLE_LENS_BUDGET_DOPPLER_DISK_AND_LOCAL_GROUP', async () => {
+  const { selectBlackHoleLodTiers, COSMIC_LOD_HARD_CAPS } = await import('../src/world/streaming/CosmicLodBudget');
+  const { BlackHoleProvider } = await import('../src/world/providers/BlackHoleProvider');
+  const { LOCAL_GROUP_EXTENDED_CATALOG } = await import('../src/world/celestial/GalaxyDefinition');
+
+  // 1. 11-BLACK-HOLES.md: Max 1 full lens active when within threshold, <= 4 mid-detail, rest far-point
+  const candidates = [
+    { id: 'sgra', distanceRs: 12, lensingIntensity01: 0.82 },
+    { id: 'stellar_bh_1', distanceRs: 25, lensingIntensity01: 0.60 },
+    { id: 'stellar_bh_2', distanceRs: 150, lensingIntensity01: 0 },
+    { id: 'stellar_bh_3', distanceRs: 300, lensingIntensity01: 0 },
+    { id: 'stellar_bh_4', distanceRs: 800, lensingIntensity01: 0 },
+    { id: 'stellar_bh_5', distanceRs: 2000, lensingIntensity01: 0 },
+    { id: 'm31_smbh', distanceRs: 500_000, lensingIntensity01: 0 },
+  ];
+
+  const tiersHigh = selectBlackHoleLodTiers(candidates, 'High');
+  const fullLenses = [...tiersHigh.values()].filter(t => t === 'full-lens');
+  const midDetail = [...tiersHigh.values()].filter(t => t === 'mid-detail');
+  assert.equal(fullLenses.length, COSMIC_LOD_HARD_CAPS.fullBlackHoleLenses, 'At most 1 full black hole lens may be active');
+  assert.equal(tiersHigh.get('sgra'), 'full-lens', 'Closest/strongest BH within threshold gets the single full lens');
+  assert.equal(tiersHigh.get('stellar_bh_1'), 'mid-detail', 'Second BH within threshold is demoted to mid-detail');
+  assert.equal(midDetail.length, 4, 'At most 4 mid-detail BHs may be active');
+  assert.equal(tiersHigh.get('m31_smbh'), 'far-point', 'Distant BHs become far points');
+
+  // Low quality disables full lens completely
+  const tiersLow = selectBlackHoleLodTiers(candidates, 'Low');
+  assert.equal([...tiersLow.values()].filter(t => t === 'full-lens').length, 0, 'Low quality disables full lensing');
+
+  // 2. Accretion disk Doppler beaming (approaching +X brighter than receding -X)
+  const bhRoot = new Group();
+  const sgraDef = LOCAL_GROUP_EXTENDED_CATALOG.find(g => g.id === 'milky_way')!.centralBlackHole!;
+  const provider = new BlackHoleProvider(bhRoot, { blackHole: sgraDef, galaxyId: 'milky_way' });
+  const diskMesh = provider.group.children.find(c => (c as any).geometry?.type === 'TorusGeometry') as any;
+  assert.ok(diskMesh, 'BlackHoleProvider must build annular accretion disk mesh');
+  const colorAttr = diskMesh.geometry.getAttribute('color');
+  const posAttr = diskMesh.geometry.getAttribute('position');
+  assert.ok(colorAttr, 'Accretion disk must include radial heat + Doppler beaming vertex colors');
+
+  let maxPlusX = 0;
+  let maxMinusX = 0;
+  for (let i = 0; i < posAttr.count; i++) {
+    const x = posAttr.getX(i);
+    const lum = colorAttr.getX(i) + colorAttr.getY(i) + colorAttr.getZ(i);
+    if (x > 0) maxPlusX = Math.max(maxPlusX, lum);
+    if (x < 0) maxMinusX = Math.max(maxMinusX, lum);
+  }
+  assert.ok(maxPlusX > maxMinusX, 'Approaching side (+X) of accretion disk must be brighter than receding side (-X)');
+  provider.dispose();
+
+  // 3. 10-ANDROMEDA-LOCAL-GROUP.md: Extended Local Group catalog includes M31, M33, LMC, SMC, M32, M110
+  const ids = new Set(LOCAL_GROUP_EXTENDED_CATALOG.map(g => g.id));
+  for (const expectedId of ['milky_way', 'andromeda', 'triangulum', 'large-magellanic-cloud', 'small-magellanic-cloud', 'm32', 'm110']) {
+    assert.ok(ids.has(expectedId), `Local Group catalog must include ${expectedId}`);
+  }
+});

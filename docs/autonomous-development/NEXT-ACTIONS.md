@@ -2,9 +2,9 @@
 
 ## 1. Fila Priorizada de Execução Autônoma
 
-1. **[EM PUBLICAÇÃO] `ACCEPTANCE-ROUTE-01` (`15-CLEAN-CODE-ARCHITECTURE.md` & `16-TESTS-AND-ACCEPTANCE.md`)**
-   - Suíte automatizada de aceitação da rota cósmica de longa sessão (`Manaus -> Lua -> Marte -> Saturno -> Setor da Via Láctea -> M31/Andrômeda -> Grande Atrator -> Horizonte Cosmológico -> Retorno a Manaus`) e verificação de fronteiras arquiteturais Clean Code.
-   - Status: Implementado e validado localmente (`1.791/1.791` testes gerais, `638/638` regressões, build limpo). Publicando commit na branch `feat/universe-map`.
+1. **[EM PUBLICAÇÃO] `BH-LENS-AND-LOCAL-GROUP-01` (`10-ANDROMEDA-LOCAL-GROUP.md` & `11-BLACK-HOLES.md`)**
+   - Orçamento de lente gravitacional (`selectBlackHoleLodTiers`), disco de acreção com gradiente térmico radial e Doppler beaming relativístico em `BlackHoleProvider`, catálogo estendido do Grupo Local (`LOCAL_GROUP_EXTENDED_CATALOG`) e teste de paridade de Manaus curva (`T_CURVED_MANAUS_FULL_SUBSYSTEM_PARITY_WHEN_ENABLED`).
+   - Status: Implementado e validado localmente (`1.793/1.793` testes gerais, `638/638` regressões, build limpo). Publicando commit na branch `feat/universe-map`.
 
-2. **[PRÓXIMA AÇÃO IMEDIATA] Auditoria Contínua de Regressão e Hardening (`01-FULL-AUDIT-ISSUES.md` & `15-status.md`)**
-   - Monitorar o CI do commit `ACCEPTANCE-ROUTE-01`, sincronizar o relatório de status arquitetural em `docs/world/15-status.md` e validar a suíte completa de regressão.
+2. **[VERIFICAÇÃO DE CI] Monitorar GitHub Actions para `BH-LENS-AND-LOCAL-GROUP-01`**
+   - Confirmar aprovação 100% verde dos workflows `Validation` no GitHub Actions.

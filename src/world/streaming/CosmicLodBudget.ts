@@ -40,3 +40,51 @@ export function clampRepresentativeGalaxyPoints(requested: number): number {
   return Math.max(100, Math.min(COSMIC_LOD_HARD_CAPS.representativeGalaxyPoints,
     Math.floor(Number.isFinite(requested) ? requested : COSMIC_LOD_HARD_CAPS.representativeGalaxyPoints)));
 }
+
+
+export type BlackHoleRenderTier = 'full-lens' | 'mid-detail' | 'far-point';
+
+export interface BlackHoleLodCandidate {
+  readonly id: string;
+  readonly distanceRs: number;
+  readonly lensingIntensity01: number;
+}
+
+/**
+ * Enforces the Black Hole rendering budget from 11-BLACK-HOLES.md:
+ * - full lensing BH: max 1 (only when within lens threshold distanceRs <= 60 and lensingIntensity01 > 0)
+ * - mid-detail BH (shadow + disk): <= 4
+ * - far BH: point/impostor
+ */
+export function selectBlackHoleLodTiers(
+  candidates: readonly BlackHoleLodCandidate[],
+  quality: 'Low' | 'Medium' | 'High' | 'Ultra' = 'High',
+): Map<string, BlackHoleRenderTier> {
+  const sorted = [...candidates].sort((a, b) => {
+    if (b.lensingIntensity01 !== a.lensingIntensity01) {
+      return b.lensingIntensity01 - a.lensingIntensity01;
+    }
+    return a.distanceRs - b.distanceRs;
+  });
+
+  const maxFullLens = quality === 'Low' ? 0 : COSMIC_LOD_HARD_CAPS.fullBlackHoleLenses;
+  const maxMidDetail = 4;
+  let fullCount = 0;
+  let midCount = 0;
+  const result = new Map<string, BlackHoleRenderTier>();
+
+  for (const c of sorted) {
+    const withinLensThreshold = c.distanceRs <= 60 && c.lensingIntensity01 > 0;
+    if (withinLensThreshold && fullCount < maxFullLens) {
+      result.set(c.id, 'full-lens');
+      fullCount++;
+    } else if (c.distanceRs <= 10_000 && midCount < maxMidDetail) {
+      result.set(c.id, 'mid-detail');
+      midCount++;
+    } else {
+      result.set(c.id, 'far-point');
+    }
+  }
+
+  return result;
+}

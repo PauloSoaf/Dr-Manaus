@@ -1,6 +1,6 @@
 import { galaxyDefinition, galaxyLocalPositionM, orientGalaxyVector } from '../galaxy/GalaxyCoordinates';
 import type { Vec3 } from '../spatial/units';
-import { Group, Mesh, Object3D, SphereGeometry, TorusGeometry, RingGeometry, Vector3, MeshBasicMaterial, MeshStandardMaterial, DoubleSide } from 'three/webgpu';
+import { Group, Mesh, Object3D, SphereGeometry, TorusGeometry, RingGeometry, Vector3, MeshBasicMaterial, MeshStandardMaterial, DoubleSide, BufferAttribute } from 'three/webgpu';
 import { finite } from '../spatial/units';
 import {
   schwarzschildRadiusM,
@@ -63,13 +63,33 @@ export class BlackHoleProvider {
       const outerRadiusRs = 'outerRadiusM' in def.accretion ? (def.accretion.outerRadiusM / Math.max(1, rsM)) : (def.accretion as any).outerRadiusRs;
       const inner = Math.max(innerRadiusRs * rs, shadowR * 1.05);
       const outer = Math.max(outerRadiusRs * rs, inner * 1.5);
-      const diskGeom = new TorusGeometry((inner + outer) / 2, (outer - inner) / 2, 16, 100);
-      
-      // Hot glowing relativistic accretion plasma
+      const majorR = (inner + outer) / 2;
+      const tubeR = (outer - inner) / 2;
+      const diskGeom = new TorusGeometry(majorR, tubeR, 16, 100);
+      const posAttr = diskGeom.getAttribute('position');
+      const colors = new Float32Array(posAttr.count * 3);
+      for (let i = 0; i < posAttr.count; i++) {
+        const vx = posAttr.getX(i);
+        const vy = posAttr.getY(i);
+        const r = Math.hypot(vx, vy);
+        // Radial temperature gradient: 1 at inner ISCO edge (white-hot), 0 at outer edge (deep orange)
+        const radialHeat = Math.max(0, Math.min(1, 1 - (r - inner) / Math.max(1e-5, outer - inner)));
+        // Relativistic Doppler beaming: approaching side (+X) brighter, receding side (-X) dimmer
+        const cosAzimuth = r > 1e-6 ? vx / r : 0;
+        const dopplerBoost = Math.max(0.25, Math.min(1.65, 1.0 + 0.55 * cosAzimuth));
+        const intensity = (0.35 + 0.65 * radialHeat) * dopplerBoost;
+        colors[i * 3] = Math.min(1.0, 1.0 * intensity);
+        colors[i * 3 + 1] = Math.min(1.0, (0.32 + 0.58 * radialHeat) * intensity);
+        colors[i * 3 + 2] = Math.min(1.0, (0.05 + 0.65 * radialHeat * radialHeat) * intensity);
+      }
+      diskGeom.setAttribute('color', new BufferAttribute(colors, 3));
+
+      // Hot glowing relativistic accretion plasma with radial heat + Doppler beaming vertex colours
       const diskMat = new MeshStandardMaterial({
-        color: 0xffaa00,
-        emissive: 0xff5500,
-        emissiveIntensity: 5.0,
+        color: 0xffffff,
+        emissive: 0xff6600,
+        emissiveIntensity: 3.5,
+        vertexColors: true,
         side: DoubleSide,
       });
       this.accretionDisk = new Mesh(diskGeom, diskMat);
@@ -115,6 +135,9 @@ export class BlackHoleProvider {
     this.group.position.set(...direction.map((v,i)=>cameraPosM[i]+v*18_000) as Vec3);
     // Orient photon ring toward the observer line of sight
     this.photonRing.lookAt(cameraPosM[0], cameraPosM[1], cameraPosM[2]);
+    if (this.accretionDisk) {
+      this.accretionDisk.rotation.z = (this.accretionDisk.rotation.z + 0.015) % (Math.PI * 2);
+    }
     // Presentation floor, not a physical horizon/capture boundary.
     this.group.scale.setScalar(100);
   }
