@@ -317,3 +317,56 @@ test('legacyPoseToRenderLocalMatrix builds a right-handed orthonormal basis that
     assert.ok(Math.abs(e[14] - collider.z) < 1e-9);
   }
 });
+
+
+test('distant tile building base, road, vehicle wheel, ground and collider coincide within local tolerance (05-MANAUS-FULL-WGS84)', () => {
+  const service = new SurfaceFrameService('earth');
+  const tileSize = 1024;
+  const tx = 9, tz = -13;
+  const originX = tx * tileSize;
+  const originZ = tz * tileSize;
+  const tileFrame = service.frameForTile(`${tx},${tz}`, originX, originZ);
+  const tileMatrix = tileFrame.getSceneMatrix();
+
+  for (const [dx, dz] of [[0, 0], [512, 512], [980, 980]] as const) {
+    const worldX = originX + dx;
+    const worldZ = originZ + dz;
+
+    const buildingBase = tileFrame.legacyToLocal(worldX, 0, worldZ);
+    const buildingRenderX =
+      tileMatrix.elements[0] * buildingBase[0] +
+      tileMatrix.elements[4] * buildingBase[1] +
+      tileMatrix.elements[8] * buildingBase[2] +
+      tileMatrix.elements[12];
+    const buildingRenderY =
+      tileMatrix.elements[1] * buildingBase[0] +
+      tileMatrix.elements[5] * buildingBase[1] +
+      tileMatrix.elements[9] * buildingBase[2] +
+      tileMatrix.elements[13];
+    const buildingRenderZ =
+      tileMatrix.elements[2] * buildingBase[0] +
+      tileMatrix.elements[6] * buildingBase[1] +
+      tileMatrix.elements[10] * buildingBase[2] +
+      tileMatrix.elements[14];
+
+    const groundVertex = service.legacyPointToRenderLocal(worldX, 0, worldZ);
+    const roadVertex = service.legacyPointToRenderLocal(worldX, 0.024, worldZ);
+    const vehicleWheel = service.legacyPointToRenderLocal(worldX, 0.024, worldZ);
+    const collider = service.legacyColliderToRenderLocal(
+      { id: 'test-bldg', x: worldX, y: 10, z: worldZ, width: 14, height: 20, depth: 14 },
+      { id: '', x: 0, y: 0, z: 0, width: 0, height: 0, depth: 0 },
+    );
+    const colliderBaseY = collider.y - collider.height * 0.5;
+
+    const horizDiffM = Math.hypot(buildingRenderX - groundVertex.x, buildingRenderZ - groundVertex.z);
+    const vertDiffM = Math.abs(buildingRenderY - groundVertex.y);
+    const colliderHorizDiffM = Math.hypot(buildingRenderX - collider.x, buildingRenderZ - collider.z);
+    const colliderVertDiffM = Math.abs(buildingRenderY - colliderBaseY);
+
+    assert.ok(horizDiffM < 0.05, `building vs ground horizontal drift at (${dx},${dz}) = ${horizDiffM} m`);
+    assert.ok(vertDiffM < 0.20, `building vs ground vertical drift at (${dx},${dz}) = ${vertDiffM} m`);
+    assert.ok(roadVertex.distanceTo(vehicleWheel) < 1e-6, 'road and vehicle wheel coincide');
+    assert.ok(colliderHorizDiffM < 0.05, `building vs collider horizontal drift = ${colliderHorizDiffM} m`);
+    assert.ok(colliderVertDiffM < 0.25, `building base vs collider base vertical drift = ${colliderVertDiffM} m`);
+  }
+});

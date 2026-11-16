@@ -11,7 +11,7 @@ import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
 import { directionToGeodetic } from './CubeSphere';
 import { type PlanetTileAddress, planetTile, tileBounds, tileCentreDirection } from './PlanetTileAddress';
-import { surfaceColour } from './EarthLandMask';
+import { classifyEarthSurface, surfaceColour } from './EarthLandMask';
 import { surfaceHeightAt, surfaceNormalEnu } from './EarthElevation';
 import { enuBasis } from '../spatial/ENU';
 import { faceUvToDirection } from './CubeSphere';
@@ -68,6 +68,8 @@ export const TILE_RESOLUTION = 17;
 
 /** Rayleigh blue, near enough. The limb of the Earth from orbit is this colour. */
 const ATMOSPHERE = uniform(new Color(0.29, 0.53, 0.93));
+/** Warm solar highlight for ocean specular glint. */
+const SUN_GLINT = uniform(new Color(1.0, 0.96, 0.88));
 // The surface and shell both contribute air at the limb. Keep each subtle so their sum never
 // becomes the opaque white/blue line that used to hide the real ground handoff defect.
 const LIMB_GAIN = 0.06;
@@ -113,6 +115,7 @@ export function buildTileMesh(address: PlanetTileAddress, heightM = 0, flat = fa
   const positions = new Float32Array(size * size * 3);
   const normals = new Float32Array(size * size * 3);
   const colors = new Float32Array(size * size * 3);
+  const surfaceClasses = new Float32Array(size * size);
   const direction: Vec3 = [0, 0, 0];
   const colour: [number, number, number] = [0, 0, 0];
   const slope: [number, number, number] = [0, 0, 1];
@@ -128,7 +131,8 @@ export function buildTileMesh(address: PlanetTileAddress, heightM = 0, flat = fa
       const relief = flat ? 0 : surfaceHeightAt(base.latRad, base.lonRad);
       const geodetic = { latRad: base.latRad, lonRad: base.lonRad, heightM: base.heightM + relief };
       const point = geodeticToEcef(geodetic);
-      const index = (row * size + column) * 3;
+      const vertexIndex = row * size + column;
+      const index = vertexIndex * 3;
       positions[index] = point.xM - centre.xM;
       positions[index + 1] = point.yM - centre.yM;
       positions[index + 2] = point.zM - centre.zM;
@@ -154,6 +158,7 @@ export function buildTileMesh(address: PlanetTileAddress, heightM = 0, flat = fa
 
       // Real coastlines, from the bundled Natural Earth mask. Per vertex rather than per texel:
       // at these tile sizes the interpolation reads as a coast, and it costs no texture at all.
+      surfaceClasses[vertexIndex] = classifyEarthSurface(geodetic.latRad, geodetic.lonRad);
       surfaceColour(geodetic.latRad, geodetic.lonRad, colour);
       colors[index] = colour[0];
       colors[index + 1] = colour[1];
@@ -194,12 +199,13 @@ export function buildTileMesh(address: PlanetTileAddress, heightM = 0, flat = fa
   geometry.setAttribute('position', new BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new BufferAttribute(normals, 3));
   geometry.setAttribute('color', new BufferAttribute(colors, 3));
+  geometry.setAttribute('surfaceClass', new BufferAttribute(surfaceClasses, 1));
   geometry.setIndex(new BufferAttribute(indices, 1));
   geometry.computeBoundingSphere();
 
   return {
     geometry, centre, triangles: quads * 2,
-    bytes: positions.byteLength + normals.byteLength + colors.byteLength + indices.byteLength,
+    bytes: positions.byteLength + normals.byteLength + colors.byteLength + surfaceClasses.byteLength + indices.byteLength,
   };
 }
 
@@ -403,9 +409,20 @@ export class EarthGlobe {
     const toCamera = cameraPosition.sub(positionWorld).normalize();
     const grazing = float(1).sub(normalWorld.dot(toCamera).max(0)).pow(3.2);
     // Lit air only. The night limb is dark, not blue.
-    const halo = ATMOSPHERE.mul(grazing.mul(smoothstep(-0.25, 0.15, incidence)).mul(LIMB_GAIN));
+    const daylight = smoothstep(-0.25, 0.15, incidence);
+    const halo = ATMOSPHERE.mul(grazing.mul(daylight).mul(LIMB_GAIN));
 
-    material.colorNode = lit.add(halo);
+    // Single-material Ocean Fresnel and specular solar glint (03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md):
+    // Ocean = 0, ShallowWater = 4; Land = 1, Ice = 2, Urban = 3 remain matte / high-roughness.
+    const surfaceClassAttr = attribute('surfaceClass', 'float');
+    const isWater = float(1).sub(smoothstep(0.1, 0.9, surfaceClassAttr))
+      .add(smoothstep(3.5, 4.1, surfaceClassAttr)).clamp(0, 1);
+    const oceanFresnel = ATMOSPHERE.mul(grazing.mul(isWater).mul(daylight).mul(0.08));
+    const halfDir = toCamera.add(this.uSun).normalize();
+    const specDot = normalWorld.dot(halfDir).max(0);
+    const sunGlint = SUN_GLINT.mul(specDot.pow(48.0).mul(smoothstep(0.0, 0.25, incidence)).mul(isWater).mul(0.35));
+
+    material.colorNode = lit.add(halo).add(oceanFresnel).add(sunGlint);
     material.opacityNode = this.uSurfaceOpacity;
     return material;
   }

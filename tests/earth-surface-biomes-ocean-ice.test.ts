@@ -81,3 +81,41 @@ test('T_EARTH_SURFACE_04_SURFACE_ADAPTER_INTEGRATION', () => {
   EarthSurfaceGenerator.colourAt(dir, colour);
   assert.deepEqual(colour, [...SURFACE_COLOURS.urban], 'EarthSurfaceGenerator.colourAt must match Urban palette');
 });
+
+
+test('T_EARTH_SURFACE_05_TILE_SURFACE_CLASS_ATTRIBUTE_AND_SHALLOW_WATER', async () => {
+  const { buildTileMesh } = await import('../src/world/planet/EarthGlobe');
+  const { tileContaining } = await import('../src/world/planet/PlanetTileAddress');
+
+  const manausTile = tileContaining(
+    'earth',
+    { latRad: -3.119 * DEG_TO_RAD, lonRad: -60.021 * DEG_TO_RAD, heightM: 0 },
+    7,
+  );
+  const mesh = buildTileMesh(manausTile);
+  const surfaceClassAttr = mesh.geometry.getAttribute('surfaceClass');
+  assert.ok(surfaceClassAttr, 'EarthGlobe tile mesh must carry surfaceClass attribute');
+  assert.equal(surfaceClassAttr.itemSize, 1);
+
+  const classes = new Set<number>();
+  for (let i = 0; i < surfaceClassAttr.count; i++) {
+    classes.add(surfaceClassAttr.getX(i));
+  }
+  assert.ok(
+    classes.has(EarthSurfaceClass.Urban) || classes.has(EarthSurfaceClass.Land),
+    'Manaus region tile must classify Urban/Land vertices',
+  );
+
+  // Scan along the equatorial Atlantic coast (-50°W to -45°W) to find a coastal shelf transition
+  let foundShallow = false;
+  for (let lonDeg = -52; lonDeg <= -44; lonDeg += 0.25) {
+    if (classifyEarthSurface(0.5 * DEG_TO_RAD, lonDeg * DEG_TO_RAD) === EarthSurfaceClass.ShallowWater) {
+      foundShallow = true;
+      const shallowCol: [number, number, number] = [0, 0, 0];
+      surfaceColour(0.5 * DEG_TO_RAD, lonDeg * DEG_TO_RAD, shallowCol);
+      assert.deepEqual(shallowCol, [...SURFACE_COLOURS.shallow], 'ShallowWater must use shallow shelf palette');
+      break;
+    }
+  }
+  assert.ok(foundShallow, 'Coastal shelf scan must identify ShallowWater');
+});

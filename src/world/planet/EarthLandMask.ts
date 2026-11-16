@@ -78,6 +78,26 @@ export function isLandAt(latRad: number, lonRad: number): boolean {
   return ((BITS[index >> 3] >> (index & 7)) & 1) === 1;
 }
 
+function isLandPixel(x: number, y: number): boolean {
+  const wx = ((x % mask.width) + mask.width) % mask.width;
+  const cy = Math.min(mask.height - 1, Math.max(0, y));
+  const index = cy * mask.width + wx;
+  return ((BITS[index >> 3] >> (index & 7)) & 1) === 1;
+}
+
+/** True for coastal/continental-shelf water pixels adjacent to land in the Natural Earth mask. */
+export function isCoastalShelfAt(latRad: number, lonRad: number): boolean {
+  if (!Number.isFinite(latRad) || !Number.isFinite(lonRad)) return false;
+  const latDeg = latRad * RAD_TO_DEG;
+  const lonDeg = lonRad * RAD_TO_DEG;
+  const x = Math.min(mask.width - 1, Math.max(0,
+    Math.floor((((lonDeg + 180) % 360 + 360) % 360) / 360 * mask.width)));
+  const y = Math.min(mask.height - 1, Math.max(0,
+    Math.floor((90 - latDeg) / 180 * mask.height)));
+  if (isLandPixel(x, y)) return false;
+  return isLandPixel(x - 1, y) || isLandPixel(x + 1, y) || isLandPixel(x, y - 1) || isLandPixel(x, y + 1);
+}
+
 /**
  * Authoritative Earth surface classification according to the cosmic specification
  * (specs/dr-manaus-cosmic-night-specs/03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md).
@@ -127,6 +147,10 @@ export function classifyEarthSurface(latRad: number, lonRad: number): EarthSurfa
     return EarthSurfaceClass.Ice;
   }
 
+  if (isCoastalShelfAt(latRad, lonRad)) {
+    return EarthSurfaceClass.ShallowWater;
+  }
+
   return EarthSurfaceClass.Ocean;
 }
 
@@ -156,6 +180,13 @@ export function surfaceColour(latRad: number, lonRad: number, out: [number, numb
 
   if (surfaceClass === EarthSurfaceClass.Ice) {
     for (let i = 0; i < 3; i++) out[i] = palette.ice[i];
+    return out;
+  }
+
+  if (surfaceClass === EarthSurfaceClass.ShallowWater) {
+    const latDeg = Math.abs(latRad * RAD_TO_DEG);
+    const tint = latDeg > 70 ? Math.min(1, (latDeg - 70) / 15) : 0;
+    for (let i = 0; i < 3; i++) out[i] = palette.shallow[i] + (palette.ice[i] - palette.shallow[i]) * tint * 0.7;
     return out;
   }
 
