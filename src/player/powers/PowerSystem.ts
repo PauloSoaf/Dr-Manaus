@@ -645,7 +645,7 @@ export class PowerSystem {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: 5.0 }));
     }
-    this.hooks.sound('shockwave');
+    this.hooks.sound('planet-crack');
 
     const energyJoules = 1e28;
     const res = this.hooks.planetRupture?.(activeBodyId, energyJoules);

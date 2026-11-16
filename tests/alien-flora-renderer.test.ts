@@ -47,7 +47,7 @@ describe('AlienFloraRenderer (VIVO-03)', () => {
 
   it('T_VIVO03_01: Initialization sets up all flora archetype meshes with zero initial count', () => {
     const renderer = new AlienFloraRenderer();
-    assert.strictEqual(renderer.root.children.length, 7, 'Must have 7 instanced archetype meshes in root');
+    assert.strictEqual(renderer.root.children.length, 10, 'Must have 10 instanced archetype meshes in root');
 
     assert.strictEqual(renderer.getActiveCount('canopy-broadleaf'), 0);
     assert.strictEqual(renderer.getActiveCount('alien-conifers'), 0);
@@ -56,6 +56,9 @@ describe('AlienFloraRenderer (VIVO-03)', () => {
     assert.strictEqual(renderer.getActiveCount('crystalline-spires'), 0);
     assert.strictEqual(renderer.getActiveCount('xenoflora-succulents'), 0);
     assert.strictEqual(renderer.getActiveCount('hydrocarbon-tendrils'), 0);
+    assert.strictEqual(renderer.getActiveCount('silicon-monolith-crystals'), 0);
+    assert.strictEqual(renderer.getActiveCount('luminescent-mycelium-bulbs'), 0);
+    assert.strictEqual(renderer.getActiveCount('obsidian-thermal-vents'), 0);
 
     renderer.dispose();
   });

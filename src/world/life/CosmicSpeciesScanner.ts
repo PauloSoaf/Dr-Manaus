@@ -136,6 +136,24 @@ const FLORA_NAMES: Record<FloraArchetype, { common: string; binomial: string; di
     diet: 'chemotrophic',
     desc: 'Zarcilhos criogênicos que absorvem metano e etano condensados.',
   },
+  'silicon-monolith-crystals': {
+    common: 'Monólito de Silício Fraturado',
+    binomial: 'Silicium crystallum grandis',
+    diet: 'radiotrophic',
+    desc: 'Grandes prismas minerais hexagonais que absorvem fótons de alta energia em desertos de silício.',
+  },
+  'luminescent-mycelium-bulbs': {
+    common: 'Bulbo Micelial Abissal',
+    binomial: 'Mycelium abissalis phosphorans',
+    diet: 'chemotrophic',
+    desc: 'Fungos abissais bioluminescentes que emitem luz verde-esmeralda em depressões planetárias.',
+  },
+  'obsidian-thermal-vents': {
+    common: 'Chaminé Vulcânica de Obsidiana',
+    binomial: 'Fumarola vulcanica petrificata',
+    diet: 'radiotrophic',
+    desc: 'Chaminés minerais geotérmicas ricas em obsidiana que canalizam calor e compostos sulfurosos.',
+  },
   'none': {
     common: 'Mineral Inerte',
     binomial: 'Saxum sterile',

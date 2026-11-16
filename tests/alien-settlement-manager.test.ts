@@ -197,5 +197,40 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
 
     manager.dispose();
   });
+
+  it('T_VIVO08_04_ADVANCED_METROPOLIS_PROCEDURAL_GENERATION', () => {
+    const save = new SaveManager();
+    const manager = new AlienSettlementManager(save);
+
+    // Advanced industrial alien biosphere
+    const advancedBiosphere = {
+      ...earthBiosphere,
+      bodyId: 'procedural-megacity-prime',
+      civilizationStage: 'advanced-industrial' as const,
+    };
+
+    // Find a cell that spawns an advanced metropolis
+    let spawned = false;
+    for (let x = 0; x < 20; x++) {
+      const playerPos = new Vector3(x * 240 + 120, 50, 120);
+      manager.update(0.016, playerPos, fakeSurface, advancedBiosphere);
+      if (manager.activeSettlements.length > 0) {
+        spawned = true;
+        break;
+      }
+    }
+
+    assert.ok(spawned, 'Must generate advanced industrial settlement');
+    const central = manager.structures.find(s => s.active && s.id.includes('struct_center'));
+    assert.ok(central, 'Must have central structure');
+    assert.strictEqual(central.archetype, 'plasma-spire', 'Metropolis center must be a plasma-spire');
+
+    const hasDefenseOrDock = manager.structures.some(
+      s => s.active && (s.archetype === 'defense-turret' || s.archetype === 'orbital-dock' || s.archetype === 'sky-bridge'),
+    );
+    assert.ok(hasDefenseOrDock, 'Metropolis must include defense-turrets, orbital-dock, or sky-bridges');
+
+    manager.dispose();
+  });
 });
 

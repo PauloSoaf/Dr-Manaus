@@ -119,6 +119,40 @@ function createFloraGeometry(archetype: FloraArchetype): BufferGeometry {
       return tendril;
     }
 
+    case 'silicon-monolith-crystals': {
+      // Clustered faceted hexagonal silicon prisms
+      const p1 = new CylinderGeometry(0.15, 0.6, 5.5, 6);
+      p1.translate(0, 2.75, 0);
+      const p2 = new CylinderGeometry(0.12, 0.45, 3.8, 6);
+      p2.rotateZ(0.18);
+      p2.translate(0.6, 1.9, 0.3);
+      const p3 = new CylinderGeometry(0.1, 0.35, 2.6, 6);
+      p3.rotateX(-0.15);
+      p3.translate(-0.5, 1.3, -0.4);
+      return safeMerge([p1, p2, p3]);
+    }
+
+    case 'luminescent-mycelium-bulbs': {
+      // Stem with branching bioluminescent bulbs
+      const stem = new CylinderGeometry(0.2, 0.35, 2.2, 5);
+      stem.translate(0, 1.1, 0);
+      const bulb1 = new SphereGeometry(0.7, 6, 5);
+      bulb1.translate(0, 2.4, 0);
+      const bulb2 = new SphereGeometry(0.45, 5, 4);
+      bulb2.translate(0.5, 1.8, 0.3);
+      return safeMerge([stem, bulb1, bulb2]);
+    }
+
+    case 'obsidian-thermal-vents': {
+      // Volcanic chimney vent
+      const chimney = new CylinderGeometry(0.4, 1.1, 2.8, 6);
+      chimney.translate(0, 1.4, 0);
+      const rim = new SphereGeometry(0.5, 5, 4);
+      rim.scale(1.2, 0.3, 1.2);
+      rim.translate(0, 2.7, 0);
+      return safeMerge([chimney, rim]);
+    }
+
     case 'none':
     default:
       return new CylinderGeometry(0.1, 0.1, 0.1, 3);
@@ -153,16 +187,32 @@ export class AlienFloraRenderer {
       'crystalline-spires',
       'xenoflora-succulents',
       'hydrocarbon-tendrils',
+      'silicon-monolith-crystals',
+      'luminescent-mycelium-bulbs',
+      'obsidian-thermal-vents',
     ];
 
     for (const arch of archetypes) {
       const geo = createFloraGeometry(arch);
-      const isGlowing = arch === 'bioluminescent-fungi' || arch === 'crystalline-spires';
+      const isGlowing =
+        arch === 'bioluminescent-fungi' ||
+        arch === 'crystalline-spires' ||
+        arch === 'silicon-monolith-crystals' ||
+        arch === 'luminescent-mycelium-bulbs' ||
+        arch === 'obsidian-thermal-vents';
+      const glowColor =
+        arch === 'obsidian-thermal-vents'
+          ? '#ff4400'
+          : arch === 'luminescent-mycelium-bulbs'
+            ? '#39ffb6'
+            : arch === 'silicon-monolith-crystals'
+              ? '#5ae0e6'
+              : '#00e5ff';
       const mat = new MeshStandardMaterial({
-        roughness: isGlowing ? 0.3 : 0.8,
-        metalness: arch === 'crystalline-spires' ? 0.4 : 0.1,
-        emissive: isGlowing ? '#00e5ff' : '#000000',
-        emissiveIntensity: isGlowing ? 0.35 : 0.0,
+        roughness: isGlowing ? 0.25 : 0.8,
+        metalness: arch === 'crystalline-spires' || arch === 'silicon-monolith-crystals' ? 0.5 : 0.1,
+        emissive: isGlowing ? glowColor : '#000000',
+        emissiveIntensity: isGlowing ? 0.45 : 0.0,
       });
 
       const mesh = new InstancedMesh(geo, mat, FLORA_POOL_CAPACITY);

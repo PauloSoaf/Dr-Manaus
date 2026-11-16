@@ -83,6 +83,8 @@ import { CosmicAnomaliesAndRuinsManager } from '../world/life/CosmicAnomaliesAnd
 import { PlanetaryHazardService, type PlanetaryHazardState } from '../world/life/PlanetaryHazardService';
 import { PlanetaryHazardRenderer } from '../world/life/PlanetaryHazardRenderer';
 import { PlanetaryRupturePresentation } from '../rendering/celestial/PlanetaryRupturePresentation';
+import { JWSTCosmicPresentation } from '../rendering/JWSTCosmicPresentation';
+import { CosmicPlanetTitanManager } from '../world/life/CosmicPlanetTitan';
 import type { AtmosphericMedium } from '../audio/AudioManager';
 import { PlanetVolumeSurfaceRenderer } from '../rendering/PlanetVolumeSurfaceRenderer';
 import {bodySolarDirection} from '../rendering/PlanetVolumeLighting';
@@ -120,6 +122,7 @@ import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import {
   BASE_BRAKE_ACCEL, CosmicCruiseController, type FlightTelemetry, type NavigationTarget,
   WARP_STEPS_C, COSMIC_WARP_STEPS_C, type CosmicFlightTier, cosmicTierForStep, warpLabel,
+  warpSpeedMps, LIGHT_SPEED_MPS,
 } from '../world/travel/CosmicFlight';
 
 /** Below this forward speed, S stops braking and starts reversing. */
@@ -171,6 +174,8 @@ export class Game {
   readonly cosmicRuins: CosmicAnomaliesAndRuinsManager;
   readonly planetaryHazardRenderer: PlanetaryHazardRenderer;
   readonly planetaryRupturePresentation: PlanetaryRupturePresentation;
+  readonly jwstPresentation: JWSTCosmicPresentation;
+  readonly planetTitans: CosmicPlanetTitanManager;
   private activeHazardState: PlanetaryHazardState = {
     type: 'none',
     alertLevel: 'nominal',
@@ -203,7 +208,7 @@ export class Game {
       prepareManaus: destination => this.manausSimulationActive ? this.streamer.prepare(new Vector3(destination.x, destination.y, destination.z)) : Promise.resolve(),
       prepareSystem: target => this.systemMaterializer.prepareTravel(target),
       notify: message => this.hud.notify(message),
-      sound: name => this.audio.play(name),
+      sound: name => this.audio?.play(name),
       burstVfx: pos => (this.powers as any)?.effects?.burst(pos as any, 0x91ffe1, this.player.size, 48),
       targetCatalog: this.universalTargetCatalog,
       targetResolver: this.universalTargetResolver,
@@ -530,10 +535,14 @@ export class Game {
     this.alienSettlements = new AlienSettlementManager(this.save);
     this.activePlanetaryLifeRoot.add(this.alienSettlements.root);
     this.speciesScanner = new CosmicSpeciesScanner(this.save);
-    this.cosmicRuins = new CosmicAnomaliesAndRuinsManager(this.save, msg => this.hud.notify(msg), name => this.audio.play(name));
+    this.cosmicRuins = new CosmicAnomaliesAndRuinsManager(this.save, msg => this.hud.notify(msg), name => this.audio?.play(name));
     this.activePlanetaryLifeRoot.add(this.cosmicRuins.root);
     this.planetaryHazardRenderer = new PlanetaryHazardRenderer(this.activePlanetaryLifeRoot);
     this.planetaryRupturePresentation = new PlanetaryRupturePresentation(this.planetRoot);
+    this.jwstPresentation = new JWSTCosmicPresentation();
+    this.celestialRoot.add(this.jwstPresentation.root);
+    this.planetTitans = new CosmicPlanetTitanManager(this.save, msg => this.hud.notify(msg), name => this.audio?.play(name));
+    this.celestialRoot.add(this.planetTitans.root);
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active=FEATURES.earthGlobe;
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
@@ -572,10 +581,11 @@ export class Game {
         const localTargets = (FEATURES.curvedManaus && this.manausSimulationActive)
           ? rawLocalTargets.map(t => ({ ...t, position: this.surfaceService.legacyPointToRenderLocal(t.position.x, t.position.y, t.position.z) }))
           : rawLocalTargets;
-        return [...localTargets, ...this.alienFauna.targets, ...this.alienSettlements.targets, ...this.cosmicRuins.targets];
+        return [...localTargets, ...this.alienFauna.targets, ...this.alienSettlements.targets, ...this.cosmicRuins.targets, ...this.planetTitans.targets];
       },
       hit:(id,force)=>{
         if(this.manausSimulationActive && (this.missions.hit(id,force) || this.population.hit(id,force))) return;
+        if(this.planetTitans.hit(id, force, 1000)) return;
         if(this.alienSettlements.hit(id, force)) return;
         if(this.cosmicRuins.hit(id, force)) return;
         this.alienFauna.hit(id, force);
@@ -622,7 +632,7 @@ export class Game {
           }
         }
         return count;
-      },prepare:destination=>{if(!this.manausSimulationActive)return Promise.resolve();const flat=FEATURES.curvedManaus&&this.travelDomain.localPhysicsActive?this.surfaceService.renderLocalToLegacyPoint(destination.x,destination.y,destination.z):destination;return this.streamer.prepare(flat);},notify:message=>this.hud.notify(message),sound:name=>this.audio.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
+      },prepare:destination=>{if(!this.manausSimulationActive)return Promise.resolve();const flat=FEATURES.curvedManaus&&this.travelDomain.localPhysicsActive?this.surfaceService.renderLocalToLegacyPoint(destination.x,destination.y,destination.z):destination;return this.streamer.prepare(flat);},notify:message=>this.hud.notify(message),sound:name=>this.audio?.play(name),getOrigin:()=>this.renderOriginVec,getColliders:()=>FEATURES.curvedManaus?this.curvedColliders:this.colliders,getAttackColliders:(point,radius)=>this.attackColliders(point,radius),
       universalTeleport: async (rayOrigin, rayDirection) => {
         const res = this.universalTeleport.resolveFromAim(rayOrigin, rayDirection);
         if (!res) {
@@ -1087,6 +1097,8 @@ export class Game {
     this.atmosphere.update(worldDt, this.playerLocal);
     this.space.update(skyAltitude, this.atmosphere.sunDirection, this.atmosphere.time === 'Night', worldDt, this.atmosphere.weather === 'clear' ? 0 : 1);
     this.spaceFactor = this.space.spaceFactor;
+    this.jwstPresentation.update(this.rendering.camera.position, this.spaceFactor);
+    this.planetTitans.update(worldDt, this.rendering.camera.position);
     const flash = manaus ? this.weather.update(worldDt, this.player.position, this.atmosphere.weather) : 0;
     if (flash) this.atmosphere.sun.intensity += flash;
 
@@ -1124,7 +1136,7 @@ export class Game {
       if (this.hazardAlertTimer > 15) {
         this.hazardAlertTimer = 0;
         this.hud.notify(`ALERTA AMBIENTAL: ${hazardState.label.toUpperCase()}`);
-        this.audio.play('hazard-alarm');
+        this.audio?.play('hazard-alarm');
       }
     } else {
       this.hazardAlertTimer = 0;
@@ -1157,17 +1169,27 @@ export class Game {
     }
     this.lastAudioMedium = audioMedium;
 
-    this.audio.update({
+    const currentDensity = this.universalTravelController?.active ? 0 : (dominantBodyId === 'earth' ? earthAtmosphericDensity01(altitudeNow) : bodyHasAtmosphere && local ? 0.85 : 0);
+    const warpEngaged = Boolean(this.universalTravelController?.active || this.warpStep > 0);
+    const warpFactorNow = this.warpStep > 0 ? warpSpeedMps(this.warpStep, true) / LIGHT_SPEED_MPS : (this.universalTravelController?.active ? 1000 : 1);
+    const isBlackHoleNearby = dominantBodyId === 'sgra' || dominantBodyId === 'sagittarius-a-star';
+    const blackHoleProx = isBlackHoleNearby ? Math.min(1, Math.max(0, 1 - (altitudeNow / 1e11))) : 0;
+
+    this.audio?.update({
       medium: audioMedium,
-      atmosphericDensity01: this.universalTravelController?.active ? 0 : (dominantBodyId === 'earth' ? earthAtmosphericDensity01(altitudeNow) : bodyHasAtmosphere && local ? 0.85 : 0),
+      atmosphericDensity01: currentDensity,
       speedMps: speedNow,
       altitudeM: altitudeNow,
       rain: manaus && ['rain', 'storm'].includes(this.atmosphere.weather),
       river: manaus && !isLand(this.player.position.x, this.player.position.z),
       hazardIntensity: hazardState.intensity,
+      hypersonicActive: speedNow > 340 && currentDensity > 0.01,
+      warpActive: warpEngaged,
+      warpFactor: warpFactorNow,
+      blackHoleProximity: blackHoleProx,
     });
     if(manaus){
-      this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
+      this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio?.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     }
     if(manaus){this.terrain.update(this.player.position,this.renderOriginVec);this.forest.update(this.player.position);}
     if(!this.universalTravelController?.active){
@@ -1850,6 +1872,7 @@ export class Game {
         // Warp belongs to free flight. During a landing capture the controller owns the velocity.
         if (this.landingIntent.active) this.hud.notify('Pouso em andamento · F cancela');
         else {
+          const prevStep = this.warpStep;
           if (warpDelta < 0) {
             this.warpStep = Math.max(0, this.warpStep - 1);
           } else {
@@ -1860,6 +1883,8 @@ export class Game {
                 : WARP_STEPS_C.length;
             this.warpStep = Math.min(maxStep, this.warpStep + 1);
           }
+          if (prevStep === 0 && this.warpStep > 0) this.audio?.play('warp-engage');
+          else if (prevStep > 0 && this.warpStep === 0) this.audio?.play('warp-disengage');
           const isCosmic = this.cosmicTier !== 'conventional' || this.warpStep > WARP_STEPS_C.length;
           if (this.warpStep === 9 && this.cosmicTier === 'conventional') {
             this.hud.notify(`Warp ${warpLabel(this.warpStep)} · [C] para Modo Cósmico Livre`);
@@ -2456,6 +2481,7 @@ export class Game {
       'UNIVERSO VIVO · Assentamentos': this.alienSettlements.activeSettlements.length,
       'UNIVERSO VIVO · Ruínas': this.cosmicRuins.ruins.length,
       'UNIVERSO VIVO · Colossos': this.cosmicRuins.colossi.filter(c => c.health > 0).length,
+      'UNIVERSO VIVO · Titãs Planetários': this.planetTitans.titans.filter(t => t.active).length,
       'UNIVERSO VIVO · Perigo': `${this.activeHazardState.type} [${(this.activeHazardState.intensity * 100).toFixed(0)}%] (${this.activeHazardState.alertLevel})`,
       'UNIVERSO VIVO · Atmosfera': `${this.atmosphere.activePaletteLabel} · ${this.lastAudioMedium}`,
       ...this.solarDebug(),

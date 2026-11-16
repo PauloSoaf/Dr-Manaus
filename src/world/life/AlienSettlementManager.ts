@@ -37,9 +37,14 @@ export type StructureArchetype =
   | 'comm-tower'
   | 'energy-pylon'
   | 'perimeter-wall'
-  | 'ancient-monolith';
+  | 'ancient-monolith'
+  | 'plasma-spire'
+  | 'bio-arcology'
+  | 'orbital-dock'
+  | 'sky-bridge'
+  | 'defense-turret';
 
-export type InhabitantRole = 'worker' | 'guard' | 'elder' | 'sentinel';
+export type InhabitantRole = 'worker' | 'guard' | 'elder' | 'sentinel' | 'patrol-drone';
 export type InhabitantState = 'idle' | 'patrolling' | 'saluting' | 'defending' | 'fleeing' | 'knocked';
 
 export interface SettlementStructureEntity extends Target {
@@ -149,6 +154,71 @@ function createStructureGeometry(archetype: StructureArchetype): BufferGeometry 
       obelisk.translate(0, 9.5, 0);
       return safeMerge([base, obelisk]);
     }
+
+    case 'plasma-spire': {
+      // Soaring energy spire with magnetic confinement rings
+      const spire = new CylinderGeometry(0.8, 2.2, 28.0, 6);
+      spire.translate(0, 14.0, 0);
+      const ring1 = new TorusGeometry(3.5, 0.4, 6, 16);
+      ring1.rotateX(Math.PI / 2);
+      ring1.translate(0, 16.0, 0);
+      const ring2 = new TorusGeometry(2.2, 0.3, 6, 16);
+      ring2.rotateX(Math.PI / 2);
+      ring2.translate(0, 23.0, 0);
+      const needle = new ConeGeometry(0.4, 6.0, 5);
+      needle.translate(0, 31.0, 0);
+      return safeMerge([spire, ring1, ring2, needle]);
+    }
+
+    case 'bio-arcology': {
+      // Clustered geodesic habitat biodomes
+      const central = new SphereGeometry(8.0, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      central.scale(1.2, 0.8, 1.2);
+      central.translate(0, 1.0, 0);
+      const wing1 = new SphereGeometry(4.5, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      wing1.translate(9.0, 0.5, 0);
+      const wing2 = new SphereGeometry(4.5, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.5);
+      wing2.translate(-9.0, 0.5, 0);
+      return safeMerge([central, wing1, wing2]);
+    }
+
+    case 'orbital-dock': {
+      // Monolithic starport landing pad with guidance beacons
+      const pad = new BoxGeometry(22.0, 2.0, 22.0);
+      pad.translate(0, 1.0, 0);
+      const p1 = new CylinderGeometry(0.5, 0.8, 10.0, 5);
+      p1.translate(10.0, 5.0, 10.0);
+      const p2 = new CylinderGeometry(0.5, 0.8, 10.0, 5);
+      p2.translate(-10.0, 5.0, 10.0);
+      const p3 = new CylinderGeometry(0.5, 0.8, 10.0, 5);
+      p3.translate(10.0, 5.0, -10.0);
+      const p4 = new CylinderGeometry(0.5, 0.8, 10.0, 5);
+      p4.translate(-10.0, 5.0, -10.0);
+      return safeMerge([pad, p1, p2, p3, p4]);
+    }
+
+    case 'sky-bridge': {
+      // Elevated luminous transit bridge
+      const span = new BoxGeometry(18.0, 1.2, 3.6);
+      span.translate(0, 6.0, 0);
+      const sup1 = new CylinderGeometry(0.4, 0.6, 6.0, 5);
+      sup1.translate(-8.0, 3.0, 0);
+      const sup2 = new CylinderGeometry(0.4, 0.6, 6.0, 5);
+      sup2.translate(8.0, 3.0, 0);
+      return safeMerge([span, sup1, sup2]);
+    }
+
+    case 'defense-turret': {
+      // Heavy hexagonal defense turret bastion
+      const bunker = new CylinderGeometry(2.6, 3.4, 3.0, 8);
+      bunker.translate(0, 1.5, 0);
+      const turret = new SphereGeometry(1.6, 8, 6);
+      turret.translate(0, 3.6, 0);
+      const barrel = new CylinderGeometry(0.2, 0.25, 4.0, 6);
+      barrel.rotateX(Math.PI / 2);
+      barrel.translate(0, 3.8, 2.4);
+      return safeMerge([bunker, turret, barrel]);
+    }
   }
 }
 
@@ -192,14 +262,46 @@ export class AlienSettlementManager {
       'energy-pylon',
       'perimeter-wall',
       'ancient-monolith',
+      'plasma-spire',
+      'bio-arcology',
+      'orbital-dock',
+      'sky-bridge',
+      'defense-turret',
     ];
 
     for (const arch of archetypes) {
       const geo = createStructureGeometry(arch);
+      const isTech =
+        arch === 'energy-pylon' ||
+        arch === 'comm-tower' ||
+        arch === 'plasma-spire' ||
+        arch === 'orbital-dock' ||
+        arch === 'defense-turret';
+      const isGlowing = arch === 'plasma-spire' || arch === 'defense-turret' || arch === 'sky-bridge';
+      const glowColor =
+        arch === 'plasma-spire'
+          ? '#00f0ff'
+          : arch === 'defense-turret'
+            ? '#ff3300'
+            : arch === 'sky-bridge'
+              ? '#5ae0e6'
+              : '#000000';
+
       const mat = new MeshStandardMaterial({
-        color: arch === 'ancient-monolith' ? '#5c6370' : '#8fa1b3',
-        roughness: 0.6,
-        metalness: arch === 'energy-pylon' || arch === 'comm-tower' ? 0.65 : 0.2,
+        color:
+          arch === 'ancient-monolith'
+            ? '#5c6370'
+            : arch === 'plasma-spire'
+              ? '#2c3545'
+              : arch === 'orbital-dock'
+                ? '#3a4454'
+                : arch === 'bio-arcology'
+                  ? '#6a8599'
+                  : '#8fa1b3',
+        roughness: isTech ? 0.4 : 0.65,
+        metalness: isTech ? 0.7 : 0.2,
+        emissive: isGlowing ? glowColor : '#000000',
+        emissiveIntensity: isGlowing ? 0.45 : 0.0,
       });
 
       const mesh = new InstancedMesh(geo, mat, SETTLEMENT_STRUCTURE_CAPACITY);
@@ -353,9 +455,18 @@ export class AlienSettlementManager {
     let structIdx = 0;
     let inhabIdx = 0;
 
-    // 1. Central Structure: Habitat Dome or Ancient Monolith
+    // 1. Central Structure: Habitat Dome, Ancient Monolith, or Plasma Spire Metropolis
     const isRuins = biosphere.civilizationStage === 'ancient-ruins-guardians';
-    const mainArch: StructureArchetype = isRuins ? 'ancient-monolith' : 'habitat-dome';
+    const isAdvancedCity = biosphere.civilizationStage === 'advanced-industrial';
+    const isColony = biosphere.civilizationStage === 'modular-colonies';
+
+    const mainArch: StructureArchetype = isRuins
+      ? 'ancient-monolith'
+      : isAdvancedCity
+        ? 'plasma-spire'
+        : isColony
+          ? 'bio-arcology'
+          : 'habitat-dome';
 
     const main = this.structures[structIdx++];
     main.id = `${cellKey}:struct_center`;
@@ -363,19 +474,43 @@ export class AlienSettlementManager {
     main.factionId = factionId;
     main.position.copy(settlementCenter);
     main.headingRad = 0;
-    main.radius = isRuins ? 3.5 : 6.0;
+    main.radius = isRuins ? 3.5 : isAdvancedCity ? 7.0 : 6.0;
     main.active = true;
-    main.health = main.maxHealth = isRuins ? 8000 : 3500;
+    main.health = main.maxHealth = isRuins ? 8000 : isAdvancedCity ? 9500 : 3500;
     main.destroyed = false;
 
-    // 2. Auxiliary Structures: Comm Tower and Energy Pylons
-    const auxOffsets: { arch: StructureArchetype; dx: number; dz: number }[] = [
-      { arch: 'comm-tower', dx: 18, dz: -12 },
-      { arch: 'energy-pylon', dx: -16, dz: 14 },
-      { arch: 'energy-pylon', dx: 15, dz: 16 },
-      { arch: 'perimeter-wall', dx: 0, dz: 24 },
-      { arch: 'perimeter-wall', dx: -22, dz: 0 },
-    ];
+    // 2. Auxiliary Structures: Comm Tower, Energy Pylons, Docks, Sky Bridges & Defense Turrets
+    const auxOffsets: { arch: StructureArchetype; dx: number; dz: number }[] = isAdvancedCity
+      ? [
+          { arch: 'bio-arcology', dx: 26, dz: 0 },
+          { arch: 'bio-arcology', dx: -26, dz: 0 },
+          { arch: 'sky-bridge', dx: 13, dz: 0 },
+          { arch: 'sky-bridge', dx: -13, dz: 0 },
+          { arch: 'orbital-dock', dx: 0, dz: 35 },
+          { arch: 'defense-turret', dx: 28, dz: 28 },
+          { arch: 'defense-turret', dx: -28, dz: 28 },
+          { arch: 'defense-turret', dx: 28, dz: -28 },
+          { arch: 'defense-turret', dx: -28, dz: -28 },
+          { arch: 'energy-pylon', dx: 18, dz: -22 },
+          { arch: 'energy-pylon', dx: -18, dz: -22 },
+        ]
+      : isColony
+        ? [
+            { arch: 'comm-tower', dx: 18, dz: -12 },
+            { arch: 'habitat-dome', dx: -22, dz: 12 },
+            { arch: 'sky-bridge', dx: -11, dz: 6 },
+            { arch: 'energy-pylon', dx: 15, dz: 16 },
+            { arch: 'defense-turret', dx: 24, dz: 24 },
+            { arch: 'perimeter-wall', dx: 0, dz: 26 },
+            { arch: 'perimeter-wall', dx: -24, dz: 0 },
+          ]
+        : [
+            { arch: 'comm-tower', dx: 18, dz: -12 },
+            { arch: 'energy-pylon', dx: -16, dz: 14 },
+            { arch: 'energy-pylon', dx: 15, dz: 16 },
+            { arch: 'perimeter-wall', dx: 0, dz: 24 },
+            { arch: 'perimeter-wall', dx: -22, dz: 0 },
+          ];
 
     for (const aux of auxOffsets) {
       if (structIdx >= SETTLEMENT_STRUCTURE_CAPACITY) break;
@@ -385,34 +520,52 @@ export class AlienSettlementManager {
       s.factionId = factionId;
       s.position.set(settlementCenterX + aux.dx, groundY, settlementCenterZ + aux.dz);
       s.headingRad = Math.atan2(aux.dx, aux.dz);
-      s.radius = aux.arch === 'comm-tower' ? 3.0 : 2.5;
+      s.radius =
+        aux.arch === 'comm-tower'
+          ? 3.0
+          : aux.arch === 'orbital-dock'
+            ? 12.0
+            : aux.arch === 'bio-arcology'
+              ? 8.0
+              : aux.arch === 'defense-turret'
+                ? 3.5
+                : 2.5;
       s.active = true;
-      s.health = s.maxHealth = 1500;
+      s.health = s.maxHealth = aux.arch === 'orbital-dock' ? 6000 : aux.arch === 'defense-turret' ? 2500 : 1500;
       s.destroyed = false;
     }
 
-    // 3. Inhabitants / Sentinels
-    const inhabCount = isRuins ? 4 : 8;
+    // 3. Inhabitants / Sentinels / Patrol Drones
+    const inhabCount = isRuins ? 4 : isAdvancedCity ? 12 : 8;
     for (let i = 0; i < inhabCount; i++) {
       if (inhabIdx >= INHABITANT_CAPACITY) break;
       const inhab = this.inhabitants[inhabIdx++];
       const inAngle = (i / inhabCount) * Math.PI * 2;
-      const inDist = 6.0 + (i % 3) * 4.0;
+      const inDist = 6.0 + (i % 3) * 6.0;
       const posX = settlementCenterX + Math.cos(inAngle) * inDist;
       const posZ = settlementCenterZ + Math.sin(inAngle) * inDist;
 
       inhab.id = `${cellKey}:inhab_${i}`;
       inhab.settlementId = cellKey;
       inhab.factionId = factionId;
-      inhab.role = isRuins ? 'sentinel' : (i === 0 ? 'elder' : (i < 3 ? 'guard' : 'worker'));
-      inhab.base.set(posX, groundY, posZ);
+      inhab.role = isRuins
+        ? 'sentinel'
+        : isAdvancedCity && i >= 8
+          ? 'patrol-drone'
+          : i === 0
+            ? 'elder'
+            : i < 3
+              ? 'guard'
+              : 'worker';
+      inhab.base.set(posX, groundY + (inhab.role === 'patrol-drone' ? 6.0 : 0), posZ);
       inhab.position.copy(inhab.base);
       inhab.targetPos.copy(inhab.base);
       inhab.velocity.set(0, 0, 0);
       inhab.headingRad = inAngle + Math.PI;
       inhab.active = true;
       inhab.state = 'idle';
-      inhab.health = inhab.maxHealth = inhab.role === 'sentinel' ? 450 : (inhab.role === 'guard' ? 220 : 120);
+      inhab.health = inhab.maxHealth =
+        inhab.role === 'sentinel' ? 450 : inhab.role === 'guard' ? 220 : inhab.role === 'patrol-drone' ? 180 : 120;
       inhab.timer = 1.0 + i;
     }
 

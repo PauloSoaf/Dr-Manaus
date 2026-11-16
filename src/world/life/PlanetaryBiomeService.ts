@@ -15,6 +15,7 @@ export type PlanetaryBiomeType =
   | 'coastal-waters'
   | 'methane-sea'
   | 'ammonia-basin'
+  | 'cryo-methane-lakes'
   // Sterile / Vacuum / High Radiation
   | 'barren-rock'
   | 'cratered-highlands'
@@ -23,9 +24,11 @@ export type PlanetaryBiomeType =
   | 'extreme-cryo-ice'
   // Hostile / Volcanic / Silicon
   | 'magma-fields'
+  | 'primordial-magma-crags'
   | 'sulfuric-wastes'
   | 'scorched-crags'
   | 'crystal-desert'
+  | 'shattered-silicon-spires'
   // Cryogenic / Exotic Solvents
   | 'tholin-plateaus'
   | 'cryo-dunes'
@@ -34,6 +37,8 @@ export type PlanetaryBiomeType =
   | 'alien-rainforest'
   | 'fungal-canopy'
   | 'bioluminescent-wetlands'
+  | 'bioluminescent-mycelium-abyss'
+  | 'celestial-ruin-oasis'
   | 'temperate-woodland'
   | 'savanna-steppe'
   | 'alien-taiga'
@@ -48,7 +53,10 @@ export type FloraArchetype =
   | 'alien-conifers'
   | 'canopy-broadleaf'
   | 'xenoflora-succulents'
-  | 'hydrocarbon-tendrils';
+  | 'hydrocarbon-tendrils'
+  | 'silicon-monolith-crystals'
+  | 'luminescent-mycelium-bulbs'
+  | 'obsidian-thermal-vents';
 
 export interface PlanetaryBiomeColorPalette {
   readonly surface: number;
@@ -116,6 +124,12 @@ const BIOME_DEFINITIONS: Record<PlanetaryBiomeType, BiomeDefinition> = {
     baseVegetationDensity: 0.0,
     palette: { surface: 0x1c2333, rock: 0x2d3240, foliage: 0x000000, liquid: 0x2b3b59 },
   },
+  'cryo-methane-lakes': {
+    displayName: 'Lagos Criogênicos de Metano',
+    defaultFlora: 'none',
+    baseVegetationDensity: 0.0,
+    palette: { surface: 0x162a33, rock: 0x0f1c24, foliage: 0x000000, liquid: 0x00b0c7 },
+  },
 
   // Sterile / Vacuum
   'barren-rock': {
@@ -156,6 +170,12 @@ const BIOME_DEFINITIONS: Record<PlanetaryBiomeType, BiomeDefinition> = {
     baseVegetationDensity: 0.0,
     palette: { surface: 0x29120c, rock: 0x190805, foliage: 0xff3b00, liquid: 0xff5500 },
   },
+  'primordial-magma-crags': {
+    displayName: 'Penhascos de Magma Primordial',
+    defaultFlora: 'obsidian-thermal-vents',
+    baseVegetationDensity: 0.15,
+    palette: { surface: 0x2b1408, rock: 0x1a0b04, foliage: 0xff5100, liquid: 0xff3700 },
+  },
   'sulfuric-wastes': {
     displayName: 'Ermos Sulfúricos Corrosivos',
     defaultFlora: 'none',
@@ -173,6 +193,12 @@ const BIOME_DEFINITIONS: Record<PlanetaryBiomeType, BiomeDefinition> = {
     defaultFlora: 'crystalline-spires',
     baseVegetationDensity: 0.15,
     palette: { surface: 0x8f7d6b, rock: 0x5e4f40, foliage: 0x6ee2d8, liquid: 0x000000 },
+  },
+  'shattered-silicon-spires': {
+    displayName: 'Pináculos de Silício Fraturado',
+    defaultFlora: 'silicon-monolith-crystals',
+    baseVegetationDensity: 0.25,
+    palette: { surface: 0x36434d, rock: 0x232f38, foliage: 0x5ae0e6, liquid: 0x1a2b36 },
   },
 
   // Cryogenic
@@ -213,6 +239,18 @@ const BIOME_DEFINITIONS: Record<PlanetaryBiomeType, BiomeDefinition> = {
     defaultFlora: 'bioluminescent-fungi',
     baseVegetationDensity: 0.85,
     palette: { surface: 0x122426, rock: 0x1a3033, foliage: 0x00d9b8, liquid: 0x0b3d3b },
+  },
+  'bioluminescent-mycelium-abyss': {
+    displayName: 'Abismo Micelial Bioluminescente',
+    defaultFlora: 'luminescent-mycelium-bulbs',
+    baseVegetationDensity: 0.88,
+    palette: { surface: 0x151226, rock: 0x201938, foliage: 0x39ffb6, liquid: 0x0f182e },
+  },
+  'celestial-ruin-oasis': {
+    displayName: 'Oásis de Ruínas Celestes',
+    defaultFlora: 'crystalline-spires',
+    baseVegetationDensity: 0.7,
+    palette: { surface: 0x283633, rock: 0x3d4d49, foliage: 0xa8ffe0, liquid: 0x2e6157 },
   },
   'temperate-woodland': {
     displayName: 'Bosque Temperado',
@@ -388,7 +426,8 @@ export class PlanetaryBiomeService {
     // Submerged / Marine classification
     if (isUnderwater) {
       if (biosphere.bodyId === 'titan' || biosphere.averageTemperatureK < 120) {
-        return 'methane-sea';
+        const depth = seaLevelM - altitudeM;
+        return depth < 25 ? 'cryo-methane-lakes' : 'methane-sea';
       }
       if (biosphere.biochemistry === 'ammonia-solvent') {
         return 'ammonia-basin';
@@ -401,7 +440,7 @@ export class PlanetaryBiomeService {
 
     // Extreme temperature environments
     if (temperatureK > 700) {
-      return 'magma-fields';
+      return altitudeM > 350 ? 'primordial-magma-crags' : 'magma-fields';
     }
     if (temperatureK > 450) {
       return 'sulfuric-wastes';
@@ -421,7 +460,7 @@ export class PlanetaryBiomeService {
     // Sterile / Airless worlds (e.g. Moon, Mercury)
     if (biosphere.lifeTier === 'sterile') {
       if (biosphere.biochemistry === 'silicon-hydrocarbon') {
-        return 'crystal-desert';
+        return altitudeM > 600 ? 'shattered-silicon-spires' : 'crystal-desert';
       }
       if (altitudeM > 1500) {
         return 'cratered-highlands';
@@ -437,7 +476,7 @@ export class PlanetaryBiomeService {
 
     // Silicon biochemistry worlds
     if (biosphere.biochemistry === 'silicon-hydrocarbon') {
-      return 'crystal-desert';
+      return altitudeM > 600 || moisture > 0.4 ? 'shattered-silicon-spires' : 'crystal-desert';
     }
 
     // Habitable / Vegetative / Fauna Whittaker matrix
@@ -464,7 +503,10 @@ export class PlanetaryBiomeService {
     // Warm to Tropical (T >= 290 K)
     if (moisture > 0.7) {
       if (biosphere.dominantVegetationType === 'bioluminescent-canopy') {
-        return 'bioluminescent-wetlands';
+        return altitudeM < -40 ? 'bioluminescent-mycelium-abyss' : 'bioluminescent-wetlands';
+      }
+      if (biosphere.civilizationStage === 'ancient-ruins-guardians' && altitudeM > 250) {
+        return 'celestial-ruin-oasis';
       }
       return 'alien-rainforest';
     }
