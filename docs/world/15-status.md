@@ -1,6 +1,29 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — Universo Vivo, Superfície Terrestre, Zero-G, Transição Orbital, Unificação WGS84 e Aceitação Cósmica (2026-11-16)
+## Current checkpoint — Biomas Exóticos, Cidades Alienígenas Procedurais, Titãs Planetários, Visual JWST e Áudio Hipersônico/Warp (`COSMIC-LIFE-AUDIO-01`, 2026-11-16)
+
+Implementado com base no baseline auditado e 100% aprovado no CI (`d28fc74`, runs `#43943235552` e `#43943224568`):
+1. **Áudio Procedural WebAudio Multi-Escala (`src/audio/AudioManager.ts`)**:
+   - Rugido hipersônico contínuo de reentrada modulado por Mach e densidade dinâmica (`hypersonicAudioMix`).
+   - Zumbido de hipercruzeiro/warp contínuo modulado por fator de velocidade relativisticamente (`warpCruiseAudioMix`).
+   - Infrassom contínuo de proximidade com buracos negros e anéis de fótons (`blackHoleAudioMix`).
+   - Síntese de one-shots procedurais para `planet-crack`, `warp-engage`, `warp-disengage`, `hypersonic-boom`, `colossus-roar` e `discovery`.
+2. **Novos Biomas Planetários Visíveis e Flora Exótica (`PlanetaryBiomeService.ts`, `AlienFloraRenderer.ts`)**:
+   - 5 novos biomas: `shattered-silicon-spires`, `bioluminescent-mycelium-abyss`, `primordial-magma-crags`, `cryo-methane-lakes` e `celestial-ruin-oasis`.
+   - 3 novos arquétipos de flora mesclada: `silicon-monolith-crystals`, `luminescent-mycelium-bulbs`, `obsidian-thermal-vents` com materiais emissivos.
+3. **Cidades Alienígenas Procedurais (`AlienSettlementManager.ts`)**:
+   - Geração de metrópoles com `plasma-spire`, `bio-arcology`, `orbital-dock`, `sky-bridge`, `defense-turret` e `patrol-drone` condicionadas ao estágio de civilização.
+4. **Titãs Gigantes do Tamanho de Planetas (`CosmicPlanetTitan.ts`)**:
+   - Leviatãs astrais com 120 km a 500 km de raio em órbitas majestosas, alvejáveis por socos, raio laser, choque e ruptura planetária.
+5. **Apresentação Cósmica Inspirada no James Webb (`JWSTCosmicPresentation.ts`)**:
+   - Spikes de difração hexagonal de 6 pontas (a 60°) + 2 suportes secundários em estrelas brilhantes.
+   - Nebulosas procedurais de campo profundo: *Pilares da Criação*, *Penhascos Cósmicos de Carina*, *Nebulosa da Tarântula* e *Arcos de Lentes Gravitacionais de Einstein*.
+6. **Cobertura Global de Testes**:
+   - 1.807 / 1.807 testes gerais aprovados (100% green).
+   - 639 / 639 testes de regressão permanente aprovados (100% green).
+   - TypeScript `tsc --noEmit` 0 erros e build Vite concluído em 1.44s.
+
+## Previous checkpoint — Universo Vivo, Superfície Terrestre, Zero-G, Transição Orbital, Unificação WGS84 e Aceitação Cósmica (2026-11-16)
 
 Implementado com base no baseline auditado e 100% aprovado no CI (`64a1aa6` + `7aa8696` + `13dc5d0` + `9524052` + `48d7208` + `f80923f` + `84b5520` + `8c20b19`):
 1. **Programa Universo Vivo (`VIVO-01` a `VIVO-19`) e Homologação In-Browser (`5250a5e`)**:
