@@ -1,7 +1,7 @@
 import type { Vec3 } from '../spatial/units';
 import { directionToGeodetic } from './CubeSphere';
 import { surfaceColour, classifyEarthSurface, EarthSurfaceClass } from './EarthLandMask';
-import { surfaceHeightAt, surfaceNormalEnu } from './EarthElevation';
+import { surfaceHeightAt, hierarchicalElevationAt, surfaceNormalEnu } from './EarthElevation';
 import { EARTH } from './PlanetBody';
 import type { PlanetSurfaceGenerator } from './PlanetSurface';
 
@@ -16,12 +16,17 @@ export { EarthSurfaceClass };
  */
 export const EarthSurfaceGenerator: PlanetSurfaceGenerator & {
   classAt(direction: Vec3): EarthSurfaceClass;
+  heightAtLod(direction: Vec3, lodLevel: number): number;
 } = {
   body: EARTH,
   radiusM: EARTH.semiMajorAxisM,
   heightAt(direction: Vec3): number {
     const { latRad, lonRad } = directionToGeodetic(direction);
     return surfaceHeightAt(latRad, lonRad);
+  },
+  heightAtLod(direction: Vec3, lodLevel: number): number {
+    const { latRad, lonRad } = directionToGeodetic(direction);
+    return hierarchicalElevationAt(latRad, lonRad, lodLevel);
   },
   normalEnu(direction: Vec3, out: Vec3): void {
     const { latRad, lonRad } = directionToGeodetic(direction);

@@ -12,7 +12,7 @@ import { geodeticToEcef, type EcefPosition } from '../spatial/ECEF';
 import { directionToGeodetic } from './CubeSphere';
 import { type PlanetTileAddress, planetTile, tileBounds, tileCentreDirection } from './PlanetTileAddress';
 import { classifyEarthSurface, surfaceColour } from './EarthLandMask';
-import { surfaceHeightAt, surfaceNormalEnu } from './EarthElevation';
+import { hierarchicalElevationAt, surfaceNormalEnu } from './EarthElevation';
 import { enuBasis } from '../spatial/ENU';
 import { faceUvToDirection } from './CubeSphere';
 import { PlanetVolumeSurfaceMask } from '../../rendering/PlanetVolumeSurfaceMask';
@@ -126,9 +126,10 @@ export function buildTileMesh(address: PlanetTileAddress, heightM = 0, flat = fa
       const u = minU + (maxU - minU) * (column / (size - 1));
       faceUvToDirection(address.face, u, v, direction);
       const base = directionToGeodetic(direction, heightM);
-      // Real relief on top of the ellipsoid, from the global grid. Two tiles that share an edge
-      // sample the same coordinate and get the same height, so edges match with no seam handling.
-      const relief = flat ? 0 : surfaceHeightAt(base.latRad, base.lonRad);
+      // Real relief on top of the ellipsoid, from the global grid plus hierarchical sub-grid
+      // detail at LOD >= 6. Two tiles at the same LOD that share an edge sample the same
+      // coordinate and get the same height, so edges match with no seam handling.
+      const relief = flat ? 0 : hierarchicalElevationAt(base.latRad, base.lonRad, address.level);
       const geodetic = { latRad: base.latRad, lonRad: base.lonRad, heightM: base.heightM + relief };
       const point = geodeticToEcef(geodetic);
       const vertexIndex = row * size + column;

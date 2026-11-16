@@ -987,6 +987,7 @@ export class Game {
       // later in the frame, so a `visible` flag written here is gone by the time anything is
       // drawn -- which is why the far pass drew the planet and the shell painted over it.
       this.atmosphere.planetaryView = !state.localGroundVisible;
+      this.atmosphere.atmosphereWeight = state.atmosphereWeight;
       this.space.planetaryView = !state.localGroundVisible;
       // The far domain has to reach whatever the planet's distance is, or leaving orbit clips the
       // very thing the domain exists to show.

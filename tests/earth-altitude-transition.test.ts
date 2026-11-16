@@ -145,3 +145,27 @@ test('T_EARTH_TRANS_07_GROUND_OWNER_HYSTERESIS', () => {
   const s4 = controller.update(12_000, earth, true);
   assert.equal(s4.groundOwner, 'local', 'Descending below 13km switches back to local owner');
 });
+
+
+test('T_EARTH_TRANS_08_ALTITUDE_SKY_COLOR_PROGRESSION', async () => {
+  const { skyColorAtAltitude } = await import('../src/rendering/Atmosphere');
+  const { Color } = await import('three/webgpu');
+
+  const c0 = skyColorAtAltitude(0, new Color());
+  const c8 = skyColorAtAltitude(8_000, new Color());
+  const c25 = skyColorAtAltitude(25_000, new Color());
+  const c60 = skyColorAtAltitude(60_000, new Color());
+  const c100 = skyColorAtAltitude(100_000, new Color());
+
+  // 0..8 km stays full tropospheric blue
+  assert.equal(c0.r, c8.r);
+  assert.equal(c0.g, c8.g);
+  assert.equal(c0.b, c8.b);
+
+  // Monotonically darkens across 8 km -> 25 km -> 60 km -> 100 km
+  const lum = (c: { r: number; g: number; b: number }) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  assert.ok(lum(c8) > lum(c25), 'Stratosphere (25 km) must be darker than troposphere (8 km)');
+  assert.ok(lum(c25) > lum(c60), 'Mesosphere (60 km) must be darker than stratosphere (25 km)');
+  assert.ok(lum(c60) > lum(c100), 'Karman line (100 km) must be darker than mesosphere (60 km)');
+  assert.ok(lum(c100) < 0.002, 'Space vacuum at >= 100 km must be near-zero black vacuum');
+});

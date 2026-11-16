@@ -14,8 +14,35 @@ const TIMES: Record<TimeKind, { top: Color; horizon: Color; zenith: Color; glow:
 };
 const RAIN = { top: new Color('#5e727b'), horizon: new Color('#a0ada8'), zenith: new Color('#465a63'), glow: new Color('#8e9ca0'), warm: .15 };
 const CLOUD_DAY = new Color('#eadac8'), CLOUD_RAIN = new Color('#7c8d92'), CLOUD_NIGHT = new Color('#263743');
+const SKY_BLUE = new Color('#4e8bb2');
+const SKY_DEEP_BLUE = new Color('#1d54a0');
+const SKY_NAVY = new Color('#07204b');
+const SKY_VACUUM = new Color('#010206');
+
+/**
+ * Continuous altitude sky progression from 04-EARTH-ALTITUDE-TRANSITION.md:
+ * blue sky (0-8 km) -> deep blue (8-25 km) -> navy (25-60 km) -> black vacuum (60-100 km+).
+ */
+export function skyColorAtAltitude(altitudeM: number, out = new Color()): Color {
+  const alt = Number.isFinite(altitudeM) ? Math.max(0, altitudeM) : 0;
+  if (alt <= 8_000) {
+    return out.copy(SKY_BLUE);
+  }
+  if (alt <= 25_000) {
+    const t = (alt - 8_000) / (25_000 - 8_000);
+    return out.copy(SKY_BLUE).lerp(SKY_DEEP_BLUE, t);
+  }
+  if (alt <= 60_000) {
+    const t = (alt - 25_000) / (60_000 - 25_000);
+    return out.copy(SKY_DEEP_BLUE).lerp(SKY_NAVY, t);
+  }
+  const t = Math.min(1, (alt - 60_000) / (100_000 - 60_000));
+  return out.copy(SKY_NAVY).lerp(SKY_VACUUM, t);
+}
+
 export class Atmosphere {
   time: TimeKind = 'Golden Hour'; weather: WeatherKind = 'clear'; dayCycle = false;
+  atmosphereWeight = 1;
   /**
    * True while the real planet is what the player is looking at.
    *
@@ -107,6 +134,12 @@ export class Atmosphere {
       this.top.value.lerp(rain ? RAIN.top : state.top, blend);
       this.horizon.value.lerp(rain ? RAIN.horizon : state.horizon, blend);
       this.zenith.value.lerp(rain ? RAIN.zenith : state.zenith, blend);
+      if (this.altitude > 8_000) {
+        const highSky = skyColorAtAltitude(this.altitude, this.transition);
+        const highFactor = Math.min(1, (this.altitude - 8_000) / 52_000);
+        this.top.value.lerp(highSky, highFactor * blend);
+        this.zenith.value.lerp(highSky, Math.min(1, highFactor * 1.25) * blend);
+      }
       this.glow.value.lerp(rain ? RAIN.glow : state.glow, blend);
       this.warmth.value += ((rain ? RAIN.warm : state.warm) - this.warmth.value) * blend;
       this.sun.color.lerp(state.sun, blend);

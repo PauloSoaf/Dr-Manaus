@@ -119,3 +119,42 @@ test('T_EARTH_SURFACE_05_TILE_SURFACE_CLASS_ATTRIBUTE_AND_SHALLOW_WATER', async 
   }
   assert.ok(foundShallow, 'Coastal shelf scan must identify ShallowWater');
 });
+
+
+test('T_EARTH_SURFACE_06_HIERARCHICAL_SUBGRID_RELIEF_AT_HIGH_LOD', async () => {
+  const {
+    EARTH_MAX_ELEVATION_M,
+    hierarchicalElevationAt,
+    surfaceHeightAt,
+  } = await import('../src/world/planet/EarthElevation');
+
+  // Andes cordillera sample: -15.5° S, -70.0° W
+  const andesLat = -15.5 * DEG_TO_RAD;
+  const andesLon = -70.0 * DEG_TO_RAD;
+  const baseElevation = surfaceHeightAt(andesLat, andesLon);
+  assert.ok(baseElevation > 1500, 'Andes base elevation must be mountain-scale');
+
+  // Coarse LOD (0..5) must equal base ETOPO5 elevation
+  for (let lod = 0; lod <= 5; lod++) {
+    assert.equal(
+      hierarchicalElevationAt(andesLat, andesLon, lod),
+      baseElevation,
+      `LOD ${lod} must match canonical ETOPO5 surfaceHeightAt`,
+    );
+  }
+
+  // High LOD (6..10) must add deterministic multi-scale detail within bounds
+  const lod8A = hierarchicalElevationAt(andesLat, andesLon, 8);
+  const lod8B = hierarchicalElevationAt(andesLat, andesLon, 8);
+  assert.equal(lod8A, lod8B, 'Hierarchical elevation at LOD 8 must be deterministic');
+  assert.notEqual(lod8A, baseElevation, 'High-LOD relief must add sub-grid micro-topography on continental land');
+  assert.ok(lod8A >= 0 && lod8A <= EARTH_MAX_ELEVATION_M, 'High-LOD relief must stay within [0, EARTH_MAX_ELEVATION_M]');
+
+  // Ocean and Manaus Urban must remain 0 even at high LOD
+  assert.equal(hierarchicalElevationAt(0, -30 * DEG_TO_RAD, 10), 0, 'Ocean must have 0 relief at LOD 10');
+  assert.equal(
+    hierarchicalElevationAt(-3.119 * DEG_TO_RAD, -60.021 * DEG_TO_RAD, 10),
+    0,
+    'Manaus Urban must remain flat on the ellipsoid at LOD 10 so local city meshes match',
+  );
+});
