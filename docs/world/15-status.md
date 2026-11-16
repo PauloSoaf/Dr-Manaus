@@ -19,7 +19,7 @@ Implementado com base no baseline auditado e 100% aprovado no CI (`64a1aa6` + `7
    - Jacobiana de escala legacy em `SurfaceTileFrame.getSceneMatrix()` eliminando desvio de 6,90 m norte-sul entre prédios e ruas/colisores em tiles distantes (`< 5 cm` horizontal, `< 20 cm` vertical).
    - Suíte de aceitação `tests/cosmic-long-session-acceptance.test.ts` validando fronteiras Clean Code e a rota cósmica completa de 10 estágios (`Manaus -> Lua -> Marte -> Saturno -> Setor Via Láctea -> M31 -> Grande Atrator -> Horizonte -> Retorno a Manaus`).
 5. **Cobertura Global de Testes**:
-   - 1.794 / 1.794 testes gerais aprovados (100% green).
+   - 1.796 / 1.796 testes gerais aprovados (100% green).
    - 638 / 638 testes de regressão permanente aprovados (100% green).
    - TypeScript `tsc --noEmit` 0 erros e build de produção Vite concluído em ~2.0s.
 
