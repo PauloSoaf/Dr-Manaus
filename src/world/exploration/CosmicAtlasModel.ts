@@ -441,7 +441,19 @@ export class CosmicAtlasModel {
     let biosphere: import('../life/PlanetaryBiosphere').PlanetaryBiosphereProfile | undefined;
 
     const solar = desc.bodyId ? SOLAR_BODY_PROFILES[desc.bodyId] : (desc.objectId in SOLAR_BODY_PROFILES ? SOLAR_BODY_PROFILES[desc.objectId] : undefined);
-    if (solar) {
+    if (desc.objectId === 'titan-astral-leviathan-01' || desc.bodyId === 'titan-astral-leviathan-01') {
+      worldType = 'Leviatã Astral Cósmico (Entidade Planetária)';
+      canLandBody = false;
+      landingModeBody = 'none';
+      temperatureK = 270;
+      hasRings = true;
+    } else if (desc.objectId.startsWith('jwst_nebula_')) {
+      worldType = 'Região Nebular Profunda (JWST NIRCam/MIRI)';
+      canLandBody = false;
+      landingModeBody = 'none';
+      temperatureK = 35;
+      hasRings = false;
+    } else if (solar) {
       worldType = solar.environment?.label ?? solar.bodyClass;
       canLandBody = solar.canLand;
       landingModeBody = solar.landingMode;
@@ -728,7 +740,7 @@ export class CosmicAtlasModel {
       let hasRings: boolean | undefined;
       let biosphere: import('../life/PlanetaryBiosphere').PlanetaryBiosphereProfile | undefined;
 
-      if (desc.kind === 'body' || desc.kind === 'star') {
+      if (desc.kind === 'body' || desc.kind === 'star' || desc.kind === 'cosmic-anchor') {
         const meta = this.getBodyMetadata(desc);
         worldType = meta.worldType;
         canLandBody = meta.canLand;

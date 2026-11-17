@@ -59,7 +59,7 @@ export class PlanetaryHazardRenderer {
       depthWrite: false,
     });
 
-    // GPU falling and drifting motion
+    // GPU falling and drifting motion with dynamic wave offsets
     this.material.positionNode = vec3(
       positionLocal.x.add(time.mul(6).sin().mul(1.5)),
       positionLocal.y.sub(time.mul(38)).mod(80),
@@ -74,6 +74,14 @@ export class PlanetaryHazardRenderer {
     if (parent) {
       parent.add(this.root);
     }
+  }
+
+  get hazardType(): PlanetaryHazardType {
+    return this.activeHazardType;
+  }
+
+  get isEmitting(): boolean {
+    return this.lines.visible;
   }
 
   update(dt: number, playerPos: Vector3, hazard: PlanetaryHazardState): void {

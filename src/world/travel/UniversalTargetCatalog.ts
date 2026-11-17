@@ -11,6 +11,7 @@ import { createUniversalTarget, isUniverseAddress, universalTargetKey, type Univ
 import { ProceduralGalaxyDiscovery } from '../galaxy/ProceduralGalaxyDiscovery';
 import { cosmologicalPositionM, isCellInFloatDomain } from '../galaxy/ProceduralGalaxyGenerator';
 import { getCanonicalBlackHole, generateStellarBlackHole } from '../celestial/BlackHoleDescriptor';
+import { CURATED_JWST_NEBULAE } from '../../rendering/JWSTCosmicPresentation';
 
 export const SOLAR_TARGET_ADDRESS: UniverseAddress = Object.freeze({ galaxyId:'milky_way', sector:Object.freeze(sectorIndex(0n,0n,0n)), systemId:'sol' });
 const names: Readonly<Record<string,string>> = { sun:'Sol', mercury:'Mercúrio', venus:'Vênus', earth:'Terra', moon:'Lua', mars:'Marte', jupiter:'Júpiter', saturn:'Saturno', uranus:'Urano', neptune:'Netuno' };
@@ -49,6 +50,32 @@ export class UniversalTargetCatalog {
       displayName:anchor.name, objectId:anchor.id, address:{cell:sectorIndex(0n,0n,0n),localMpc:anchor.positionMpc} });
     this.add({kind:'observable-horizon',displayName:'Observable Horizon',objectId:'observable-horizon',
       address:{cell:sectorIndex(0n,0n,0n),localMpc:[0,0,0],comovingDistanceM:OBSERVABLE_HORIZON_MPC*1e6*PARSEC_M}});
+
+    // Planet-Scale Astral Titan (Deep Space Solar Orbit)
+    this.add({
+      kind: 'body',
+      displayName: 'Leviatã Astral do Vácuo · Ouroboros Cósmico',
+      objectId: 'titan-astral-leviathan-01',
+      galaxyId: 'milky_way',
+      systemId: 'sol',
+      bodyId: 'titan-astral-leviathan-01',
+      address: { ...SOLAR_TARGET_ADDRESS, bodyId: 'titan-astral-leviathan-01' },
+    });
+
+    // Curated James Webb Space Telescope Deep Field Nebulae
+    for (let i = 0; i < CURATED_JWST_NEBULAE.length; i++) {
+      const neb = CURATED_JWST_NEBULAE[i];
+      const nebId = `jwst_nebula_${i + 1}`;
+      this.add({
+        kind: 'cosmic-anchor',
+        displayName: neb.name,
+        objectId: nebId,
+        address: {
+          cell: sectorIndex(0n, 0n, 0n),
+          localMpc: [neb.direction.x * 2.5, neb.direction.y * 2.5, neb.direction.z * 2.5],
+        },
+      });
+    }
   }
   private add(descriptor: UniversalTargetDescriptor, globalPositionM?: Vec3): void {
     const immutable = createUniversalTarget(descriptor);
