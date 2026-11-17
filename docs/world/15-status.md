@@ -1,6 +1,21 @@
 # Planetary architecture — implementation status
 
-## Current checkpoint — Biomas Exóticos, Cidades Alienígenas Procedurais, Titãs Planetários, Visual JWST e Áudio Hipersônico/Warp (`COSMIC-LIFE-AUDIO-01`, 2026-11-16)
+## Current checkpoint — Catálogo Universal, Atlas Cósmico para Titãs Planetários e Nebulosas JWST (`COSMIC-ATLAS-DISCOVERY-01`, 2026-11-17)
+
+Implementado e 100% verificado no CI oficial do GitHub Actions (`32c030e`, runs `#44159787047` e `#44159804196`):
+1. **Catálogo Universal de Alvos (`src/world/travel/UniversalTargetCatalog.ts`)**:
+   - Registro do Leviatã Astral do Vácuo (`titan-astral-leviathan-01`) no Sistema Solar como entidade planetária.
+   - Registro das 4 nebulosas de campo profundo do JWST (*Pilares da Criação*, *Penhascos Cósmicos*, *Nebulosa da Tarântula*, *Campo Profundo do Webb SMACS 0723*) como alvos cósmicos ancorados no catálogo.
+2. **Atlas Cósmico (`src/world/exploration/CosmicAtlasModel.ts`)**:
+   - Consulta, pesquisa por designação, marcação como favorito e metadados detalhados de corpos cósmicos e nebulosas.
+3. **Renderizador de Clima Volumétrico (`src/world/life/PlanetaryHazardRenderer.ts`)**:
+   - Inspeção não-alocativa de estado dinâmico (`hazardType`, `isEmitting`).
+4. **Cobertura Global de Testes**:
+   - 1.809 / 1.809 testes gerais aprovados (100% green).
+   - 639 / 639 testes de regressão permanente aprovados (100% green).
+   - TypeScript `tsc --noEmit` 0 erros e build Vite em 1.91s.
+
+## Previous checkpoint — Biomas Exóticos, Cidades Alienígenas Procedurais, Titãs Planetários, Visual JWST e Áudio Hipersônico/Warp (`COSMIC-LIFE-AUDIO-01`, 2026-11-16)
 
 Implementado com base no baseline auditado e 100% aprovado no CI (`d28fc74`, runs `#43943235552` e `#43943224568`):
 1. **Áudio Procedural WebAudio Multi-Escala (`src/audio/AudioManager.ts`)**:

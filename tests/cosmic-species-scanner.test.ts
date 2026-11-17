@@ -136,5 +136,18 @@ describe('CosmicSpeciesScanner (VIVO-05)', () => {
     assert.ok(secondScan);
     assert.strictEqual(secondScan.isNewDiscovery, false);
   });
+
+  it('T_VIVO05_05: Resolves authoritative cosmic titan profile', () => {
+    const titanProfile = CosmicSpeciesScanner.resolveTitanProfile(
+      'titan-astral-leviathan-01',
+      'Leviatã Astral do Vácuo · Ouroboros Cósmico',
+      'astral-leviathan',
+    );
+    assert.strictEqual(titanProfile.category, 'titan');
+    assert.strictEqual(titanProfile.diet, 'stellar-plasma');
+    assert.strictEqual(titanProfile.temperament, 'astral-transcendent');
+    assert.strictEqual(titanProfile.threatLevel, 5);
+    assert.ok(titanProfile.speciesId.includes('titan-astral-leviathan-01'));
+  });
 });
 

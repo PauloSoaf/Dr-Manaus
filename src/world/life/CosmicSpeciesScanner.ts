@@ -12,15 +12,16 @@ import type { FloraArchetype } from './PlanetaryBiomeService';
 import type { CreatureEntity } from './AlienFaunaManager';
 import type { SaveManager } from '../../core/SaveManager';
 
-export type SpeciesCategory = 'fauna' | 'flora';
+export type SpeciesCategory = 'fauna' | 'flora' | 'titan';
 export type SpeciesDiet =
   | 'herbivore'
   | 'carnivore'
   | 'omnivore'
   | 'radiotrophic'
   | 'chemotrophic'
-  | 'photosynthetic';
-export type SpeciesTemperament = 'passive' | 'skittish' | 'defensive' | 'apex-aggressive';
+  | 'photosynthetic'
+  | 'stellar-plasma';
+export type SpeciesTemperament = 'passive' | 'skittish' | 'defensive' | 'apex-aggressive' | 'astral-transcendent';
 
 export interface SpeciesProfile {
   readonly speciesId: string;
@@ -247,6 +248,28 @@ export class CosmicSpeciesScanner {
       temperament: meta.temp,
       threatLevel: meta.threat,
       description: `${meta.desc} Bioquímica: ${biosphere?.biochemistry ?? 'carbon-water'}. Nível de radiação tolerada: ${biosphere?.radiationLevel ?? 'negligible'}.`,
+    };
+  }
+
+  /**
+   * Resolves authoritative profile for a planet-sized cosmic titan or astral leviathan.
+   */
+  static resolveTitanProfile(
+    titanId: string,
+    titanName: string,
+    classification: 'astral-leviathan' | 'void-colossus' | 'stellar-behemoth' = 'astral-leviathan',
+  ): SpeciesProfile {
+    return {
+      speciesId: `drm:species:titan:${titanId}`,
+      commonName: titanName,
+      scientificName: 'Leviathan astralis cosmicus',
+      category: 'titan',
+      originBodyId: 'deep_space',
+      morphology: classification,
+      diet: 'stellar-plasma',
+      temperament: 'astral-transcendent',
+      threatLevel: 5,
+      description: 'Entidade viva colossal de escala planetária (120+ km de raio) composta por um núcleo estelar energético envolto em carapaça biomineral hiper-densa e anéis de poeira estelar.',
     };
   }
 

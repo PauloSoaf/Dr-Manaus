@@ -69,3 +69,4 @@ test('PLANETARY-HAZARD-RENDERER: Dynamic state inspections and hazard type track
   renderer.dispose();
   assert.equal(parent.children.includes(renderer.root), false);
 });
+
