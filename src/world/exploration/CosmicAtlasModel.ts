@@ -1,4 +1,4 @@
-﻿import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../travel/UniversalTargetCatalog';
+import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from '../travel/UniversalTargetCatalog';
 import {
   type UniversalTargetDescriptor,
   type UniversalNavigationTarget,
@@ -448,7 +448,7 @@ export class CosmicAtlasModel {
       temperatureK = 270;
       hasRings = true;
     } else if (desc.objectId.startsWith('jwst_nebula_')) {
-      worldType = 'Região Nebular Profunda (JWST NIRCam/MIRI)';
+      worldType = 'Ponto de Observação Óptica Cósmica (Campo Profundo JWST)';
       canLandBody = false;
       landingModeBody = 'none';
       temperatureK = 35;

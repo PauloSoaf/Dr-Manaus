@@ -10,6 +10,7 @@ import { Vector3 } from 'three/webgpu';
 import type { PlanetaryBiosphereProfile, DominantFaunaType } from './PlanetaryBiosphere';
 import type { FloraArchetype } from './PlanetaryBiomeService';
 import type { CreatureEntity } from './AlienFaunaManager';
+import type { PlanetTitanState } from './CosmicPlanetTitan';
 import type { SaveManager } from '../../core/SaveManager';
 
 export type SpeciesCategory = 'fauna' | 'flora' | 'titan';
@@ -174,54 +175,82 @@ export class CosmicSpeciesScanner {
   scanAim(
     rayOrigin: Vector3,
     rayDirection: Vector3,
-    creatures: readonly CreatureEntity[],
+    creatures?: readonly CreatureEntity[],
+    titans?: readonly PlanetTitanState[],
     biosphere?: PlanetaryBiosphereProfile,
     maxRangeM = 75,
   ): SpeciesScanResult | null {
-    if (!creatures || creatures.length === 0) {
-      return null;
-    }
-
     const normRay = rayDirection.clone().normalize();
-    let bestCreature: CreatureEntity | null = null;
-    let bestDistance = maxRangeM;
-    let bestDot = 0.92; // At least ~23 degrees within aim cone
 
-    for (const c of creatures) {
-      if (!c.active || c.state === 'defeated') continue;
+    // 1. Check local fauna specimens within aim cone
+    if (creatures && creatures.length > 0) {
+      let bestCreature: CreatureEntity | null = null;
+      let bestDistance = maxRangeM;
+      let bestDot = 0.92; // At least ~23 degrees within aim cone
 
-      this.toTarget.subVectors(c.position, rayOrigin);
-      const dist = this.toTarget.length();
-      if (dist > maxRangeM || dist < 0.5) continue;
+      for (const c of creatures) {
+        if (!c.active || c.state === 'defeated') continue;
 
-      this.toTarget.normalize();
-      const dot = normRay.dot(this.toTarget);
+        this.toTarget.subVectors(c.position, rayOrigin);
+        const dist = this.toTarget.length();
+        if (dist > maxRangeM || dist < 0.5) continue;
 
-      if (dot > bestDot && dist < bestDistance) {
-        bestDot = dot;
-        bestDistance = dist;
-        bestCreature = c;
+        this.toTarget.normalize();
+        const dot = normRay.dot(this.toTarget);
+
+        if (dot > bestDot && dist < bestDistance) {
+          bestDot = dot;
+          bestDistance = dist;
+          bestCreature = c;
+        }
+      }
+
+      if (bestCreature) {
+        const bodyId = biosphere?.bodyId ?? 'active_body';
+        const profile = CosmicSpeciesScanner.resolveFaunaProfile(bodyId, bestCreature.morphology, biosphere);
+        const isNew = this.saveManager ? !this.saveManager.isSpeciesDiscovered(profile.speciesId) : true;
+        if (isNew && this.saveManager) {
+          this.saveManager.discoverSpecies(profile.speciesId);
+        }
+
+        return {
+          profile,
+          distanceM: bestDistance,
+          worldPosition: bestCreature.position.clone(),
+          isNewDiscovery: isNew,
+        };
       }
     }
 
-    if (!bestCreature) {
-      return null;
+    // 2. Check cosmic titans and astral leviathans in deep space / orbit
+    if (titans && titans.length > 0) {
+      for (const t of titans) {
+        if (!t.active || t.health <= 0) continue;
+        this.toTarget.subVectors(t.position, rayOrigin);
+        const dist = this.toTarget.length();
+        if (dist < 10) continue;
+        this.toTarget.normalize();
+        const dot = normRay.dot(this.toTarget);
+
+        // Titan is 120km radius; aim cone valid within generous optical range
+        if (dot > 0.82 && dist < t.radiusM * 100) {
+          const profile = CosmicSpeciesScanner.resolveTitanProfile(t.id, t.name, t.classification);
+          const isNew = this.saveManager ? !this.saveManager.isSpeciesDiscovered(profile.speciesId) : true;
+          if (isNew && this.saveManager) {
+            this.saveManager.discoverSpecies(profile.speciesId);
+          }
+
+          return {
+            profile,
+            distanceM: dist,
+            worldPosition: t.position.clone(),
+            isNewDiscovery: isNew,
+          };
+        }
+      }
     }
 
-    const bodyId = biosphere?.bodyId ?? 'active_body';
-    const profile = CosmicSpeciesScanner.resolveFaunaProfile(bodyId, bestCreature.morphology, biosphere);
-
-    const isNew = this.saveManager ? !this.saveManager.isSpeciesDiscovered(profile.speciesId) : true;
-    if (isNew && this.saveManager) {
-      this.saveManager.discoverSpecies(profile.speciesId);
-    }
-
-    return {
-      profile,
-      distanceM: bestDistance,
-      worldPosition: bestCreature.position.clone(),
-      isNewDiscovery: isNew,
-    };
+    return null;
   }
 
   /**

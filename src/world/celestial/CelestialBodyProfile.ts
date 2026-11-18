@@ -32,7 +32,8 @@ export type WorldClassification =
   | 'rocky-moon'
   | 'icy-moon'
   | 'volcanic-moon'
-  | 'atmospheric-moon';
+  | 'atmospheric-moon'
+  | 'astral-titan';
 
 export interface WorldEnvironment {
   readonly classification: WorldClassification;
@@ -137,6 +138,23 @@ export const SOLAR_BODY_PROFILES: Readonly<Record<string, CelestialBodyProfile>>
   triton: moonProxy('icy-moon', [0.82, 0.75, 0.77], undefined,
     { classification: 'icy-moon', label: 'Lua Gelada Retrógrada', temperatureK: 38, surfaceGravityMps2: 0.78,
       description: 'Lua capturada do Cinturão de Kuiper com órbita retrógrada e gêiseres de nitrogênio.' }),
+  'titan-astral-leviathan-01': {
+    bodyClass: 'rocky',
+    hasSolidSurface: false,
+    canLand: false,
+    landingMode: 'none',
+    hasAtmosphere: false,
+    supportsVolumeDestruction: false,
+    surfaceKind: 'none',
+    visual: { albedo: [0.1, 0.85, 1.0], labelPriority: 9 },
+    environment: {
+      classification: 'astral-titan',
+      label: 'Leviatã Astral do Vácuo',
+      temperatureK: 45,
+      surfaceGravityMps2: 0.15,
+      description: 'Titã cósmico primordial vivo em órbita solar profunda além de Saturno.',
+    },
+  },
 };
 
 // Unclassified procedural bodies remain proxies; their surfaces require an explicit profile.

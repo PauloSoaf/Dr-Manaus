@@ -24,6 +24,7 @@ import {
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MeshStandardMaterial,
   PerspectiveCamera,
   Quaternion,
   SphereGeometry,
@@ -42,6 +43,10 @@ export interface ActiveRuptureSession {
   intactGlobeHidden: boolean;
   positionM: Vector3;
   visuals: RuptureVisualSet;
+  isReconstructing?: boolean;
+  reconstructionTimeS?: number;
+  reconstructionDurationS?: number;
+  reconstructionProgress?: number;
 }
 
 const CHUNK_COUNT = 8;
@@ -225,11 +230,38 @@ export class PlanetaryRupturePresentation {
   }
 
   /**
-   * Restores a ruptured body, clearing its active session and visuals.
+   * Starts an observable reverse reconstruction sequence:
+   * Keplerian debris contracts back, crust chunks converge inward, incandescent core cools,
+   * and the intact planetary globe is seamlessly restored.
    */
-  restore(bodyId: string): void {
+  startReverseReconstruction(bodyId: string, durationS = 3.0): boolean {
+    const session = this.activeSessions.get(bodyId);
+    if (!session) return false;
+    session.isReconstructing = true;
+    session.reconstructionTimeS = 0;
+    session.reconstructionDurationS = durationS;
+    session.reconstructionProgress = 0;
+    return true;
+  }
+
+  isReconstructing(bodyId: string): boolean {
+    return this.activeSessions.get(bodyId)?.isReconstructing ?? false;
+  }
+
+  reconstructionProgress(bodyId: string): number {
+    return this.activeSessions.get(bodyId)?.reconstructionProgress ?? 0;
+  }
+
+  /**
+   * Restores a ruptured body, optionally animating reverse reassembly.
+   */
+  restore(bodyId: string, animated = false): void {
     const session = this.activeSessions.get(bodyId);
     if (!session) return;
+    if (animated) {
+      this.startReverseReconstruction(bodyId);
+      return;
+    }
     this.disposeVisualSet(session.visuals);
     this.activeSessions.delete(bodyId);
   }
@@ -273,6 +305,11 @@ export class PlanetaryRupturePresentation {
       const pos = session.positionM;
       const t = session.timeS;
       const R = session.radiusM;
+
+      if (session.isReconstructing) {
+        this.updateReverseReconstruction(session, pos, dt);
+        continue;
+      }
 
       // Phase 1: Glowing fissure network (0.0s - 1.5s)
       if (t < 1.5) {
@@ -376,6 +413,59 @@ export class PlanetaryRupturePresentation {
 
         this.updateDebrisRing(session, pos, 1.0);
       }
+    }
+  }
+
+  private updateReverseReconstruction(session: ActiveRuptureSession, bodyPos: Vector3, dt: number): void {
+    session.reconstructionTimeS = (session.reconstructionTimeS ?? 0) + dt;
+    const dur = session.reconstructionDurationS ?? 3.0;
+    const p = Math.min(1.0, session.reconstructionTimeS / dur);
+    session.reconstructionProgress = p;
+
+    const { fissureLines, coreSphere, shockwaveSphere, crustChunksMesh, debrisRingMesh } = session.visuals;
+    const R = session.radiusM;
+
+    fissureLines.visible = p < 0.8;
+    fissureLines.position.copy(bodyPos);
+    shockwaveSphere.visible = false;
+
+    // 1. Debris Ring Contracts and Dissipates
+    if (p < 0.9) {
+      debrisRingMesh.visible = true;
+      this.updateDebrisRing(session, bodyPos, Math.max(0.01, 1.0 - p));
+    } else {
+      debrisRingMesh.visible = false;
+    }
+
+    // 2. Chunks Converge Inward from orbit to sphere shell
+    const chunkInwardFactor = Math.max(0, 1.0 - p);
+    if (p < 0.95) {
+      crustChunksMesh.visible = true;
+      this.updateCrustChunks(session, bodyPos, R, chunkInwardFactor * R * 0.8, chunkInwardFactor);
+    } else {
+      crustChunksMesh.visible = false;
+    }
+
+    // 3. Molten Core Cooldown
+    if (p < 0.95) {
+      coreSphere.visible = true;
+      coreSphere.position.copy(bodyPos);
+      coreSphere.scale.setScalar(R * Math.max(0.01, 0.45 * (1.0 - p)));
+      const coreMat = coreSphere.material as MeshStandardMaterial;
+      coreMat.emissiveIntensity = Math.max(0, (1.0 - p) * 1.8);
+    } else {
+      coreSphere.visible = false;
+    }
+
+    // 4. Reveal Intact Globe
+    if (p >= 0.6) {
+      session.intactGlobeHidden = false;
+    }
+
+    // 5. Completion
+    if (p >= 1.0) {
+      this.disposeVisualSet(session.visuals);
+      this.activeSessions.delete(session.bodyId);
     }
   }
 

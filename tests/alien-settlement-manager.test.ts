@@ -221,6 +221,7 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
     }
 
     assert.ok(spawned, 'Must generate advanced industrial settlement');
+    assert.strictEqual(manager.activeSettlements[0].tier, 'metropolis', 'Advanced settlement tier must be metropolis');
     const central = manager.structures.find(s => s.active && s.id.includes('struct_center'));
     assert.ok(central, 'Must have central structure');
     assert.strictEqual(central.archetype, 'plasma-spire', 'Metropolis center must be a plasma-spire');

@@ -3,7 +3,7 @@ import type { ReferenceFrameGraph } from '../spatial/ReferenceFrameGraph';
 import { addVec3, cloneVec3, crossVec3, finite, lengthVec3, normalizeVec3, quatFromBasis,
   rotateVec3Inverse, subVec3, type Quat, type Vec3 } from '../spatial/units';
 import {
-  type CelestialBody, SOLAR_SYSTEM_BODIES, bodyById, gravitationalParameter,
+  type CelestialBody, SOLAR_SYSTEM_BODIES, TITAN_LEVIATHAN_BODY, bodyById, gravitationalParameter,
 } from './CelestialBody';
 import type { EphemerisProvider } from './EphemerisProvider';
 import { OfflineEphemeris } from './OfflineEphemeris';
@@ -66,6 +66,15 @@ export class SolarSystem implements CelestialSystemRuntime {
     this.states.clear();
     for (const body of this.bodies) this.resolve(body);
 
+    const titanSample = this.ephemeris.sample(TITAN_LEVIATHAN_BODY.id, this.epochS);
+    if (titanSample) {
+      this.states.set(TITAN_LEVIATHAN_BODY.id, {
+        body: TITAN_LEVIATHAN_BODY,
+        positionM: titanSample.positionM,
+        velocityMps: titanSample.velocityMps,
+      });
+    }
+
     if (this.frameGraph) {
       for (const body of this.bodies) {
         const state = this.states.get(body.id);
@@ -77,6 +86,13 @@ export class SolarSystem implements CelestialSystemRuntime {
           const rotation = this.fixedOrientationOf(body.id);
           for (let i = 0; i < 4; i++) frame.rotationToParent[i] = rotation[i];
         }
+      }
+      const titanState = this.states.get(TITAN_LEVIATHAN_BODY.id);
+      if (titanState && this.frameGraph.has(TITAN_LEVIATHAN_BODY.frameId)) {
+        const frame = this.frameGraph.get(TITAN_LEVIATHAN_BODY.frameId);
+        (frame.originInParent as number[])[0] = titanState.positionM[0];
+        (frame.originInParent as number[])[1] = titanState.positionM[1];
+        (frame.originInParent as number[])[2] = titanState.positionM[2];
       }
     }
   }
@@ -215,6 +231,17 @@ export class SolarSystem implements CelestialSystemRuntime {
         originInParent: state ? cloneVec3(state.positionM) : [0, 0, 0],
         rotationToParent: this.fixedOrientationOf(body.id),
         label: body.name,
+      }));
+    }
+    const titanState = this.states.get(TITAN_LEVIATHAN_BODY.id);
+    if (!graph.has(TITAN_LEVIATHAN_BODY.frameId)) {
+      graph.register(referenceFrame({
+        id: TITAN_LEVIATHAN_BODY.frameId,
+        parentId: SOLAR_SYSTEM_FRAME,
+        kind: 'body-fixed',
+        originInParent: titanState ? cloneVec3(titanState.positionM) : [0, 0, 0],
+        rotationToParent: [0, 0, 0, 1],
+        label: TITAN_LEVIATHAN_BODY.name,
       }));
     }
   }

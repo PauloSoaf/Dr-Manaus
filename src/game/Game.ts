@@ -1098,7 +1098,7 @@ export class Game {
     this.space.update(skyAltitude, this.atmosphere.sunDirection, this.atmosphere.time === 'Night', worldDt, this.atmosphere.weather === 'clear' ? 0 : 1);
     this.spaceFactor = this.space.spaceFactor;
     this.jwstPresentation.update(this.rendering.camera.position, this.spaceFactor);
-    this.planetTitans.update(worldDt, this.rendering.camera.position);
+    this.planetTitans.update(worldDt, this.universe.renderSpace, this.universe.activeSystem.systemFrameId, this.universe.activeSystem.time, this.universe.solarSystem);
     const flash = manaus ? this.weather.update(worldDt, this.player.position, this.atmosphere.weather) : 0;
     if (flash) this.atmosphere.sun.intensity += flash;
 
@@ -1838,7 +1838,16 @@ export class Game {
      * every frame, so a press that landed on a frame spent in the local branch was discarded
      * without being seen. Four taps reached warp 2.
      */
-    if (!this.travelDomain.localPhysicsActive && this.input.consume('KeyF')) this.requestLanding();
+    if (!this.travelDomain.localPhysicsActive && this.input.consume('KeyF')) {
+      if (this.navigationLock?.bodyId === 'titan-astral-leviathan-01') {
+        this.triggerCosmicScanner();
+      } else {
+        this.requestLanding();
+      }
+    }
+    if (this.input.consume('KeyN')) {
+      this.triggerCosmicScanner();
+    }
     if (!this.travelDomain.localPhysicsActive && this.input.consume('KeyC')) {
       if (this.cosmicTier === 'conventional') {
         this.cosmicTier = 'interstellar';
@@ -2006,6 +2015,48 @@ export class Game {
     }else{
       const candidateName = result.bodyId ? (CELESTIAL_LABEL_NAMES[result.bodyId] ?? result.bodyId) : 'um corpo';
       this.hud.notify('Pouso indisponível · aproxime-se mais de ' + candidateName);
+    }
+  }
+
+  /**
+   * Scans creatures, alien settlements and cosmic titans in player's forward reticle.
+   * Records discoveries in SaveManager, triggers procedural sound effects and displays rich taxonomy HUD.
+   */
+  triggerCosmicScanner(): boolean {
+    if (!this.speciesScanner || !this.player || !this.rendering?.camera) return false;
+    const rayOrigin = this.player.position;
+    const rayDir = new Vector3();
+    this.rendering.camera.getWorldDirection(rayDir);
+
+    const dominantId = this.universe.telemetry.dominantBody ?? 'earth';
+    const activeBody = this.universe.activeSystem.bodies.find(b => b.id === dominantId);
+    const biosphere = activeBody ? bodyProfile(activeBody).environment?.biosphere : undefined;
+    const creatures = this.alienFauna?.creatures ?? [];
+    const titans = this.planetTitans?.titans ?? [];
+
+    const result = this.speciesScanner.scanAim(
+      rayOrigin,
+      rayDir,
+      creatures,
+      titans,
+      biosphere,
+      120,
+    );
+
+    if (result) {
+      const p = result.profile;
+      this.audio?.play(result.isNewDiscovery ? 'discovery' : 'ui-click');
+      if (result.isNewDiscovery) {
+        this.hud.notify(`NOVA DESCOBERTA CÓSMICA! · [${p.commonName}] (${p.scientificName}) | Dieta: ${p.diet} | Ameaça: ${p.threatLevel}/5`);
+      } else {
+        const distStr = result.distanceM < 1000 ? `${result.distanceM.toFixed(0)}m` : `${(result.distanceM / 1000).toFixed(1)}km`;
+        this.hud.notify(`Espécime catalogado: [${p.commonName}] (${distStr}) | Comportamento: ${p.temperament}`);
+      }
+      return true;
+    } else {
+      this.hud.notify('Scanner Cósmico · Nenhum espécime ou titã detectado no retículo.');
+      this.audio?.play('ui-click');
+      return false;
     }
   }
 

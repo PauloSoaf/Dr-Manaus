@@ -149,5 +149,29 @@ describe('CosmicSpeciesScanner (VIVO-05)', () => {
     assert.strictEqual(titanProfile.threatLevel, 5);
     assert.ok(titanProfile.speciesId.includes('titan-astral-leviathan-01'));
   });
+
+  it('T_VIVO05_06: Aim cone detects and scans cosmic titan in deep space', () => {
+    const save = new SaveManager();
+    const scanner = new CosmicSpeciesScanner(save);
+    const rayOrigin = new Vector3(0, 0, 0);
+    const rayDirection = new Vector3(0, 0, 1);
+
+    const titanState: any = {
+      id: 'titan-astral-leviathan-01',
+      name: 'Leviatã Astral do Vácuo · Ouroboros Cósmico',
+      classification: 'astral-leviathan',
+      position: new Vector3(0, 0, 500_000), // 500 km directly ahead
+      radiusM: 120_000,
+      active: true,
+      health: 2_500_000,
+    };
+
+    const result = scanner.scanAim(rayOrigin, rayDirection, [], [titanState]);
+    assert.ok(result, 'Must scan titan within aim cone');
+    assert.strictEqual(result.profile.category, 'titan');
+    assert.strictEqual(result.profile.threatLevel, 5);
+    assert.strictEqual(result.isNewDiscovery, true);
+    assert.strictEqual(save.isSpeciesDiscovered(result.profile.speciesId), true);
+  });
 });
 

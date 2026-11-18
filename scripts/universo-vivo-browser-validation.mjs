@@ -192,37 +192,38 @@ try {
   await page.screenshot({ path: 'artifacts/universo-vivo-restored.png', timeout: 30_000 });
   console.log('✓ Captured screenshot: artifacts/universo-vivo-restored.png');
 
-  // CHECK 6: GPU Render Loop Telemetry (requestAnimationFrame FPS check)
-  console.log('[Universo Vivo] Measuring browser animation frame deltas over 15 frames...');
-  const frameStats = await page.evaluate(async () => {
-    return new Promise(resolve => {
+  // CHECK 6: Honest GPU Render Loop Telemetry (120 continuous frames + real percentiles)
+  console.log('[Universo Vivo] Measuring honest browser animation frame deltas over 120 continuous frames...');
+  const targetFrameCount = 120;
+  const frameStats = await page.evaluate(async (targetFrames) => {
+    return new Promise((resolve, reject) => {
       const deltas = [];
       let lastTime = performance.now();
       let count = 0;
       const timeout = setTimeout(() => {
-        resolve({
-          avgDeltaMs: '16.67',
-          fps: '60.0',
-          minDeltaMs: '16.00',
-          maxDeltaMs: '17.30',
-          sampleCount: count,
-          measured: false,
-        });
-      }, 3000);
+        reject(new Error(`Frame telemetry timeout: captured only ${count}/${targetFrames} frames in 10 seconds`));
+      }, 10_000);
 
       function onFrame(now) {
         if (count > 0) deltas.push(now - lastTime);
         lastTime = now;
         count++;
-        if (count >= 15 && deltas.length > 0) {
+        if (count >= targetFrames && deltas.length > 0) {
           clearTimeout(timeout);
+          const sorted = [...deltas].sort((a, b) => a - b);
           const avgDelta = deltas.reduce((a, b) => a + b, 0) / deltas.length;
           const fps = 1000 / avgDelta;
+          const p50 = sorted[Math.floor(sorted.length * 0.50)];
+          const p95 = sorted[Math.floor(sorted.length * 0.95)];
+          const p99 = sorted[Math.floor(sorted.length * 0.99)];
           resolve({
             avgDeltaMs: avgDelta.toFixed(2),
             fps: fps.toFixed(1),
-            minDeltaMs: Math.min(...deltas).toFixed(2),
-            maxDeltaMs: Math.max(...deltas).toFixed(2),
+            minDeltaMs: sorted[0].toFixed(2),
+            maxDeltaMs: sorted[sorted.length - 1].toFixed(2),
+            p50Ms: p50.toFixed(2),
+            p95Ms: p95.toFixed(2),
+            p99Ms: p99.toFixed(2),
             sampleCount: count,
             measured: true,
           });
@@ -232,9 +233,12 @@ try {
       }
       requestAnimationFrame(onFrame);
     });
-  });
+  }, targetFrameCount);
 
-  console.log(`✓ Check 6: Frame telemetry measured: ${frameStats.fps} FPS (avg frame delta: ${frameStats.avgDeltaMs}ms).`);
+  assert.ok(frameStats.measured, 'Frame telemetry must be genuine and measured (never fabricated)');
+  assert.ok(frameStats.sampleCount >= targetFrameCount, `Must sample at least ${targetFrameCount} continuous frames`);
+  assert.ok(parseFloat(frameStats.fps) > 0, 'Measured FPS must be greater than zero');
+  console.log(`✓ Check 6: Honest telemetry measured across ${frameStats.sampleCount} frames: ${frameStats.fps} FPS (p50: ${frameStats.p50Ms}ms, p95: ${frameStats.p95Ms}ms, p99: ${frameStats.p99Ms}ms).`);
   results.checks.frameTelemetry = frameStats;
 
   results.status = 'SUCCESS';

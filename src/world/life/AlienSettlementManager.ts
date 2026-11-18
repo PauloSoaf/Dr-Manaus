@@ -78,6 +78,7 @@ export interface AlienSettlementCluster {
   id: string;
   factionId: string;
   factionName: string;
+  tier: 'outpost' | 'colony' | 'city' | 'metropolis';
   disposition: 'friendly' | 'neutral' | 'hostile' | 'guardians';
   center: Vector3;
   radiusM: number;
@@ -577,13 +578,22 @@ export class AlienSettlementManager {
       this.inhabitants[i].active = false;
     }
 
+    const tier: 'outpost' | 'colony' | 'city' | 'metropolis' = isAdvancedCity
+      ? 'metropolis'
+      : isColony
+        ? 'colony'
+        : isRuins
+          ? 'city'
+          : 'outpost';
+
     this.activeSettlements.push({
       id: cellKey,
       factionId,
       factionName,
+      tier,
       disposition,
       center: settlementCenter,
-      radiusM: 45,
+      radiusM: isAdvancedCity ? 85 : isColony ? 60 : 45,
       structureCount: structIdx,
       inhabitantCount: inhabIdx,
     });
@@ -627,8 +637,9 @@ export class AlienSettlementManager {
           inb.timer -= SETTLEMENT_TICK_SEC;
           if (inb.timer <= 0) {
             inb.state = 'patrolling';
-            const wanderAngle = Math.random() * Math.PI * 2;
-            const wanderDist = 4.0 + Math.random() * 8.0;
+            const h = hashSettlement(inb.id.length, Math.floor(inb.position.x), Math.floor(inb.position.z));
+            const wanderAngle = h * Math.PI * 2;
+            const wanderDist = 4.0 + (h * 17.13 % 1.0) * 8.0;
             inb.targetPos.set(
               inb.base.x + Math.cos(wanderAngle) * wanderDist,
               inb.base.y,
@@ -796,10 +807,12 @@ export class AlienSettlementManager {
       } else {
         inb.state = 'knocked';
         inb.timer = 2.0;
+        const hx = hashSettlement(inb.id.length, Math.floor(inb.position.x), 101);
+        const hz = hashSettlement(inb.id.length, Math.floor(inb.position.z), 202);
         inb.velocity.set(
-          (Math.random() - 0.5) * force * 0.1,
+          (hx - 0.5) * force * 0.1,
           Math.max(4.0, force * 0.1),
-          (Math.random() - 0.5) * force * 0.1,
+          (hz - 0.5) * force * 0.1,
         );
       }
       this.mobilizeGuards(inb.position, 40);

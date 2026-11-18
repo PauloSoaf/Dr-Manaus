@@ -86,9 +86,21 @@ export class PlanetVisual {
       const material = new MeshBasicNodeMaterial({ transparent: true, side: DoubleSide,
         depthWrite: false, depthTest: true, fog: false });
       const radius = positionLocal.xy.length();
-      const stripe = radius.mul(90).sin().mul(0.14).add(0.65);
-      material.colorNode = vec3(0.72, 0.65, 0.47).mul(stripe);
-      material.opacityNode = stripe.mul(this.uOpacity).mul(this.uRingOpacity);
+      const inner = float(profile.rings.innerRadius);
+      const outer = float(profile.rings.outerRadius);
+      const rNorm = radius.sub(inner).div(outer.sub(inner).max(0.001)).clamp(0, 1);
+
+      // Cassini Division around 0.74 - 0.78 of ring span
+      const cassini = smoothstep(0.73, 0.75, rNorm).mul(float(1.0).sub(smoothstep(0.77, 0.79, rNorm)));
+      // Encke Gap around 0.91 - 0.93 of outer A-ring
+      const encke = smoothstep(0.91, 0.92, rNorm).mul(float(1.0).sub(smoothstep(0.93, 0.94, rNorm)));
+      // Multilevel procedural icy particulate ringlets
+      const fineRinglets = rNorm.mul(140).sin().mul(0.16).add(0.84);
+      const gapMask = float(1.0).sub(cassini.mul(0.88)).sub(encke.mul(0.75)).clamp(0.06, 1.0);
+      const finalDensity = fineRinglets.mul(gapMask);
+
+      material.colorNode = vec3(0.76, 0.69, 0.52).mul(finalDensity);
+      material.opacityNode = finalDensity.mul(0.88).mul(this.uOpacity).mul(this.uRingOpacity);
       this.rings = new Mesh(new RingGeometry(profile.rings.innerRadius, profile.rings.outerRadius, 96), material);
       this.rings.name = 'analytic-rings';
       this.rings.frustumCulled = false;

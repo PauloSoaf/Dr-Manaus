@@ -169,3 +169,49 @@ test('T_VIVO18_03_COSMIC_ATLAS_RUPTURED_BODY_METADATA', () => {
   assert.ok(!restoredMars.displayName.includes('MUNDO EM RUÍNAS'));
   assert.equal(restoredMars.canLand, true);
 });
+
+test('T_VIVO18_05_REVERSE_RECONSTRUCTION_ANIMATION_SEQUENCE', () => {
+  const root = new Group();
+  const presentation = new PlanetaryRupturePresentation(root);
+  const camera = new PerspectiveCamera();
+  const bodyPos = new Vector3(0, 0, 0);
+
+  const edits = new PlanetVolumeEditStore();
+  const fractureService = new MacroBodyFractureService({
+    edits,
+    surfaceForBody: id => (id === 'earth' ? EarthSurfaceGenerator : undefined),
+    bodyById: id => (id === 'earth' ? mockEarthBody : undefined),
+  });
+
+  const plan = fractureService.rupturePlanet('earth', 1e28)!;
+  presentation.startRupture('earth', plan, 6378137);
+
+  // Fast-forward to Phase 7 persistent debris ring (8.0s)
+  presentation.update(8.0, camera, bodyPos);
+  assert.equal(presentation.currentPhase('earth'), 7);
+  assert.equal(presentation.isGlobeSuppressed('earth'), true);
+
+  // Trigger reverse reconstruction sequence
+  const started = presentation.startReverseReconstruction('earth', 3.0);
+  assert.equal(started, true);
+  assert.equal(presentation.isReconstructing('earth'), true);
+  assert.equal(presentation.reconstructionProgress('earth'), 0);
+
+  // Advance 1.0s (progress ~ 0.33): chunks and debris contracting, globe still hidden
+  presentation.update(1.0, camera, bodyPos);
+  assert.equal(presentation.isReconstructing('earth'), true);
+  assert.ok(Math.abs(presentation.reconstructionProgress('earth') - 0.333) < 0.05);
+  assert.equal(presentation.isGlobeSuppressed('earth'), true);
+
+  // Advance 1.0s (progress ~ 0.67): fragments converged, intact globe revealed (un-suppressed)
+  presentation.update(1.0, camera, bodyPos);
+  assert.ok(Math.abs(presentation.reconstructionProgress('earth') - 0.666) < 0.05);
+  assert.equal(presentation.isGlobeSuppressed('earth'), false, 'Intact globe revealed at >= 60% progress');
+
+  // Advance remaining 1.1s (progress >= 1.0): completion and cleanup
+  presentation.update(1.1, camera, bodyPos);
+  assert.equal(presentation.isRuptured('earth'), false, 'Reconstruction completes and session disposes');
+  assert.equal(presentation.isGlobeSuppressed('earth'), false);
+
+  presentation.dispose();
+});

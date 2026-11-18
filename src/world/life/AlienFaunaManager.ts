@@ -686,10 +686,12 @@ export class AlienFaunaManager {
       creature.state = 'knocked';
       creature.timer = 2.0;
       // Impel upward and away
+      const hx = ((creature.index * 17 + 13) % 100) / 100;
+      const hz = ((creature.index * 31 + 47) % 100) / 100;
       creature.velocity.set(
-        (Math.random() - 0.5) * force * 0.15,
+        (hx - 0.5) * force * 0.15,
         Math.max(5.0, force * 0.12),
-        (Math.random() - 0.5) * force * 0.15,
+        (hz - 0.5) * force * 0.15,
       );
     }
     this.alertNearbyHerd(creature.position, 30);
@@ -712,8 +714,8 @@ export class AlienFaunaManager {
         affected++;
 
         const dist = Math.sqrt(distSq);
-        const dirX = dist > 0.001 ? (c.position.x - center.x) / dist : (Math.random() - 0.5);
-        const dirZ = dist > 0.001 ? (c.position.z - center.z) / dist : (Math.random() - 0.5);
+        const dirX = dist > 0.001 ? (c.position.x - center.x) / dist : Math.cos(c.index);
+        const dirZ = dist > 0.001 ? (c.position.z - center.z) / dist : Math.sin(c.index);
 
         if (c.health <= 0) {
           c.health = 0;

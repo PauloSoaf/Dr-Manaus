@@ -102,7 +102,7 @@ export function blackHoleAudioMix(proximity01: number) {
   if (prox <= 0.001) {
     return { active: false, gain: 0, frequency: 32 };
   }
-  const gain = Math.pow(prox, 1.55) * 0.52;
+  const gain = Math.pow(prox, 1.55) * 0.32;
   const frequency = 32 + prox * 14;
   return { active: true, gain, frequency };
 }
@@ -396,7 +396,7 @@ export class AudioManager {
       osc.frequency.setValueAtTime(140, t);
       osc.frequency.exponentialRampToValueAtTime(45, t + 1.8);
       gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.55, t + 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.38, t + 0.12);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.9);
       osc.connect(gain);
       gain.connect(this.effects);
