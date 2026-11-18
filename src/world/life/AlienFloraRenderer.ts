@@ -18,6 +18,7 @@ import {
   Color,
   Vector3,
   Quaternion,
+  Matrix4,
   Group,
 } from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -465,6 +466,24 @@ export class AlienFloraRenderer {
    */
   getActiveCount(archetype: FloraArchetype): number {
     return this.activeInstanceCounts.get(archetype) ?? 0;
+  }
+
+  /**
+   * Returns active flora instances with position for scanner targeting.
+   */
+  getActiveFloraInstances(): { archetype: FloraArchetype; position: Vector3 }[] {
+    const list: { archetype: FloraArchetype; position: Vector3 }[] = [];
+    const mat = new Matrix4();
+    const pos = new Vector3();
+    for (const [arch, mesh] of this.meshes.entries()) {
+      const count = this.activeInstanceCounts.get(arch) ?? 0;
+      for (let i = 0; i < count; i++) {
+        mesh.getMatrixAt(i, mat);
+        pos.setFromMatrixPosition(mat);
+        list.push({ archetype: arch, position: pos.clone() });
+      }
+    }
+    return list;
   }
 
   /**

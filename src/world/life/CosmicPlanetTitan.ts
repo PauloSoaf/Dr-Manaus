@@ -32,6 +32,7 @@ export interface PlanetTitanState extends Target {
   readonly coreColor: number;
   readonly carapaceColor: number;
   readonly position: Vector3;
+  readonly renderPosition: Vector3;
   readonly velocity: Vector3;
   health: number;
   readonly maxHealth: number;
@@ -43,6 +44,9 @@ export interface PlanetTitanState extends Target {
   headingRad: number;
   enraged: boolean;
   roarTimer: number;
+  attackCooldown: number;
+  attackState: 'idle' | 'telegraph' | 'firing';
+  attackTimer: number;
   driftAngleRad: number;
   orbitCenter: Vector3;
   orbitRadiusM: number;
@@ -158,6 +162,14 @@ export class CosmicPlanetTitanManager {
     // Orbit: 11.2 AU (1.675e12 m) in deep solar orbit beyond Saturn
     const orbitRadiusM = 1.675e12;
     const driftAngleRad = 0.45;
+    const pos = new Vector3(
+      Math.cos(driftAngleRad) * orbitRadiusM,
+      Math.sin(driftAngleRad * 1.5) * (orbitRadiusM * 0.05),
+      Math.sin(driftAngleRad) * orbitRadiusM,
+    );
+
+    const saved = this.save?.getTitanRecord('titan-astral-leviathan-01');
+
     const titan1: PlanetTitanState = {
       id: 'titan-astral-leviathan-01',
       name: 'Leviatã Astral do Vácuo · Ouroboros Cósmico',
@@ -165,25 +177,25 @@ export class CosmicPlanetTitanManager {
       classification: 'astral-leviathan',
       radiusM: 120_000,
       radius: 120_000,
-      active: true,
+      active: saved ? (!saved.defeated && saved.health > 0) : true,
       coreColor: 0x00ffff,
       carapaceColor: 0x182433,
-      position: new Vector3(
-        Math.cos(driftAngleRad) * orbitRadiusM,
-        Math.sin(driftAngleRad * 1.5) * (orbitRadiusM * 0.05),
-        Math.sin(driftAngleRad) * orbitRadiusM,
-      ),
+      position: pos,
+      renderPosition: pos.clone(),
       velocity: new Vector3(),
-      health: 2_500_000,
+      health: saved ? saved.health : 2_500_000,
       maxHealth: 2_500_000,
-      shield: 1_500_000,
+      shield: saved ? saved.shield : 1_500_000,
       maxShield: 1_500_000,
       shieldCooldown: 0,
-      phase: 1,
+      phase: saved ? (saved.phase as 1 | 2 | 3) : 1,
       weakSpotHitCount: 0,
       headingRad: driftAngleRad + Math.PI * 0.5,
-      enraged: false,
+      enraged: saved ? saved.phase === 2 : false,
       roarTimer: 8.0,
+      attackCooldown: 10.0,
+      attackState: 'idle',
+      attackTimer: 0,
       driftAngleRad,
       orbitCenter: new Vector3(0, 0, 0),
       orbitRadiusM,
@@ -194,15 +206,22 @@ export class CosmicPlanetTitanManager {
   }
 
   get targets(): Target[] {
+    if (!this.root.visible) return [];
     const list: Target[] = [];
     for (const t of this.titans) {
       if (t.active && t.health > 0) {
-        list.push(t);
-        // Expose vulnerable core weak spot as distinct target
+        list.push({
+          id: t.id,
+          kind: 'creature',
+          position: t.renderPosition,
+          radius: t.radiusM,
+          active: true,
+        });
+        // Expose vulnerable core weak spot as distinct target in matching render coordinates
         list.push({
           id: 'planet-titan-core',
           kind: 'creature',
-          position: t.position,
+          position: t.renderPosition,
           radius: t.radiusM * 0.35,
           active: true,
         });
@@ -211,12 +230,30 @@ export class CosmicPlanetTitanManager {
     return list;
   }
 
+  get bossTelemetry(): { name: string; phase: number; health: number; maxHealth: number; shield: number; maxShield: number; enraged: boolean; distanceM: number } | null {
+    if (this.titans.length === 0) return null;
+    const t = this.titans[0];
+    if (!t.active || t.health <= 0 || !this.root.visible) return null;
+    return {
+      name: t.name,
+      phase: t.phase,
+      health: t.health,
+      maxHealth: t.maxHealth,
+      shield: t.shield,
+      maxShield: t.maxShield,
+      enraged: t.enraged,
+      distanceM: this.root.position.length(),
+    };
+  }
+
   update(
     dt: number,
     cameraOrRenderSpace: RenderSpaceService | Vector3,
     activeFrameId?: string,
     epochS?: number,
     solarSystem?: { positionOf(id: string): [number, number, number] | undefined },
+    playerRenderPos?: Vector3,
+    onPlayerDamage?: (damage: number, reason: string) => void,
   ): void {
     if (this.titans.length === 0) return;
     const titan = this.titans[0];
@@ -286,8 +323,9 @@ export class CosmicPlanetTitanManager {
         const proxyDist = 60_000;
         this.root.position.set(dirX * proxyDist, dirY * proxyDist, dirZ * proxyDist);
 
-        const theta = Math.atan2(titan.radiusM, dist);
-        const proxyR = Math.max(300, proxyDist * Math.tan(theta));
+        const theta = Math.asin(Math.min(1.0, titan.radiusM / Math.max(1, dist)));
+        const angularProxyR = proxyDist * Math.tan(theta);
+        const proxyR = Math.max(1.5, angularProxyR);
         this.coreMesh.visible = true;
         this.haloMesh.visible = true;
         this.carapaceMesh.visible = false;
@@ -311,12 +349,14 @@ export class CosmicPlanetTitanManager {
       renderY = titan.position.y - cameraOrRenderSpace.y;
       renderZ = titan.position.z - cameraOrRenderSpace.z;
       this.root.position.set(renderX, renderY, renderZ);
+      dist = Math.hypot(renderX, renderY, renderZ);
       const r = titan.radiusM;
       this.coreMesh.scale.set(r * 0.4, r * 0.4, r * 0.4);
       this.carapaceMesh.scale.set(r, r, r);
       this.haloMesh.scale.set(r * 1.8, r * 1.8, r * 1.8);
     }
 
+    titan.renderPosition.set(renderX, renderY, renderZ);
     this.root.visible = true;
     this.root.rotation.y = titan.headingRad;
 
@@ -330,14 +370,58 @@ export class CosmicPlanetTitanManager {
       this.coreMaterial.color.setHex(titan.coreColor);
       this.haloMaterial.color.setHex(0x5ae0e6);
     }
+
+    // Boss offensive behavior against player within cosmic combat range (2,500 km)
+    if (playerRenderPos && dist < 2_500_000) {
+      titan.attackCooldown -= dt;
+      if (titan.attackState === 'idle') {
+        if (titan.attackCooldown <= 0) {
+          titan.attackState = 'telegraph';
+          titan.attackTimer = 1.5;
+          this.sound?.('colossus-roar');
+          this.notify?.(titan.phase === 2
+            ? `ALERTA DE SUPERNOVA · [${titan.name}] canaliza pulso destrutivo de plasma! Desvie!`
+            : `AVISO DE COMBATE · [${titan.name}] mira Raio do Vácuo Cósmico em sua direção!`);
+        }
+      } else if (titan.attackState === 'telegraph') {
+        titan.attackTimer -= dt;
+        this.coreMaterial.color.setHex(titan.phase === 2 ? 0xff1100 : 0xff00ff);
+        if (titan.attackTimer <= 0) {
+          titan.attackState = 'firing';
+          titan.attackTimer = 0.5;
+          this.sound?.('energy');
+          const dmg = titan.phase === 2 ? 300 : 160;
+          onPlayerDamage?.(dmg, titan.phase === 2 ? 'Supernova Solar' : 'Raio do Vácuo Astral');
+          this.notify?.(`IMPACTO CÓSMICO · O ataque de [${titan.name}] atingiu sua blindagem! (-${dmg} HP)`);
+        }
+      } else if (titan.attackState === 'firing') {
+        titan.attackTimer -= dt;
+        if (titan.attackTimer <= 0) {
+          titan.attackState = 'idle';
+          titan.attackCooldown = titan.phase === 2 ? 6.0 : 12.0;
+        }
+      }
+    }
   }
 
-  hit(targetId: string, force: number, impulse: number): boolean {
+  hit(targetId: string, force: number, impulse: number, hitRayOrigin?: Vector3): boolean {
     const titan = this.titans.find(t => t.id === targetId || targetId === 'planet-titan' || targetId === 'planet-titan-core');
     if (!titan || !titan.active || titan.health <= 0) return false;
 
     titan.shieldCooldown = 15.0; // Reset shield cooldown on hit
-    const isWeakSpot = targetId === 'planet-titan-core';
+    let isWeakSpot = targetId === 'planet-titan-core';
+
+    // If attacking from behind the dorsal armored carapace and shield is up, the core is protected
+    if (isWeakSpot && hitRayOrigin && titan.shield > 0) {
+      const headingVec = new Vector3(Math.cos(titan.headingRad), 0, Math.sin(titan.headingRad));
+      const toAttacker = new Vector3().subVectors(hitRayOrigin, titan.renderPosition).normalize();
+      const dot = headingVec.dot(toAttacker);
+      // dot < -0.2 means attacker is behind the titan's dorsal shell
+      if (dot < -0.2) {
+        isWeakSpot = false;
+        this.notify?.(`CARAPAÇA DORSAL REPELIU O IMPACTO · O núcleo estelar de [${titan.name}] está protegido! Flanqueie o titã pela frente.`);
+      }
+    }
 
     // Cosmic damage scaling: normal player force (25-150) scaled for planetary scale
     const cosmicDamage = (force < 1000 ? force * 1000 : force) * (isWeakSpot ? 3.0 : 1.0);
@@ -385,7 +469,16 @@ export class CosmicPlanetTitanManager {
       titan.phase = 3;
       this.notify?.(`VITÓRIA CÓSMICA · O Leviatã Planetário [${titan.name}] entrou em dormência cósmica.`);
       this.sound?.('planet-crack');
+      this.save?.recordColossusDefeat(titan.id);
     }
+
+    // Persist status to SaveManager
+    this.save?.saveTitanRecord(titan.id, {
+      health: titan.health,
+      shield: titan.shield,
+      phase: titan.phase,
+      defeated: titan.health <= 0,
+    });
 
     return true;
   }

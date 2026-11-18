@@ -17,7 +17,7 @@ import type { UniversalTargetDescriptor } from '../world/travel/UniversalNavigat
 import { travelCapabilityLabel, type ResolvedUniversalTarget } from '../world/travel/UniversalTargetResolver';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string,source?:NavigationLock['source'])=>string|undefined|void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void; atlas?: import('../world/exploration/CosmicAtlasModel').CosmicAtlasModel; }
 export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; bossStatus?: { name: string; phase: number; health: number; maxHealth: number; shield: number; maxShield: number; enraged: boolean; distanceM?: number } | null; }
 
 /** The body close enough to be a place rather than a point of light. */
 export interface HUDNearbyBody {
@@ -460,12 +460,38 @@ export class HUD {
       } else if (state.nearbyBody?.id === 'sun' || flight?.targetBodyId === 'sun') {
         hintEl.innerHTML = `<kbd>F</kbd> Pousar/Decolar Fotosfera <i></i><kbd>C</kbd> Escala Cósmica <i></i><kbd>Scroll</kbd>/<kbd>B</kbd> Warp <i></i><kbd>Q</kbd>/<kbd>X</kbd> Freio <i></i><kbd>P</kbd> Piloto`;
       } else {
-        hintEl.innerHTML = `<kbd>C</kbd> Escala Cósmica <i></i><kbd>Scroll</kbd>/<kbd>B</kbd> Warp <i></i><kbd>Q</kbd> Freio <i></i><kbd>X</kbd> Freio Emergência <i></i><kbd>F</kbd> Pousar <i></i><kbd>P</kbd> Piloto`;
+        hintEl.innerHTML = `<kbd>N</kbd> Scanner <i></i><kbd>C</kbd> Escala Cósmica <i></i><kbd>Scroll</kbd>/<kbd>B</kbd> Warp <i></i><kbd>Q</kbd>/<kbd>X</kbd> Freio <i></i><kbd>F</kbd> Pousar <i></i><kbd>P</kbd> Piloto`;
       }
     } else if (state.district === 'FOTOSFERA') {
       hintEl.innerHTML = `<kbd>F</kbd> Levitar <i></i><kbd>Espaço + Shift</kbd> Decolar p/ Espaço <i></i><kbd>W A S D</kbd> Mover`;
     } else {
       hintEl.textContent = state.hint;
+    }
+
+    const boss = state.bossStatus;
+    if (typeof document !== 'undefined') {
+      let bossEl = document.getElementById('boss-health-bar');
+      if (boss && (boss.distanceM === undefined || boss.distanceM < 3_000_000)) {
+        if (!bossEl) {
+          bossEl = document.createElement('div');
+          bossEl.id = 'boss-health-bar';
+          bossEl.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);width:min(90vw,540px);background:rgba(10,15,25,0.85);border:1px solid rgba(0,240,255,0.4);border-radius:6px;padding:8px 12px;z-index:90;font-family:monospace;box-shadow:0 0 15px rgba(0,240,255,0.2);';
+          document.body.appendChild(bossEl);
+        }
+        const shieldPct = Math.max(0, Math.min(100, (boss.shield / boss.maxShield) * 100));
+        const hpPct = Math.max(0, Math.min(100, (boss.health / boss.maxHealth) * 100));
+        bossEl.innerHTML = `
+          <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:bold;color:${boss.phase === 2 ? '#ff4400' : '#00f0ff'};letter-spacing:1px;margin-bottom:4px;">
+            <span>${boss.name.toUpperCase()} · FASE ${boss.phase}</span>
+            <span style="color:#f59e0b">${boss.shield <= 0 ? '⚠ NÚCLEO EXPOSTO' : 'ESCUDO ASTRAL'}</span>
+          </div>
+          ${boss.shield > 0 ? `<div style="width:100%;height:5px;background:#1e293b;border-radius:3px;margin-bottom:4px;overflow:hidden;"><div style="width:${shieldPct}%;height:100%;background:linear-gradient(90deg,#00f0ff,#5ae0e6);transition:width 0.2s;"></div></div>` : ''}
+          <div style="width:100%;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;"><div style="width:${hpPct}%;height:100%;background:linear-gradient(90deg,#ef4444,#f59e0b);transition:width 0.2s;"></div></div>
+        `;
+        bossEl.style.display = 'block';
+      } else if (bossEl) {
+        bossEl.style.display = 'none';
+      }
     }
     const tierLabel=$('#flight-tier-label');tierLabel.textContent=state.flightLabel??'';tierLabel.hidden=!state.flightLabel;
     for(const badge of document.querySelectorAll<HTMLElement>('#flight-modes b')){const mode=badge.dataset.mode!;badge.classList.toggle('on',mode===state.speedMode);badge.classList.toggle('armed',(mode==='mega'&&state.megaMode&&state.speedMode!=='mega')||(mode==='interplanetary'&&state.interplanetaryMode&&state.speedMode!=='interplanetary'));}

@@ -13,6 +13,12 @@ const RANGES: Record<string, readonly [number, number]> = {
   masterVolume: [0, 1], ambienceVolume: [0, 1], effectsVolume: [0, 1],
   fov: [50, 95], sensitivity: [.2, 3],
 };
+export interface TitanSaveRecord {
+  health: number;
+  shield: number;
+  phase: number;
+  defeated: boolean;
+}
 export interface SaveData {
   version: number;
   discovered: string[];
@@ -27,6 +33,7 @@ export interface SaveData {
   factionReputations?: Record<string, number>;
   discoveredRuins?: string[];
   defeatedColossi?: string[];
+  titans?: Record<string, TitanSaveRecord>;
 }
 const defaults = (): SaveData => ({
   version: 1,
@@ -238,6 +245,14 @@ export class SaveManager {
     this.data.defeatedColossi.push(colossusId);
     this.save();
     return true;
+  }
+  getTitanRecord(titanId: string): TitanSaveRecord | undefined {
+    return this.data.titans?.[titanId];
+  }
+  saveTitanRecord(titanId: string, record: TitanSaveRecord): void {
+    if (!this.data.titans) this.data.titans = {};
+    this.data.titans[titanId] = { ...record };
+    this.save();
   }
   reset() { this.data = defaults(); this.save(); }
 }

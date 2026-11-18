@@ -179,6 +179,8 @@ export class CosmicSpeciesScanner {
     titans?: readonly PlanetTitanState[],
     biosphere?: PlanetaryBiosphereProfile,
     maxRangeM = 75,
+    flora?: readonly { archetype: FloraArchetype; position: Vector3 }[],
+    activeFrameId?: string,
   ): SpeciesScanResult | null {
     const normRay = rayDirection.clone().normalize();
 
@@ -222,18 +224,65 @@ export class CosmicSpeciesScanner {
       }
     }
 
-    // 2. Check cosmic titans and astral leviathans in deep space / orbit
+    // 2. Check alien flora specimens within aim cone
+    if (flora && flora.length > 0) {
+      let bestFlora: { archetype: FloraArchetype; position: Vector3 } | null = null;
+      let bestDistance = maxRangeM;
+      let bestDot = 0.94;
+
+      for (const f of flora) {
+        this.toTarget.subVectors(f.position, rayOrigin);
+        const dist = this.toTarget.length();
+        if (dist > maxRangeM || dist < 0.5) continue;
+
+        this.toTarget.normalize();
+        const dot = normRay.dot(this.toTarget);
+        if (dot > bestDot && dist < bestDistance) {
+          bestDot = dot;
+          bestDistance = dist;
+          bestFlora = f;
+        }
+      }
+
+      if (bestFlora) {
+        const bodyId = biosphere?.bodyId ?? 'active_body';
+        const profile = CosmicSpeciesScanner.resolveFloraProfile(bodyId, bestFlora.archetype, biosphere);
+        const isNew = this.saveManager ? !this.saveManager.isSpeciesDiscovered(profile.speciesId) : true;
+        if (isNew && this.saveManager) {
+          this.saveManager.discoverSpecies(profile.speciesId);
+        }
+
+        return {
+          profile,
+          distanceM: bestDistance,
+          worldPosition: bestFlora.position.clone(),
+          isNewDiscovery: isNew,
+        };
+      }
+    }
+
+    // 3. Check cosmic titans and astral leviathans in deep space / orbit
     if (titans && titans.length > 0) {
+      // System isolation: Do not scan solar titan from outside the solar system
+      if (activeFrameId && activeFrameId !== 'solar-system/barycentric') {
+        return null;
+      }
+
       for (const t of titans) {
         if (!t.active || t.health <= 0) continue;
-        this.toTarget.subVectors(t.position, rayOrigin);
+        const titanPos = t.renderPosition ?? t.position;
+        this.toTarget.subVectors(titanPos, rayOrigin);
         const dist = this.toTarget.length();
         if (dist < 10) continue;
         this.toTarget.normalize();
         const dot = normRay.dot(this.toTarget);
 
-        // Titan is 120km radius; aim cone valid within generous optical range
-        if (dot > 0.82 && dist < t.radiusM * 100) {
+        // Angular radius of the titan: theta = asin(R / dist)
+        const angularRadius = Math.asin(Math.min(1.0, t.radiusM / Math.max(1, dist)));
+        const cosCone = Math.cos(Math.max(0.04, angularRadius * 1.25));
+
+        // Aim cone valid if dot >= cosCone (pointing at the visible titan body)
+        if (dot >= cosCone && dist < 5_000_000_000) {
           const profile = CosmicSpeciesScanner.resolveTitanProfile(t.id, t.name, t.classification);
           const isNew = this.saveManager ? !this.saveManager.isSpeciesDiscovered(profile.speciesId) : true;
           if (isNew && this.saveManager) {
@@ -243,7 +292,7 @@ export class CosmicSpeciesScanner {
           return {
             profile,
             distanceM: dist,
-            worldPosition: t.position.clone(),
+            worldPosition: titanPos.clone(),
             isNewDiscovery: isNew,
           };
         }

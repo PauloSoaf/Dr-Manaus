@@ -118,7 +118,17 @@ export class PlanetaryRupturePresentation {
     const coreGeo = new SphereGeometry(1, 24, 16);
     this.coreSphere = new Mesh(
       coreGeo,
-      new MeshBasicMaterial({ color: 0xffaa22, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false })
+      new MeshStandardMaterial({
+        color: 0xff4400,
+        emissive: 0xffaa22,
+        emissiveIntensity: 1.8,
+        roughness: 0.3,
+        metalness: 0.1,
+        transparent: true,
+        opacity: 0.9,
+        blending: AdditiveBlending,
+        depthWrite: false,
+      })
     );
     this.coreGroup.add(this.coreSphere);
 
@@ -163,7 +173,7 @@ export class PlanetaryRupturePresentation {
     );
     const coreSphere = new Mesh(
       this.coreSphere.geometry,
-      (this.coreSphere.material as MeshBasicMaterial).clone()
+      (this.coreSphere.material as MeshStandardMaterial).clone()
     );
     const shockwaveSphere = new Mesh(
       this.shockwaveSphere.geometry,
@@ -377,7 +387,7 @@ export class PlanetaryRupturePresentation {
         this.updateCrustChunks(session, pos, R, driftDist, 1.0 + progress);
         coreSphere.position.copy(pos);
         coreSphere.scale.setScalar(R * (0.95 + progress * 0.3));
-        (coreSphere.material as MeshBasicMaterial).opacity = Math.max(0, 0.85 - progress * 0.4);
+        (coreSphere.material as MeshStandardMaterial).opacity = Math.max(0, 0.85 - progress * 0.4);
       }
       // Phase 6: Expanding shockwave shell (6.0s - 7.0s)
       else if (t < 7.0) {

@@ -501,11 +501,13 @@ export class PowerSystem {
     let best: Target | null = null, bestScore = Infinity;
     for (const target of this.hooks.targets()) {
       if (!target.active) continue;
+      const isCosmic = target.radius >= 10000;
+      const effectiveMaxDist = isCosmic ? Math.max(maxDistance, 2_500_000) : maxDistance;
       this.offset.subVectors(target.position, this.rayOrigin);
       const distance = this.offset.dot(this.rayDirection);
-      if (distance <= 1 || distance > maxDistance) continue;
+      if (distance <= 1 || distance > effectiveMaxDist) continue;
       const perpendicularSq = Math.max(0, this.offset.lengthSq() - distance * distance);
-      const tolerance = target.radius + 1.5 + distance * 0.045;
+      const tolerance = target.radius + (isCosmic ? target.radius * 0.15 : 1.5 + distance * 0.045);
       if (perpendicularSq > tolerance * tolerance) continue;
       const score = perpendicularSq / (distance * distance) + distance * 0.000001;
       if (score < bestScore) { bestScore = score; best = target; }
@@ -538,26 +540,44 @@ export class PowerSystem {
     this.laser.visible=this.laserActive&&this.input.enabled&&!this.teleporting;
     this.laserGlow.visible=this.laser.visible;this.laserImpact.visible=false;this.laserRing.visible=false;
     if(!this.laser.visible)return;
-    const hit=this.aimBeam(Math.max(1600,this.player.size*24));
-    this.offset.subVectors(this.aimPoint,this.emission);const length=this.offset.length();
-    this.laser.position.copy(this.emission).addScaledVector(this.offset,.5);
-    this.laser.quaternion.setFromUnitVectors(this.laserAxis,this.offset.normalize());
-    const width=.07*this.player.size;this.laser.scale.set(width,length,width);
-    const pulse=1+Math.sin(this.time*32)*.12;
-    this.laserGlow.position.copy(this.laser.position);this.laserGlow.quaternion.copy(this.laser.quaternion);this.laserGlow.scale.set(width*3*pulse,length,width*3*pulse);
-    this.laserImpact.visible=this.laserRing.visible=!!hit;
-    if(hit){
-      this.laserImpact.position.copy(this.aimPoint);this.laserImpact.scale.setScalar(Math.max(.35,width*3.5)*pulse);
-      this.laserRing.position.copy(this.aimPoint);this.laserRing.quaternion.copy(this.laser.quaternion);this.laserRing.rotateX(Math.PI/2);
-      this.laserRing.scale.setScalar(Math.max(.8,width*6)*(1+(this.time*3)%1));
-      (this.laserRing.material as MeshBasicMaterial).opacity=.7*(1-(this.time*3)%1);
+    const cosmicTarget = this.acquireTarget(2_500_000);
+    const isCosmic = cosmicTarget !== null && cosmicTarget.radius >= 10000;
+    const reach = isCosmic ? Math.min(2_500_000, cosmicTarget.position.distanceTo(this.player.position) + cosmicTarget.radius * 1.5) : Math.max(1600, this.player.size * 24);
+    const hit = this.aimBeam(reach);
+    if (isCosmic && !hit) {
+      const distAlong = this.offset.subVectors(cosmicTarget.position, this.emission).dot(this.rayDirection);
+      const perpSq = Math.max(0, this.offset.lengthSq() - distAlong * distAlong);
+      const halfChord = Math.sqrt(Math.max(0, cosmicTarget.radius * cosmicTarget.radius - perpSq));
+      const contactDist = Math.max(10, distAlong - halfChord);
+      this.aimPoint.copy(this.emission).addScaledVector(this.rayDirection, contactDist);
     }
-    this.player.powerPose('energy',.15);this.laserTick-=dt;
-    if(this.laserTick<=0){
-      this.laserTick=.1;
-      if(hit)this.hooks.damage?.(this.aimPoint,3*Math.pow(this.player.size,.7),220*this.player.size);
-      const target = this.acquireTarget(Math.max(1600, this.player.size * 24));
-      if (target && target.position.distanceTo(this.aimPoint) < target.radius + 3) {
+    this.offset.subVectors(this.aimPoint, this.emission);
+    const length = this.offset.length();
+    this.laser.position.copy(this.emission).addScaledVector(this.offset, 0.5);
+    this.laser.quaternion.setFromUnitVectors(this.laserAxis, this.offset.clone().normalize());
+    const width = (isCosmic ? 2.5 : 0.07) * this.player.size;
+    this.laser.scale.set(width, length, width);
+    const pulse = 1 + Math.sin(this.time * 32) * 0.12;
+    this.laserGlow.position.copy(this.laser.position);
+    this.laserGlow.quaternion.copy(this.laser.quaternion);
+    this.laserGlow.scale.set(width * 3 * pulse, length, width * 3 * pulse);
+    this.laserImpact.visible = this.laserRing.visible = !!hit || isCosmic;
+    if (hit || isCosmic) {
+      this.laserImpact.position.copy(this.aimPoint);
+      this.laserImpact.scale.setScalar(Math.max(0.35, width * 3.5) * pulse);
+      this.laserRing.position.copy(this.aimPoint);
+      this.laserRing.quaternion.copy(this.laser.quaternion);
+      this.laserRing.rotateX(Math.PI / 2);
+      this.laserRing.scale.setScalar(Math.max(0.8, width * 6) * (1 + (this.time * 3) % 1));
+      (this.laserRing.material as MeshBasicMaterial).opacity = 0.7 * (1 - (this.time * 3) % 1);
+    }
+    this.player.powerPose('energy', 0.15);
+    this.laserTick -= dt;
+    if (this.laserTick <= 0) {
+      this.laserTick = 0.1;
+      if (hit) this.hooks.damage?.(this.aimPoint, 3 * Math.pow(this.player.size, 0.7), 220 * this.player.size);
+      const target = isCosmic ? cosmicTarget : this.acquireTarget(Math.max(1600, this.player.size * 24));
+      if (target && (isCosmic || target.position.distanceTo(this.aimPoint) < target.radius + 3)) {
         this.hooks.hit(target.id, 25 * this.player.size);
       }
     }
@@ -568,20 +588,33 @@ export class PowerSystem {
     this.player.powerPose('energy', 0.3);
     const power = this.player.size;
     const target = this.acquireTarget();
-    const surface = this.aimBeam(Math.max(1600,this.player.size*24));
+    const isCosmic = target !== null && target.radius >= 10000;
+    const reach = isCosmic ? Math.min(2_500_000, target.position.distanceTo(this.player.position) + target.radius * 1.5) : Math.max(1600, this.player.size * 24);
+    const surface = this.aimBeam(reach);
     let collapsed = 0;
     // A generous aim cone helps target small airborne anomalies in third person.
-    if (target && this.offset.subVectors(target.position,this.emission).dot(this.rayDirection)>this.player.size*.05 && (!surface || target.position.distanceTo(this.emission) < surface.distance + target.radius + 3)) {
-      this.aimPoint.copy(target.position); this.hooks.hit(target.id, 38 * power); this.targetId = target.id;
+    if (target && this.offset.subVectors(target.position, this.emission).dot(this.rayDirection) > this.player.size * 0.05 && (!surface || target.position.distanceTo(this.emission) < surface.distance + target.radius + 3)) {
+      if (isCosmic) {
+        const distAlong = this.offset.dot(this.rayDirection);
+        const perpSq = Math.max(0, this.offset.lengthSq() - distAlong * distAlong);
+        const halfChord = Math.sqrt(Math.max(0, target.radius * target.radius - perpSq));
+        const contactDist = Math.max(10, distAlong - halfChord);
+        this.aimPoint.copy(this.emission).addScaledVector(this.rayDirection, contactDist);
+      } else {
+        this.aimPoint.copy(target.position);
+      }
+      this.hooks.hit(target.id, 38 * power);
+      this.targetId = target.id;
     } else {
       // aimBeam already resolved the hit from the hand.
       // Only a beam that actually lands on a surface can cut into it; a shot at the sky does not.
-      if (surface) collapsed = this.hooks.damage?.(this.aimPoint, DESTRUCTION.beamRadius * Math.pow(power,.7), DESTRUCTION.beamDamage * power) ?? 0;
+      if (surface) collapsed = this.hooks.damage?.(this.aimPoint, DESTRUCTION.beamRadius * Math.pow(power, 0.7), DESTRUCTION.beamDamage * power) ?? 0;
     }
-    this.effects.beam(this.emission, this.aimPoint, Math.pow(power,.6) * DESTRUCTION.beamThickness, 0x89ffe1, surface?1:0);
-    this.effects.burst(this.aimPoint, 0xb6ffe7, Math.sqrt(power) * (1 + Math.min(3,collapsed) * 0.3), 18 + collapsed * 8);
+    const beamThickness = isCosmic ? Math.max(DESTRUCTION.beamThickness, 8.0) : Math.pow(power, 0.6) * DESTRUCTION.beamThickness;
+    this.effects.beam(this.emission, this.aimPoint, beamThickness, 0x89ffe1, surface ? 1 : 0);
+    this.effects.burst(this.aimPoint, 0xb6ffe7, Math.sqrt(power) * (1 + Math.min(3, collapsed) * 0.3) * (isCosmic ? 15 : 1), 18 + collapsed * 8);
     this.hooks.sound('energy');
-    if (collapsed > 0) this.reportCollapse(collapsed, Math.min(2,0.55 * power));
+    if (collapsed > 0) this.reportCollapse(collapsed, Math.min(2, 0.55 * power));
   }
 
   /** Held fire can level a block a second; the shake and the notice are rate limited, not the beam. */
