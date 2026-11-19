@@ -1156,6 +1156,10 @@ export class Game {
       this.hazardAlertTimer = 0;
     }
 
+    if (this.water && dominantBodyId === 'earth') {
+      this.water.update(dt, this.lastTime * 0.001);
+    }
+
     const viewportHeight = this.rendering.renderer.domElement.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 1080);
     this.galaxyMaterializer?.update(
       [this.rendering.camera.position.x, this.rendering.camera.position.y, this.rendering.camera.position.z],

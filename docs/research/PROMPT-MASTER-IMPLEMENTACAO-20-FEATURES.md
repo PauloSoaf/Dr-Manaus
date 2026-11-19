@@ -325,3 +325,4 @@ Tarefas Mão na Massa:
 3. Implemente salvamento automático a cada 60 segundos com suporte a exportação/importação de arquivo local .drmanaus.
 4. Valide npx tsc --noEmit, execute npm run build e certifique-se de que o jogo completo funciona com fluidez cinematográfica a 60 FPS.
 ```
+

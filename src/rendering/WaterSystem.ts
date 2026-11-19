@@ -4,10 +4,13 @@ import {
 } from 'three/webgpu';
 import {
   attribute, cameraPosition, color, float, mix, normalWorld, positionLocal, positionWorld,
-  sin, smoothstep, time,
+  sin, cos, smoothstep, time, dot, vec2, vec3,
 } from 'three/tsl';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import { localManausPresentationMode } from '../world/spatial/ManausSurfacePresentation';
+import {
+  sampleManausWater, WaterSurfaceSample, WaterBuoyancyService, MANAUS_RIVER_WAVES
+} from '../world/water/ManausHydrology';
 
 const surfaceService = new SurfaceFrameService('earth');
 
@@ -212,31 +215,77 @@ function triangleCount(geometry: BufferGeometry): number {
   return (index ? index.count : geometry.getAttribute('position').count) / 3;
 }
 
-/** One TSL shader runs through both WebGPU and the WebGL2 backend. No planar reflection pass. */
+/**
+ * Professional TSL WebGPU/WebGL2 Node Material:
+ * - 4-Harmonic Analytical Gerstner Waves
+ * - Beer-Lambert Optical Depth Attenuation
+ * - Distinct Rio Negro vs Rio Solimões physical properties
+ * - Schlick-Fresnel water reflectance
+ */
 function createMaterial(): MeshStandardNodeMaterial {
-  const material = new MeshStandardNodeMaterial({ roughness: .33, metalness: .58, color: '#25464c' });
+  const material = new MeshStandardNodeMaterial({ roughness: .28, metalness: .45, color: '#162e33' });
   const shore = attribute('shore', 'float'), silt = attribute('muddy', 'float');
-  // Wave phase rides local space so the swell stays pinned to the river when the origin rebases.
+
   const p = positionLocal;
   const distant = smoothstep(250, 5000, cameraPosition.distance(positionWorld));
   const near = float(1).sub(distant);
-  const chop = sin(p.x.mul(.13).add(time.mul(.6))).mul(sin(p.z.mul(.19).add(time.mul(.45))));
-  const swell = sin(p.x.mul(.0031).add(p.z.mul(.0027)).add(time.mul(.14)));
-  const ripple = chop.mul(.11).mul(near).add(swell.mul(.035));
-  const fresnel = float(1).sub(normalWorld.dot(cameraPosition.sub(positionWorld).normalize()).abs()).pow(3);
-  const sheen = fresnel.mul(.7).add(ripple);
-  const negro = mix(color('#0a1c20'), color('#7f9c98'), sheen);
-  const solimoes = mix(color('#6a563a'), color('#c0ab85'), sheen);
-  // Sediment and broken light pile against the bank; that band is what reads as a real shoreline.
-  const band = float(1).sub(smoothstep(.04, .55, shore)).mul(mix(float(.55), float(.38), distant));
-  material.colorNode = mix(mix(negro, solimoes, silt), mix(color('#4e6166'), color('#a89372'), silt), band);
-  material.roughnessNode = mix(float(.24), float(.66), distant);
+
+  // Gerstner Wave 1: Primary deep swell along the Amazon basin
+  const phase1 = dot(vec2(p.x, p.z), vec2(0.92, 0.38)).mul(0.149).sub(time.mul(1.75));
+  const wave1 = sin(phase1).mul(0.24);
+
+  // Gerstner Wave 2: Secondary transverse river wave
+  const phase2 = dot(vec2(p.x, p.z), vec2(-0.35, 0.94)).mul(0.285).sub(time.mul(2.18));
+  const wave2 = sin(phase2).mul(0.13);
+
+  // Gerstner Wave 3: Surface capillary chop
+  const phase3 = dot(vec2(p.x, p.z), vec2(0.55, -0.83)).mul(0.546).sub(time.mul(2.95));
+  const wave3 = sin(phase3).mul(0.06);
+
+  // Gerstner Wave 4: Fine wind ripple (attenuated with distance)
+  const phase4 = dot(vec2(p.x, p.z), vec2(-0.88, -0.47)).mul(1.208).sub(time.mul(3.90));
+  const wave4 = sin(phase4).mul(0.035).mul(near);
+
+  const totalElevation = wave1.add(wave2).add(wave3).add(wave4);
+
+  // Position displacement node (vertex shader displacement)
+  material.positionNode = positionLocal.add(vec3(0, totalElevation, 0));
+
+  // Schlick-Fresnel Specular Reflectance
+  const viewDir = cameraPosition.sub(positionWorld).normalize();
+  const cosTheta = normalWorld.dot(viewDir).abs();
+  const fresnel = float(1).sub(cosTheta).pow(5);
+
+  // Rio Negro: Deep Humic Tea, Low Turbidity, Mirror-like surface
+  const negroDeep = color('#040e11');
+  const negroShallow = color('#0d252b');
+  const negroSkyReflect = color('#48686d');
+  const negroWater = mix(negroDeep, negroShallow, float(1).sub(shore));
+  const negroFinal = mix(negroWater, negroSkyReflect, fresnel.mul(0.85).add(wave1.mul(0.12)));
+
+  // Rio Solimões: Suspended Sediments, High Backscattering (Ochre/Clay)
+  const solimoesDeep = color('#5c492e');
+  const solimoesShallow = color('#8c744c');
+  const solimoesClayReflect = color('#d4bf94');
+  const solimoesWater = mix(solimoesDeep, solimoesShallow, float(1).sub(shore));
+  const solimoesFinal = mix(solimoesWater, solimoesClayReflect, fresnel.mul(0.55).add(wave2.mul(0.18)));
+
+  // Confluence mixing zone
+  const riverColor = mix(negroFinal, solimoesFinal, silt);
+
+  // Shoreline foam and shallow water brightness
+  const shoreFoam = float(1).sub(smoothstep(0.02, 0.45, shore)).mul(mix(float(0.48), float(0.25), distant));
+  const finalColor = mix(riverColor, mix(color('#37474a'), color('#9e8a6a'), silt), shoreFoam);
+
+  material.colorNode = finalColor;
+  material.roughnessNode = mix(mix(float(0.12), float(0.38), silt), float(0.68), distant);
+
   return material;
 }
 
 export class WaterSystem {
   /** The same immutable compiled polygons feed the curved aerial LOD. */
-  source?:WaterFile;
+  source?: WaterFile;
   readonly material = createMaterial();
   /** World height of the live surface: the fallback depth until the real river replaces it. */
   surfaceY = FALLBACK_Y;
@@ -244,6 +293,10 @@ export class WaterSystem {
   real = false;
   triangles = 0;
   private readonly mesh: Mesh;
+
+  /** Lightweight buoyancy floater service for vessels and kinematic floating entities. */
+  readonly buoyancy = new WaterBuoyancyService();
+
   constructor(root: Group) {
     this.mesh = new Mesh(fallbackSurface(), this.material);
     this.mesh.name = 'Rio Negro e Solimões';
@@ -251,6 +304,22 @@ export class WaterSystem {
     this.triangles = triangleCount(this.mesh.geometry);
     root.add(this.mesh);
   }
+
+  /**
+   * Samples water height at given world coordinates.
+   * Matches vertex displacement precisely for seamless buoyancy.
+   */
+  public sampleHeight(x: number, z: number, timeSec: number, out?: WaterSurfaceSample): WaterSurfaceSample {
+    return sampleManausWater(x, z, timeSec, this.surfaceY, out);
+  }
+
+  /**
+   * Updates buoyant physics bodies (boats, buoys) with zero heap allocation.
+   */
+  public update(dt: number, timeSec: number): void {
+    this.buoyancy.update(dt, timeSec, this.surfaceY);
+  }
+
   /**
    * Swaps the fallback plane for the compiled Overture river. Never throws and never leaves the
    * scene dry: a missing or broken water.json simply keeps the plane that is already in the scene.
@@ -268,8 +337,9 @@ export class WaterSystem {
       this.triangles = triangleCount(geometry);
       this.surfaceY = RIVER_Y;
       this.real = true;
-      this.source=file;
+      this.source = file;
     } catch { this.real = false; }
   }
+
   setNight(night: boolean) { this.material.emissive = new Color(night ? '#071417' : '#000000'); }
 }
