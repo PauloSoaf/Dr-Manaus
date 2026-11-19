@@ -905,6 +905,48 @@ export class AlienSettlementManager {
     }
   }
 
+  getNearbyInteractiveSettlement(playerPos: Vector3): AlienSettlementCluster | null {
+    for (const s of this.activeSettlements) {
+      if (playerPos.distanceTo(s.center) <= s.radiusM * 0.6 + 15) {
+        return s;
+      }
+    }
+    return null;
+  }
+
+  interact(playerPos: Vector3): { success: boolean; factionName?: string; message?: string; energyBonus?: number } {
+    const settlement = this.getNearbyInteractiveSettlement(playerPos);
+    if (!settlement) {
+      return { success: false };
+    }
+
+    if (settlement.disposition === 'friendly') {
+      this.save?.modifyFactionReputation(settlement.factionId, 5);
+      return {
+        success: true,
+        factionName: settlement.factionName,
+        message: `[DIPLOMACIA] A ${settlement.factionName} saúda o Protetor! Compartilhando dados estelares e recarga de energia.`,
+        energyBonus: 1.0,
+      };
+    } else if (settlement.disposition === 'neutral') {
+      this.save?.modifyFactionReputation(settlement.factionId, 10);
+      settlement.disposition = 'friendly';
+      return {
+        success: true,
+        factionName: settlement.factionName,
+        message: `[DIPLOMACIA] Tratado de cooperação estabelecido com ${settlement.factionName}! Reputação aprimorada.`,
+        energyBonus: 0.5,
+      };
+    } else {
+      this.mobilizeGuards(settlement.center, settlement.radiusM);
+      return {
+        success: false,
+        factionName: settlement.factionName,
+        message: `[ALERTA] ${settlement.factionName} recusa negociações e aciona defesas perimetrais!`,
+      };
+    }
+  }
+
   clear(): void {
     this.currentCell = '';
     this.activeSettlements.length = 0;

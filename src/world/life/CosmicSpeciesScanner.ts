@@ -12,8 +12,9 @@ import type { FloraArchetype } from './PlanetaryBiomeService';
 import type { CreatureEntity } from './AlienFaunaManager';
 import type { PlanetTitanState } from './CosmicPlanetTitan';
 import type { SaveManager } from '../../core/SaveManager';
+import { CURATED_JWST_NEBULAE, type JWSTNebulaRegion } from '../../rendering/JWSTCosmicPresentation';
 
-export type SpeciesCategory = 'fauna' | 'flora' | 'titan';
+export type SpeciesCategory = 'fauna' | 'flora' | 'titan' | 'cosmic-nebula';
 export type SpeciesDiet =
   | 'herbivore'
   | 'carnivore'
@@ -299,7 +300,43 @@ export class CosmicSpeciesScanner {
       }
     }
 
+    // 4. Check deep field JWST nebulae in deep space / celestial dome
+    for (const neb of CURATED_JWST_NEBULAE) {
+      const dot = normRay.dot(neb.direction);
+      if (dot >= Math.cos(neb.angularSizeRad * 1.5)) {
+        const profile = CosmicSpeciesScanner.resolveJWSTNebulaProfile(neb);
+        const isNew = this.saveManager ? !this.saveManager.isSpeciesDiscovered(profile.speciesId) : true;
+        if (isNew && this.saveManager) {
+          this.saveManager.discoverSpecies(profile.speciesId);
+        }
+        return {
+          profile,
+          distanceM: 7000 * 9.461e15, // ~7,000 light years in meters
+          worldPosition: neb.direction.clone().multiplyScalar(160000),
+          isNewDiscovery: isNew,
+        };
+      }
+    }
+
     return null;
+  }
+
+  /**
+   * Resolves authoritative profile for a curated JWST deep-field cosmic nebula.
+   */
+  static resolveJWSTNebulaProfile(neb: JWSTNebulaRegion): SpeciesProfile {
+    return {
+      speciesId: `drm:cosmic:jwst:${neb.type}`,
+      commonName: neb.name,
+      scientificName: 'Nebula interstellaris JWST',
+      category: 'cosmic-nebula',
+      originBodyId: 'deep_space',
+      morphology: neb.type,
+      diet: 'stellar-plasma',
+      temperament: 'astral-transcendent',
+      threatLevel: 1,
+      description: 'Formação estelar e nebulosa cósmica observada em alta resolução pelo Telescópio Espacial James Webb (NIRCam/MIRI). Composta por colunas densas de hidrogênio molecular, poeira interestelar e berçários de proto-estrelas.',
+    };
   }
 
   /**

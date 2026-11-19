@@ -19,8 +19,9 @@ export class PopulationManager {
   npcCount=24; reaction=0; vehicleCount=16;
   private props:InstancedMesh; private people:InstancedMesh; private heads:InstancedMesh;
   private dummy=new Object3D(); private color=new Color(); private cell=''; private elapsed=0;
+  private gaspCooldown = 0;
   private readonly surfaceService = new SurfaceFrameService('earth');
-  constructor(root:Group){
+  constructor(root:Group, private readonly onGasp?: () => void){
     this.props=new InstancedMesh(new BoxGeometry(1,1,1),new MeshStandardMaterial({color:'#ba8a56',roughness:.8}),48);
     this.people=new InstancedMesh(new CapsuleGeometry(.28,.9,3,6),new MeshStandardMaterial({roughness:.9}),NPC_CAPACITY);
     this.heads=new InstancedMesh(new SphereGeometry(.19,6,5),new MeshStandardMaterial({color:'#a07555'}),NPC_CAPACITY);
@@ -92,20 +93,33 @@ export class PopulationManager {
     if(body.position.y<=movedFloor){body.position.y=movedFloor;body.velocity.y=0;}
     const damp=Math.exp(-dt*2);body.velocity.x*=damp;body.velocity.z*=damp;
   }
-  update(dt:number,player:Vector3,size:number){
+  update(dt:number,player:Vector3,size:number,playerVelocity?:Vector3){
     this.seed(player);this.elapsed+=dt;this.reaction=Math.max(0,this.reaction-dt);this.colliders.length=0;
+    this.gaspCooldown=Math.max(0,this.gaspCooldown-dt);
     const curved = localManausPresentationMode() === 'curved';
+    const playerSpeed = playerVelocity ? playerVelocity.length() : 0;
+    const isSupersonicFlyby = playerSpeed > 28;
+
     for(const body of this.targets){
       const enabled=body.active&&Math.abs(player.y-body.position.y)<250;
-      if(enabled){this.advance(body,dt,.7);body.angle+=dt*body.velocity.length()*.07;this.colliders.push({x:body.position.x,y:body.position.y,z:body.position.z,width:1.2,height:1.4,depth:1.2,id:body.id,category:'fragile'});}
+      if(enabled){
+        if(isSupersonicFlyby&&Math.abs(player.y-body.position.y)<18&&Math.hypot(body.position.x-player.x,body.position.z-player.z)<18){
+          body.velocity.x+=playerVelocity!.x*0.02;body.velocity.z+=playerVelocity!.z*0.02;
+        }
+        this.advance(body,dt,.7);body.angle+=dt*body.velocity.length()*.07;this.colliders.push({x:body.position.x,y:body.position.y,z:body.position.z,width:1.2,height:1.4,depth:1.2,id:body.id,category:'fragile'});
+      }
       const renderPos = curved ? this.surfaceService.legacyPointToRenderLocal(body.position.x, body.position.y, body.position.z) : body.position;
       this.dummy.position.copy(renderPos);this.dummy.rotation.set(0,body.angle,0);this.dummy.scale.setScalar(enabled?1.2:0);this.dummy.updateMatrix();this.props.setMatrixAt(body.index,this.dummy.matrix);
     }
     for(const npc of this.npcs){
       const knocked=npc.state==='knocked'&&npc.timer>0;
       if(npc.active||knocked){
-        if(npc.state==='walking'&&(this.reaction>0||size>2)){
-          const dx=npc.position.x-player.x,dz=npc.position.z-player.z,d=Math.hypot(dx,dz);
+        const dx=npc.position.x-player.x,dz=npc.position.z-player.z,d=Math.hypot(dx,dz);
+        if(isSupersonicFlyby&&Math.abs(player.y-npc.position.y)<20&&d<26){
+          npc.state='fleeing';npc.timer=Math.max(npc.timer,3.5);
+          npc.velocity.set(dx/(d||1)*8+playerVelocity!.x*0.05,1.2,dz/(d||1)*8+playerVelocity!.z*0.05);
+          if(this.gaspCooldown<=0){this.onGasp?.();this.gaspCooldown=2.2;}
+        } else if(npc.state==='walking'&&(this.reaction>0||size>2)){
           if(d<80*size){npc.state='fleeing';npc.timer=2;npc.velocity.set(dx/(d||1)*10,0,dz/(d||1)*10);}
         }
         if(npc.state==='walking')npc.position.z=npc.base.z+Math.sin(this.elapsed*.07+npc.index)*38;

@@ -409,6 +409,81 @@ export class AudioManager {
       return;
     }
 
+    if (name === 'car-horn') {
+      // Dual-tone automotive horn: 420 Hz + 525 Hz (major third chord)
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc1.type = 'triangle';
+      osc2.type = 'triangle';
+      osc1.frequency.setValueAtTime(420, t);
+      osc2.frequency.setValueAtTime(525, t);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.28, t + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.effects);
+      osc1.start(t);
+      osc2.start(t);
+      osc1.stop(t + 0.22);
+      osc2.stop(t + 0.22);
+      osc1.onended = () => {
+        osc1.disconnect();
+        osc2.disconnect();
+        gain.disconnect();
+      };
+      return;
+    }
+
+    if (name === 'crowd-gasp') {
+      // Breathy crowd gasp / startled vocal formant
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(320, t);
+      osc.frequency.exponentialRampToValueAtTime(580, t + 0.12);
+      osc.frequency.exponentialRampToValueAtTime(260, t + 0.32);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.25, t + 0.04);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      osc.connect(gain);
+      gain.connect(this.effects);
+      osc.start(t);
+      osc.stop(t + 0.35);
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
+      return;
+    }
+
+    if (name === 'alien-comm') {
+      // Shimmering extraterrestrial diplomatic chime (crystal resonant 4-tone sequence)
+      const notes = [587.33, 739.99, 880.0, 1174.66]; // D5, F#5, A5, D6
+      const dur = 0.55;
+      const stepTime = dur / notes.length;
+      for (let i = 0; i < notes.length; i++) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        const noteStart = t + i * stepTime;
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(notes[i], noteStart);
+        gain.gain.setValueAtTime(0.0001, noteStart);
+        gain.gain.exponentialRampToValueAtTime(0.24, noteStart + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + stepTime * 1.5);
+        osc.connect(gain);
+        gain.connect(this.effects);
+        osc.start(noteStart);
+        osc.stop(noteStart + stepTime * 1.5);
+        osc.onended = () => {
+          osc.disconnect();
+          gain.disconnect();
+        };
+      }
+      return;
+    }
+
     // Default synthesis fallback for alarms, radiation, teleport, shockwaves, and discovery
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();

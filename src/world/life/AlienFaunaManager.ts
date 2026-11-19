@@ -442,6 +442,7 @@ export class AlienFaunaManager {
             c.targetCreatureId = closestPrey.id;
             c.targetPos.copy(closestPrey.position);
             c.timer = 6.0;
+            this.coordinatePackHunt(c, closestPrey, activeCreatures, 45);
             continue;
           }
         }
@@ -527,6 +528,28 @@ export class AlienFaunaManager {
           c.state = 'idle';
           const h3 = hashFauna(faunaSeed, c.index, this.aiTickCount * 3 + 3);
           c.timer = 2.0 + h3 * 3.0;
+        }
+      }
+    }
+  }
+
+  private coordinatePackHunt(leader: CreatureEntity, prey: CreatureEntity, creatures: CreatureEntity[], packRadiusM: number): void {
+    const rSq = packRadiusM * packRadiusM;
+    let flankerIndex = 0;
+    for (const mate of creatures) {
+      if (mate.id === leader.id || mate.state === 'defeated' || mate.state === 'knocked') continue;
+      if ((mate.role === 'carnivore' || mate.role === 'apex') && (mate.state === 'idle' || mate.state === 'patrolling')) {
+        if (mate.position.distanceToSquared(leader.position) <= rSq) {
+          mate.state = 'aggressive';
+          mate.targetCreatureId = prey.id;
+          mate.timer = 6.0;
+          flankerIndex++;
+          const flankAngle = leader.headingRad + (flankerIndex % 2 === 1 ? 0.85 : -0.85);
+          mate.targetPos.set(
+            prey.position.x + Math.sin(flankAngle) * 7.0,
+            prey.position.y,
+            prey.position.z + Math.cos(flankAngle) * 7.0,
+          );
         }
       }
     }

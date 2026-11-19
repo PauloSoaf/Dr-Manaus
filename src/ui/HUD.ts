@@ -17,7 +17,7 @@ import type { UniversalTargetDescriptor } from '../world/travel/UniversalNavigat
 import { travelCapabilityLabel, type ResolvedUniversalTarget } from '../world/travel/UniversalTargetResolver';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string,source?:NavigationLock['source'])=>string|undefined|void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void; atlas?: import('../world/exploration/CosmicAtlasModel').CosmicAtlasModel; }
 export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; bossStatus?: { name: string; phase: number; health: number; maxHealth: number; shield: number; maxShield: number; enraged: boolean; distanceM?: number } | null; }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; bossStatus?: { name: string; phase: number; health: number; maxHealth: number; shield: number; maxShield: number; enraged: boolean; distanceM?: number } | null; interactionPrompt?: string | null; }
 
 /** The body close enough to be a place rather than a point of light. */
 export interface HUDNearbyBody {
@@ -451,7 +451,9 @@ export class HUD {
     $('#mission-title').textContent=state.title;$('#mission-objective').textContent=state.objective;$('#mission-type').textContent=state.stage>=4?'EXPLORAÇÃO LIVRE':'CAPÍTULO 01';
     const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':(!localMissionActive?'(Fora do alcance de Manaus)':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`);
     const hintEl = $('#control-hint');
-    if (presentation.domain === 'orbital') {
+    if (state.interactionPrompt) {
+      hintEl.innerHTML = `<span style="color:#38bdf8;font-weight:bold"><kbd>Y</kbd> ${state.interactionPrompt}</span> <i></i> <kbd>N</kbd> Scanner`;
+    } else if (presentation.domain === 'orbital') {
       const flight = state.flight;
       if (flight?.proximityGatingActive) {
         hintEl.innerHTML = `<span style="color:#f59e0b"><kbd>Freio Proximidade</kbd> Reduza a marcha ou afaste-se do corpo</span>`;
