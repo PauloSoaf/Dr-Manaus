@@ -307,11 +307,24 @@ export function createProceduralPlanetSurface(
 
       case 'oceanic-rocky': {
         if (h === 0) {
-          // Liquid ocean
-          const depthNoise = valueNoise3D(d[0] * 4, d[1] * 4, d[2] * 4, baseSeed + 45);
-          const DEEP = [0.10, 0.28, 0.62];
-          const SHALLOW = [0.18, 0.45, 0.76];
-          for (let i = 0; i < 3; i++) out[i] = DEEP[i] + (SHALLOW[i] - DEEP[i]) * depthNoise;
+          // Liquid ocean with physical optical absorption (Beer-Lambert) and hydrothermal bathymetry
+          const depthNoise = valueNoise3D(d[0] * 5, d[1] * 5, d[2] * 5, baseSeed + 45);
+          const coastalShelf = valueNoise3D(d[0] * 12, d[1] * 12, d[2] * 12, baseSeed + 88);
+          // Absorption: deep water scatters deep indigo (#02122b); shallow reefs scatter turquoise (#186b8c)
+          const ABYSS = [0.015, 0.07, 0.17];
+          const DEEP = [0.06, 0.22, 0.48];
+          const SHELF = [0.12, 0.42, 0.68];
+          const REEF = [0.18, 0.58, 0.74];
+
+          if (depthNoise < 0.4) {
+            const s = depthNoise / 0.4;
+            for (let i = 0; i < 3; i++) out[i] = ABYSS[i] + (DEEP[i] - ABYSS[i]) * s;
+          } else {
+            const s = (depthNoise - 0.4) / 0.6;
+            const baseCol = DEEP.map((c, i) => c + (SHELF[i] - c) * s);
+            const reefMix = Math.max(0, coastalShelf - 0.5) * 2.0;
+            for (let i = 0; i < 3; i++) out[i] = baseCol[i] + (REEF[i] - baseCol[i]) * reefMix;
+          }
         } else {
           // Continental landmass
           const t = Math.max(0, Math.min(1, h / 6_000));

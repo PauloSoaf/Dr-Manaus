@@ -413,17 +413,21 @@ export class EarthGlobe {
     const daylight = smoothstep(-0.25, 0.15, incidence);
     const halo = ATMOSPHERE.mul(grazing.mul(daylight).mul(LIMB_GAIN));
 
-    // Single-material Ocean Fresnel and specular solar glint (03-EARTH-SURFACE-BIOMES-OCEAN-ICE.md):
+    // Single-material Ocean Fresnel and specular solar glint with Beer-Lambert absorption:
     // Ocean = 0, ShallowWater = 4; Land = 1, Ice = 2, Urban = 3 remain matte / high-roughness.
     const surfaceClassAttr = attribute('surfaceClass', 'float');
     const isWater = float(1).sub(smoothstep(0.1, 0.9, surfaceClassAttr))
       .add(smoothstep(3.5, 4.1, surfaceClassAttr)).clamp(0, 1);
-    const oceanFresnel = ATMOSPHERE.mul(grazing.mul(isWater).mul(daylight).mul(0.08));
+    const oceanFresnel = ATMOSPHERE.mul(grazing.mul(isWater).mul(daylight).mul(0.14));
     const halfDir = toCamera.add(this.uSun).normalize();
     const specDot = normalWorld.dot(halfDir).max(0);
-    const sunGlint = SUN_GLINT.mul(specDot.pow(48.0).mul(smoothstep(0.0, 0.25, incidence)).mul(isWater).mul(0.35));
+    const sunGlint = SUN_GLINT.mul(specDot.pow(56.0).mul(smoothstep(0.0, 0.25, incidence)).mul(isWater).mul(0.42));
 
-    material.colorNode = lit.add(halo).add(oceanFresnel).add(sunGlint);
+    // Beer-Lambert oceanic absorption: deep waters darken exponentially, coastal waters reflect lighter cyan
+    const oceanDeepAbsorption = float(1).sub(smoothstep(0.0, 3.8, surfaceClassAttr)).mul(0.35);
+    const oceanColor = lit.mul(float(1).sub(oceanDeepAbsorption.mul(isWater)));
+
+    material.colorNode = oceanColor.add(halo).add(oceanFresnel).add(sunGlint);
     material.opacityNode = this.uSurfaceOpacity;
     return material;
   }
