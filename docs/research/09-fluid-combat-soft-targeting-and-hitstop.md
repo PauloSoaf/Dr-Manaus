@@ -1,43 +1,175 @@
-# 09. Combate Fluido, Soft Targeting, Hitstop e Camera Framing
+# Pesquisa Arquitetural 09: Combate Fluido, Soft-Targeting Polar e Hitstop Cinético
 
-## 1. Contexto no Dr-Manaus
-O combate no Dr-Manaus deve transmitir o peso, a agilidade e o poder devastador de um ser cósmico. Golpear inimigos no chão ou disparar raios contra titãs planetários no vácuo requer:
-- **Soft Targeting (Magnetismo de Ataque):** O herói não deve golpear o vazio caso o jogador erre a direção por poucos graus; a orientação do ataque deve ajustar-se suavemente para o adversário mais relevante.
-- **Hitstop (Congelamento de Impacto):** Pausa microscópica de 20 ms a 70 ms no quadro de impacto crítico para transmitir peso físico visceral.
-- **Camera Shake e Framing Dinâmico:** Enquadramento cinemático que se afasta durante ataques de grande porte e treme com frequências proporcionais à energia liberada no impacto.
-
----
-
-## 2. Repositórios GitHub de Referência
-1. **[gkjohnson/three-mesh-bvh](https://github.com/gkjohnson/three-mesh-bvh)**
-   - *Descrição:* Aceleração de raycasting espacial para detecção imediata de alvos dentro de cones de visão angulares com avaliação de oclusão por obstáculos intermediários.
-   - *Aplicabilidade no Dr-Manaus:* Usado pelo `PowerSystem.ts` para aquisição instantânea de alvos tanto locais (1.600m) quanto em escala cósmica ($2.500\text{ km}$ para o Leviatã Astral).
-2. **[yomotsu/camera-controls](https://github.com/yomotsu/camera-controls)**
-   - *Descrição:* Controlador de câmera ultra-suave para Three.js com suporte a amortecimento inercial, colisões com a geometria do cenário e transições suaves de enquadramento.
-   - *Aplicabilidade no Dr-Manaus:* Sistema de câmera de perseguição de combate que se adapta automaticamente quando o herói combate em terra ou decola para o voo interplanetário.
+## 1. Visão Geral Executiva & Contexto no DR-MANAUS
+O combate no **DR-MANAUS** engloba desde confrontos de rua contra facções rebeldes armadas em Manaus até duelos cósmicos épicos contra o Leviatã Astral e titãs do tamanho de continentes nas proximidades de Saturno. Para que o combate em tempo real seja satisfatório e visceral, ele não pode parecer mecânico ou impreciso.
+A arquitetura de combate apoia-se em quatro pilares técnicos:
+1. **Soft-Targeting Polar**: O jogo auxilia suavemente a mira do jogador direcionando ataques para o inimigo mais relevante dentro de um cone angular cônico ponderado por distância e ângulo de visão.
+2. **Hitstop Cinético**: Quando um golpe contundente ou raio atinge um alvo, a animação do atacante e do defensor congela por 2 a 5 quadros (30ms a 80ms), transmitindo a sensação de impacto físico real.
+3. **Cancelamento de Animações (Buffer de Ações)**: O sistema armazena a próxima intenção do jogador durante os quadros de recuperação, permitindo combos fluidos e responsivos.
+4. **BVH de Alta Velocidade**: Detecção de acerto e colisão de projéteis e feixes em tempo sub-milissegundo via `MeshBVH`.
 
 ---
 
-## 3. Jogos de Referência de Combate de Ação
-1. **[Batman: Arkham City / Arkham Knight](https://www.rockstargames.com/games/batman-arkham-knight) (Rocksteady Studios)**
-   - *Referência Técnica:* Criador do sistema *Freeflow Combat*: magnetismo suave que calcula trajetórias parabólicas até o inimigo prioritário, transições de câmera que enfatizam contra-ataques e desaceleração temporal no último golpe do combo.
-2. **[God of War (2018) / Ragnarök](https://www.playstation.com/en-us/games/god-of-war/) (Santa Monica Studio)**
-   - *Referência Técnica:* Mestre em *Hitstop* e impacto físico: cada golpe do machado Leviathan congela a animação do atacante e da vítima por 3 a 5 frames, acompanhado de estrondo sonoro sub-grave e deformação de tela via aberração cromática radial.
-3. **[Devil May Cry 5](https://www.devilmaycry5.com/) (Capcom)**
-   - *Referência Técnica:* Responsividade absoluta (input buffering de 60 Hz), cancelamento de animações por esquiva instantânea e feedback sonoro estridente para impactos normais versus críticos.
-4. **[Marvel's Spider-Man](https://insomniac.games/game/marvels-spider-man-remastered/) (Insomniac Games)**
-   - *Referência Técnica:* Combate aéreo acrobático que combina teias de longo alcance com socos em solo, utilizando *camera framing* que enquadra o herói e os inimigos em plano aberto dinâmico.
+## 2. Referências da Indústria & Jogos de Mundo Aberto
+1. **Devil May Cry 5 (Capcom / RE Engine)**:
+   - *Técnica Chave*: Hitstop extremo e balanceado, cancelamento de frames de animação e sistema de avaliação de estilo baseado em fluidez contínua.
+   - *Aplicabilidade no DR-MANAUS*: Feedback de golpes corpo a corpo e corte de armas de plasma.
+2. **God of War Ragnarök (Santa Monica Studio)**:
+   - *Técnica Chave*: Câmera dinâmica aproximada com imã de mira magnética suave (*magnetism*) e deformação de malha de impacto.
+   - *Aplicabilidade no DR-MANAUS*: Aproximação automática do Dr. Manaus em direção ao alvo ao desferir socos sônicos.
+3. **Ghost of Tsushima (Sucker Punch Productions)**:
+   - *Técnica Chave*: Janelas de resposta de contra-ataque milimétricas (*parry windows*) e travamento de alvo sem necessidade de trava rígida de câmera.
+   - *Aplicabilidade no DR-MANAUS*: Combate contra múltiplos soldados no solo mantendo liberdade de movimentação de câmera.
+4. **Elden Ring (FromSoftware)**:
+   - *Técnica Chave*: Combate contra chefes gigantes com múltiplos pontos de impacto específicos (patas, cauda, cabeça, núcleo).
+   - *Aplicabilidade no DR-MANAUS*: Sistema de pontos fracos vulneráveis no Leviatã Astral e titãs planetários.
 
 ---
 
-## 4. Documentações de Bibliotecas e Especificações
-1. **[W3C Gamepad API Specification](https://www.w3.org/TR/gamepad/)**
-   - Especificação para suporte a controles de videogame (DualSense, Xbox Wireless) no navegador, com mapeamento de gatilhos analógicos e controle háptico de vibração (*rumble*) sincronizado aos golpes.
-2. **[Steve Swink - Game Feel: A Game Designer's Guide to Virtual Sensation](https://www.game-feel.com/)**
-   - O tratado técnico essencial sobre métricas de sensação física em jogos eletrônicos: curvas de aceleração de resposta de controle, tabelas de tempo de hitstop em milissegundos e psicologia de framing de câmera.
+## 3. Repositórios Clonados & Arquivos de Origem Analisados
+
+### 3.1. Repositório `references/three-mesh-bvh`
+- **Arquivo de Origem**: `references/three-mesh-bvh/src/core/cast/raycastFirst.template.js`
+  - *O que inspecionar*: Raycast ultrarrápido contra malhas poligonais de titãs e veículos, reduzindo de centenas de milhares de testes de triângulos para menos de 20 nós de árvore BVH.
+- **Arquivo de Origem**: `references/three-mesh-bvh/src/core/cast/shapecast.js`
+  - *O que inspecionar*: Teste de interseção de volume esférico (para explosões de área e ondas de choque gravitacionais).
+
+### 3.2. Repositório `references/NonEuclidean`
+- **Arquivo de Origem**: `references/NonEuclidean/NonEuclidean/Input.cpp`
+  - *O que inspecionar*: Bufferização de entradas com janelas temporais de tolerância (*input buffering*).
 
 ---
 
-## 5. Estratégia de Implementação no Dr-Manaus
-- **Hitstop não-bloqueante no Game Loop:** Em vez de congelar a thread principal (`setTimeout` ou `sleep`), armazenar `hitStopRemainingMs`. Quando maior que zero, as posições dos atores em combate permanecem estáticas e o tempo de física é desacelerado, enquanto partículas e a câmera continuam a ser renderizados suavemente.
-- **Diferenciação Tática de Blindagem:** Golpes direcionados a pontos fracos expostos (ex: o núcleo estelar do Leviatã Astral) causam dano crítico triplo ($3\times$), enquanto impactos na armadura dorsal sofrem deflexão visual com faíscas e aviso sonoro de ricochete.
+## 4. Documentações Oficiais de Bibliotecas & Especificações
+1. **Game Feel: A Game Designer's Guide to Virtual Sensation (Steve Swink)**:
+   - Princípios fundamentais de resposta de controle, hitstop, screenshake e micro-pausas perceptivas.
+2. **Three-Mesh-BVH Performance Specs**:
+   - [Three-Mesh-BVH API Reference](https://github.com/gkjohnson/three-mesh-bvh)
+   - Otimizações de raycasting e consultas espaciais em estruturas estáticas e animadas (*SkinnedMeshBVH*).
+3. **Web Gamepad API (W3C)**:
+   - Tratamento de vibração háptica (*rumble*) de controles durante impactos críticos.
+
+---
+
+## 5. Requisitos do Sistema
+
+### Requisitos Funcionais (RF)
+- **RF-09-01**: O sistema deve calcular automaticamente o melhor alvo dentro de um cone de visão de 60 graus e até 40m de distância para combate urbano, e até 500km para combate cósmico.
+- **RF-09-02**: Ao conectar um ataque de alto impacto, o jogo deve aplicar hitstop pausando o avanço de tempo local daquela entidade por 60ms.
+- **RF-09-03**: Projéteis e raios quânticos devem possuir detecção contínua de colisão (*Continuous Collision Detection - CCD*) para nunca atravessarem paredes finas ou escudos.
+- **RF-09-04**: O jogador deve poder enfileirar o próximo comando com até 200ms de antecedência antes do fim da animação atual.
+- **RF-09-05**: Entidades colossais devem expor múltiplos pontos fracos selecionáveis dinamicamente pelo sistema de mira.
+
+### Requisitos Não Funcionais (RNF)
+- **RNF-09-01 (Latência de Mira)**: O cálculo do alvo polar não deve ultrapassar 0,2ms de processamento por quadro.
+- **RNF-09-02 (Precisão Sub-milissegundo)**: O raycasting de tiros contra malhas de até 100.000 polígonos deve responder em menos de 0,4ms via BVH.
+- **RNF-09-03 (Imunidade a Garbage Collection)**: Nenhum vetor ou matriz deve ser instanciado durante o ciclo de detecção de acerto.
+
+---
+
+## 6. Arquitetura da Solução & Diagrama de Fluxo
+
+```mermaid
+flowchart TD
+    A[Player Attack Input Triggered] --> B[Evaluate Input Buffer Queue]
+    B --> C[Compute Soft-Targeting Candidate]
+    C --> D[Cast Attack Ray/Sphere via BVH]
+    D --> E{Collision Detected?}
+    E -->|No| F[Play Whiff Animation & SFX]
+    E -->|Yes| G[Apply Damage Formula & Defense Reductions]
+    G --> H[Trigger Hitstop: Freeze Time Dt for 3-5 Frames]
+    H --> I[Trigger Camera Micro-Shake & Hit VFX Spark]
+    I --> J[Check Target Health <= 0: Trigger Ragdoll or Rupture]
+```
+
+---
+
+## 7. Módulos & Arquivos Afetados no DR-MANAUS (`src/`)
+
+### 7.1. `src/player/combat/CombatSystem.ts`
+- **Mudanças**:
+  - Implementar o algoritmo de soft-targeting polar cônico.
+  - Adicionar o gerenciador de hitstop e amortecimento temporal (*time dilation*).
+
+### 7.2. `src/player/powers/PowerSystem.ts`
+- **Mudanças**:
+  - Acelerar a mira de todos os poderes e raios quânticos com `MeshBVH`.
+  - Integrar unificação de coordenadas cósmicas para disparos interplanetários contra chefes.
+
+### 7.3. `src/world/life/CosmicPlanetTitan.ts`
+- **Mudanças**:
+  - Registrar formalmente os pontos fracos do Leviatã no BVH como alvos interativos independentes.
+
+---
+
+## 8. Código de Implementação e Extração Baseado em `references`
+
+```typescript
+// Trecho a ser integrado em src/player/combat/CombatSystem.ts
+// Baseado em references/three-mesh-bvh/src/core/cast/raycastFirst.template.js
+
+import * as THREE from 'three';
+
+export interface CombatTarget {
+  id: string;
+  position: THREE.Vector3;
+  health: number;
+  radius: number;
+}
+
+export class SoftTargetingSystem {
+  private tempForward = new THREE.Vector3();
+  private tempToTarget = new THREE.Vector3();
+
+  public selectBestTarget(
+    playerPos: THREE.Vector3,
+    cameraForward: THREE.Vector3,
+    candidates: CombatTarget[],
+    maxDistance = 50.0,
+    maxAngleRad = Math.PI / 4 // 45 graus
+  ): CombatTarget | null {
+    let bestTarget: CombatTarget | null = null;
+    let highestScore = -Infinity;
+
+    for (let i = 0; i < candidates.length; i++) {
+      const target = candidates[i];
+      if (target.health <= 0) continue;
+
+      this.tempToTarget.subVectors(target.position, playerPos);
+      const dist = this.tempToTarget.length();
+
+      if (dist > maxDistance || dist < 0.001) continue;
+
+      this.tempToTarget.normalize();
+      const dot = cameraForward.dot(this.tempToTarget);
+
+      if (dot < Math.cos(maxAngleRad)) continue;
+
+      // Score pondera alinhamento de mira com proximidade
+      const score = (dot * 0.7) + ((1.0 - dist / maxDistance) * 0.3);
+
+      if (score > highestScore) {
+        highestScore = score;
+        bestTarget = target;
+      }
+    }
+
+    return bestTarget;
+  }
+}
+```
+
+---
+
+## 9. Plano de Testes & Casos de Teste (Unitários e de Regressão)
+
+### Cenários de Teste Automatizados (`tests/combat-targeting.test.ts`)
+1. **CT-09-01 (Seleção Polar Correta de Alvo)**:
+   - *Objetivo*: Garantir que um inimigo alinhado ao centro da mira receba prioridade sobre outro mais próximo mas lateral.
+   - *Critério de Aceite*: O alvo com maior produto escalar frontal é selecionado.
+2. **CT-09-02 (Execução e Término do Hitstop)**:
+   - *Objetivo*: Validar se a escala de tempo de animação cai a zero e retorna a 1.0 exatamente após a duração de 60ms estipulada.
+   - *Critério de Aceite*: Estado de hitstop dura exatamente a quantidade de frames programada.
+3. **CT-09-03 (Performance do Raycast BVH)**:
+   - *Objetivo*: Executar 1.000 consultas de raio contra uma malha complexa de 80.000 triângulos.
+   - *Critério de Aceite*: Tempo total de execução inferior a 15ms.
