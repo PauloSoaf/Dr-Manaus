@@ -96,6 +96,8 @@ export const FEATURES = {
   planetTerrain: false,
   /** Manaus curved onto the ellipsoid. */
   curvedManaus: false,
+  /** Urban elevation and relief in Manaus. */
+  urbanElevation: false,
   /** Planet-aware atmosphere and the render-domain composer. */
   newAtmosphere: false,
   /**
