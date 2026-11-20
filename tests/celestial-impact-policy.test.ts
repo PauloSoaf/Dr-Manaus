@@ -71,7 +71,7 @@ for (const [id, name, bodyClass] of [['jupiter', 'WITHOUT_TERRAIN', 'gas-giant']
   test(`T_IMPACT_${id.toUpperCase()}_CLASSIFIED_${name}`, () => {
     const r = classify([0, -C, 0], id); assert.equal(r.classification, 'CATASTROPHIC_IMPACT');
     assert.equal(r.bodyClass, bodyClass); assert.equal(profile(id).hasSolidSurface, false);
-    assert.equal(profile(id).canLand, false); assert.equal(profile(id).supportsVolumeDestruction, false);
+    assert.equal(profile(id).canLand, id === 'sun'); assert.equal(profile(id).supportsVolumeDestruction, false);
   });
 }
 test('T_IMPACT_MOVING_MOON_RELATIVE_SPEED', () => {

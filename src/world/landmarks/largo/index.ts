@@ -1,5 +1,6 @@
 import { Group, InstancedMesh, Mesh, Vector3 } from 'three/webgpu';
 import type { Collider } from '../../../core/types';
+import { manausTileSceneMatrix } from '../../spatial/ManausSurfacePresentation';
 import { createIgreja, createIgrejaSilhouette, IGREJA_ANCHOR, IGREJA_COLLIDERS } from './igreja';
 import { createMonument, createMonumentSilhouette, MONUMENT_COLLIDERS } from './monument';
 import { createLargoPavement } from './plaza';
@@ -51,6 +52,8 @@ export class LargoDistrict {
 
   constructor(root: Group) {
     this.group.name = 'largo-sao-sebastiao';
+    this.group.matrixAutoUpdate = false;
+    manausTileSceneMatrix('largo', 0, 0, this.group.matrix);
     root.add(this.group);
     // Collision does not change with detail: the buildings and the monument are always solid.
     for (const box of MONUMENT_COLLIDERS) this.destruction.addCollider({ ...box, id: 'largo:monumento' });

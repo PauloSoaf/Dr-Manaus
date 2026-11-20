@@ -14,6 +14,7 @@ import {
 } from '../streaming/TileDemand';
 import type { CoverageClaim, SpatialContext, StreamingContext, WorldProvider } from './WorldProvider';
 import type { EcefPosition } from '../spatial/ECEF';
+import { clampPlanetTileCap } from '../streaming/CosmicLodBudget';
 
 export interface PlanetCoverageReadiness {
   readonly activeTiles: number;
@@ -90,7 +91,7 @@ export class RockyPlanetProvider implements WorldProvider {
     this.options = {
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 400_000)),
       maxRangeM: Math.max(1, finite(options.maxRangeM, 20_000_000)),
-      maxTiles: Math.max(6, finite(options.maxTiles, 96)),
+      maxTiles: clampPlanetTileCap(finite(options.maxTiles, 96)),
       maxLevel: Math.max(0, finite(options.maxLevel, 9)),
       replanIntervalS: Math.max(0, finite(options.replanIntervalS, 0.25)),
       renderSpace: options.renderSpace,

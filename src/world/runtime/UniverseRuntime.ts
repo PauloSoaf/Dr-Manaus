@@ -1,5 +1,6 @@
 import type { UniversalTransitState } from '../travel/UniversalTravelController';
 import { knownGalaxyRuntime, type GalaxyRuntime } from '../galaxy/GalaxyRuntime';
+import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import { SolarSystem, SOLAR_SYSTEM_FRAME } from '../celestial/SolarSystem';
 import { bodyFixedToGeodetic, bodyGeodeticToFixed, EARTH } from '../planet/PlanetBody';
 import { bodyProfile } from '../celestial/CelestialBodyProfile';
@@ -22,9 +23,9 @@ import { budgetForSpeed, DEFAULT_STREAMING_BUDGET } from '../streaming/Streaming
 import { ProviderRegistry } from './ProviderRegistry';
 import { sectorIndex, SECTOR_SIZE_M, sectorSeed, type UniverseAddress } from '../spatial/UniverseAddress';
 import type { UniverseLocation } from '../spatial/UniverseLocation';
+import { galaxyCosmologicalAddress } from '../galaxy/GalaxyCoordinates';
 import { generateStarSector } from '../celestial/StarSector';
 import { generateSystem } from '../celestial/SystemGenerator';
-import { ProceduralSystemRuntime } from '../celestial/ProceduralSystemRuntime';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { RenderSpaceService } from '../spatial/RenderSpaceService';
 import { createRenderOrigin } from '../spatial/RenderOrigin';
@@ -104,7 +105,7 @@ export class UniverseRuntime {
     this.registerMoonFrames();
 
     this.scheduler = new GlobalStreamingScheduler(this.providers);
-    this.earthQuadtree = new PlanetQuadtree(EARTH, { maxTiles: 192, maxLevel: 16 });
+    this.earthQuadtree = new PlanetQuadtree(EARTH, { maxTiles: 160, maxLevel: 16 });
     this.playerPose = pose(MANAUS_FRAME_ID, [0, 0, 0]);
     this.floatingOrigin = new FloatingOrigin3D(pose(MANAUS_FRAME_ID, [0, 0, 0]), {
       thresholdM: 2048, gridM: 1024,
@@ -132,8 +133,9 @@ export class UniverseRuntime {
   }
 
   /** Synchronous commit only after a materializer has prepared and installed resources/frames. */
-  installSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, position: Vec3): void {
-    const galaxy=knownGalaxyRuntime(address.galaxyId);if(!galaxy)throw Error('Galáxia desconhecida');
+  installSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, position: Vec3, universeSeed?: bigint): void {
+    const seed = universeSeed ?? (runtime instanceof ProceduralSystemRuntime ? runtime.universeSeed : this.activeGalaxy.universeSeed);
+    const galaxy=knownGalaxyRuntime(address.galaxyId, seed);if(!galaxy)throw Error('Galáxia desconhecida');
     this.activeGalaxy=galaxy;this.activeSystem=runtime;this.address=address;
     this.setPlayerPose(runtime.systemFrameId,position);
     this.playerPose.orientation=[0,0,0,1];
@@ -142,8 +144,9 @@ export class UniverseRuntime {
     this.updateSystemPose([...position],[0,0,0],0);
     this.scheduler.invalidate();
   }
-  restoreSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, saved: SpatialPose, velocity: Vec3): void {
-    const galaxy=knownGalaxyRuntime(address.galaxyId);if(!galaxy)throw Error('Galáxia desconhecida');
+  restoreSystem(runtime: CelestialSystemRuntime, address: UniverseAddress, saved: SpatialPose, velocity: Vec3, universeSeed?: bigint): void {
+    const seed = universeSeed ?? (runtime instanceof ProceduralSystemRuntime ? runtime.universeSeed : this.activeGalaxy.universeSeed);
+    const galaxy=knownGalaxyRuntime(address.galaxyId, seed);if(!galaxy)throw Error('Galáxia desconhecida');
     this.activeGalaxy=galaxy;this.activeSystem=runtime;this.address=address;
     copyPose(this.playerPose,saved);
     for(let i=0;i<3;i++)this.velocity[i]=velocity[i];
@@ -241,7 +244,10 @@ export class UniverseRuntime {
     const address = this.navigationState;
     const loc: UniverseLocation = {
       address,mode:'anchored',
-      frameId: this.playerPose.frame
+      frameId: this.playerPose.frame,
+      cosmological: this.activeGalaxy.definition.proceduralMorphology?.cosmologicalAddress
+        ?? galaxyCosmologicalAddress(this.activeGalaxy.id, this.activeGalaxy.universeSeed)
+        ?? { cell: { x: 0n, y: 0n, z: 0n }, localMpc: [0, 0, 0] },
     };
     
     if (this.playerPose.frame === this.activeSystem.systemFrameId) {
@@ -288,9 +294,60 @@ export class UniverseRuntime {
   private syncNavigationAddress(): void {
     const { bodyId: previousBody, childFrame: previousFrame, ...systemAddress } = this.address;
     const bodyId = this.bodyIdForFrame(this.playerPose.frame);
-    this.address = this.playerPose.frame === this.activeSystem.systemFrameId
-      ? systemAddress
-      : { ...systemAddress, bodyId, childFrame: this.playerPose.frame };
+    if (this.playerPose.frame !== this.activeSystem.systemFrameId) {
+      this.address = { ...systemAddress, bodyId, childFrame: this.playerPose.frame };
+      return;
+    }
+
+    // Space addressing: dynamically update sector based on cosmic coordinates within active galaxy
+    const p = this.playerPose.position;
+    const halfSector = 0.5 * SECTOR_SIZE_M;
+
+    if (this.activeSystem === this.solarSystem) {
+      const isRemoteSector = systemAddress.sector && (systemAddress.sector.x !== 0n || systemAddress.sector.y !== 0n || systemAddress.sector.z !== 0n);
+      const distToSol = Math.hypot(p[0], p[1], p[2]);
+      if (distToSol < 1e16 && this.activeGalaxy.id === 'milky_way' && !isRemoteSector && systemAddress.systemId === 'sol') {
+        this.address = {
+          galaxyId: 'milky_way',
+          sector: sectorIndex(0n, 0n, 0n),
+          systemId: 'sol',
+        };
+        return;
+      }
+      // In interstellar space: determine sector relative to authoritative base sector in Milky Way coordinates
+      const baseSec = isRemoteSector ? systemAddress.sector : sectorIndex(0n, 0n, 0n);
+      const dsx = BigInt(Math.floor((p[0] + halfSector) / SECTOR_SIZE_M));
+      const dsy = BigInt(Math.floor((p[1] + halfSector) / SECTOR_SIZE_M));
+      const dsz = BigInt(Math.floor((p[2] + halfSector) / SECTOR_SIZE_M));
+      this.address = {
+        galaxyId: this.activeGalaxy.id,
+        sector: sectorIndex(baseSec.x + dsx, baseSec.y + dsy, baseSec.z + dsz),
+        // Outside the stellar envelope, systemId is undefined (interstellar space)
+        systemId: undefined,
+      };
+    } else {
+      // Inside an installed procedural system: preserve system identity within 1e16m of host star
+      const relStar = Math.hypot(...p);
+      const hostStarId = systemAddress.systemId ?? this.activeSystem.systemFrameId.replace('system/', '');
+      if (relStar < 1e16) {
+        this.address = {
+          ...systemAddress,
+          galaxyId: this.activeGalaxy.id,
+          systemId: hostStarId,
+        };
+        return;
+      }
+      // Beyond procedural star: compute offset sectors from host system sector
+      const baseSec = systemAddress.sector ?? sectorIndex(0n, 0n, 0n);
+      const dsx = BigInt(Math.floor((p[0] + halfSector) / SECTOR_SIZE_M));
+      const dsy = BigInt(Math.floor((p[1] + halfSector) / SECTOR_SIZE_M));
+      const dsz = BigInt(Math.floor((p[2] + halfSector) / SECTOR_SIZE_M));
+      this.address = {
+        galaxyId: this.activeGalaxy.id,
+        sector: sectorIndex(baseSec.x + dsx, baseSec.y + dsy, baseSec.z + dsz),
+        systemId: undefined,
+      };
+    }
   }
 
   private surfaceCoordinates(bodyId: string | undefined) {

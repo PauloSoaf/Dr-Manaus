@@ -35,6 +35,7 @@ const CLASS_COLOUR: Record<string, number> = {
 
 interface Vehicle {
   vx:number; vz:number; vy:number; wreck:boolean; wreckLife:number; pitch:number;
+  braking: boolean; honkCooldown: number;
   nav: VehicleNavigator;
   x: number; z: number; y: number; yaw: number;
   /** Set on spawn so the drawn pose snaps to the lane instead of sliding in from the last car. */
@@ -68,7 +69,7 @@ export class TrafficSystem {
   private lastZ = Infinity;
   private debugColours = false;
 
-  constructor(root: Group, private readonly graph: RoadGraph) {
+  constructor(root: Group, private readonly graph: RoadGraph, private readonly onHorn?: () => void) {
     this.bodies = new InstancedMesh(
       new BoxGeometry(BODY_W, BODY_H, BODY_D),
       new MeshStandardMaterial({ roughness: .45, metalness: .28 }), CAPACITY,
@@ -87,7 +88,7 @@ export class TrafficSystem {
     this.dummy.scale.setScalar(0);
     this.dummy.updateMatrix();
     for (let i = 0; i < CAPACITY; i++) {
-      this.pool.push({ vx:0,vz:0,vy:0,wreck:false,wreckLife:0,pitch:0,nav: new VehicleNavigator(), x: 0, z: 0, y: 0, yaw: 0, fresh: true, shown: false });
+      this.pool.push({ vx:0,vz:0,vy:0,wreck:false,wreckLife:0,pitch:0,braking:false,honkCooldown:0,nav: new VehicleNavigator(), x: 0, z: 0, y: 0, yaw: 0, fresh: true, shown: false });
       this.bodies.setMatrixAt(i, this.dummy.matrix);
       this.glass.setMatrixAt(i, this.dummy.matrix);
     }
@@ -157,6 +158,35 @@ export class TrafficSystem {
         const floor=PhysicsWorld.terrainHeight(vehicle.x,vehicle.z)+BODY_H*.35;
         if(vehicle.y<floor){vehicle.y=floor;vehicle.vy=0;}
         vehicle.pitch=Math.min(.65,vehicle.pitch+step*.8);this.drawVehicle(i,vehicle,true);active++;continue;
+      }
+      if (vehicle.honkCooldown > 0) vehicle.honkCooldown -= step;
+      const dx = px - vehicle.x;
+      const dz = pz - vehicle.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq < 28 * 28 && Math.abs(playerPosition.y - vehicle.y) < 6) {
+        const fwdX = Math.sin(vehicle.yaw);
+        const fwdZ = Math.cos(vehicle.yaw);
+        const dotFwd = dx * fwdX + dz * fwdZ;
+        const lateral = Math.abs(-dx * fwdZ + dz * fwdX);
+        if (dotFwd > 1.2 && dotFwd < 22.0 && lateral < 4.2) {
+          nav.speed = Math.max(0, nav.speed - step * 24);
+          nav.targetSpeed = 0;
+          vehicle.braking = true;
+          vehicle.pitch = Math.max(-0.05, vehicle.pitch - step * 0.3);
+          if (vehicle.honkCooldown <= 0) {
+            this.onHorn?.();
+            vehicle.honkCooldown = 3.2;
+          }
+        } else if (vehicle.braking) {
+          vehicle.braking = false;
+          if (nav.segment) nav.targetSpeed = nav.segment.speed * 0.85;
+        }
+      } else if (vehicle.braking) {
+        vehicle.braking = false;
+        if (nav.segment) nav.targetSpeed = nav.segment.speed * 0.85;
+      }
+      if (!vehicle.wreck && !vehicle.braking) {
+        vehicle.pitch *= Math.exp(-step * 5);
       }
       if (!nav.advance(this.graph, step)) { this.retire(i, vehicle); continue; }
       nav.pose(this.graph, this.position, this.tangent);

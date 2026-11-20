@@ -53,6 +53,7 @@ function ribbon(): Ribbon { return { position: [], normal: [], color: [], lit: [
 function strip(
   out: Ribbon, ax: number, az: number, bx: number, bz: number,
   halfWidth: number, y: number, rgb: readonly [number, number, number], extend: number,
+  yA = y, yB = y,
 ): void {
   const dx = bx - ax, dz = bz - az;
   const length = Math.hypot(dx, dz);
@@ -63,13 +64,30 @@ function strip(
   const ex = bx + ux * extend, ez = bz + uz * extend;
   const nx = -uz * halfWidth, nz = ux * halfWidth;
   const corners = [
-    [sx + nx, y, sz + nz], [ex + nx, y, ez + nz], [ex - nx, y, ez - nz], [sx - nx, y, sz - nz],
+    [sx + nx, yA, sz + nz], [ex + nx, yB, ez + nz], [ex - nx, yB, ez - nz], [sx - nx, yA, sz - nz],
   ];
+
+  let normX = 0, normY = 1, normZ = 0;
+  if (Math.abs(yB - yA) > 1e-4) {
+    const tx = dx, ty = yB - yA, tz = dz;
+    const lx = nx, ly = 0, lz = nz;
+    const cx = ty * lz - tz * ly;
+    const cy = tz * lx - tx * lz;
+    const cz = tx * ly - ty * lx;
+    const clen = Math.hypot(cx, cy, cz);
+    if (clen > 1e-6) {
+      normX = cx / clen;
+      normY = cy / clen;
+      normZ = cz / clen;
+      if (normY < 0) { normX = -normX; normY = -normY; normZ = -normZ; }
+    }
+  }
+
   for (const [a, b, c] of [[0, 1, 2], [0, 2, 3]] as const) {
     for (const index of [a, b, c]) {
       const point = corners[index];
       out.position.push(point[0], point[1], point[2]);
-      out.normal.push(0, 1, 0);
+      out.normal.push(normX, normY, normZ);
       out.color.push(rgb[0], rgb[1], rgb[2]);
       out.lit.push(0);
     }
@@ -195,6 +213,7 @@ export class RoadNetwork {
     private readonly records: readonly RoadRecord[],
     private readonly material: Material,
     private readonly lampMaterial?: Material,
+    private readonly elevationSampler?: (x: number, z: number) => number,
   ) {
     this.group.name = 'real-city-road-network';
     for (let index = 0; index < records.length; index++) {
@@ -252,13 +271,59 @@ export class RoadNetwork {
   get triangleCount(): number { return this.stats.arterialTriangles + this.stats.localTriangles + this.stats.markingTriangles; }
   get statistics(): Readonly<RoadStats> { return this.stats; }
 
+  /**
+   * Samples terrain heights along road coordinates and applies Laplacian smoothing.
+   * Conforms to references/city-tour/src/terrain_candidate_road_network.js
+   */
+  sampleRoadHeights(p: readonly number[], baseH: number, isBridge = false): Float32Array {
+    const count = Math.floor(p.length / 2);
+    const raw = new Float32Array(count);
+    const sampler = this.elevationSampler;
+    if (!sampler) {
+      raw.fill(baseH);
+      return raw;
+    }
+
+    if (isBridge) {
+      const startH = sampler(p[0], p[1]) + baseH;
+      const endH = sampler(p[p.length - 2], p[p.length - 1]) + baseH;
+      for (let i = 0; i < count; i++) {
+        const t = count > 1 ? i / (count - 1) : 0;
+        const arch = Math.sin(t * Math.PI) * 12.0; // bridge navigation arch
+        raw[i] = (1 - t) * startH + t * endH + arch;
+      }
+      return raw;
+    }
+
+    for (let i = 0; i < count; i++) {
+      raw[i] = sampler(p[i * 2], p[i * 2 + 1]) + baseH;
+    }
+
+    // Laplacian smoothing (RF-10-03): prevents sharp vertical step kinks between waypoints
+    const smoothed = new Float32Array(count);
+    smoothed.set(raw);
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 1; i < count - 1; i++) {
+        smoothed[i] = 0.25 * raw[i - 1] + 0.5 * raw[i] + 0.25 * raw[i + 1];
+      }
+      raw.set(smoothed);
+    }
+    return smoothed;
+  }
+
   private buildArterial(): void {
     const out = ribbon();
     for (const road of this.records) {
       if (!ARTERIAL_CLASSES.has(road.class) || drawnByLandmark(road)) continue;
       const half = Math.max(3, road.width) * .5, y = heightOf(road.class), rgb = colorOf(road.class);
+      const isBridge = (road.name ?? '').toLowerCase().includes('ponte');
+      const heights = this.elevationSampler ? this.sampleRoadHeights(road.p, y, isBridge) : null;
       for (let i = 2; i < road.p.length; i += 2) {
-        strip(out, road.p[i - 2], road.p[i - 1], road.p[i], road.p[i + 1], half, y, rgb, half * .9);
+        const segIdx = i / 2;
+        const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];
+        const yA = heights ? heights[segIdx - 1] : y;
+        const yB = heights ? heights[segIdx] : y;
+        strip(out, ax, az, bx, bz, half, y, rgb, half * .9, yA, yB);
       }
     }
     const geometry = toGeometry(out);
@@ -314,11 +379,15 @@ export class RoadNetwork {
         const road = this.records[index];
         if (drawnByLandmark(road)) continue;
         const half = Math.max(3, road.width) * .5, y = heightOf(road.class), rgb = colorOf(road.class);
+        const heights = this.elevationSampler ? this.sampleRoadHeights(road.p, y, false) : null;
         for (let i = 2; i < road.p.length; i += 2) {
+          const segIdx = i / 2;
           const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];
           const mx = (ax + bx) * .5 - x, mz = (az + bz) * .5 - z;
           if (mx * mx + mz * mz > radiusSq) continue;
-          strip(out, ax, az, bx, bz, half, y, rgb, half * .9);
+          const yA = heights ? heights[segIdx - 1] : y;
+          const yB = heights ? heights[segIdx] : y;
+          strip(out, ax, az, bx, bz, half, y, rgb, half * .9, yA, yB);
         }
       }
     }
@@ -339,16 +408,23 @@ export class RoadNetwork {
     for (const at of this.gather(this.furniture, x, z, radius)) {
       const road = this.records[at];
       const y = heightOf(road.class) + ROAD_MARKING_LIFT;
+      const heights = this.elevationSampler ? this.sampleRoadHeights(road.p, y, false) : null;
       for (let i = 2; i < road.p.length; i += 2) {
+        const segIdx = i / 2;
         const ax = road.p[i - 2], az = road.p[i - 1], bx = road.p[i], bz = road.p[i + 1];
         const mx = (ax + bx) * .5 - x, mz = (az + bz) * .5 - z;
         if (mx * mx + mz * mz > radiusSq) continue;
         const dx = bx - ax, dz = bz - az, length = Math.hypot(dx, dz);
         if (length < 3) continue;
         const ux = dx / length, uz = dz / length;
+        const yA = heights ? heights[segIdx - 1] : y;
+        const yB = heights ? heights[segIdx] : y;
         // Broken centre line: 3 m of paint every 9 m, the way an urban arterial is striped.
         for (let t = 0; t + 3 < length; t += 9) {
-          strip(out, ax + ux * t, az + uz * t, ax + ux * (t + 3), az + uz * (t + 3), .16, y, MARKING, 0);
+          const tA = t / length, tB = (t + 3) / length;
+          const markYa = (1 - tA) * yA + tA * yB;
+          const markYb = (1 - tB) * yA + tB * yB;
+          strip(out, ax + ux * t, az + uz * t, ax + ux * (t + 3), az + uz * (t + 3), .16, y, MARKING, 0, markYa, markYb);
         }
       }
     }
@@ -384,25 +460,27 @@ export class RoadNetwork {
         for (let t = 10, side = 1; t < length - 6; t += 38, side = -side) {
           const px = ax + ux * t + nx * offset * side, pz = az + uz * t + nz * offset * side;
           const lampId = `road:lamp:${at}:${i}:${t}`, treeId = `road:tree:${at}:${i}:${t}`;
+          const lampGroundY = this.elevationSampler ? this.elevationSampler(px, pz) : 0;
           if (!this.destroyed.has(lampId)) {
             const first = out.position.length;
-            post(out, px, 0, pz, .34, 8.4, .34, mast, 0);
-            post(out, px - nx * side * 1.1, 8, pz - nz * side * 1.1, 2.6, .34, .42, mast, 0);
-            post(out, px - nx * side * 2, 7.55, pz - nz * side * 2, 1.15, .5, .62, head, 1);
+            post(out, px, lampGroundY, pz, .34, 8.4, .34, mast, 0);
+            post(out, px - nx * side * 1.1, lampGroundY + 8, pz - nz * side * 1.1, 2.6, .34, .42, mast, 0);
+            post(out, px - nx * side * 2, lampGroundY + 7.55, pz - nz * side * 2, 1.15, .5, .62, head, 1);
             this.spans.set(lampId, { first, count: out.position.length - first });
-            this.colliders.push({ id: lampId, x: px, y: 4.2, z: pz, width: 3, depth: 3, height: 8.4,category:'fragile',impactKind:'lamp' });
+            this.colliders.push({ id: lampId, x: px, y: lampGroundY + 4.2, z: pz, width: 3, depth: 3, height: 8.4,category:'fragile',impactKind:'lamp' });
           }
           // A street tree between every pair of lamps: never inside a footprint, because a road is not.
           const tx = ax + ux * (t + 19) + nx * (offset + 1.6) * -side;
           const tz = az + uz * (t + 19) + nz * (offset + 1.6) * -side;
+          const treeGroundY = this.elevationSampler ? this.elevationSampler(tx, tz) : 0;
           const tint = ((Math.abs(Math.round(tx) * 31 + Math.round(tz) * 17)) % 5) / 5;
           if (!this.destroyed.has(treeId)) {
             const first = out.position.length, height = 7 + tint * 2.5, width = 5 + tint * 2.6;
-            post(out, tx, 0, tz, .42, 3.6 + tint * 1.4, .42, TRUNK, 0);
-            canopy(out, tx, 4.6 + tint * 1.4, tz, 2.5 + tint * 1.3, 2.4 + tint * 1.1,
+            post(out, tx, treeGroundY, tz, .42, 3.6 + tint * 1.4, .42, TRUNK, 0);
+            canopy(out, tx, treeGroundY + 4.6 + tint * 1.4, tz, 2.5 + tint * 1.3, 2.4 + tint * 1.1,
               [.20 + tint * .10, .38 + tint * .12, .19 + tint * .07]);
             this.spans.set(treeId, { first, count: out.position.length - first });
-            this.colliders.push({ id: treeId, x: tx, y: height * .5, z: tz, width, depth: width, height,category:'vegetation' });
+            this.colliders.push({ id: treeId, x: tx, y: treeGroundY + height * .5, z: tz, width, depth: width, height,category:'vegetation' });
           }
         }
       }

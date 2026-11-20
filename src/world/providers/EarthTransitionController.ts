@@ -13,15 +13,21 @@ export type EarthGroundOwner = 'local' | 'planet';
 export type EarthPresentationDomain = 'local' | 'planetary' | 'orbital';
 
 /**
- * The flat city is useful close to the player, while the ellipsoid is the only honest horizon.
- * Keeping these thresholds together prevents the renderer and HUD from inventing independent
- * interpretations of the same flight state.
+ * Continuous altitude transition bands:
+ * - 0 - 8 km: local 1.0, planet 0.0
+ * - 8 - 15 km: local -> planet crossfade (overlap safe; 11.5 km is midpoint switching to planetary domain)
+ * - 15 - 60 km: planet owns ground, dominant view
+ * - 60 km+: planet only (orbital domain)
+ * - 100 km: Karman line, atmosphere reaches full vacuum (0.0)
+ *
+ * Guaranteed invariant: localWeight + planetWeight >= 0.99 at all altitudes to eliminate black voids.
  */
 export const EARTH_HANDOFF = {
   requestPlanetM: 8_000,
   planetOwnsGroundM: 15_000,
   returnLocalM: 13_000,
   orbitM: 60_000,
+  spaceM: 100_000,
 } as const;
 
 export interface EarthTransitionState {
@@ -47,7 +53,11 @@ export class EarthTransitionController {
   private lastAltitudeM = 0;
   private groundOwner: EarthGroundOwner = 'local';
 
-  update(altitudeM: number, earth?: EarthProvider, regionalPresentationReady=true): EarthTransitionState {
+  update(
+    altitudeM: number,
+    earth?: EarthProvider,
+    regionalPresentationReady = true
+  ): EarthTransitionState {
     // Positive infinity is used while another body is dominant. Preserve it so the presentation
     // cannot accidentally fall back to "local Manaus" merely because Earth is out of scope.
     const alt = Number.isNaN(altitudeM) ? 0 : Math.max(0, altitudeM);
@@ -67,15 +77,27 @@ export class EarthTransitionController {
     } else if (alt < EARTH_HANDOFF.planetOwnsGroundM) {
       const t = (alt - EARTH_HANDOFF.requestPlanetM)
         / (EARTH_HANDOFF.planetOwnsGroundM - EARTH_HANDOFF.requestPlanetM);
-      localWeight = 1 - t;
+      localWeight = Math.max(0, 1 - t);
       regionalWeight = 0;
-      planetWeight = t;
+      planetWeight = Math.min(1, t);
       phase = 'OVERLAP_SAFE';
     } else {
-      planetWeight = 1;
       localWeight = 0;
       regionalWeight = 0;
+      planetWeight = 1;
       phase = alt >= EARTH_HANDOFF.orbitM ? 'PLANET_ONLY' : 'PLANET_DOMINANT';
+    }
+
+    // Continuous atmospheric thinning from specs/dr-manaus-cosmic-night-specs/04-EARTH-ALTITUDE-TRANSITION.md
+    let atmosphereWeight = 1;
+    if (alt < 20_000) {
+      atmosphereWeight = 1;
+    } else if (alt < EARTH_HANDOFF.orbitM) {
+      const atmoT = (alt - 20_000) / (EARTH_HANDOFF.orbitM - 20_000);
+      atmosphereWeight = Math.max(0.3, 1 - 0.7 * atmoT);
+    } else {
+      const atmoT = Math.min(1, Math.max(0, (alt - EARTH_HANDOFF.orbitM) / (EARTH_HANDOFF.spaceM - EARTH_HANDOFF.orbitM)));
+      atmosphereWeight = Math.max(0, 0.3 * (1 - atmoT));
     }
 
     let requiredLod = 0;
@@ -99,7 +121,8 @@ export class EarthTransitionController {
       this.groundOwner = 'planet';
     }
 
-    // Invariant: Never retire local representation until target representation is ready
+    // Invariant (04-EARTH-ALTITUDE-TRANSITION.md): Never retire local representation until target
+    // representation is ready!
     if (!targetCoverageReady && alt >= EARTH_HANDOFF.requestPlanetM && this.groundOwner === 'local') {
       localWeight = Math.max(localWeight, 1);
       regionalWeight = 0;
@@ -127,7 +150,7 @@ export class EarthTransitionController {
       localWeight,
       regionalWeight,
       planetWeight,
-      atmosphereWeight: 1,
+      atmosphereWeight,
       targetCoverageReady,
       readiness,
       phase,

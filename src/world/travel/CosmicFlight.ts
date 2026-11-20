@@ -47,14 +47,21 @@ export interface ResolvedTarget {
 
 export interface FlightTelemetry {
   speedMps: number;
+  effectiveSpeedC?: number;
   accelerationMps2: number;
   distanceToTargetM?: number;
   timeToTargetS?: number;
   targetBodyId?: string;
   /** The engaged warp step, counting from 1; zero is off. */
   warpStep: number;
+  warpLabel?: string;
+  cosmicTier?: CosmicFlightTier;
+  proximityGatingActive?: boolean;
+  gatedBodyId?: string;
   phase: 'idle' | 'align' | 'acceleration' | 'cruise' | 'braking' | 'capture' | 'approach' | 'arrived'
-    | 'landing-capture' | 'landing-hold';
+    | 'landing-capture' | 'landing-hold' | 'cosmic-cruise' | 'emergency-stop';
+  emergencyStopActive?: boolean;
+  emergencyStopReason?: 'speed-guard' | 'ccd-contact';
   autopilotActive?: boolean;
   relativeSpeedMps?: number;
   closingSpeedMps?: number;
@@ -66,6 +73,7 @@ export interface FlightTelemetry {
 
 export interface CosmicCruiseContext extends TravelContext {
   targetCanLand?: boolean;
+  targetLandingMode?: 'none' | 'surface' | 'photosphere';
   targetSurfaceClearanceM?: number;
   targetSurfaceReady?: boolean;
   returnAltitudeM?: number;
@@ -96,6 +104,8 @@ export interface CosmicCruiseContext extends TravelContext {
    * go and the assistance's job becomes pointing them at the target, not rationing the throttle.
    */
   warpStep?: number;
+  cosmicMode?: boolean;
+  cosmicTier?: CosmicFlightTier;
 }
 
 function finite(value: number | undefined, fallback = 0): number {
@@ -114,22 +124,55 @@ function finite(value: number | undefined, fallback = 0): number {
  * travel domain exists, and putting a warp factor into the local flight config would undo it.
  */
 export const WARP_STEPS_C = [1, 2, 4, 8, 16, 32, 64, 128, 256] as const;
+
+/**
+ * Cosmic Flight Gears: Extends conventional warp into interstellar and intergalactic scales.
+ *
+ * Tier 'conventional' (steps 1..9): 1c .. 256c
+ * Tier 'interstellar' (steps 10..14): 1,000c .. 10,000,000c (~0.32 ly/s)
+ * Tier 'intergalactic' (steps 15..19): 100,000,000c (~3.17 ly/s) .. 1,500,000,000,000c (~47,500 ly/s)
+ */
+export const COSMIC_WARP_STEPS_C = [
+  ...WARP_STEPS_C,
+  1_000, 10_000, 100_000, 1_000_000, 10_000_000,
+  100_000_000, 1_000_000_000, 10_000_000_000, 100_000_000_000, 1_500_000_000_000,
+] as const;
+
+export type CosmicFlightTier = 'conventional' | 'interstellar' | 'intergalactic';
+
+export function cosmicTierForStep(step: number): CosmicFlightTier {
+  if (step <= 9) return 'conventional';
+  if (step <= 14) return 'interstellar';
+  return 'intergalactic';
+}
+
 /** How long the warp takes to reach its set speed. Short, because waiting to go fast is not fun. */
 export const WARP_SPOOL_S = 1.2;
 
 /** The speed a warp step means, metres per second. Step 0 is off. */
-export function warpSpeedMps(step: number): number {
+export function warpSpeedMps(step: number, allowCosmic = false): number {
   if (!Number.isFinite(step) || step <= 0) return 0;
-  const index = Math.min(WARP_STEPS_C.length, Math.round(step)) - 1;
-  return WARP_STEPS_C[index] * LIGHT_SPEED_MPS;
+  const list = allowCosmic ? COSMIC_WARP_STEPS_C : WARP_STEPS_C;
+  const index = Math.min(list.length, Math.round(step)) - 1;
+  return list[index] * LIGHT_SPEED_MPS;
 }
 
-/** The label the HUD shows for a step: `2c`, `64c`, or nothing when the gear is off. */
-export function warpLabel(step: number): string {
-  const speed = warpSpeedMps(step);
+export function cosmicWarpSpeedMps(step: number): number {
+  return warpSpeedMps(step, true);
+}
+
+/** The label the HUD shows for a step: `2c`, `64c`, `10.000c`, `100B c`, or nothing when the gear is off. */
+export function warpLabel(step: number, allowCosmic = false): string {
+  const speed = warpSpeedMps(step, allowCosmic);
   if (!(speed > 0)) return '';
-  const index = Math.min(WARP_STEPS_C.length, Math.round(step)) - 1;
-  return `${WARP_STEPS_C[index]}c`;
+  const list = allowCosmic ? COSMIC_WARP_STEPS_C : WARP_STEPS_C;
+  const index = Math.min(list.length, Math.round(step)) - 1;
+  const c = list[index];
+  if (c >= 1_000_000_000_000) return `${(c / 1e12).toFixed(1)}T c`;
+  if (c >= 1_000_000_000) return `${(c / 1e9).toFixed(0)}B c`;
+  if (c >= 1_000_000) return `${(c / 1e6).toFixed(0)}M c`;
+  if (c >= 1_000) return `${Math.round(c).toLocaleString('pt-BR')}c`;
+  return `${c}c`;
 }
 
 /** Manual thrust outside the cruise assistance, metres per second squared. */
@@ -230,6 +273,37 @@ export function sweepSegmentSphere(
   return t >= 0 && t <= 1 ? t : undefined;
 }
 
+/**
+ * Continuous proximity speed cap based on distance to the celestial envelope.
+ * Smoothly scales from local landing speeds (~20 km/s) up to planetary (16c),
+ * intra-system (256c), and cosmic scales without discrete cliff jumps.
+ */
+export function proximitySpeedCapMps(distM: number): number {
+  if (distM <= 0) return 20_000;
+  if (distM < 1_000_000) {
+    // 0 -> 1,000 km: 20 km/s -> 120 km/s
+    return 20_000 + (distM / 1_000_000) * 100_000;
+  }
+  if (distM < 100_000_000) {
+    // 1,000 km -> 100,000 km: 120 km/s -> 50,000 km/s (~0.167c)
+    const t = (distM - 1_000_000) / 99_000_000;
+    return 120_000 + t * (50_000_000 - 120_000);
+  }
+  if (distM < 1_000_000_000) {
+    // 100,000 km -> 1,000,000 km: 50,000 km/s -> 1c (299,792 km/s)
+    const t = (distM - 100_000_000) / 900_000_000;
+    return 50_000_000 + t * (LIGHT_SPEED_MPS - 50_000_000);
+  }
+  if (distM < 100_000_000_000) {
+    // 1,000,000 km -> 100,000,000 km (~0.67 AU): 1c -> 256c
+    const t = (distM - 1_000_000_000) / 99_000_000_000;
+    return LIGHT_SPEED_MPS + t * (256 * LIGHT_SPEED_MPS - LIGHT_SPEED_MPS);
+  }
+  // Above 100M km, allow superluminal scaling with distance
+  const distAU = distM / 1.496e11;
+  return 256 * LIGHT_SPEED_MPS * Math.max(1, distAU * distAU * 10);
+}
+
 export class CosmicCruiseController {
   readonly autopilot = new AutopilotCapture();
   private lastContact?: CelestialContact;
@@ -272,9 +346,15 @@ export class CosmicCruiseController {
 
     let acceleration = 0;
     let phase: FlightTelemetry['phase'] = 'idle';
+    let emergencyStopActive = false;
+    let emergencyStopReason: FlightTelemetry['emergencyStopReason'];
     const margin = finite(context.envelopeMarginM, 1000);
 
-    const warpSpeed = warpSpeedMps(finite(context.warpStep));
+    const isCosmic = !!context.cosmicMode
+      || context.cosmicTier === 'interstellar'
+      || context.cosmicTier === 'intergalactic'
+      || (context.warpStep !== undefined && context.warpStep > WARP_STEPS_C.length);
+    const warpSpeed = warpSpeedMps(finite(context.warpStep), isCosmic);
     const toTarget: [number, number, number] = target
       ? [
         finite(target.positionM[0]) - positionM[0],
@@ -304,10 +384,114 @@ export class CosmicCruiseController {
       acceleration = step.accelerationMps2;
       phase = step.phase === 'hold' ? 'landing-hold' : 'landing-capture';
     } else if (context.inputBrake && assisted) this.autopilot.cancel();
+
+    /**
+     * Obstacles and Proximity Speed Gating.
+     * Everything solid the step could pass through.
+     */
+    const obstacles: Obstacle[] = [...(context.exclusionEnvelopes ?? [])];
+    if (context.bodyPositionM && !obstacles.some(obstacle => obstacle.bodyId === context.bodyId)) {
+      obstacles.push({
+        bodyId: context.bodyId, velocityMps: context.bodyVelocityMps,
+        centreM: context.bodyPositionM,
+        radiusM: finite(context.bodyRadiusM) + margin,
+      });
+    }
+    if (target && target.bodyId !== context.bodyId && !obstacles.some(obstacle => obstacle.bodyId === target.bodyId)) {
+      obstacles.push({ bodyId: target.bodyId, velocityMps: target.velocityMps,
+        centreM: target.positionM, radiusM: target.radiusM + (target.exclusionMarginM ?? target.arrivalMarginM) });
+    }
+    if (landing && !obstacles.some(obstacle => obstacle.bodyId === landing.bodyId)) {
+      obstacles.push({ bodyId: landing.bodyId, velocityMps: landing.velocityMps,
+        centreM: landing.centreM, radiusM: landing.radiusM + margin });
+    }
+
+    // Proximity Speed Gating & Fly-By-Wire Throttle Authorization:
+    // When operating in proximity to celestial bodies, limit commanded warp acceleration
+    // before applying thrust, preventing single-frame multi-c acceleration towards bodies.
+    // Outward thrust is never throttled.
+    let authorizedWarpSpeed = warpSpeed;
+    let throttleGatedActive = false;
+    let throttleGatedBodyId: string | undefined;
+
+    let proximityCapMps = Number.POSITIVE_INFINITY;
+    let decelGatedBodyId: string | undefined;
+    let requiredDecelMps2 = 0;
+
+    const arrivalSpeed = 20_000;
+    const safetyBufferRatio = 1.25; // 25% safety reserve over stopping distance
+    const effectiveSpoolS = WARP_SPOOL_S * safetyBufferRatio; // 1.5s anticipatory braking horizon
+
+    const initialRelSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    const cosmicSpeedActive = isCosmic || warpSpeed > 0 || initialRelSpeed > 256 * LIGHT_SPEED_MPS;
+
+    if (cosmicSpeedActive) {
+      for (const obstacle of obstacles) {
+        const offset = [
+          positionM[0] - obstacle.centreM[0],
+          positionM[1] - obstacle.centreM[1],
+          positionM[2] - obstacle.centreM[2],
+        ];
+        const distCenter = Math.hypot(...offset);
+        const dist = distCenter - obstacle.radiusM;
+
+        // 1. Static distance-based speed cap from proximity curve
+        const staticCap = proximitySpeedCapMps(Math.max(0, dist));
+
+        // 2. Kinematic stopping anticipation:
+        // Maximum safe closing speed allowing continuous spool-down to arrival speed within available distance:
+        // d_stopping = effectiveSpoolS * (v_inward - arrivalSpeed) <= dist
+        // => v_safe = arrivalSpeed + max(0, dist) / effectiveSpoolS
+        const kinematicCap = arrivalSpeed + Math.max(0, dist) / effectiveSpoolS;
+        const cap = Math.min(staticCap, kinematicCap);
+
+        // Fly-by-wire throttle limiter:
+        // When commanding forward warp thrust toward an obstacle, limit the engine throttle target
+        // to prevent injecting multi-c velocities within proximity exclusion zones.
+        // Outward thrust is never throttled.
+        if (thrustDirectionBary.lengthSq() > 0.01 && distCenter > 0) {
+          const thrustLen = thrustDirectionBary.length();
+          const thrustInward = -(offset[0] * thrustDirectionBary.x + offset[1] * thrustDirectionBary.y + offset[2] * thrustDirectionBary.z) / (distCenter * thrustLen);
+          if (thrustInward > 0) {
+            const allowedWarp = Math.min(warpSpeed, cap / thrustInward);
+            if (allowedWarp < authorizedWarpSpeed) {
+              authorizedWarpSpeed = allowedWarp;
+              throttleGatedBodyId = obstacle.bodyId;
+              throttleGatedActive = true;
+            }
+          }
+        }
+
+        // Direction of existing movement: inward radial closing speed towards obstacle
+        const obstacleVel = obstacle.velocityMps ?? (obstacle.bodyId === context.bodyId ? bodyVel : [0, 0, 0]);
+        const vRelObs = [velocityMps[0] - obstacleVel[0], velocityMps[1] - obstacleVel[1], velocityMps[2] - obstacleVel[2]];
+        const inwardClosing = distCenter > 0
+          ? -(offset[0] * vRelObs[0] + offset[1] * vRelObs[1] + offset[2] * vRelObs[2]) / distCenter
+          : 0;
+
+        // Only track for deceleration if actively closing towards the body
+        if (inwardClosing > 0) {
+          if (cap < proximityCapMps) {
+            proximityCapMps = cap;
+            decelGatedBodyId = obstacle.bodyId;
+          }
+
+          // Kinematic anticipation: calculate required constant deceleration to reach cap across useful distance
+          if (inwardClosing > cap) {
+            const usefulDist = Math.max(10, dist * 0.85);
+            const aReq = (inwardClosing * inwardClosing - cap * cap) / (2 * usefulDist);
+            if (aReq > requiredDecelMps2) {
+              requiredDecelMps2 = aReq;
+            }
+          }
+        }
+      }
+    }
+
     if (landing) {
       // Handled above.
     } else if (assisted && !context.inputBrake) {
-      acceleration = this.autopilot.update(positionM, velocityMps, dt, context, warpSpeed);
+      acceleration = this.autopilot.update(positionM, velocityMps, dt, context, authorizedWarpSpeed);
       for (let i=0;i<3;i++) relVel[i] = velocityMps[i] - bodyVel[i];
       phase = this.autopilot.phase;
     } else if (context.inputBrake) {
@@ -326,8 +510,8 @@ export class CosmicCruiseController {
         const tripSeconds = cruiseSecondsFor(remainingDistance);
         // With warp engaged the player has already said how fast they want to go, so the trip
         // plan stops rationing the throttle and only decides when to start braking.
-        const cruiseAccel = warpSpeed > 0
-          ? warpSpeed / WARP_SPOOL_S
+        const cruiseAccel = authorizedWarpSpeed > 0
+          ? authorizedWarpSpeed / WARP_SPOOL_S
           : cruiseAccelerationMps2(remainingDistance, tripSeconds);
         // Closing speed, not total speed: a sideways drift must not be mistaken for progress.
         const closingSpeed = radialApproachSpeed(toTarget, relVel);
@@ -350,22 +534,96 @@ export class CosmicCruiseController {
         }
       }
     } else if (thrustDirectionBary.lengthSq() > 0.01) {
-      phase = 'acceleration';
+      phase = isCosmic && authorizedWarpSpeed > 256 * LIGHT_SPEED_MPS ? 'cosmic-cruise' : 'acceleration';
       // Warp sets the throttle; without it, the manual thrust is what it has always been.
-      acceleration = warpSpeed > 0 ? warpSpeed / WARP_SPOOL_S : BASE_THRUST_ACCEL;
+      acceleration = authorizedWarpSpeed > 0 ? authorizedWarpSpeed / WARP_SPOOL_S : BASE_THRUST_ACCEL;
       relVel[0] += finite(thrustDirectionBary.x) * acceleration * dt;
       relVel[1] += finite(thrustDirectionBary.y) * acceleration * dt;
       relVel[2] += finite(thrustDirectionBary.z) * acceleration * dt;
     }
 
-    // The gear the player selected is the ceiling, not the default half-million.
-    const maxRelative = warpSpeed > 0
-      ? warpSpeed
+    // Camera directional steering: smoothly orient existing velocity towards camera forward direction
+    const currentRelSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    if (context.cameraForwardBary.lengthSq() > 0.01 && currentRelSpeed > 100_000 && (thrustDirectionBary.lengthSq() > 0.01 || context.inputBoost)) {
+      const steerRate = Math.min(1, dt * 6.0);
+      const cam = context.cameraForwardBary;
+      const curDir = [relVel[0] / currentRelSpeed, relVel[1] / currentRelSpeed, relVel[2] / currentRelSpeed];
+      const blended = [
+        curDir[0] + (cam.x - curDir[0]) * steerRate,
+        curDir[1] + (cam.y - curDir[1]) * steerRate,
+        curDir[2] + (cam.z - curDir[2]) * steerRate,
+      ];
+      const blen = Math.hypot(...blended);
+      if (blen > 1e-6) {
+        relVel[0] = (blended[0] / blen) * currentRelSpeed;
+        relVel[1] = (blended[1] / blen) * currentRelSpeed;
+        relVel[2] = (blended[2] / blen) * currentRelSpeed;
+      }
+    }
+
+    let maxRelative = authorizedWarpSpeed > 0
+      ? authorizedWarpSpeed
       : Math.max(0, finite(context.maxRelativeSpeedMps, 500_000_000));
+
+    let decelGatingActive = false;
+    if (proximityCapMps < maxRelative) {
+      maxRelative = proximityCapMps;
+      decelGatingActive = true;
+    }
+
     const relSpeed = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    let newSpeed = relSpeed;
+    let proximityDecelApplied = false;
+
     if (!assisted && relSpeed > maxRelative && relSpeed > 0) {
-      const scale = maxRelative / relSpeed;
+      // Time-limited deceleration: bound speed shed per unit time (dt)
+      // decelRate blends base braking, warp spool down time, and distance anticipation
+      const spoolDecel = relSpeed / WARP_SPOOL_S;
+      // Contractual separation: normal predictive deceleration is bounded to preserve kinematic continuity across threshold boundaries
+      const maxPredictiveDecel = (relSpeed / WARP_SPOOL_S + BASE_BRAKE_ACCEL) * 2.5;
+      const predictiveDecel = Math.min(requiredDecelMps2, maxPredictiveDecel);
+      const decelRate = Math.max(BASE_BRAKE_ACCEL, spoolDecel, predictiveDecel);
+      const maxDeltaV = decelRate * dt;
+      newSpeed = Math.max(maxRelative, relSpeed - maxDeltaV);
+
+      if (decelGatingActive) {
+        proximityDecelApplied = true;
+        phase = 'braking';
+      }
+    }
+
+    if (newSpeed < relSpeed && relSpeed > 0) {
+      const appliedDecel = (relSpeed - newSpeed) / Math.max(1e-6, dt);
+      const scale = newSpeed / relSpeed;
       relVel[0] *= scale; relVel[1] *= scale; relVel[2] *= scale;
+      if (proximityDecelApplied || context.inputBrake || phase === 'braking' || phase === 'emergency-stop') {
+        acceleration = -appliedDecel;
+      } else if (thrustDirectionBary.lengthSq() > 0.01 && Math.abs(newSpeed - authorizedWarpSpeed) < 1e-3 * Math.max(1, authorizedWarpSpeed)) {
+        // Cruise speed governor at steady state: net acceleration across frame is zero
+        acceleration = 0;
+      } else {
+        acceleration = -appliedDecel;
+      }
+    }
+
+    // Telemetry Gating Resolution:
+    // Determine which gating constraint actively governed this frame:
+    // 1. If active proximity deceleration was applied due to proximity cap: decelGatedBodyId governed.
+    // 2. Otherwise, if engine warp throttle was limited by proximity: throttleGatedBodyId governed.
+    // 3. Otherwise, if cruise speed is actively capped below requested warp: decelGatedBodyId governed.
+    // 4. If no restriction was active: proximityGatingActive is false, gatedBodyId is undefined.
+    let proximityGatingActive = false;
+    let gatedBodyId: string | undefined;
+
+    if (proximityDecelApplied && decelGatedBodyId) {
+      proximityGatingActive = true;
+      gatedBodyId = decelGatedBodyId;
+    } else if (throttleGatedActive && throttleGatedBodyId) {
+      proximityGatingActive = true;
+      gatedBodyId = throttleGatedBodyId;
+    } else if (decelGatingActive && decelGatedBodyId && relSpeed > 0) {
+      proximityGatingActive = true;
+      gatedBodyId = decelGatedBodyId;
     }
 
     velocityMps[0] = bodyVel[0] + relVel[0];
@@ -376,38 +634,15 @@ export class CosmicCruiseController {
       velocityMps[0] * dt, velocityMps[1] * dt, velocityMps[2] * dt,
     ];
 
-    /**
-     * Everything solid the step could pass through.
-     *
-     * Both the body the player is near *and* the one they are flying at. Testing only the
-     * dominant body is what let a flight from Earth to the Moon cross the Moon entirely between
-     * two frames: while Earth is still dominant, the Moon is not in the list at all.
-     */
-    const obstacles: Obstacle[] = [...(context.exclusionEnvelopes ?? [])];
-    if (context.bodyPositionM && !obstacles.some(obstacle => obstacle.bodyId === context.bodyId)) {
-      obstacles.push({
-        bodyId: context.bodyId, velocityMps: context.bodyVelocityMps,
-        centreM: context.bodyPositionM,
-        radiusM: finite(context.bodyRadiusM) + margin,
-      });
-    }
-    if (target && target.bodyId !== context.bodyId && !obstacles.some(obstacle => obstacle.bodyId === target.bodyId)) {
-      obstacles.push({ bodyId: target.bodyId, velocityMps: target.velocityMps,
-        centreM: target.positionM, radiusM: target.radiusM + (target.exclusionMarginM ?? target.arrivalMarginM) });
-    }
-    if (landing && !obstacles.some(obstacle => obstacle.bodyId === landing.bodyId)) {
-      obstacles.push({ bodyId: landing.bodyId, velocityMps: landing.velocityMps,
-        centreM: landing.centreM, radiusM: landing.radiusM + margin });
-    }
-
     let earliest: { fraction: number; obstacle: Obstacle } | undefined;
     for (const envelope of obstacles) {
       const orbital = envelope.velocityMps ?? (envelope.bodyId === context.bodyId ? bodyVel : [0, 0, 0]);
       const speed = Math.hypot(velocityMps[0]-orbital[0],velocityMps[1]-orbital[1],velocityMps[2]-orbital[2]);
       // Decide after thrust/warp acceleration. A previously slow player must not shrink
       // the broad envelope on the same frame in which a cosmic gear accelerates them.
-      const radiusM = envelope.captureRadiusM !== undefined && speed <=
-        (context.maxLocalTerrainSweepMps ?? LANDING_SPEED_LIMITS.maxLocalTerrainSweepMps)
+      const isLandingTarget = landing?.bodyId === envelope.bodyId;
+      const radiusM = envelope.captureRadiusM !== undefined && (isLandingTarget || speed <=
+        (context.maxLocalTerrainSweepMps ?? LANDING_SPEED_LIMITS.maxLocalTerrainSweepMps))
         ? envelope.captureRadiusM : envelope.radiusM;
       const obstacle = radiusM === envelope.radiusM ? envelope : { ...envelope, radiusM };
       const relativeStep: [number, number, number] = [step[0] - orbital[0] * dt,
@@ -471,7 +706,14 @@ export class CosmicCruiseController {
         velocityMps[i] = orbital[i] + contactRelative[i];
         relVel[i] = velocityMps[i] - bodyVel[i];
       }
-      if (phase !== 'braking') phase = 'approach';
+      if (responseMode === 'landing-capture') {
+        phase = 'landing-capture';
+      } else {
+        // Unassisted contact intercepted by continuous collision detection (CCD) is an emergency collision stop
+        emergencyStopActive = true;
+        phase = 'emergency-stop';
+        emergencyStopReason = emergencyStopReason ?? 'ccd-contact';
+      }
     } else {
       positionM[0] += step[0];
       positionM[1] += step[1];
@@ -510,9 +752,16 @@ export class CosmicCruiseController {
     this.telemetry.arrivalRadiusM = this.autopilot.arrivalRadiusM;
     this.telemetry.effectiveSpeedCapMps = this.autopilot.effectiveSpeedCapMps;
     this.telemetry.speedMps = Math.hypot(relVel[0], relVel[1], relVel[2]);
+    this.telemetry.effectiveSpeedC = this.telemetry.speedMps / LIGHT_SPEED_MPS;
     this.telemetry.accelerationMps2 = acceleration;
     this.telemetry.phase = phase;
+    this.telemetry.emergencyStopActive = emergencyStopActive;
+    this.telemetry.emergencyStopReason = emergencyStopActive ? emergencyStopReason : undefined;
     this.telemetry.warpStep = Math.max(0, Math.round(finite(context.warpStep)));
+    this.telemetry.warpLabel = warpLabel(this.telemetry.warpStep, isCosmic);
+    this.telemetry.cosmicTier = cosmicTierForStep(this.telemetry.warpStep);
+    this.telemetry.proximityGatingActive = proximityGatingActive;
+    this.telemetry.gatedBodyId = gatedBodyId;
 
     return {
       systemId: state.systemId,

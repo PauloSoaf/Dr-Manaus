@@ -68,6 +68,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   private prepared?:{entries:readonly PlanetVolumeReplacement[];regions:readonly ImpactResidentRegion[];collision:()=>void;coverage:()=>void;
     footprint:PlanetVolumeRuntime['footprint'];revision:number};
   requestImpactRegion(editId:string,_plan:RockyImpactEditPlan):void {this.requestedImpact=editId;}
+  requestEditRegion(editId: string): void { this.requestedImpact = editId; }
   setImpactPublication(publication:PlanetVolumePublication):void {this.publication=publication;}
   private collisionEnabled=false;
   private collisionWanted:readonly PlanetVolumeChunkKey[]=[];

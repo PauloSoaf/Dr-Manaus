@@ -71,6 +71,7 @@ export class PlayerController {
   get isGrounded(): boolean { return this.grounded; }
   /** Physical gravity of the current body, before the existing Earth gameplay calibration. */
   get surfaceGravityMps2(): number { return this.bodyGravityMps2; }
+  get gravity(): number { return this.bodyGravityMps2; }
   get gravityMps2(): number {
     return getGravity(this.size, JUMP_CONFIG.baseGravity * this.bodyGravityMps2 / surfaceGravityMps2(EARTH));
   }
@@ -122,6 +123,7 @@ export class PlayerController {
   /** True for either armed tier. Interplanetary is mega and then some. */
   get megaMode(): boolean { return this.armedTier !== 'none'; }
   set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
+  get isFlying(): boolean { return this.state === 'Hover' || this.state === 'Flight'; }
   get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
   get lastTerrainContact() { return this.physics.lastTerrainContact; }
   get lastVolumeContact() { return this.physics.lastVolumeContact; }
@@ -164,7 +166,9 @@ export class PlayerController {
     dt = Math.min(0.06, dt);
     this.armClockS += dt;
     if (this.input.consume('KeyV')) this.tapArm();
-    if (!this.input.held('KeyB')) this.megaNeedsBoostRelease = false;
+    const isShift = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+    const isB = this.input.held('KeyB');
+    if (!isB) this.megaNeedsBoostRelease = false;
     if (this.input.consume('KeyF')) {
       this.state = this.state === 'Grounded' || this.state === 'Falling' ? 'Hover' : 'Falling';
       if (this.state === 'Hover') {
@@ -172,10 +176,10 @@ export class PlayerController {
         this.position.y += 0.18;
       }
     }
-    const flying = this.state === 'Hover' || this.state === 'Flight';
+    const flying = this.isFlying;
     
-    const boosting = this.input.held('KeyB');
-    const sprinting = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+    const boosting = isB;
+    const sprinting = isShift;
     const movementX = Number(this.input.held('KeyD')) - Number(this.input.held('KeyA'));
     const movementZ = Number(this.input.held('KeyS')) - Number(this.input.held('KeyW'));
     const ascent = Number(this.input.held('Space')) - Number(this.input.held('ControlLeft') || this.input.held('ControlRight'));
@@ -383,6 +387,8 @@ export class PlayerController {
     this.model.scale.setScalar(this.size);
   }
 
+  private readonly travelVelocity = new Vector3();
+
   /**
    * Updates the visual proxy during interplanetary travel.
    * The logical position moves through UniverseRuntime/TravelDomain, while the visual model
@@ -395,16 +401,17 @@ export class PlayerController {
     this.facingYaw = cameraYaw;
     this.speedMode = 'interplanetary';
     this.state = 'Flight';
+    this.travelVelocity.copy(viewForward).normalize().multiplyScalar(speedMps);
     this.character.animate(
       dt,
       speedMps,
       true,
       issprinting,
       'interplanetary',
-      0,
+      this.travelVelocity.y,
       0,
       this.size,
-      undefined,
+      this.travelVelocity,
       1,
       'interplanetary',
       viewForward,

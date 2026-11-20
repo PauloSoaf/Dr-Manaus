@@ -263,14 +263,8 @@ export class HLODManager {
 
   private set(mesh: InstancedMesh, index: number, x: number, y: number, z: number, w: number, h: number, d: number): void {
     if (localManausPresentationMode() === 'curved') {
-      const up = this.surfaceService.legacyDirectionToRenderLocal(0, 1, 0, x, y, z).normalize();
-      const north = this.surfaceService.legacyDirectionToRenderLocal(0, 0, -1, x, y, z).normalize();
-      const east = this.surfaceService.legacyDirectionToRenderLocal(1, 0, 0, x, y, z).normalize();
-      const pt = this.surfaceService.legacyPointToRenderLocal(x, y, z);
-      
-      this.matrix.makeBasis(east, up, north);
+      this.surfaceService.legacyPoseToRenderLocalMatrix(x, y, z, this.matrix);
       this.matrix.scale(new Vector3(w, h, d));
-      this.matrix.setPosition(pt);
     } else {
       this.matrix.makeScale(w, h, d);
       this.matrix.setPosition(x, y, z);

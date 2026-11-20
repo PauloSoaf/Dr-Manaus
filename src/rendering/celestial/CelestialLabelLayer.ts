@@ -8,6 +8,7 @@ export const CELESTIAL_LABEL_NAMES: Readonly<Record<string, string>> = {
   mars: 'MARTE', jupiter: 'JÚPITER', saturn: 'SATURNO', uranus: 'URANO', neptune: 'NETUNO',
   io: 'IO', europa: 'EUROPA', ganymede: 'GANIMEDES', callisto: 'CALISTO',
   titan: 'TITÃ', enceladus: 'ENCÉLADO', titania: 'TITÂNIA', oberon: 'OBERON', triton: 'TRITÃO',
+  'titan-astral-leviathan-01': 'LEVIATÃ ASTRAL',
 };
 
 export interface CelestialLabelContext {

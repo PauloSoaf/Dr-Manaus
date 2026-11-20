@@ -30,6 +30,8 @@ export interface CelestialRenderSample {
 
   visible: boolean;
   opacity: number;
+  /** Id of the nearer, larger body that fully covers this one from the observer, if any. */
+  occludedBy?: string;
   
   // Phase light direction in render space, optional (used by moon)
   phaseLightDirection?: Vec3;

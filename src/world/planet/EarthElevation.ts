@@ -1,6 +1,7 @@
 import payload from '../geodata/earth-elevation.json';
 import { RAD_TO_DEG } from '../spatial/units';
 import { meridionalRadius, metresPerRadianLongitude } from '../spatial/WGS84';
+import { classifyEarthSurface, EarthSurfaceClass } from './EarthLandMask';
 
 /**
  * How high the ground is, globally.
@@ -123,6 +124,48 @@ export function elevationAt(latRad: number, lonRad: number): number {
  */
 export function surfaceHeightAt(latRad: number, lonRad: number): number {
   return Math.max(0, elevationAt(latRad, lonRad)) * RELIEF_EXAGGERATION;
+}
+
+function hash2D(ix: number, iy: number): number {
+  let h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ 0x5bd1e995;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+
+function valueNoise2D(x: number, y: number): number {
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const u = fx * fx * (3 - 2 * fx);
+  const v = fy * fy * (3 - 2 * fy);
+  const a = hash2D(x0, y0) * (1 - u) + hash2D(x0 + 1, y0) * u;
+  const b = hash2D(x0, y0 + 1) * (1 - u) + hash2D(x0 + 1, y0 + 1) * u;
+  return (a * (1 - v) + b * v) * 2 - 1;
+}
+
+/**
+ * Multi-scale elevation hierarchy (P1-04 in 02-REMAINING-BUGS.md):
+ * - LOD <= 5 (orbital): returns the canonical ETOPO5 512x256 elevation.
+ * - LOD >= 6 (15 km, 5 km, 1 km, landing): adds deterministic multi-octave sub-grid relief
+ *   over continental Land/Ice while preserving 0 m over Ocean/ShallowWater and Manaus Urban.
+ */
+export function hierarchicalElevationAt(latRad: number, lonRad: number, lodLevel = 0): number {
+  const base = surfaceHeightAt(latRad, lonRad);
+  if (lodLevel <= 5 || base <= 0) return base;
+  const cls = classifyEarthSurface(latRad, lonRad);
+  if (cls !== EarthSurfaceClass.Land && cls !== EarthSurfaceClass.Ice) return 0;
+
+  const latDeg = latRad * RAD_TO_DEG;
+  const lonDeg = lonRad * RAD_TO_DEG;
+  const octaves = Math.min(4, Math.floor(lodLevel) - 5);
+  let detail = 0;
+  let freq = 8;
+  let amp = Math.min(180, base * 0.08);
+  for (let o = 0; o < octaves; o++) {
+    detail += valueNoise2D(lonDeg * freq, latDeg * freq) * amp;
+    freq *= 2.15;
+    amp *= 0.48;
+  }
+  return Math.max(0, Math.min(EARTH_MAX_ELEVATION_M, base + detail));
 }
 
 /**

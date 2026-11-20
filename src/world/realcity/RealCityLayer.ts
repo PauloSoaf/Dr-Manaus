@@ -1,12 +1,11 @@
 import { skylineBuildings } from './skyline';
-import { WORLD } from '../../core/config';
+import { FEATURES, REAL_CITY, WORLD } from '../../core/config';
 import { isUrban } from '../geodata/geodata';
 import {
   BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Group, InstancedMesh,
   Matrix4, Mesh, MeshStandardMaterial, Vector3,
 } from 'three/webgpu';
 import type { Collider } from '../../core/types';
-import { REAL_CITY } from '../../core/config';
 import { RealCityMaterials } from './materials';
 import { RoadNetwork, type RoadRecord } from './roads';
 import { DistrictIndex } from './districts';
@@ -16,6 +15,7 @@ import {
   type MeshBuffers, type RealBuilding,
 } from './buildingGeometry';
 import { manausTileSceneMatrix } from '../spatial/ManausSurfacePresentation';
+import { getManausTerrainHeight } from './ManausUrbanElevation';
 
 interface PackedTile { key: string; tx: number; tz: number; buildings: RealBuilding[] }
 interface RuinedBuilding { bounds: Collider; tile: string; blocks: number[] }
@@ -143,6 +143,11 @@ export class RealCityLayer {
   private readonly skylineShapes=new Map<string,ReturnType<typeof skylineBuildings>[]>();
   private enabled = false;
   private night = false;
+  private elevationSampler?: (x: number, z: number) => number;
+
+  setElevationSampler(sampler: ((x: number, z: number) => number) | null): void {
+    this.elevationSampler = sampler ?? undefined;
+  }
   private detailEnabled = true;
   private lastPlanX = Infinity;
   private lastPlanZ = Infinity;
@@ -211,7 +216,8 @@ export class RealCityLayer {
       if (!response.ok) return;
       const records = await response.json() as RoadRecord[];
       if (!Array.isArray(records) || !records.length) return;
-      this.roads = new RoadNetwork(records, this.materials.road, this.materials.lamp);
+      const sampler = this.elevationSampler ?? (FEATURES.urbanElevation ? getManausTerrainHeight : undefined);
+      this.roads = new RoadNetwork(records, this.materials.road, this.materials.lamp, sampler);
       this.group.add(this.roads.group);
       this.metrics.roadTriangles = this.roads.triangleCount;
     } catch { /* The procedural road ribbons stay visible when the real network is missing. */ }
@@ -575,6 +581,8 @@ export class RealCityLayer {
       const cells: RealBuilding[][] = Array.from({ length: CELLS_PER_SIDE * CELLS_PER_SIDE }, () => []);
       const bounds=new Map<string,Collider>();
       for (const building of packed.buildings) {
+        building.ox = packed.tx * size;
+        building.oz = packed.tz * size;
         const extent = buildingExtent(building);
         if (!extent) continue;
         bounds.set(building.id,{id:`real:${building.id}`,x:packed.tx*size+extent.x,y:extent.top/2,z:packed.tz*size+extent.z,width:extent.radius*1.414,height:extent.top,depth:extent.radius*1.414});
@@ -696,9 +704,10 @@ export class RealCityLayer {
         const building = job.list[job.index++];
         if (this.destroyed.has(building.id)) continue;
         const first = job.buffers.position.length / 3;
+        const sampler = this.elevationSampler ?? (FEATURES.urbanElevation ? getManausTerrainHeight : undefined);
         const collider = job.rich
-          ? appendNearBuilding(job.buffers, building)
-          : appendShellBuilding(job.buffers, building);
+          ? appendNearBuilding(job.buffers, building, { elevationSampler: sampler })
+          : appendShellBuilding(job.buffers, building, { elevationSampler: sampler });
         const vertices = job.buffers.position.length / 3 - first;
         // Packed into one double so a collapse is two integer reads, not an object per building.
         if (vertices > 0 && vertices < VERTEX_SPAN) job.ranges.set(building.id, first * VERTEX_SPAN + vertices);

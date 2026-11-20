@@ -37,7 +37,12 @@ export function formatSpeed(metresPerSecond: number): { value: string; unit: str
   if (!Number.isFinite(metresPerSecond)) return { value: '—', unit: '' };
   const value = Math.abs(metresPerSecond);
   if (value >= 0.01 * LIGHT_SPEED_MPS) {
-    return { value: (value / LIGHT_SPEED_MPS).toFixed(3), unit: 'c' };
+    const c = value / LIGHT_SPEED_MPS;
+    if (c >= 1e12) return { value: (c / 1e12).toFixed(2), unit: 'T c' };
+    if (c >= 1e9) return { value: (c / 1e9).toFixed(2), unit: 'B c' };
+    if (c >= 1e6) return { value: (c / 1e6).toFixed(2), unit: 'M c' };
+    if (c >= 10_000) return { value: Math.round(c).toLocaleString('pt-BR'), unit: 'c' };
+    return { value: c.toFixed(3), unit: 'c' };
   }
   if (value >= 50_000) return { value: Math.round(value / 1_000).toLocaleString('pt-BR'), unit: 'km/s' };
   if (value >= 1_000) return { value: (value / 1_000).toFixed(1), unit: 'km/s' };

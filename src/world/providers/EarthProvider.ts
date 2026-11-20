@@ -21,6 +21,7 @@ import {
   regionContains,
 } from './WorldProvider';
 import { type EarthCoverageReadiness, createDefaultReadiness } from './EarthCoverageReadiness';
+import { clampPlanetTileCap } from '../streaming/CosmicLodBudget';
 
 /**
  * How far Manaus reaches. Derived from the compiled tile grid — 645 tiles of 1 024 m, roughly
@@ -98,7 +99,7 @@ export class EarthProvider implements WorldProvider {
       // geometric Manaus anchor; EarthGlobe hides only its surface sub-tree, never that anchor.
       minAltitudeM: Math.max(0, finite(options.minAltitudeM, 8_000)),
       fadeM: Math.max(1, finite(options.fadeM, 7_000)),
-      maxTiles: Math.max(6, finite(options.maxTiles, 160)),
+      maxTiles: clampPlanetTileCap(finite(options.maxTiles, 160)),
       maxLevel: Math.max(0, finite(options.maxLevel, 10)),
       replanIntervalS: Math.max(0, finite(options.replanIntervalS, 0.25)),
       cityOwnsGround: options.cityOwnsGround ?? true,

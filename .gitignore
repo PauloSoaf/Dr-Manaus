@@ -11,3 +11,4 @@ data/raw-geodata/
 /diff.patch
 /failed_tests.txt
 *.code-workspace
+references/
