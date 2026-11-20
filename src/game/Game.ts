@@ -1193,6 +1193,8 @@ export class Game {
     const isBlackHoleNearby = dominantBodyId === 'sgra' || dominantBodyId === 'sagittarius-a-star';
     const blackHoleProx = isBlackHoleNearby ? Math.min(1, Math.max(0, 1 - (altitudeNow / 1e11))) : 0;
 
+    const isUnderwaterNow = manaus && this.water && this.player.position.y < (this.water.surfaceY + 0.1) && !isLand(this.player.position.x, this.player.position.z);
+
     this.audio?.update({
       medium: audioMedium,
       atmosphericDensity01: currentDensity,
@@ -1200,6 +1202,7 @@ export class Game {
       altitudeM: altitudeNow,
       rain: manaus && ['rain', 'storm'].includes(this.atmosphere.weather),
       river: manaus && !isLand(this.player.position.x, this.player.position.z),
+      underwater: Boolean(isUnderwaterNow),
       hazardIntensity: hazardState.intensity,
       hypersonicActive: speedNow > 340 && currentDensity > 0.01,
       warpActive: warpEngaged,

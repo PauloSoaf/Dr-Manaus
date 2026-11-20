@@ -273,9 +273,17 @@ function createMaterial(): MeshStandardNodeMaterial {
   // Confluence mixing zone
   const riverColor = mix(negroFinal, solimoesFinal, silt);
 
-  // Shoreline foam and shallow water brightness
-  const shoreFoam = float(1).sub(smoothstep(0.02, 0.45, shore)).mul(mix(float(0.48), float(0.25), distant));
-  const finalColor = mix(riverColor, mix(color('#37474a'), color('#9e8a6a'), silt), shoreFoam);
+  // Shoreline foam and shallow water brightness (Domain-warped FBM procedural foam)
+  // Reconstructs dynamic river bank foam matching references/threejs-water-free/src/material/waterMaterial.js
+  const foamWarp = sin(p.x.mul(0.08).add(time.mul(0.7))).mul(cos(p.z.mul(0.08).sub(time.mul(0.5))));
+  const foamCoords = p.x.mul(0.25).add(p.z.mul(0.25)).add(foamWarp.mul(2.5));
+  const foamNoise = sin(foamCoords.add(time.mul(1.2))).mul(sin(foamCoords.mul(1.7).sub(time.mul(0.8)))).abs();
+  const shoreFoam = float(1).sub(smoothstep(0.01, 0.45, shore))
+    .mul(foamNoise.mul(0.65).add(0.35))
+    .mul(mix(float(0.58), float(0.18), distant));
+
+  const foamColor = mix(color('#526a70'), color('#c2b395'), silt);
+  const finalColor = mix(riverColor, foamColor, shoreFoam);
 
   material.colorNode = finalColor;
   material.roughnessNode = mix(mix(float(0.12), float(0.38), silt), float(0.68), distant);

@@ -14,6 +14,7 @@ export interface AudioEnvironment {
   altitudeM: number;
   rain: boolean;
   river: boolean;
+  underwater?: boolean;
   hazardIntensity?: number;
   hypersonicActive?: boolean;
   warpActive?: boolean;
@@ -67,8 +68,15 @@ export function environmentalAudioMix(environment: AudioEnvironment) {
   }
 
   const windGain = Math.min((speed / 400) * windScale, 0.42) * density;
-  const ambienceGain = (environment.rain ? 0.55 : baseGain) * density + (environment.rain ? 0 : windGain);
-  const frequency = environment.rain ? 2400 : environment.altitudeM > 70 ? baseCutoff + Math.min(speed * 4, 1500) : environment.river ? 550 : baseCutoff;
+  let ambienceGain = (environment.rain ? 0.55 : baseGain) * density + (environment.rain ? 0 : windGain);
+  let frequency = environment.rain ? 2400 : environment.altitudeM > 70 ? baseCutoff + Math.min(speed * 4, 1500) : environment.river ? 550 : baseCutoff;
+
+  // RF-01-05: Underwater acoustic muffling (Low-pass filter clamped at 320 Hz)
+  if (environment.underwater) {
+    frequency = 320;
+    ambienceGain = 0.28;
+  }
+
   return { windGain, ambienceGain, frequency };
 }
 
