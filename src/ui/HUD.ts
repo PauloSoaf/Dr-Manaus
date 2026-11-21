@@ -19,7 +19,7 @@ import { travelCapabilityLabel, type ResolvedUniversalTarget } from '../world/tr
 import type { VehicleTelemetry } from '../player/vehicles/VehicleController';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string,source?:NavigationLock['source'])=>string|undefined|void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void; atlas?: import('../world/exploration/CosmicAtlasModel').CosmicAtlasModel; }
 export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; bossStatus?: { name: string; phase: number; health: number; maxHealth: number; shield: number; maxShield: number; enraged: boolean; distanceM?: number } | null; interactionPrompt?: string | null; vehicleTelemetry?: VehicleTelemetry | null; }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; bossStatus?: { name: string; phase: number; health: number; maxHealth: number; shield: number; maxShield: number; enraged: boolean; distanceM?: number } | null; interactionPrompt?: string | null; vehicleTelemetry?: VehicleTelemetry | null; playerVitals?: { health: number; maxHealth: number; shield: number; maxShield: number; isInvulnerable: boolean; damageFlash?: number } | null; }
 
 /** The body close enough to be a place rather than a point of light. */
 export interface HUDNearbyBody {
@@ -203,6 +203,24 @@ export class HUD {
       <div class="toast" id="toast" role="status"></div>
       <div class="location"><span class="eyebrow"><span id="location-domain">MANAUS</span> · <b id="district">AMAZONAS</b></span><h2 id="place-name">Teatro Amazonas</h2><p id="coordinates">3.1303° S &nbsp; 60.0234° O</p><div class="location-line"><i></i><span id="location-state">CENTRO HISTÓRICO</span></div></div>
       <footer class="power-dock"><div class="power-caption"><span>MANIPULAÇÃO CÓSMICA</span><i></i><span id="power-current">EMISSÃO DE ENERGIA</span></div><div class="power-buttons">${POWERS.map(([id,label,key],i)=>`<button class="power ${i===0?'active':''}" data-power="${id}" title="${label} (${key})" aria-label="${label}">${icon(id)}<kbd>${key}</kbd><span>${label}</span></button>`).join('')}</div><div class="control-hint" id="control-hint"><kbd>F</kbd> levitar <i></i><kbd>W A S D</kbd> mover <i></i><span>clique na cena para controlar a câmera</span></div></footer>
+      <div class="damage-overlay" id="damage-overlay" style="position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center, rgba(239,68,68,0) 50%, rgba(239,68,68,0.45) 100%);opacity:0;transition:opacity 0.15s ease-out;z-index:40;"></div>
+      <section class="player-vitals" id="player-vitals" style="position:fixed;bottom:90px;left:24px;width:240px;background:rgba(10,15,25,0.78);border:1px solid rgba(0,240,255,0.25);border-radius:6px;padding:8px 12px;z-index:50;font-family:monospace;box-shadow:0 0 10px rgba(0,0,0,0.5);">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;font-weight:bold;margin-bottom:3px;">
+          <span style="color:#00f0ff;">ESCUDO</span>
+          <b id="vital-shield-num" style="color:#00f0ff;">500 / 500</b>
+        </div>
+        <div style="width:100%;height:5px;background:#1e293b;border-radius:3px;margin-bottom:6px;overflow:hidden;">
+          <div id="vital-shield-fill" style="width:100%;height:100%;background:linear-gradient(90deg,#00f0ff,#3b82f6);transition:width 0.15s;"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:10px;font-weight:bold;margin-bottom:3px;">
+          <span style="color:#10b981;">INTEGRIDADE</span>
+          <b id="vital-hp-num" style="color:#10b981;">1000 / 1000</b>
+        </div>
+        <div style="width:100%;height:6px;background:#1e293b;border-radius:3px;overflow:hidden;">
+          <div id="vital-hp-fill" style="width:100%;height:100%;background:linear-gradient(90deg,#ef4444,#10b981);transition:width 0.15s;"></div>
+        </div>
+        <div id="vital-status-tag" style="font-size:9px;color:#f59e0b;margin-top:4px;display:none;text-align:right;">⚡ INVULNERÁVEL</div>
+      </section>
       <section class="vehicle-cluster" id="vehicle-cluster" hidden>
         <div class="veh-header">
           <div class="veh-title">
@@ -606,6 +624,41 @@ export class HUD {
       $('#veh-badge-air').hidden = !vt.isAirborne;
     } else {
       vehCluster.hidden = true;
+    }
+
+    const vitals = state.playerVitals;
+    if (vitals && typeof document !== 'undefined') {
+      const shieldPct = Math.max(0, Math.min(100, (vitals.shield / Math.max(1, vitals.maxShield)) * 100));
+      const hpPct = Math.max(0, Math.min(100, (vitals.health / Math.max(1, vitals.maxHealth)) * 100));
+
+      this.domCache.setCachedText($('#vital-shield-num'), `${Math.round(vitals.shield)} / ${vitals.maxShield}`);
+      this.domCache.setCachedText($('#vital-hp-num'), `${Math.round(vitals.health)} / ${vitals.maxHealth}`);
+
+      const shieldFill = $('#vital-shield-fill');
+      if (shieldFill) shieldFill.style.width = `${shieldPct.toFixed(1)}%`;
+      const hpFill = $('#vital-hp-fill');
+      if (hpFill) hpFill.style.width = `${hpPct.toFixed(1)}%`;
+
+      const statusTag = $('#vital-status-tag');
+      if (statusTag) {
+        if (vitals.isInvulnerable) {
+          statusTag.style.display = 'block';
+          statusTag.textContent = '⚡ ESQUIVA / INVULNERÁVEL';
+          statusTag.style.color = '#38bdf8';
+        } else if (vitals.shield <= 0) {
+          statusTag.style.display = 'block';
+          statusTag.textContent = '⚠ ESCUDO DESCARREGADO';
+          statusTag.style.color = '#ef4444';
+        } else {
+          statusTag.style.display = 'none';
+        }
+      }
+
+      const dmgOverlay = $('#damage-overlay');
+      if (dmgOverlay) {
+        const flash = vitals.damageFlash ?? 0;
+        dmgOverlay.style.opacity = `${Math.min(1, flash * 1.5)}`;
+      }
     }
 
     document.body.classList.toggle('temporal',state.temporal);document.body.classList.toggle('supersonic',state.velocity.length()>300);

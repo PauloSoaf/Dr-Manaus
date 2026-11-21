@@ -9,6 +9,7 @@ import { EffectPool } from './EffectPool';
 import { COMBAT_MOVES } from '../combat/CombatMoves';
 import { SoftTargeting, type SoftTargetCandidate } from '../combat/SoftTargeting';
 import { HitStopSystem } from '../combat/HitStopSystem';
+import { CombatSystem } from '../combat/CombatSystem';
 import { IMPACT } from '../combat/MeteorImpact';
 import { TeleportSystem } from '../../world/spatial/TeleportSystem';
 
@@ -229,9 +230,16 @@ export class PowerSystem {
     this.teleportSystem.updateQuantumJump(realDt);
     this.updateClones(realDt);
     this.updateLaser(realDt);
+    this.combat.update(realDt);
+    const buffered = this.combat.consumeBufferedAction();
+    if (buffered && !this.meleePending && this.cooldowns.punch <= 0 && this.cooldowns.kick <= 0) {
+      if (buffered.type === 'melee_kick') this.use('kick');
+      else if (buffered.type === 'melee_punch') this.use('punch');
+    }
   }
 
-  readonly hitStop = new HitStopSystem();
+  readonly combat = new CombatSystem();
+  get hitStop(): HitStopSystem { return this.combat.hitStop; }
   private readonly previousStrikePosition = new Vector3();
   private readonly currentStrikePosition = new Vector3();
   private readonly sweepDirection = new Vector3();
@@ -250,7 +258,10 @@ export class PowerSystem {
     if (this.cooldowns[name] > 0 || this.teleporting) return;
     switch (name) {
       case 'punch': case 'kick': {
-        if (this.meleePending || this.cooldowns.punch > 0 || this.cooldowns.kick > 0) break;
+        if (this.meleePending || this.cooldowns.punch > 0 || this.cooldowns.kick > 0) {
+          this.combat.bufferAction(name === 'kick' ? 'melee_kick' : 'melee_punch');
+          break;
+        }
         this.laserActive = false;
         this.cooldowns[name] = name === 'kick' ? 0.65 : 0.52;
 
@@ -282,12 +293,12 @@ export class PowerSystem {
         this.player.character.startCombatMove(move);
         this.sampleStrikeBone(true);
 
-        // Soft targeting assistance: nudges rayDirection gently within assist cone
+        // Polar soft-targeting assistance: evaluates targets with 60-deg cone and raycast line-of-sight
         const candidates: SoftTargetCandidate[] = this.hooks.targets()
           .filter(t => t.active)
           .map(t => ({ id: t.id, position: t.position, radius: t.radius, priority: t.kind === 'anomaly' ? 80 : 50 }));
 
-        const assist = SoftTargeting.findTarget(
+        const polar = this.combat.selectPolarTarget(
           this.player.position,
           this.rayDirection,
           candidates,
@@ -295,9 +306,9 @@ export class PowerSystem {
           this.hooks.getColliders()
         );
 
-        this.rayDirection.copy(assist.assistedDirection);
-        this.softTargetAssistAngle = assist.assistAngleDeg;
-        this.softTargetId = assist.target?.id ?? null;
+        this.rayDirection.copy(polar.assistedAimDir);
+        this.softTargetAssistAngle = polar.angleDeg;
+        this.softTargetId = polar.candidate?.id ?? null;
 
         this.player.facingYaw = Math.atan2(-this.rayDirection.x, -this.rayDirection.z);
         const contact = move.events.find(event => event.event === 'attack.hit' || event.event === 'kick.hit' || event.event === 'meteor.impact');
@@ -365,7 +376,7 @@ export class PowerSystem {
     const move = this.activeCombatMoveId ?? '';
     const kick = move === 'kick' || move === 'kickSide' || move === 'flyingKick';
     const left = move === 'punch' || move === 'kick';
-    if (this.player.character.skinnedMeshes.length) {
+    if (this.player.character.skinnedMeshes?.length) {
       this.player.model.updateWorldMatrix(true, true);
       const bone = kick
         ? (left ? this.player.character.leftFoot : this.player.character.rightFoot)
@@ -448,16 +459,16 @@ export class PowerSystem {
       this.effects.wave(this.aimPoint, 24 * size);
       this.effects.burst(this.aimPoint, 0x8fffee, Math.min(50, 16 * size), 56);
       this.hooks.impulse(this.aimPoint, 5 * size, 80 * size);
-      this.hitStop.trigger(65);
+      this.combat.triggerHitstop(true, 'critical');
     } else if (isMeteor) {
       this.effects.wave(this.aimPoint, 18 * size);
       this.effects.burst(this.aimPoint, 0xffd270, Math.min(40, 12 * size), 44);
       this.hooks.impulse(this.aimPoint, 4 * size, 55 * size);
-      this.hitStop.trigger(50);
+      this.combat.triggerHitstop(true, 'heavy');
     } else {
       this.effects.burst(this.aimPoint, 0xaaffed, Math.min(30, size), 24);
       this.hooks.impulse(this.aimPoint, 2 * size, 24 * size);
-      this.hitStop.trigger(kind === 'kick' ? 30 : 20);
+      this.combat.triggerHitstop(false, kind === 'kick' ? 'medium' : 'light');
     }
     this.hooks.sound('energy');
   }

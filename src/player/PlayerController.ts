@@ -33,6 +33,18 @@ export class PlayerController {
   readonly dodge = new DodgeSystem();
   /** The key that evades: a roll on the ground, a dash in the air. */
   dodgeKey = 'KeyZ';
+  maxHealth = 1000;
+  health = 1000;
+  maxShield = 500;
+  shield = 500;
+  isGodMode = false;
+  shieldRegenDelay = 3.0;
+  shieldRegenRate = 120.0;
+  lastHitTimer = 0;
+  damageFlash = 0;
+  lastDamageReason: string | null = null;
+  onDamageTaken?: (amount: number, health: number, shield: number, reason: string) => void;
+  onDeath?: (reason: string) => void;
   state: 'Grounded' | 'Falling' | 'Hover' | 'Flight' = 'Grounded';
   facingYaw = 0;
   size = 1;
@@ -82,8 +94,63 @@ export class PlayerController {
   /** The speed the player is currently asking for; flight rights the body against it. */
   get requestedSpeed(): number { return this.desiredSpeed; }
   get isSlamming(): boolean { return this.slamTimer > 0; }
-  /** True inside the evade window. Nothing damages the player yet; this is the hook for when it does. */
-  get invulnerable(): boolean { return this.dodge.invulnerable; }
+  /** True inside the evade window or when godmode is active. */
+  get invulnerable(): boolean { return this.isGodMode || this.dodge.invulnerable; }
+  get isInvulnerable(): boolean { return this.invulnerable; }
+
+  takeDamage(amount: number, reason: string = 'Impacto'): { damageDealt: number; absorbedByShield: number; fatal: boolean } {
+    if (this.isInvulnerable || amount <= 0) {
+      return { damageDealt: 0, absorbedByShield: 0, fatal: false };
+    }
+
+    this.lastHitTimer = this.shieldRegenDelay;
+    this.damageFlash = 0.5;
+    this.lastDamageReason = reason;
+
+    let absorbedByShield = 0;
+    let damageDealt = 0;
+
+    if (this.shield > 0) {
+      if (amount <= this.shield) {
+        this.shield -= amount;
+        absorbedByShield = amount;
+      } else {
+        absorbedByShield = this.shield;
+        const remaining = amount - this.shield;
+        this.shield = 0;
+        this.health = Math.max(0, this.health - remaining);
+        damageDealt = remaining;
+      }
+    } else {
+      this.health = Math.max(0, this.health - amount);
+      damageDealt = amount;
+    }
+
+    const fatal = this.health <= 0;
+    this.onDamageTaken?.(amount, this.health, this.shield, reason);
+
+    if (fatal) {
+      this.onDeath?.(reason);
+      this.respawn();
+    }
+
+    return { damageDealt, absorbedByShield, fatal };
+  }
+
+  heal(amount: number): void {
+    this.health = Math.min(this.maxHealth, this.health + Math.max(0, amount));
+  }
+
+  rechargeShield(amount: number): void {
+    this.shield = Math.min(this.maxShield, this.shield + Math.max(0, amount));
+  }
+
+  respawn(): void {
+    this.health = this.maxHealth;
+    this.shield = this.maxShield;
+    this.lastHitTimer = 0;
+    this.damageFlash = 0;
+  }
 
   /**
    * The landing that just happened, if it was hard enough to matter, handed over exactly once.
@@ -165,6 +232,14 @@ export class PlayerController {
   update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0): void {
     dt = Math.min(0.06, dt);
     this.armClockS += dt;
+    if (this.lastHitTimer > 0) {
+      this.lastHitTimer -= dt;
+    } else if (this.shield < this.maxShield) {
+      this.shield = Math.min(this.maxShield, this.shield + this.shieldRegenRate * dt);
+    }
+    if (this.damageFlash > 0) {
+      this.damageFlash = Math.max(0, this.damageFlash - dt * 2.0);
+    }
     if (this.input.consume('KeyV')) this.tapArm();
     const isShift = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
     const isB = this.input.held('KeyB');
