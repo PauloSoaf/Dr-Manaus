@@ -46,8 +46,9 @@ export interface AnimationDebugState {
 }
 
 /**
- * Gameplay animation state only. Bone poses are owned by CharacterAnimator and
- * native THREE.AnimationClips; this class never writes to skeleton transforms.
+ * Gameplay animation state only: root orientation (flight, somersault), combat move timing and
+ * events. Bone poses are owned by CharacterAnimator's graph of authored clips; this class never
+ * writes to skeleton transforms (the old procedural spine aim was removed for that reason).
  */
 export class AnimationController {
   readonly events = new AnimationEvents();
@@ -55,7 +56,6 @@ export class AnimationController {
   readonly rootOrientation = new Quaternion();
   readonly bodyOffset = new Vector3();
   private readonly qFlip = new Quaternion();
-  private readonly qSpine = new Quaternion();
   private readonly flipAxis = new Vector3(1, 0, 0);
   private readonly targetYaw = new Quaternion();
   private doubleJump: DoubleJumpState = { active: false, progress: 0, duration: 0.44, direction: 'front' };
@@ -218,37 +218,21 @@ export class AnimationController {
       : params.speed > 8 ? 'run' : params.speed > 0.4 ? 'walk' : 'idle';
     this.locomotionTime += dt;
     this.updateCombat(dt * (params.combatTimeFactor ?? 1));
-    this.updateSpineAimMasking(_bones, dt, params);
   }
 
-  private updateSpineAimMasking(bones: readonly Bone[], dt: number, params: AnimationUpdateParams): void {
-    if (!bones.length || params.flying || !params.forward) return;
-
-    const targetYaw = Math.atan2(-params.forward.x, -params.forward.z);
-    const facingYaw = params.facingYaw ?? 0;
-    let yawDelta = targetYaw - facingYaw;
-    while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
-    while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
-
-    const targetPitch = Math.asin(Math.max(-0.9, Math.min(0.9, params.forward.y)));
-
-    const clampedYaw = Math.max(-Math.PI * 0.45, Math.min(Math.PI * 0.45, yawDelta));
-    const clampedPitch = Math.max(-Math.PI * 0.25, Math.min(Math.PI * 0.25, targetPitch));
-
-    const spineNames = ['spine_01', 'spine_02', 'spine_03', 'Head'];
-    const fractions = [0.20, 0.30, 0.30, 0.20];
-
-    for (let i = 0; i < bones.length; i++) {
-      const bone = bones[i];
-      const idx = spineNames.indexOf(bone.name);
-      if (idx >= 0) {
-        const frac = fractions[idx];
-        tmpEuler.set(clampedPitch * frac, clampedYaw * frac, 0, 'YXZ');
-        this.qSpine.setFromEuler(tmpEuler);
-        bone.quaternion.slerp(this.qSpine, 1.0 - Math.exp(-dt * 12.0));
-      }
-    }
+  /**
+   * Root motion: the clip turned the body by `delta` radians this frame. The base orientation turns
+   * with it immediately so the smoothing toward the facing never lags behind an authored spin.
+   */
+  applyRootYaw(delta: number): void {
+    if (!delta) return;
+    this.targetYaw.setFromAxisAngle(up, delta);
+    this.baseOrientation.premultiply(this.targetYaw);
+    this.rootOrientation.copy(this.baseOrientation).multiply(this.qFlip);
   }
+
+  /** Severity of the last landing, for the animator's landing choice. */
+  get lastLandingTier(): LandingTier { return this.landingTier; }
 
   private updateDoubleJump(dt: number): void {
     if (!this.doubleJump.active) { this.qFlip.identity(); this.flipTuckAmount = 0; return; }

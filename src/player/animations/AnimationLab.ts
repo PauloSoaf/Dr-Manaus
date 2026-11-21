@@ -6,7 +6,8 @@ import './AnimationLab.css';
 
 const PREFERRED = [
   'Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land',
-  'Roll', 'Punch_Jab', 'Punch_Cross', 'Melee_Hook', 'Kick_Left', 'Kick_Right', 'Hit_Chest', 'Hit_Head',
+  'Roll', 'Punch_Jab', 'Punch_Cross', 'Melee_Hook', 'Kick_Front_R', 'Kick_Side_R', 'Kick_Roundhouse_R', 'Kick_Spin_Jump',
+  'Guard_Idle_Loop', 'Crouch_Idle_Loop', 'Crouch_Fwd_Loop', 'Strafe_L_Loop', 'Strafe_R_Loop', 'Sit_Enter', 'Driving_Loop', 'Sit_Exit', 'Hit_Chest', 'Hit_Head',
 ];
 
 export async function startAnimationLab(container: HTMLElement): Promise<void> {

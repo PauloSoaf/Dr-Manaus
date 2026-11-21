@@ -358,11 +358,11 @@ test('melee attacks do not damage empty space or objects behind the player', () 
   h.powers.use('kick');h.powers.update(.3,.3);assert.equal(damage,0);
 });
 
-test('melee cycles three authored punches and two authored kicks', () => {
+test('melee cycles three authored punches and three real kicks', () => {
   const h=harness(); const poses:string[]=[];
   h.player.powerPose=(name:string)=>{poses.push(name);};
-  for(const kind of ['punch','kick'])for(let i=0;i<3;i++){h.powers.use(kind);h.powers.update(.8,.8);}
-  assert.deepEqual(poses,['punch','punchCross','punchUpper','kick','kickSide','kick']);
+  for(const kind of ['punch','kick'])for(let i=0;i<3;i++){h.powers.use(kind);h.powers.update(1.2,1.2);}
+  assert.deepEqual(poses,['punch','punchCross','punchUpper','kick','kickSide','kickRoundhouse']);
 });
 
 test('flight presentation stays finite through hover, cruise, boost, and combat transitions', () => {

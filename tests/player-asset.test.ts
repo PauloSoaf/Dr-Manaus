@@ -28,7 +28,7 @@ test('final player GLB contains one canonical adult rig and all gameplay clips',
   for (const name of [
     'Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop',
     'Jump_Start', 'Jump_Loop', 'Jump_Land', 'NinjaJump_Idle_Loop',
-    'Punch_Jab', 'Punch_Cross', 'Melee_Hook', 'Kick_Left', 'Kick_Right',
+    'Punch_Jab', 'Punch_Cross', 'Melee_Hook', 'Kick_Front_R', 'Kick_Side_R',
   ]) assert.ok(clips.has(name), `missing ${name}`);
 
   const live = new Set(root.listNodes());
@@ -54,8 +54,8 @@ test('punches and kicks have real non-identity skeletal motion', async () => {
   };
   const jab = metrics('Punch_Jab', /upperarm|lowerarm|spine_03/);
   const cross = metrics('Punch_Cross', /upperarm|lowerarm|spine_03/);
-  const leftKick = metrics('Kick_Left', /thigh_l|calf_l|foot_l/);
-  const rightKick = metrics('Kick_Right', /thigh_r|calf_r|foot_r/);
+  const leftKick = metrics('Kick_Front_L', /thigh_l|calf_l|foot_l/);
+  const rightKick = metrics('Kick_Front_R', /thigh_r|calf_r|foot_r/);
   assert.ok(jab.duration > 0 && jab.channels.length >= 5 && jab.max > 45);
   assert.ok(cross.duration > 0 && cross.channels.length >= 5 && cross.max > 60);
   assert.ok(leftKick.max > 100 && rightKick.max > 100);

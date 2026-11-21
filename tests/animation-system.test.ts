@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AnimationClip, Group, Object3D, PerspectiveCamera, QuaternionKeyframeTrack, Vector3, Quaternion } from 'three/webgpu';
 import { CHARACTER_CLIPS, MOVE_CLIPS, REJECTED_CLIP, cleanCharacterClip } from '../src/player/animations/CharacterAnimator.ts';
+import clipCatalog from '../src/player/animations/clipCatalog.json';
 import { AnimationController } from '../src/player/animations/AnimationController.ts';
 import { computeFlightOrientation, flightModeFor, uprightBlend } from '../src/player/animations/FlightOrientation.ts';
 import { flipAngle, flipPhase, flipRate, flipTuck } from '../src/player/animations/FlipMotion.ts';
@@ -947,6 +948,8 @@ test('a hovering hero rests in an authored pose rather than a solved one', () =>
     'Swim_Idle_Loop', 'Walk_Loop', 'ClimbUp_1m', 'Hit_Knockback', 'Idle_FoldArms_Loop',
     'Melee_Hook', 'Melee_Hook_Rec', 'NinjaJump_Idle_Loop', 'NinjaJump_Land', 'NinjaJump_Start',
     'OverhandThrow', 'Slide_Exit', 'Slide_Loop', 'Slide_Start',
+    // Core clips added by scripts/assets/build-character-animations.mjs (see clipCatalog.json).
+    ...Object.entries((clipCatalog as { clips: Record<string, { core: boolean }> }).clips).filter(([, c]) => c.core).map(([name]) => name),
   ]);
   for (const [state, clip] of Object.entries(CHARACTER_CLIPS)) {
     assert.ok(shipped.has(clip), `${state} points at ${clip}, which the character does not have`);

@@ -39,42 +39,8 @@ test('CT-07-01: TwoBoneIKSolver solves leg kinematics via Law of Cosines and byp
   assert.ok(contact.normal.y > 0.6, 'Terrain normal must point predominantly upwards');
 });
 
-test('CT-07-02: AnimationController spine bone masking aims upper torso while running', () => {
-  const anim = new AnimationController();
-
-  const spine01 = new Bone();
-  spine01.name = 'spine_01';
-  const spine02 = new Bone();
-  spine02.name = 'spine_02';
-  const spine03 = new Bone();
-  spine03.name = 'spine_03';
-  const head = new Bone();
-  head.name = 'Head';
-
-  const bones = [spine01, spine02, spine03, head];
-
-  // Moving forward (+Z velocity) while aiming to the right (+X forward)
-  const params = {
-    speed: 12.0,
-    verticalSpeed: 0,
-    velocity: new Vector3(0, 0, 12),
-    flying: false,
-    grounded: true,
-    boosting: false,
-    size: 1.0,
-    turn: 0,
-    forward: new Vector3(1, 0, 0), // Aiming 90 deg right
-    facingYaw: 0 // Facing forward
-  };
-
-  anim.update(bones as any, 0.016, params);
-
-  // Spine bones should have rotated around Y axis to track the aim target
-  assert.ok(Math.abs(spine01.quaternion.y) > 0.001, 'Spine 01 must twist towards aim direction');
-  assert.ok(Math.abs(spine02.quaternion.y) > 0.001, 'Spine 02 must twist towards aim direction');
-  assert.ok(Math.abs(head.quaternion.y) > 0.001, 'Head must twist towards aim direction');
-});
-
+// CT-07-02 (procedural spine aim) was removed with the feature: bone poses come only from
+// authored clips, and the aim rotation replaced the animated spine instead of adding to it.
 test('CT-07-03: Traffic and River Vessel search locates nearby vehicles for instant player jacking', () => {
   const root = new Object3D();
   const vessels = new FluvialVesselSystem(root as any);

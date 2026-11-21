@@ -62,6 +62,8 @@ export class PowerSystem {
   combatMode: 'ranged' | 'melee' = 'ranged';
   private punchIndex = 0;
   private kickIndex = 0;
+  private lastMeleeTime = -99;
+  private lastEnergyTime = -99;
   private meleePending: { kind: 'punch' | 'kick'; time: number } | null = null;
   laserActive=false;
   private laserTick=0;
@@ -144,6 +146,8 @@ export class PowerSystem {
     if (this.hooks.isVehicleOccupied?.()) {
       this.laserActive = false;
       this.meleePending = null;
+      this.player.combatStance = false;
+      this.player.casting = false;
       this.indicator.visible = false;
       this.laser.visible = false;
       this.updateClones(worldDt);
@@ -234,6 +238,11 @@ export class PowerSystem {
     this.teleportSystem.updateQuantumJump(realDt);
     this.updateClones(realDt);
     this.updateLaser(realDt);
+    // Melee stance: in combat mode, recently fighting or with a target close by.
+    this.player.combatStance = this.combatMode === 'melee' && !this.player.isFlying
+      && (this.time - this.lastMeleeTime < 3.5 || this.softTargetId !== null && this.time - this.lastMeleeTime < 6);
+    // The sustained cast pose rides the upper body while the laser or rapid fire is going.
+    this.player.casting = this.laserActive || this.time - this.lastEnergyTime < 0.4;
     const buffered = this.combat.consumeBufferedAction();
     if (buffered && !this.meleePending && this.cooldowns.punch <= 0 && this.cooldowns.kick <= 0) {
       if (buffered.type === 'melee_kick') this.use('kick');
@@ -267,7 +276,6 @@ export class PowerSystem {
           break;
         }
         this.laserActive = false;
-        this.cooldowns[name] = name === 'kick' ? 0.65 : 0.52;
 
         const flying = this.player.state !== 'Grounded';
         const airborne = flying || !this.player.isGrounded;
@@ -284,8 +292,11 @@ export class PowerSystem {
           moveId = 'flyingPunch';
         } else if (flying && speed > 20 && name === 'kick') {
           moveId = 'flyingKick';
+        } else if (name === 'kick' && airborne && !this.player.isFlying) {
+          // Jumping into a kick throws the captured tornado kick.
+          moveId = 'kickSpin';
         } else if (name === 'kick') {
-          moveId = ['kick', 'kickSide'][this.kickIndex++ % 2];
+          moveId = ['kick', 'kickSide', 'kickRoundhouse'][this.kickIndex++ % 3];
         } else {
           moveId = ['punch', 'punchCross', 'punchUpper'][this.punchIndex++ % 3];
         }
@@ -293,7 +304,11 @@ export class PowerSystem {
         this.activeCombatMoveId = moveId;
         if (moveId === 'meteorPunch') this.player.beginSlam();
         const move = COMBAT_MOVES[moveId] ?? COMBAT_MOVES.punch;
-        this.player.powerPose(moveId, move.startup + move.active + move.recovery);
+        const moveTotal = move.startup + move.active + move.recovery;
+        // The next strike may start in this one's cancel window, so combos flow at the clip's pace.
+        this.cooldowns[name] = Math.max(0.18, move.cancelAt * moveTotal);
+        this.lastMeleeTime = this.time;
+        this.player.powerPose(moveId, moveTotal);
         this.player.character.startCombatMove(move);
         this.sampleStrikeBone(true);
 
@@ -630,6 +645,7 @@ export class PowerSystem {
 
   private energy(): void {
     this.cooldowns.energy = 0.25;
+    this.lastEnergyTime = this.time;
     this.player.powerPose('energy', 0.3);
     const power = this.player.size;
     const target = this.acquireTarget();
