@@ -5,6 +5,15 @@
  */
 
 export {
+  ManausGISProjector,
+} from './ManausGISProjector';
+
+export {
+  VectorTileCache,
+  type CachedVectorTile,
+} from './VectorTileCache';
+
+export {
   ElevationModel,
   ManausUrbanElevation,
   getManausTerrainHeight,

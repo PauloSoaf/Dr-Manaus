@@ -16,6 +16,7 @@ import {
 } from './buildingGeometry';
 import { manausTileSceneMatrix } from '../spatial/ManausSurfacePresentation';
 import { getManausTerrainHeight } from './ManausUrbanElevation';
+import { VectorTileCache } from './VectorTileCache';
 
 interface PackedTile { key: string; tx: number; tz: number; buildings: RealBuilding[] }
 interface RuinedBuilding { bounds: Collider; tile: string; blocks: number[] }
@@ -573,9 +574,19 @@ export class RealCityLayer {
     if (!this.manifest) return;
     this.loading.add(key);
     try {
-      const response = await fetch(`${baseUrl()}geodata/real-city/${file}`);
-      if (!response.ok) return;
-      const packed = await response.json() as PackedTile;
+      // In-memory / offline tile cache integration (RF-17-05)
+      let packed: PackedTile | null = null;
+      if (!file.includes('fixture')) {
+        packed = await VectorTileCache.getInstance().getTile(key) as PackedTile | null;
+      }
+      if (!packed) {
+        const response = await fetch(`${baseUrl()}geodata/real-city/${file}`);
+        if (!response.ok) return;
+        packed = await response.json() as PackedTile;
+        if (packed && !file.includes('fixture')) {
+          void VectorTileCache.getInstance().setTile(key, packed);
+        }
+      }
       if (!packed?.buildings?.length || this.tiles.has(key)) return;
       const size = this.manifest.tileSize, cellSize = size / CELLS_PER_SIDE;
       const cells: RealBuilding[][] = Array.from({ length: CELLS_PER_SIDE * CELLS_PER_SIDE }, () => []);
