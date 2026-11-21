@@ -27,6 +27,7 @@ import type { PlanetaryBiosphereProfile } from './PlanetaryBiosphere';
 import type { PlanetSurfaceGenerator } from '../planet/PlanetSurface';
 import type { Vec3 } from '../spatial/units';
 import type { SaveManager } from '../../core/SaveManager';
+import { AlienMetropolisGenerator } from './AlienMetropolisGenerator';
 
 export const SETTLEMENT_STRUCTURE_CAPACITY = 64;
 export const INHABITANT_CAPACITY = 48;
@@ -239,6 +240,7 @@ export class AlienSettlementManager {
   readonly structures: SettlementStructureEntity[] = [];
   readonly inhabitants: AlienInhabitantEntity[] = [];
   readonly activeSettlements: AlienSettlementCluster[] = [];
+  readonly metropolis = new AlienMetropolisGenerator();
 
   private readonly structureMeshes = new Map<StructureArchetype, InstancedMesh>();
   private readonly inhabitantMesh: InstancedMesh;
@@ -256,6 +258,7 @@ export class AlienSettlementManager {
 
   constructor(private readonly save?: SaveManager) {
     this.root.name = 'alien-settlement-manager';
+    this.root.add(this.metropolis.group);
 
     const archetypes: StructureArchetype[] = [
       'habitat-dome',
@@ -597,6 +600,10 @@ export class AlienSettlementManager {
       structureCount: structIdx,
       inhabitantCount: inhabIdx,
     });
+
+    if (tier === 'metropolis') {
+      this.metropolis.generateMetropolis(settlementCenter.x, settlementCenter.z, 220, factionSeed);
+    }
   }
 
   private updateAI(playerPos: Vector3): void {
@@ -958,6 +965,7 @@ export class AlienSettlementManager {
 
   dispose(): void {
     this.clear();
+    this.metropolis.dispose();
     for (const mesh of this.structureMeshes.values()) {
       mesh.geometry.dispose();
       (mesh.material as MeshStandardMaterial).dispose();

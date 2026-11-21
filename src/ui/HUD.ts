@@ -452,7 +452,11 @@ export class HUD {
     const distance=state.position.distanceTo(state.destination);$('#mission-distance').textContent=state.stage===0?'F para levitar · Espaço para subir':(!localMissionActive?'(Fora do alcance de Manaus)':`${distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m'}${state.remaining?' · '+state.remaining+' assinaturas':''}`);
     const hintEl = $('#control-hint');
     if (state.interactionPrompt) {
-      hintEl.innerHTML = `<span style="color:#38bdf8;font-weight:bold"><kbd>Y</kbd> ${state.interactionPrompt}</span> <i></i> <kbd>N</kbd> Scanner`;
+      if (state.interactionPrompt.includes('[F]')) {
+        hintEl.innerHTML = `<span style="color:#f59e0b;font-weight:bold">${state.interactionPrompt}</span> <i></i> <kbd>WASD</kbd> Pilotar <i></i> <kbd>Espaço</kbd> Ação`;
+      } else {
+        hintEl.innerHTML = `<span style="color:#38bdf8;font-weight:bold"><kbd>Y</kbd> ${state.interactionPrompt}</span> <i></i> <kbd>N</kbd> Scanner`;
+      }
     } else if (presentation.domain === 'orbital') {
       const flight = state.flight;
       if (flight?.proximityGatingActive) {

@@ -29,6 +29,7 @@ import { SpeedVFX, type SpeedState } from '../rendering/SpeedVFX';
 import { WeatherSystem } from '../rendering/WeatherSystem';
 import { WaterSystem } from '../rendering/WaterSystem';
 import { FluvialVesselSystem } from '../world/traffic/FluvialVesselSystem';
+import { VehicleController, type VehicleType } from '../player/vehicles/VehicleController';
 import { ManausAerialPresentation } from '../rendering/ManausAerialPresentation';
 import { EarthRiverLayer } from '../world/planet/EarthRiverLayer';
 import { MANAUS_ANCHOR_ECEF } from '../world/spatial/ManausFrameAdapter';
@@ -153,7 +154,7 @@ export class Game {
   readonly worldRoot = this.localWorldRoot;
   readonly planetRoot = this.planetaryRoot;
   private readonly renderOriginVec = new Vector3(); readonly player: PlayerController; readonly input: InputController; readonly camera: CameraController;
-  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;
+  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;readonly vehicle:VehicleController;
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
   readonly forest:ForestBackdrop;readonly terrain:TerrainDestruction;readonly airport=new AuthoredDestruction();
   /**
@@ -452,6 +453,9 @@ export class Game {
     this.atmosphere=new Atmosphere(this.rendering.scene);
     // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
     this.space=new SpaceLayer(this.celestialRoot,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);this.vessels=new FluvialVesselSystem(this.worldRoot);
+    this.vehicle=new VehicleController();
+    this.worldRoot.add(this.vehicle.group);
+    this.vehicle.spawnAt(new Vector3(WORLD.spawn.x + 5, WORLD.spawn.y + 0.5, WORLD.spawn.z - 8), 0, 'car');
     this.celestialRoot.add(this.celestialVisuals.root);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe,volume:IMPACT_VOLUME_LIMITS});
     if(FEATURES.earthGlobe){
@@ -1035,6 +1039,11 @@ export class Game {
       this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
       this.traffic?.update(worldDt,updatedLegacyPos);this.lap('traffic');
       this.vessels.update(worldDt, performance.now() * 0.001, updatedLegacyPos.x, updatedLegacyPos.z);
+      this.vehicle?.update(worldDt, this.input, updatedLegacyPos);
+      if (this.vehicle?.isOccupied) {
+        this.player.position.copy(this.vehicle.position);
+        this.player.velocity.copy(this.vehicle.velocity);
+      }
     }
     // Actors are suppressed as the world starts to blur past: simulating NPCs kilometres behind
     // the player costs the same as simulating them in front, and none of it can be seen.
@@ -1882,6 +1891,48 @@ export class Game {
         this.requestLanding();
       }
     }
+
+    if (this.travelDomain.localPhysicsActive && this.vehicle && this.input.consume('KeyF')) {
+      if (this.vehicle.isOccupied) {
+        this.vehicle.isOccupied = false;
+        this.player.model.visible = true;
+        this.player.position.copy(this.vehicle.position).addScaledVector(this.vehicle.right, 2.8);
+        this.player.position.y = PhysicsWorld.terrainHeight(this.player.position.x, this.player.position.z) + 1.0;
+        this.hud.notify(`Saiu do veículo (${this.vehicle.activeType.toUpperCase()})`);
+      } else {
+        const dist = this.player.position.distanceTo(this.vehicle.position);
+        if (dist < 12.0) {
+          this.vehicle.isOccupied = true;
+          this.player.model.visible = false;
+          this.hud.notify(`Pilotando ${this.vehicle.activeType.toUpperCase()} (WASD acelerar/virar, Espaço freio/vtol, F sair, V trocar)`);
+          this.audio?.play('warp-engage');
+        } else {
+          this.vehicle.spawnAt(
+            this.player.position.clone().addScaledVector(this.player.forward, 5.0),
+            this.camera.yaw
+          );
+          this.vehicle.isOccupied = true;
+          this.player.model.visible = false;
+          this.hud.notify(`Entrou no ${this.vehicle.activeType.toUpperCase()} (WASD pilotar, F sair, V trocar)`);
+          this.audio?.play('warp-engage');
+        }
+      }
+    }
+
+    if (this.travelDomain.localPhysicsActive && this.vehicle && this.input.consume('KeyV')) {
+      const types: VehicleType[] = ['car', 'boat', 'airplane', 'spaceship'];
+      const nextIdx = (types.indexOf(this.vehicle.activeType) + 1) % types.length;
+      const nextType = types[nextIdx];
+      this.vehicle.selectVehicleType(nextType);
+      if (!this.vehicle.isOccupied) {
+        this.vehicle.spawnAt(
+          this.player.position.clone().addScaledVector(this.player.forward, 5.0),
+          this.camera.yaw,
+          nextType
+        );
+      }
+      this.hud.notify(`Veículo: ${nextType.toUpperCase()} (F para pilotar)`);
+    }
     if (this.input.consume('KeyN')) {
       this.triggerCosmicScanner();
     }
@@ -2105,6 +2156,16 @@ export class Game {
   }
 
   getInteractionPrompt(): string | null {
+    if (this.travelDomain.localPhysicsActive && this.vehicle) {
+      if (this.vehicle.isOccupied) {
+        const t = this.vehicle.getTelemetry();
+        return `[F] Sair do Veículo · [V] Trocar (${t.type.toUpperCase()} · ${t.speedKmh.toFixed(0)} km/h · Marcha ${t.gear})`;
+      }
+      const dist = this.player.position.distanceTo(this.vehicle.position);
+      if (dist < 12.0) {
+        return `[F] Pilotar ${this.vehicle.activeType.toUpperCase()} · [V] Trocar Veículo`;
+      }
+    }
     if (!this.travelDomain.localPhysicsActive || !this.alienSettlements) return null;
     const s = this.alienSettlements.getNearbyInteractiveSettlement(this.player.position);
     if (!s) return null;
