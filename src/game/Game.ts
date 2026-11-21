@@ -19,7 +19,7 @@ import { universalTargetDiagnostics } from '../ui/UniversalTargetDiagnostics';
 import { ForestBackdrop } from '../world/ForestBackdrop';
 import { CameraHelper, Group, Mesh, Vector3 } from 'three/webgpu';
 import { WORLD, QUALITY, FEATURES } from '../core/config';
-import type { Collider } from '../core/types';
+import type { Collider, Target } from '../core/types';
 import { SaveManager, type Settings } from '../core/SaveManager';
 import { AssetManager } from '../core/AssetManager';
 import { RendererManager } from '../rendering/RendererManager';
@@ -609,13 +609,7 @@ export class Game {
     this.player.beforeMove=(position,velocity,dt)=>{if(!this.manausSimulationActive)return [];this.destruction.plough(position,velocity,dt,true);this.gatherColliders();if(FEATURES.curvedManaus)this.curveColliders();return FEATURES.curvedManaus?this.curvedColliders:this.colliders;};
     this.powers=new PowerSystem(this.actorRoot,this.player,this.rendering.camera,this.input,{
       canDeformSurface:()=>this.manausSimulationActive || (this.travelDomain.localPhysicsActive && !!this.universe.telemetry.dominantBody),
-      targets:()=>{
-        const rawLocalTargets = this.manausSimulationActive ? [...this.population.targets, ...this.missions.targets] : [];
-        const localTargets = (FEATURES.curvedManaus && this.manausSimulationActive)
-          ? rawLocalTargets.map(t => ({ ...t, position: this.surfaceService.legacyPointToRenderLocal(t.position.x, t.position.y, t.position.z) }))
-          : rawLocalTargets;
-        return [...localTargets, ...this.alienFauna.targets, ...this.alienSettlements.targets, ...this.cosmicRuins.targets, ...this.planetTitans.targets];
-      },
+      targets:()=>this.getAllTargets(),
       hit:(id,force)=>{
         if(this.manausSimulationActive && (this.missions.hit(id,force) || this.population.hit(id,force))) return;
         if(this.planetTitans.hit(id, force, 1000, this.player.position)) return;
@@ -758,6 +752,7 @@ export class Game {
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
     this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:(id,source)=>this.selectNavigationTarget(id,source),settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress(),atlas:this.cosmicAtlas});
+    this.localWorldRoot.add(this.hud.diegetic.root);
     this.applySettings(this.save.data.settings);
     this.rendering.renderer.domElement.addEventListener('pointerdown',()=>{void this.audio.unlock();});
     window.addEventListener('keydown',()=>{void this.audio.unlock();},{once:true});
@@ -1367,6 +1362,7 @@ export class Game {
       this.portals.update(this.rendering.camera, rawDt);
       this.portals.renderPortals(this.rendering.renderer, this.rendering.scene, this.rendering.camera);
     }
+    this.hud.diegetic.update(this.rendering.camera, rawDt, this.getAllTargets(), this.powers.softTargetInfo.id ?? undefined);
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
@@ -1413,6 +1409,13 @@ export class Game {
       const supported=this.foot.y<=floor+Math.max(2,size*.08)||activeColliders.some(c=>Math.abs(c.x-this.foot.x)<c.width/2+size*.1&&Math.abs(c.z-this.foot.z)<c.depth/2+size*.1&&Math.abs(c.y+c.height/2-this.foot.y)<Math.max(2,size*.08));
       if(supported)this.destruction.damageAt(this.foot,Math.max(2,size*.18),100000);
     }
+  }
+  getAllTargets(): readonly Target[] {
+    const rawLocalTargets = this.manausSimulationActive ? [...this.population.targets, ...this.missions.targets] : [];
+    const localTargets = (FEATURES.curvedManaus && this.manausSimulationActive)
+      ? rawLocalTargets.map(t => ({ ...t, position: this.surfaceService.legacyPointToRenderLocal(t.position.x, t.position.y, t.position.z) }))
+      : rawLocalTargets;
+    return [...localTargets, ...this.alienFauna.targets, ...this.alienSettlements.targets, ...this.cosmicRuins.targets, ...this.planetTitans.targets];
   }
   private attackTime=-Infinity;private attackRadius=0;private readonly attackPosition=new Vector3();private attackBoxes:Collider[]=[];
   private attackColliders(point:Vector3,radius:number):readonly Collider[]{
@@ -2236,6 +2239,7 @@ export class Game {
 
     if (result) {
       const p = result.profile;
+      this.hud.diegetic.showTaxonomicProfile(p, result.distanceM, result.isNewDiscovery);
       this.audio?.play(result.isNewDiscovery ? 'discovery' : 'ui-click');
       if (result.isNewDiscovery) {
         this.hud.notify(`NOVA DESCOBERTA CÓSMICA! · [${p.commonName}] (${p.scientificName}) | Dieta: ${p.diet} | Ameaça: ${p.threatLevel}/5`);

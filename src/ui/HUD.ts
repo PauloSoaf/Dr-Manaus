@@ -13,6 +13,7 @@ import type { UniverseLocation } from '../world/spatial/UniverseLocation';
 import { sectorIndex } from '../world/spatial/UniverseAddress';
 import { icon, POWERS } from './icons';
 import { formatDistance, formatDuration, formatSpeed, formatGalaxyName } from './format';
+import { DiegeticHUD, ZeroReflowDOMCache } from './DiegeticHUD';
 import type { UniversalTargetDescriptor } from '../world/travel/UniversalNavigationTarget';
 import { travelCapabilityLabel, type ResolvedUniversalTarget } from '../world/travel/UniversalTargetResolver';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string,source?:NavigationLock['source'])=>string|undefined|void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void; atlas?: import('../world/exploration/CosmicAtlasModel').CosmicAtlasModel; }
@@ -185,6 +186,8 @@ const CONTROLS: readonly (readonly [string,string])[]=[
   ['Tab / Shift+Tab (espaço)','Travar alvo / próximo / anterior'],['P (espaço)','Piloto automático: ligar / desligar'],['Backspace (espaço)','Liberar alvo e cancelar piloto'],['M','Mapa e destinos'],['H','Controles'],['Esc','Menu de pausa'],['F3','Métricas e debug'],
 ];
 export class HUD {
+  readonly diegetic = new DiegeticHUD();
+  readonly domCache = new ZeroReflowDOMCache();
   private mini:CityMap;private map:CityMap;private universalMap:UniversalMapPanel;private elapsed=0;private mapElapsed=0;private toastTimer=0;private lastPlace='';private temp=new Vector3();
   private openPanel='';private pauseTab='audio';private lastFps=0;private lastBackend='\u2014';debugOpen=false;
   constructor(private save:SaveManager,private hooks:HUDHooks){
@@ -511,18 +514,23 @@ export class HUD {
     else if (speed > 50000) { speedStr = Math.round(speed / 1000).toLocaleString(); unitStr = 'km/s'; }
     else if (speed > 1000) { speedStr = (speed / 1000).toFixed(1); unitStr = 'km/s'; }
     else { speedStr = Math.round(speed * 3.6).toLocaleString(); unitStr = 'km/h'; }
-    $('#speed').textContent=speedStr;
+    this.domCache.setCachedText($('#speed'), speedStr);
     const speedUnitElement = $('#speed-unit');
-    if (speedUnitElement) speedUnitElement.textContent=unitStr;
+    if (speedUnitElement) this.domCache.setCachedText(speedUnitElement, unitStr);
     
     const alt=typeof state.altitudeM==='number'?state.altitudeM:state.position.y;
-    $('#altitude').textContent=alt>999999?(alt/1000).toFixed(0)+' km':alt>9999?(alt/1000).toFixed(1)+' km':Math.round(alt)+' m';
-    $('#flight-state').textContent=speed>343?'SUPERSÔNICO':state.state==='Grounded'?'EM SOLO':state.state==='Falling'?'EM QUEDA':state.state==='Hover'?'LEVITANDO':'EM VOO';
-    if(state.location.transit){$('#altitude').textContent='EM TRÂNSITO';$('#flight-state').textContent='HYPERCRUISE';}
-    $('#world-time').textContent=state.time;$('#world-weather').textContent=({clear:'CÉU LIMPO',cloudy:'NUBLADO',rain:'CHUVA',storm:'TEMPORAL'} as Record<string,string>)[state.weather]??state.weather;
-    const directions=['N','NE','L','SE','S','SO','O','NO'];const heading=((state.yaw*180/Math.PI)%360+360)%360;$('#heading').textContent=directions[Math.round(heading/45)%8];
+    const altStr = alt>999999?(alt/1000).toFixed(0)+' km':alt>9999?(alt/1000).toFixed(1)+' km':Math.round(alt)+' m';
+    this.domCache.setCachedText($('#altitude'), state.location.transit ? 'EM TRÂNSITO' : altStr);
+    const flightStateStr = speed>343?'SUPERSÔNICO':state.state==='Grounded'?'EM SOLO':state.state==='Falling'?'EM QUEDA':state.state==='Hover'?'LEVITANDO':'EM VOO';
+    this.domCache.setCachedText($('#flight-state'), state.location.transit ? 'HYPERCRUISE' : flightStateStr);
+    this.domCache.setCachedText($('#world-time'), state.time);
+    const weatherMap: Record<string, string> = {clear:'CÉU LIMPO',cloudy:'NUBLADO',rain:'CHUVA',storm:'TEMPORAL'};
+    this.domCache.setCachedText($('#world-weather'), weatherMap[state.weather] ?? state.weather);
+    const directions=['N','NE','L','SE','S','SO','O','NO'];const heading=((state.yaw*180/Math.PI)%360+360)%360;
+    this.domCache.setCachedText($('#heading'), directions[Math.round(heading/45)%8]);
     document.querySelectorAll<HTMLButtonElement>('[data-power]').forEach(button=>button.classList.toggle('active',button.dataset.power===state.selected));
-    $('#power-current').textContent=state.selected==='punch'?'COMBATE · SOCO':state.selected==='kick'?'COMBATE · CHUTE':POWERS.find(p=>p[0]===state.selected)?.[1].toUpperCase()??'EMISSÃO';
+    const powerLabel = state.selected==='punch'?'COMBATE · SOCO':state.selected==='kick'?'COMBATE · CHUTE':POWERS.find(p=>p[0]===state.selected)?.[1].toUpperCase()??'EMISSÃO';
+    this.domCache.setCachedText($('#power-current'), powerLabel);
     document.body.classList.toggle('temporal',state.temporal);document.body.classList.toggle('supersonic',state.velocity.length()>300);
     const marker=$('#objective-marker');this.temp.copy(state.destination).sub(state.origin).project(camera);marker.hidden=!localMissionActive||state.stage===0||state.stage===4&&state.remaining===0||this.temp.z>1||Math.abs(this.temp.x)>.85||Math.abs(this.temp.y)>.7;
     if(!marker.hidden){marker.style.left=`${(this.temp.x*.5+.5)*100}%`;marker.style.top=`${(-this.temp.y*.5+.5)*100}%`;marker.querySelector('small')!.textContent=distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m';}
