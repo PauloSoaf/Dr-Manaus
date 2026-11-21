@@ -96,3 +96,4 @@ test('CT-07-03: Traffic and River Vessel search locates nearby vehicles for inst
     vessels.dispose();
   }
 });
+

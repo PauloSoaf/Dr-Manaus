@@ -76,7 +76,10 @@ export class VehicleController {
   health = 100;
   isDrifting = false;
   isAirborne = false;
+  isBoosting = false;
   headlightsOn = true;
+  fireCooldown = 0;
+  onFireWeapon?: (origin: Vector3, direction: Vector3) => void;
 
   // Suspension & body lean
   private suspensionPitch = 0;
@@ -207,6 +210,20 @@ export class VehicleController {
     this.steeringAngle = MathUtils.lerp(this.steeringAngle, targetSteer * 0.55, dt * 6.0);
 
     this.isDrifting = handbrake && this.activeType === 'car' && this.velocity.length() > 6.0;
+    this.isBoosting = input.held('ShiftLeft') || input.held('ShiftRight');
+
+    // Weapons fire
+    const fire = input.held('Mouse0') || input.held('KeyE');
+    this.fireCooldown = Math.max(0, this.fireCooldown - dt);
+    if (fire && this.fireCooldown <= 0 && (this.activeType === 'airplane' || this.activeType === 'spaceship')) {
+      this.fireWeapon();
+      this.fireCooldown = 0.12;
+    }
+  }
+
+  public fireWeapon(): void {
+    const muzzle = this.position.clone().addScaledVector(this.forward, 3.5).addScaledVector(this.up, 0.2);
+    this.onFireWeapon?.(muzzle, this.forward);
   }
 
   /**
@@ -216,9 +233,9 @@ export class VehicleController {
     const speed = this.forward.dot(this.velocity);
     const absSpeed = Math.abs(speed);
 
-    // Motor drive force
-    const maxSpeed = 48.0; // ~170 km/h
-    const accelRate = 22.0; // m/s^2
+    // Motor drive force with Nitrous boost
+    const maxSpeed = this.isBoosting ? 76.0 : 48.0; // Up to ~274 km/h with Nitrous
+    const accelRate = this.isBoosting ? 44.0 : 22.0;
     const brakeRate = 35.0; // m/s^2
     const reverseRate = 12.0;
 
@@ -286,8 +303,8 @@ export class VehicleController {
    */
   private updateBoatPhysics(dt: number): void {
     const speed = this.forward.dot(this.velocity);
-    const maxBoatSpeed = 16.0; // ~31 knots
-    const boatAccel = 8.5;
+    const maxBoatSpeed = this.isBoosting ? 30.0 : 16.0; // Up to ~58 knots
+    const boatAccel = this.isBoosting ? 18.0 : 8.5;
 
     let engineForce = 0;
     if (this.throttle > 0) {
@@ -338,8 +355,8 @@ export class VehicleController {
    */
   private updatePlanePhysics(dt: number): void {
     const airspeed = this.velocity.length();
-    const maxAirspeed = 95.0; // ~340 km/h
-    const thrustRate = 32.0;
+    const maxAirspeed = this.isBoosting ? 180.0 : 95.0; // Supersonic with afterburner
+    const thrustRate = this.isBoosting ? 70.0 : 32.0;
 
     // Engine thrust
     if (this.throttle > 0) {
@@ -396,8 +413,8 @@ export class VehicleController {
    * 4. SPACESHIP / ROCKET PHYSICS: 6-DoF VTOL, anti-gravity levitation, quantum boost.
    */
   private updateSpaceshipPhysics(dt: number): void {
-    const maxSpeed = 160.0; // ~576 km/h in atmosphere
-    const mainThrust = 45.0;
+    const maxSpeed = this.isBoosting ? 340.0 : 160.0; // Hyperdrive boost
+    const mainThrust = this.isBoosting ? 120.0 : 45.0;
     const vtolThrust = 30.0;
 
     // VTOL up/down

@@ -221,3 +221,4 @@ export class TwoBoneIKSolver {
     leg.foot.quaternion.slerp(this._tempQ, 0.45);
   }
 }
+

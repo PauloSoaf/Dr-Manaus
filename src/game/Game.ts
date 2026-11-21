@@ -456,6 +456,11 @@ export class Game {
     this.vehicle=new VehicleController();
     this.worldRoot.add(this.vehicle.group);
     this.vehicle.spawnAt(new Vector3(WORLD.spawn.x + 5, WORLD.spawn.y + 0.5, WORLD.spawn.z - 8), 0, 'car');
+    this.vehicle.onFireWeapon = (origin) => {
+      this.audio?.play('laser');
+      this.camera.shake(0.12);
+      this.destruction.damageAt(origin, 4.0, 150);
+    };
     this.celestialRoot.add(this.celestialVisuals.root);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe,volume:IMPACT_VOLUME_LIMITS});
     if(FEATURES.earthGlobe){
