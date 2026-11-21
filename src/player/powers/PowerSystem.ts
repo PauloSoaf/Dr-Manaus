@@ -130,6 +130,10 @@ export class PowerSystem {
 
   update(realDt: number, worldDt: number): void {
     this.time += realDt;
+    // Hitstop ages before this frame resolves any new contact: a freeze triggered by a hit in this
+    // frame must still be active when the next frame reads it, instead of being consumed by the
+    // same dt that produced it.
+    this.combat.update(realDt);
     if (this.meleePending) this.sampleStrikeBone(false);
     for (const name of Object.keys(this.cooldowns)) this.cooldowns[name] = Math.max(0, this.cooldowns[name] - realDt);
     if (this.cooldowns.planetRupture <= 0 && this._planetRuptureState === 'cooldown') {
@@ -230,7 +234,6 @@ export class PowerSystem {
     this.teleportSystem.updateQuantumJump(realDt);
     this.updateClones(realDt);
     this.updateLaser(realDt);
-    this.combat.update(realDt);
     const buffered = this.combat.consumeBufferedAction();
     if (buffered && !this.meleePending && this.cooldowns.punch <= 0 && this.cooldowns.kick <= 0) {
       if (buffered.type === 'melee_kick') this.use('kick');
@@ -239,7 +242,8 @@ export class PowerSystem {
   }
 
   readonly combat = new CombatSystem();
-  get hitStop(): HitStopSystem { return this.combat.hitStop; }
+  /** Own data property (not an accessor), so fixtures and callers can read or substitute it directly. */
+  readonly hitStop: HitStopSystem = this.combat.hitStop;
   private readonly previousStrikePosition = new Vector3();
   private readonly currentStrikePosition = new Vector3();
   private readonly sweepDirection = new Vector3();
