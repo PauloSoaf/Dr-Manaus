@@ -32,6 +32,7 @@ import { FluvialVesselSystem } from '../world/traffic/FluvialVesselSystem';
 import { VehicleController, type VehicleType } from '../player/vehicles/VehicleController';
 import { PortalSystem } from '../world/spatial/PortalSystem';
 import { CosmicNebulaeSystem } from '../world/sky/CosmicNebulaeSystem';
+import { HLODSystem, DynamicHLODNode } from '../world/spatial/HLODSystem';
 import { ManausAerialPresentation } from '../rendering/ManausAerialPresentation';
 import { EarthRiverLayer } from '../world/planet/EarthRiverLayer';
 import { MANAUS_ANCHOR_ECEF } from '../world/spatial/ManausFrameAdapter';
@@ -156,7 +157,7 @@ export class Game {
   readonly worldRoot = this.localWorldRoot;
   readonly planetRoot = this.planetaryRoot;
   private readonly renderOriginVec = new Vector3(); readonly player: PlayerController; readonly input: InputController; readonly camera: CameraController;
-  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;readonly vehicle:VehicleController;readonly portals:PortalSystem;readonly cosmicNebulae:CosmicNebulaeSystem;
+  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;readonly vehicle:VehicleController;readonly portals:PortalSystem;readonly cosmicNebulae:CosmicNebulaeSystem;readonly hlodSystem:HLODSystem;
   private readonly playerPrevPosition = new Vector3();
   private readonly vehiclePrevPosition = new Vector3();
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
@@ -581,6 +582,10 @@ export class Game {
     this.terrain=new TerrainDestruction(this.worldRoot);PhysicsWorld.setTerrain(this.terrain);
     this.flatTerrain=createTerrain(this.worldRoot);this.worldRoot.add(createAirport(this.airport));this.geoDebug=new GeoDebug(this.worldRoot);this.largo=new LargoDistrict(this.worldRoot);this.landmarks=new LandmarkManager(this.worldRoot);
     this.streamer=new WorldStreamer(this.worldRoot);this.hlod=new HLODManager(this.worldRoot);this.realCity=new RealCityLayer(this.worldRoot);this.hlod.setDestructionSource(this.streamer);
+    this.hlodSystem = new HLODSystem();
+    for (const landmark of LANDMARKS) {
+      this.hlodSystem.registerNode(new DynamicHLODNode(landmark.id, 'landmark', new Vector3(landmark.x, landmark.spawnHeight, landmark.z), landmark.radius));
+    }
     // The city spends the global budget rather than a private one, so Manaus and the planet stop
     // each calling themselves within a 4 ms limit while together taking eight. See ManausSubsystem.
     if(FEATURES.spatialCore)this.universe.scheduler.registerSubsystem(new ManausSubsystem(this.realCity));
@@ -1363,6 +1368,7 @@ export class Game {
       this.portals.renderPortals(this.rendering.renderer, this.rendering.scene, this.rendering.camera);
     }
     this.hud.diegetic.update(this.rendering.camera, rawDt, this.getAllTargets(), this.powers.softTargetInfo.id ?? undefined);
+    this.hlodSystem.evaluate(this.rendering.camera);
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
     if(this.telemetryTime>.2){this.telemetryTime=0;this.sample();}
