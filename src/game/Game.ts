@@ -30,6 +30,7 @@ import { WeatherSystem } from '../rendering/WeatherSystem';
 import { WaterSystem } from '../rendering/WaterSystem';
 import { FluvialVesselSystem } from '../world/traffic/FluvialVesselSystem';
 import { VehicleController, type VehicleType } from '../player/vehicles/VehicleController';
+import { PortalSystem } from '../world/spatial/PortalSystem';
 import { ManausAerialPresentation } from '../rendering/ManausAerialPresentation';
 import { EarthRiverLayer } from '../world/planet/EarthRiverLayer';
 import { MANAUS_ANCHOR_ECEF } from '../world/spatial/ManausFrameAdapter';
@@ -154,7 +155,9 @@ export class Game {
   readonly worldRoot = this.localWorldRoot;
   readonly planetRoot = this.planetaryRoot;
   private readonly renderOriginVec = new Vector3(); readonly player: PlayerController; readonly input: InputController; readonly camera: CameraController;
-  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;readonly vehicle:VehicleController;
+  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;readonly vehicle:VehicleController;readonly portals:PortalSystem;
+  private readonly playerPrevPosition = new Vector3();
+  private readonly vehiclePrevPosition = new Vector3();
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
   readonly forest:ForestBackdrop;readonly terrain:TerrainDestruction;readonly airport=new AuthoredDestruction();
   /**
@@ -461,6 +464,24 @@ export class Game {
       this.camera.shake(0.12);
       this.destruction.damageAt(origin, 4.0, 150);
     };
+    this.portals = new PortalSystem(this.worldRoot);
+    this.portals.registerPortal({
+      id: 'portal_sao_sebastiao',
+      name: 'Portal São Sebastião',
+      position: new Vector3(WORLD.spawn.x + 12, WORLD.spawn.y + 0.1, WORLD.spawn.z - 15),
+      width: 4.0,
+      height: 6.0,
+      frameColor: 0x00f0ff
+    });
+    this.portals.registerPortal({
+      id: 'portal_ponta_negra',
+      name: 'Portal Ponta Negra',
+      position: new Vector3(WORLD.spawn.x + 160, WORLD.spawn.y + 12.0, WORLD.spawn.z - 380),
+      width: 4.0,
+      height: 6.0,
+      frameColor: 0xff8800
+    });
+    this.portals.linkPortals('portal_sao_sebastiao', 'portal_ponta_negra');
     this.celestialRoot.add(this.celestialVisuals.root);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe,volume:IMPACT_VOLUME_LIMITS});
     if(FEATURES.earthGlobe){
@@ -921,6 +942,23 @@ export class Game {
     else if (local) {
       this.player.update(dt,FEATURES.curvedManaus?this.curvedColliders:this.colliders,this.camera.yaw,this.camera.pitch);
       this.recordSurfaceReturnStep();
+      if (this.portals) {
+        const crossing = this.portals.checkCrossing(
+          this.playerPrevPosition,
+          this.player.position,
+          this.player.velocity,
+          this.player.model.quaternion,
+          this.player.size * 0.35
+        );
+        if (crossing) {
+          this.player.position.copy(crossing.newPosition);
+          this.player.velocity.copy(crossing.newVelocity);
+          this.player.model.quaternion.copy(crossing.newQuaternion);
+          this.audio?.play('teleport');
+          this.hud.notify(`Travessia dimensional concluída: ${crossing.targetPortalId}`);
+        }
+      }
+      this.playerPrevPosition.copy(this.player.position);
     }
     else {
       const simSpeed = this.currentGameplaySpeedMps();
@@ -1046,6 +1084,23 @@ export class Game {
       this.vessels.update(worldDt, performance.now() * 0.001, updatedLegacyPos.x, updatedLegacyPos.z);
       this.vehicle?.update(worldDt, this.input, updatedLegacyPos);
       if (this.vehicle?.isOccupied) {
+        if (this.portals) {
+          const vCrossing = this.portals.checkCrossing(
+            this.vehiclePrevPosition,
+            this.vehicle.position,
+            this.vehicle.velocity,
+            this.vehicle.quaternion,
+            1.8
+          );
+          if (vCrossing) {
+            this.vehicle.position.copy(vCrossing.newPosition);
+            this.vehicle.velocity.copy(vCrossing.newVelocity);
+            this.vehicle.quaternion.copy(vCrossing.newQuaternion);
+            this.audio?.play('teleport');
+            this.hud.notify(`Veículo atravessou o portal dimensional: ${vCrossing.targetPortalId}`);
+          }
+          this.vehiclePrevPosition.copy(this.vehicle.position);
+        }
         this.player.position.copy(this.vehicle.position);
         this.player.velocity.copy(this.vehicle.velocity);
       }
@@ -1294,6 +1349,10 @@ export class Game {
       } else {
         this.hyperPresentation?.update(undefined, this.rendering.camera, rawDt);
       }
+    }
+    if (this.portals) {
+      this.portals.update(this.rendering.camera, rawDt);
+      this.portals.renderPortals(this.rendering.renderer, this.rendering.scene, this.rendering.camera);
     }
     this.rendering.renderer.render(this.rendering.scene,this.rendering.camera);
     this.cpu+=(performance.now()-start-this.cpu)*.08;this.quality.update(rawDt);this.telemetryTime+=dt;
@@ -1944,7 +2003,7 @@ export class Game {
     }
 
     if (this.travelDomain.localPhysicsActive && this.vehicle && this.input.consume('KeyV')) {
-      const types: VehicleType[] = ['car', 'boat', 'airplane', 'spaceship'];
+      const types: VehicleType[] = ['car', 'boat', 'airplane', 'spaceship', 'rocket'];
       const nextIdx = (types.indexOf(this.vehicle.activeType) + 1) % types.length;
       const nextType = types[nextIdx];
       this.vehicle.selectVehicleType(nextType);

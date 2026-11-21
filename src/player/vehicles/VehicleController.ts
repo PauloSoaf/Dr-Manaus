@@ -34,7 +34,7 @@ import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import { sampleManausWater } from '../../world/water/ManausHydrology';
 import type { InputController } from '../InputController';
 
-export type VehicleType = 'car' | 'boat' | 'airplane' | 'spaceship';
+export type VehicleType = 'car' | 'boat' | 'airplane' | 'spaceship' | 'rocket';
 
 export interface VehicleTelemetry {
   readonly type: VehicleType;
@@ -90,10 +90,12 @@ export class VehicleController {
   private readonly boatMesh = new Group();
   private readonly planeMesh = new Group();
   private readonly shipMesh = new Group();
+  private readonly rocketMesh = new Group();
 
   private wheels: Mesh[] = [];
   private propeller: Mesh | null = null;
   private thrusterRing: Mesh | null = null;
+  private rocketPlume: Mesh | null = null;
 
   // Scratch vectors for zero GC
   private readonly _tempVec = new Vector3();
@@ -106,11 +108,13 @@ export class VehicleController {
     this.buildBoatVisuals();
     this.buildPlaneVisuals();
     this.buildSpaceshipVisuals();
+    this.buildRocketVisuals();
 
     this.group.add(this.carMesh);
     this.group.add(this.boatMesh);
     this.group.add(this.planeMesh);
     this.group.add(this.shipMesh);
+    this.group.add(this.rocketMesh);
 
     this.selectVehicleType('car');
   }
@@ -124,6 +128,7 @@ export class VehicleController {
     this.boatMesh.visible = type === 'boat';
     this.planeMesh.visible = type === 'airplane';
     this.shipMesh.visible = type === 'spaceship';
+    this.rocketMesh.visible = type === 'rocket';
 
     // Reset dynamics
     this.velocity.set(0, 0, 0);
@@ -168,6 +173,9 @@ export class VehicleController {
           break;
         case 'spaceship':
           this.updateSpaceshipPhysics(clampedDt);
+          break;
+        case 'rocket':
+          this.updateRocketPhysics(clampedDt);
           break;
       }
     } else {
@@ -215,7 +223,7 @@ export class VehicleController {
     // Weapons fire
     const fire = input.held('Mouse0') || input.held('KeyE');
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
-    if (fire && this.fireCooldown <= 0 && (this.activeType === 'airplane' || this.activeType === 'spaceship')) {
+    if (fire && this.fireCooldown <= 0 && (this.activeType === 'airplane' || this.activeType === 'spaceship' || this.activeType === 'rocket')) {
       this.fireWeapon();
       this.fireCooldown = 0.12;
     }
@@ -447,6 +455,72 @@ export class VehicleController {
   }
 
   /**
+   * 5. MULTI-STAGE LAUNCH ROCKET PHYSICS:
+   * Vertical launch trajectory, rocket turbopump acceleration (up to 140 m/s^2),
+   * atmospheric ascent into orbit, gimbal steering, and retro-landing rockets.
+   */
+  private updateRocketPhysics(dt: number): void {
+    const maxSpeed = this.isBoosting ? 500.0 : 250.0; // Orbital escape velocity (1800 km/h)
+    const rocketThrust = this.isBoosting ? 140.0 : 65.0; // m/s^2 launch thrust
+    const gravity = 9.81;
+
+    // Rocket forward is pointing direction
+    if (this.throttle > 0) {
+      this.velocity.addScaledVector(this.forward, this.throttle * rocketThrust * dt);
+    }
+    if (this.brake > 0) {
+      // Retrograde braking thrusters for booster landing
+      this.velocity.multiplyScalar(Math.exp(-dt * 2.5));
+    }
+
+    // Gimbal steering (pitch & yaw)
+    this.yaw += this.steeringAngle * 1.8 * dt;
+    const speed = this.velocity.length();
+    if (speed > 15.0 && this.throttle > 0.1) {
+      // Rocket naturally climbs skyward on launch
+      this.pitch = MathUtils.lerp(this.pitch, Math.PI * 0.45, dt * 1.5);
+    }
+
+    // Natural gravity pulling down
+    this.velocity.y -= gravity * dt;
+
+    // Supersonic aerodynamic drag (thins as altitude increases)
+    const altitudeFactor = Math.max(0.05, 1.0 - Math.min(1.0, this.position.y / 25000));
+    this.velocity.multiplyScalar(Math.exp(-dt * 0.04 * altitudeFactor));
+
+    // Clamp max speed
+    if (this.velocity.length() > maxSpeed) {
+      this.velocity.setLength(maxSpeed);
+    }
+
+    // Orientation updates
+    this.quaternion.setFromEuler(new Euler(this.pitch, this.yaw, this.roll, 'YXZ'));
+    this.forward.set(0, 1, 0).applyQuaternion(this.quaternion); // Rocket thrust points up its long axis
+    this.up.set(0, 0, -1).applyQuaternion(this.quaternion);
+    this.right.set(1, 0, 0).applyQuaternion(this.quaternion);
+
+    this.position.addScaledVector(this.velocity, dt);
+
+    // Launchpad / Ground collision
+    const terrainH = PhysicsWorld.terrainHeight(this.position.x, this.position.z);
+    const launchpadH = terrainH + 0.5;
+    if (this.position.y <= launchpadH) {
+      this.position.y = launchpadH;
+      if (this.velocity.y < 0) this.velocity.y = 0;
+      this.velocity.x *= 0.5;
+      this.velocity.z *= 0.5;
+      this.isAirborne = this.velocity.y > 5.0;
+      // Stand vertical on launchpad
+      this.pitch = MathUtils.lerp(this.pitch, 0, dt * 8.0);
+      this.roll = MathUtils.lerp(this.roll, 0, dt * 8.0);
+    } else {
+      this.isAirborne = true;
+    }
+
+    this.rpm = MathUtils.lerp(this.rpm, 3000 + (this.throttle * 8000), dt * 5.0);
+  }
+
+  /**
    * Applies position and rotation to the Three.js scene group.
    */
   private updateTransform(): void {
@@ -486,6 +560,18 @@ export class VehicleController {
       this.thrusterRing.rotation.z += dt * 8.0;
       const pulseScale = 1.0 + Math.sin(performance.now() * 0.01) * 0.08;
       this.thrusterRing.scale.set(pulseScale, pulseScale, 1.0);
+    }
+
+    // Rocket exhaust plume scaling with throttle & nitrous
+    if (this.rocketPlume && this.activeType === 'rocket') {
+      const isFiring = this.throttle > 0.05 || this.isBoosting;
+      this.rocketPlume.visible = isFiring;
+      if (isFiring) {
+        const boostMultiplier = this.isBoosting ? 1.8 : 1.0;
+        const flameLength = (0.6 + this.throttle * 1.4) * boostMultiplier * (0.95 + Math.random() * 0.1);
+        const flameWidth = (0.8 + this.throttle * 0.4) * boostMultiplier;
+        this.rocketPlume.scale.set(flameWidth, flameLength, flameWidth);
+      }
     }
   }
 
@@ -618,6 +704,72 @@ export class VehicleController {
     this.thrusterRing = new Mesh(ringGeo, plasmaMat);
     this.thrusterRing.position.y = -0.35;
     this.shipMesh.add(this.thrusterRing);
+  }
+
+  private buildRocketVisuals(): void {
+    const whiteBoosterMat = new MeshStandardMaterial({ color: 0xf4f6f7, roughness: 0.25, metalness: 0.7 });
+    const blackInterstageMat = new MeshStandardMaterial({ color: 0x1c2833, roughness: 0.35, metalness: 0.85 });
+    const engineMat = new MeshStandardMaterial({ color: 0x2e4053, roughness: 0.5, metalness: 0.9 });
+    const finMat = new MeshStandardMaterial({ color: 0xd35400, roughness: 0.4, metalness: 0.6 });
+    const exhaustMat = new MeshStandardMaterial({
+      color: 0xff6d00,
+      emissive: 0xff3d00,
+      emissiveIntensity: 4.5,
+      transparent: true,
+      opacity: 0.85
+    });
+
+    // 1. Main Booster Core Fuselage
+    const boosterCore = new Mesh(new CylinderGeometry(1.2, 1.2, 12.0, 18), whiteBoosterMat);
+    boosterCore.position.y = 6.0;
+    this.rocketMesh.add(boosterCore);
+
+    // 2. Interstage ring
+    const interstage = new Mesh(new CylinderGeometry(1.22, 1.22, 1.0, 18), blackInterstageMat);
+    interstage.position.y = 9.5;
+    this.rocketMesh.add(interstage);
+
+    // 3. Conical Nose Fairing / Crew Capsule
+    const fairing = new Mesh(new ConeGeometry(1.2, 3.2, 18), whiteBoosterMat);
+    fairing.position.y = 13.6;
+    this.rocketMesh.add(fairing);
+
+    // 4. Four Grid / Delta Stabilizer Fins at base
+    const finGeo = new BoxGeometry(0.12, 2.5, 1.6);
+    const finPositions: [number, number, number, number][] = [
+      [1.4, 1.6, 0, 0],
+      [-1.4, 1.6, 0, 0],
+      [0, 1.6, 1.4, Math.PI / 2],
+      [0, 1.6, -1.4, Math.PI / 2]
+    ];
+    for (const [fx, fy, fz, frot] of finPositions) {
+      const fin = new Mesh(finGeo, finMat);
+      fin.position.set(fx, fy, fz);
+      fin.rotation.y = frot;
+      this.rocketMesh.add(fin);
+    }
+
+    // 5. Engine Bell cluster at bottom
+    const bellGeo = new CylinderGeometry(0.3, 0.55, 0.9, 12);
+    const nozzlePositions = [
+      [0.45, 0.2, 0.45],
+      [-0.45, 0.2, 0.45],
+      [0.45, 0.2, -0.45],
+      [-0.45, 0.2, -0.45],
+      [0, 0.1, 0] // Center gimbal engine
+    ];
+    for (const [nx, ny, nz] of nozzlePositions) {
+      const bell = new Mesh(bellGeo, engineMat);
+      bell.position.set(nx, ny, nz);
+      this.rocketMesh.add(bell);
+    }
+
+    // 6. Fiery Rocket Exhaust Plume
+    const plumeGeo = new ConeGeometry(1.3, 4.5, 16);
+    plumeGeo.rotateX(Math.PI);
+    this.rocketPlume = new Mesh(plumeGeo, exhaustMat);
+    this.rocketPlume.position.y = -2.2;
+    this.rocketMesh.add(this.rocketPlume);
   }
 
   public dispose(): void {
