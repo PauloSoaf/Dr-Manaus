@@ -31,6 +31,7 @@ import { WaterSystem } from '../rendering/WaterSystem';
 import { FluvialVesselSystem } from '../world/traffic/FluvialVesselSystem';
 import { VehicleController, type VehicleType } from '../player/vehicles/VehicleController';
 import { PortalSystem } from '../world/spatial/PortalSystem';
+import { CosmicNebulaeSystem } from '../world/sky/CosmicNebulaeSystem';
 import { ManausAerialPresentation } from '../rendering/ManausAerialPresentation';
 import { EarthRiverLayer } from '../world/planet/EarthRiverLayer';
 import { MANAUS_ANCHOR_ECEF } from '../world/spatial/ManausFrameAdapter';
@@ -155,7 +156,7 @@ export class Game {
   readonly worldRoot = this.localWorldRoot;
   readonly planetRoot = this.planetaryRoot;
   private readonly renderOriginVec = new Vector3(); readonly player: PlayerController; readonly input: InputController; readonly camera: CameraController;
-  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;readonly vehicle:VehicleController;readonly portals:PortalSystem;
+  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;readonly vehicle:VehicleController;readonly portals:PortalSystem;readonly cosmicNebulae:CosmicNebulaeSystem;
   private readonly playerPrevPosition = new Vector3();
   private readonly vehiclePrevPosition = new Vector3();
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
@@ -482,6 +483,7 @@ export class Game {
       frameColor: 0xff8800
     });
     this.portals.linkPortals('portal_sao_sebastiao', 'portal_ponta_negra');
+    this.cosmicNebulae = new CosmicNebulaeSystem(this.celestialRoot);
     this.celestialRoot.add(this.celestialVisuals.root);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe,volume:IMPACT_VOLUME_LIMITS});
     if(FEATURES.earthGlobe){
@@ -1349,6 +1351,9 @@ export class Game {
       } else {
         this.hyperPresentation?.update(undefined, this.rendering.camera, rawDt);
       }
+    }
+    if (this.cosmicNebulae) {
+      this.cosmicNebulae.update(this.rendering.camera.position, rawDt);
     }
     if (this.portals) {
       this.portals.update(this.rendering.camera, rawDt);
