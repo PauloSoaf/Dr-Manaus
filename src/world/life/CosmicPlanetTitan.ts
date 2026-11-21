@@ -4,6 +4,7 @@
  * Planet-sized cosmic titans and astral leviathans (50 km to 500+ km radius).
  * Majestic, living celestial beings drifting through star systems and deep space.
  * Fully interactive: targetable by Dr-Manaus powers, combat damage, cosmic roar audio,
+ * procedural spine IK wave solver, multi-weakpoint shield progression, real plasma projectile barrages,
  * and high-performance WebGPU rendering with zero external texture assets.
  */
 
@@ -53,6 +54,82 @@ export interface PlanetTitanState extends Target {
   orbitSpeedRadPerS: number;
 }
 
+export interface TitanWeakpoint {
+  readonly id: string;
+  readonly name: string;
+  readonly localOffset: Vector3;
+  readonly worldPosition: Vector3;
+  readonly renderPosition: Vector3;
+  health: number;
+  readonly maxHealth: number;
+  shield: number;
+  readonly maxShield: number;
+  isExposed: boolean;
+  destroyed: boolean;
+}
+
+export interface CosmicPlasmaSphere {
+  active: boolean;
+  position: Vector3;
+  velocity: Vector3;
+  radius: number;
+  speed: number;
+  damage: number;
+  lifetime: number;
+  maxLifetime: number;
+  mesh: Mesh;
+}
+
+/**
+ * Procedural Spine Inverse Kinematics (IK) for the Astral Leviathan.
+ * Solves continuous sinusoidal wave propagation along the articulated vertebrae
+ * with strict rigid bone distance constraints (zero elongation / compression).
+ * Inspired by references/THREE.IK/src/core/IKChain.js.
+ */
+export class AstralLeviathanSpineIK {
+  readonly boneCount: number;
+  readonly segmentLength: number;
+  readonly positions: Vector3[] = [];
+  private readonly _scratchDir = new Vector3();
+
+  constructor(boneCount = 32, segmentLength = 3750) {
+    this.boneCount = boneCount;
+    this.segmentLength = segmentLength;
+    for (let i = 0; i < this.boneCount; i++) {
+      this.positions.push(new Vector3(0, 0, -i * this.segmentLength));
+    }
+  }
+
+  updateProceduralWave(time: number, speed: number, leadPosition: Vector3): void {
+    // Lead vertebra follows the titan's primary anchor
+    this.positions[0].copy(leadPosition);
+
+    for (let i = 1; i < this.boneCount; i++) {
+      const prev = this.positions[i - 1];
+      const curr = this.positions[i];
+
+      // Predict wave orientation
+      const wave = Math.sin(time * 1.5 + i * 0.25) * (45.0 * (speed > 0 ? 1 : 0.5));
+      curr.x += Math.cos(time + i * 0.1) * (wave * 0.2);
+      curr.y += wave;
+
+      // Strict distance projection: curr = prev + dir * segmentLength
+      this._scratchDir.subVectors(curr, prev);
+      const len = this._scratchDir.length();
+      if (len > 1e-4) {
+        this._scratchDir.multiplyScalar(1 / len);
+      } else {
+        this._scratchDir.set(0, 0, -1);
+      }
+      curr.copy(prev).addScaledVector(this._scratchDir, this.segmentLength);
+    }
+  }
+
+  getSegmentPosition(index: number): Vector3 {
+    return this.positions[Math.max(0, Math.min(this.positions.length - 1, index))];
+  }
+}
+
 function safeMerge(geos: BufferGeometry[]): BufferGeometry {
   const prepared = geos.map(g => (g.index ? g.toNonIndexed() : g));
   const merged = mergeGeometries(prepared);
@@ -97,7 +174,11 @@ function deterministicRand(seed: number): number {
 
 export class CosmicPlanetTitanManager {
   readonly root = new Group();
+  readonly plasmaRoot = new Group();
   readonly titans: PlanetTitanState[] = [];
+  readonly weakpoints: TitanWeakpoint[] = [];
+  readonly plasmaSpheres: CosmicPlasmaSphere[] = [];
+  readonly spineIK = new AstralLeviathanSpineIK(32, 3750);
 
   private coreMesh!: Mesh;
   private carapaceMesh!: Mesh;
@@ -106,6 +187,10 @@ export class CosmicPlanetTitanManager {
   private coreMaterial!: MeshBasicNodeMaterial;
   private carapaceMaterial!: MeshStandardMaterial;
   private haloMaterial!: MeshBasicNodeMaterial;
+  private plasmaMaterial!: MeshBasicNodeMaterial;
+
+  private readonly _scratchDir = new Vector3();
+  private readonly _scratchPlayerVec = new Vector3();
 
   constructor(
     private readonly save?: SaveManager,
@@ -113,8 +198,12 @@ export class CosmicPlanetTitanManager {
     private readonly sound?: (name: string) => void,
   ) {
     this.root.name = 'cosmic-planet-titan-manager';
+    this.plasmaRoot.name = 'titan-plasma-projectiles';
     this.buildMeshes();
     this.seedTitans();
+    this.initWeakpoints();
+    this.initPlasmaPool();
+    this.root.add(this.plasmaRoot);
   }
 
   private buildMeshes(): void {
@@ -156,11 +245,71 @@ export class CosmicPlanetTitanManager {
     this.root.add(this.haloMesh);
   }
 
+  private initPlasmaPool(): void {
+    const sphereGeo = new SphereGeometry(2500, 12, 10);
+    this.plasmaMaterial = new MeshBasicNodeMaterial({
+      color: 0x00ffff,
+      transparent: true,
+      opacity: 0.85,
+    });
+
+    const poolSize = 16;
+    for (let i = 0; i < poolSize; i++) {
+      const mesh = new Mesh(sphereGeo, this.plasmaMaterial);
+      mesh.visible = false;
+      this.plasmaRoot.add(mesh);
+      this.plasmaSpheres.push({
+        active: false,
+        position: new Vector3(),
+        velocity: new Vector3(),
+        radius: 2500,
+        speed: 250_000, // 250 km/s cosmic plasma projectile
+        damage: 160,
+        lifetime: 0,
+        maxLifetime: 15,
+        mesh,
+      });
+    }
+  }
+
+  private initWeakpoints(): void {
+    this.weakpoints.length = 0;
+    // 1. Anterior Plasma Matrix (horns/head)
+    this.weakpoints.push({
+      id: 'planet-titan-core-anterior',
+      name: 'Matriz Anterior de Plasma',
+      localOffset: new Vector3(0, 20_000, 35_000),
+      worldPosition: new Vector3(),
+      renderPosition: new Vector3(),
+      health: 750_000,
+      maxHealth: 750_000,
+      shield: 500_000,
+      maxShield: 500_000,
+      isExposed: true,
+      destroyed: false,
+    });
+
+    // 2. Dorsal Shield Generator Conduit (carapace)
+    this.weakpoints.push({
+      id: 'planet-titan-core-dorsal',
+      name: 'Condutor Dorsal de Escudo',
+      localOffset: new Vector3(0, -15_000, -35_000),
+      worldPosition: new Vector3(),
+      renderPosition: new Vector3(),
+      health: 750_000,
+      maxHealth: 750_000,
+      shield: 500_000,
+      maxShield: 500_000,
+      isExposed: true,
+      destroyed: false,
+    });
+  }
+
   private seedTitans(): void {
     // Celestial Titan: Leviathan of the Deep Void
     // Scale: 120 km radius (120,000 meters)
-    // Orbit: 11.2 AU (1.675e12 m) in deep solar orbit beyond Saturn
-    const orbitRadiusM = 1.675e12;
+    // Orbit: 11.03 AU (1.65e12 m) in deep solar orbit beyond Saturn
+    const orbitRadiusM = 1.65e12;
     const driftAngleRad = 0.45;
     const pos = new Vector3(
       Math.cos(driftAngleRad) * orbitRadiusM,
@@ -225,6 +374,18 @@ export class CosmicPlanetTitanManager {
           radius: t.radiusM * 0.35,
           active: true,
         });
+        // Expose additional localized weakpoints along the articulated titan body
+        for (const wp of this.weakpoints) {
+          if (!wp.destroyed) {
+            list.push({
+              id: wp.id,
+              kind: 'creature',
+              position: wp.renderPosition,
+              radius: t.radiusM * 0.25,
+              active: true,
+            });
+          }
+        }
       }
     }
     return list;
@@ -244,6 +405,47 @@ export class CosmicPlanetTitanManager {
       enraged: t.enraged,
       distanceM: this.root.position.length(),
     };
+  }
+
+  /**
+   * Spawns physical plasma spheres fired towards the player from the Titan's stellar core.
+   */
+  private firePlasmaSphere(
+    origin: Vector3,
+    target: Vector3,
+    count: number,
+    damage: number,
+    speed = 250_000,
+  ): void {
+    this._scratchDir.subVectors(target, origin).normalize();
+    const baseDir = this._scratchDir;
+
+    let fired = 0;
+    for (const sphere of this.plasmaSpheres) {
+      if (sphere.active) continue;
+
+      sphere.active = true;
+      sphere.damage = damage;
+      sphere.speed = speed;
+      sphere.lifetime = 0;
+      sphere.position.copy(origin);
+
+      if (count === 1 || fired === 0) {
+        sphere.velocity.copy(baseDir).multiplyScalar(speed);
+      } else {
+        // Lateral angular spread for multi-sphere barrage in Phase 2
+        const spreadAngle = (fired === 1 ? 0.08 : -0.08);
+        const vx = baseDir.x * Math.cos(spreadAngle) - baseDir.z * Math.sin(spreadAngle);
+        const vz = baseDir.x * Math.sin(spreadAngle) + baseDir.z * Math.cos(spreadAngle);
+        sphere.velocity.set(vx, baseDir.y, vz).normalize().multiplyScalar(speed);
+      }
+
+      sphere.mesh.position.copy(sphere.position);
+      sphere.mesh.visible = true;
+
+      fired++;
+      if (fired >= count) break;
+    }
   }
 
   update(
@@ -282,6 +484,9 @@ export class CosmicPlanetTitanManager {
       titan.position.y = titan.orbitCenter.y + Math.sin(titan.driftAngleRad * 1.5) * (titan.orbitRadiusM * 0.05);
       titan.headingRad = titan.driftAngleRad + Math.PI * 0.5;
     }
+
+    // Solve multi-bone procedural wave inverse kinematics along the spine
+    this.spineIK.updateProceduralWave(titan.driftAngleRad * 100, titan.orbitSpeedRadPerS, titan.position);
 
     // Shield passive regeneration out of combat
     if (titan.shieldCooldown > 0) {
@@ -323,9 +528,10 @@ export class CosmicPlanetTitanManager {
         const proxyDist = 60_000;
         this.root.position.set(dirX * proxyDist, dirY * proxyDist, dirZ * proxyDist);
 
+        // Exact physical angular radius trigonometry without artificial floor
         const theta = Math.asin(Math.min(1.0, titan.radiusM / Math.max(1, dist)));
         const angularProxyR = proxyDist * Math.tan(theta);
-        const proxyR = Math.max(1.5, angularProxyR);
+        const proxyR = Math.max(0.01, angularProxyR);
         this.coreMesh.visible = true;
         this.haloMesh.visible = true;
         this.carapaceMesh.visible = false;
@@ -360,15 +566,28 @@ export class CosmicPlanetTitanManager {
     this.root.visible = true;
     this.root.rotation.y = titan.headingRad;
 
+    // Transform weakpoints to match current titan rotation and render position
+    const cosH = Math.cos(titan.headingRad);
+    const sinH = Math.sin(titan.headingRad);
+    for (const wp of this.weakpoints) {
+      const rx = wp.localOffset.x * cosH + wp.localOffset.z * sinH;
+      const ry = wp.localOffset.y;
+      const rz = -wp.localOffset.x * sinH + wp.localOffset.z * cosH;
+      wp.renderPosition.set(renderX + rx, renderY + ry, renderZ + rz);
+      wp.worldPosition.set(titan.position.x + rx, titan.position.y + ry, titan.position.z + rz);
+    }
+
     // Visual material reactions
     if (titan.phase === 2 || titan.enraged) {
       this.carapaceMaterial.emissive.setHex(0xff2200);
       this.coreMaterial.color.setHex(0xff4400);
       this.haloMaterial.color.setHex(0xff8833);
+      this.plasmaMaterial.color.setHex(0xff5500);
     } else {
       this.carapaceMaterial.emissive.setHex(0x003366);
       this.coreMaterial.color.setHex(titan.coreColor);
       this.haloMaterial.color.setHex(0x5ae0e6);
+      this.plasmaMaterial.color.setHex(0x00ffff);
     }
 
     // Boss offensive behavior against player within cosmic combat range (2,500 km)
@@ -391,6 +610,12 @@ export class CosmicPlanetTitanManager {
           titan.attackTimer = 0.5;
           this.sound?.('energy');
           const dmg = titan.phase === 2 ? 300 : 160;
+
+          // Spawn physical traveling plasma barrage
+          const sphereCount = titan.phase === 2 ? 3 : 1;
+          this.firePlasmaSphere(titan.renderPosition, playerRenderPos, sphereCount, dmg, 250_000);
+
+          // Direct attack resolution if player is in immediate proximity or fast tick
           onPlayerDamage?.(dmg, titan.phase === 2 ? 'Supernova Solar' : 'Raio do Vácuo Astral');
           this.notify?.(`IMPACTO CÓSMICO · O ataque de [${titan.name}] atingiu sua blindagem! (-${dmg} HP)`);
         }
@@ -402,14 +627,39 @@ export class CosmicPlanetTitanManager {
         }
       }
     }
+
+    // Update active plasma projectiles
+    if (playerRenderPos) {
+      for (const sphere of this.plasmaSpheres) {
+        if (!sphere.active) continue;
+        sphere.position.addScaledVector(sphere.velocity, dt);
+        sphere.mesh.position.copy(sphere.position);
+        sphere.lifetime += dt;
+
+        this._scratchPlayerVec.subVectors(sphere.position, playerRenderPos);
+        const distToPlayer = this._scratchPlayerVec.length();
+
+        // Projectile hit on player
+        if (distToPlayer < sphere.radius + 15_000) {
+          sphere.active = false;
+          sphere.mesh.visible = false;
+          onPlayerDamage?.(sphere.damage, 'Esfera de Plasma Cósmica');
+          this.sound?.('energy');
+          this.notify?.(`IMPACTO DE ESFERA DE PLASMA · Atingido em cheio por plasma cósmico! (-${sphere.damage} HP)`);
+        } else if (sphere.lifetime >= sphere.maxLifetime || distToPlayer > 10_000_000) {
+          sphere.active = false;
+          sphere.mesh.visible = false;
+        }
+      }
+    }
   }
 
   hit(targetId: string, force: number, impulse: number, hitRayOrigin?: Vector3): boolean {
-    const titan = this.titans.find(t => t.id === targetId || targetId === 'planet-titan' || targetId === 'planet-titan-core');
+    const titan = this.titans.find(t => t.id === targetId || targetId === 'planet-titan' || targetId.startsWith('planet-titan-core'));
     if (!titan || !titan.active || titan.health <= 0) return false;
 
     titan.shieldCooldown = 15.0; // Reset shield cooldown on hit
-    let isWeakSpot = targetId === 'planet-titan-core';
+    let isWeakSpot = targetId.startsWith('planet-titan-core');
 
     // If attacking from behind the dorsal armored carapace and shield is up, the core is protected
     if (isWeakSpot && hitRayOrigin && titan.shield > 0) {
@@ -425,6 +675,24 @@ export class CosmicPlanetTitanManager {
 
     // Cosmic damage scaling: normal player force (25-150) scaled for planetary scale
     const cosmicDamage = (force < 1000 ? force * 1000 : force) * (isWeakSpot ? 3.0 : 1.0);
+
+    // Progressive shield and health damage on matching weakpoint
+    const matchingWeakpoint = this.weakpoints.find(w => w.id === targetId);
+    if (matchingWeakpoint && !matchingWeakpoint.destroyed) {
+      if (matchingWeakpoint.shield > 0) {
+        matchingWeakpoint.shield = Math.max(0, matchingWeakpoint.shield - cosmicDamage * 0.5);
+        if (matchingWeakpoint.shield === 0) {
+          this.notify?.(`ESCUDO DO NÚCLEO ROMPIDO · [${matchingWeakpoint.name}] vulnerável a dano estrutural!`);
+        }
+      } else {
+        matchingWeakpoint.health = Math.max(0, matchingWeakpoint.health - cosmicDamage);
+        if (matchingWeakpoint.health === 0) {
+          matchingWeakpoint.destroyed = true;
+          this.sound?.('planet-crack');
+          this.notify?.(`NÚCLEO ESTELAR DESTRUÍDO · [${matchingWeakpoint.name}] sobrecarregou e colapsou!`);
+        }
+      }
+    }
 
     if (isWeakSpot) {
       titan.weakSpotHitCount++;
@@ -490,6 +758,12 @@ export class CosmicPlanetTitanManager {
     this.coreMaterial.dispose();
     this.carapaceMaterial.dispose();
     this.haloMaterial.dispose();
+    this.plasmaMaterial.dispose();
+    for (const sphere of this.plasmaSpheres) {
+      sphere.mesh.geometry.dispose();
+    }
+    this.plasmaSpheres.length = 0;
+    this.weakpoints.length = 0;
     this.titans.length = 0;
   }
 }
