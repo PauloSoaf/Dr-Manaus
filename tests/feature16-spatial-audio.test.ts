@@ -210,6 +210,12 @@ test('FEATURE 16: 8. Procedural vehicle engine acoustic synthesis across vehicle
   // Spaceship / Rocket rumble
   audio.updateVehicleEngine(true, 'rocket', 7500, 1.0, true, 200);
 
+  // Alien Saucer anti-gravity oscillation
+  audio.updateVehicleEngine(true, 'saucer', 6000, 1.0, true, 180);
+
+  // Amphibious Hovercraft ducted turbine hiss
+  audio.updateVehicleEngine(true, 'hovercraft', 4200, 0.85, false, 35);
+
   // Verify crash effect play
   audio.play('crash');
 });

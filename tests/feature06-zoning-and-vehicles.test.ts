@@ -193,4 +193,90 @@ test('CT-06-04: VehicleController resolves building collision impulses and bridg
   }
 });
 
+test('CT-06-05: VehicleController simulates Saucer UFO tractor beam, Hovercraft amphibious glide, and Nitro regeneration', () => {
+  const vehicle = new VehicleController();
+  const keys = new Set<string>();
+  const mockInput = {
+    held: (code: string) => keys.has(code),
+    consume: (code: string) => keys.delete(code),
+    pressed: (code: string) => keys.has(code),
+    enabled: true
+  } as any;
+
+  try {
+    // 1. SAUCER UFO TEST: 6-DoF flight, omnidirectional strafe, and Tractor Beam
+    vehicle.selectVehicleType('saucer');
+    vehicle.isOccupied = true;
+    vehicle.spawnAt(new Vector3(100, 25, 200), 0);
+
+    // Hold Tractor Beam key (KeyT)
+    keys.add('KeyT');
+    vehicle.update(0.016, mockInput, vehicle.position);
+    keys.delete('KeyT');
+
+    let saucerTelem = vehicle.getTelemetry();
+    assert.strictEqual(saucerTelem.type, 'saucer');
+    assert.strictEqual(saucerTelem.isTractorActive, true, 'Saucer tractor beam should activate on KeyT');
+    assert.strictEqual(saucerTelem.isAirborne, true, 'Saucer must be airborne/levitating');
+
+    // Accelerate Saucer with KeyW
+    keys.add('KeyW');
+    for (let f = 0; f < 20; f++) {
+      vehicle.update(0.016, mockInput, vehicle.position);
+    }
+    keys.delete('KeyW');
+    saucerTelem = vehicle.getTelemetry();
+    assert.ok(saucerTelem.speedKmh > 10.0, `Saucer speed ${saucerTelem.speedKmh} km/h must be > 10 km/h`);
+
+    // 2. HOVERCRAFT TEST: Amphibious ground & water skimming
+    vehicle.selectVehicleType('hovercraft');
+    vehicle.spawnAt(new Vector3(500, 5, -2000), 0); // Riverbank area
+
+    keys.add('KeyW');
+    for (let f = 0; f < 30; f++) {
+      vehicle.update(0.016, mockInput, vehicle.position);
+    }
+    keys.delete('KeyW');
+
+    const hoverTelem = vehicle.getTelemetry();
+    assert.strictEqual(hoverTelem.type, 'hovercraft');
+    assert.ok(hoverTelem.speedKmh > 5.0, 'Hovercraft ducted fan must accelerate across terrain/water');
+    assert.ok(isFinite(vehicle.position.y), 'Hovercraft air cushion Y position must remain finite');
+
+    // 3. NITRO BOOST TANK TEST: Fuel consumption and recovery
+    vehicle.selectVehicleType('car');
+    vehicle.nitro = 100;
+
+    // Burn nitro with ShiftLeft
+    keys.add('ShiftLeft');
+    keys.add('KeyW');
+    for (let f = 0; f < 30; f++) {
+      vehicle.update(0.05, mockInput, vehicle.position);
+    }
+    keys.delete('ShiftLeft');
+    keys.delete('KeyW');
+
+    const boostedTelem = vehicle.getTelemetry();
+    assert.ok(boostedTelem.nitro < 100, `Nitro fuel should deplete under boost (current: ${boostedTelem.nitro}%)`);
+
+    // Release Shift and allow nitro to recharge
+    const prevNitro = vehicle.nitro;
+    for (let f = 0; f < 30; f++) {
+      vehicle.update(0.05, mockInput, vehicle.position);
+    }
+    assert.ok(vehicle.nitro > prevNitro, `Nitro should regenerate over time when not boosting (from ${prevNitro} to ${vehicle.nitro})`);
+
+    // 4. WEAPONS FIRING
+    let weaponFired = false;
+    vehicle.selectVehicleType('saucer');
+    vehicle.onFireWeapon = () => { weaponFired = true; };
+    keys.add('KeyE');
+    vehicle.update(0.016, mockInput, vehicle.position);
+    keys.delete('KeyE');
+    assert.strictEqual(weaponFired, true, 'Vehicle onFireWeapon should fire on KeyE');
+  } finally {
+    vehicle.dispose();
+  }
+});
+
 

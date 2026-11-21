@@ -404,6 +404,24 @@ export class TrafficSystem {
     return nearest;
   }
 
+  pullTowards(pos: Vector3, radius: number, strength: number): void {
+    const radSq = radius * radius;
+    for (let i = 0; i < this.count; i++) {
+      const v = this.pool[i];
+      if (!v.shown) continue;
+      const dx = pos.x - v.x;
+      const dz = pos.z - v.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq < radSq) {
+        v.wreck = true;
+        v.vy += strength * 1.5;
+        v.vx += dx * (strength * 0.1);
+        v.vz += dz * (strength * 0.1);
+        v.pitch += (Math.random() - 0.5) * 0.2;
+      }
+    }
+  }
+
   dispose(): void {
     for (const mesh of [this.bodies, this.glass]) {
       mesh.removeFromParent();

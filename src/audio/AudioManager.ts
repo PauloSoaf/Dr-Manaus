@@ -465,6 +465,18 @@ export class AudioManager {
       subFreq = primaryFreq * 0.5;
       filterCutoff = 500 + throttle * 2200 + (isBoosting ? 1500 : 0);
       baseGain = 0.28 + throttle * 0.22 + (isBoosting ? 0.2 : 0);
+    } else if (type === 'saucer') {
+      // Alien anti-gravity frequency oscillation (110 Hz to 320 Hz)
+      primaryFreq = 110 + throttle * 160 + (isBoosting ? 70 : 0);
+      subFreq = primaryFreq * 0.33;
+      filterCutoff = 800 + throttle * 2400 + (isBoosting ? 1600 : 0);
+      baseGain = 0.22 + throttle * 0.16 + (isBoosting ? 0.15 : 0);
+    } else if (type === 'hovercraft') {
+      // Dual ducted fan air turbine + skirt hiss (85 Hz to 230 Hz)
+      primaryFreq = 85 + (Math.max(800, Math.min(7000, rpm)) / 7000) * 145;
+      subFreq = primaryFreq * 0.5;
+      filterCutoff = 650 + throttle * 1600 + (isBoosting ? 900 : 0);
+      baseGain = 0.25 + throttle * 0.18 + (isBoosting ? 0.12 : 0);
     }
 
     const targetGain = baseGain * this.volumes.effects;

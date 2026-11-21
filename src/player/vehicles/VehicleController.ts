@@ -35,7 +35,7 @@ import { sampleManausWater } from '../../world/water/ManausHydrology';
 import type { InputController } from '../InputController';
 import type { Collider } from '../../core/types';
 
-export type VehicleType = 'car' | 'boat' | 'airplane' | 'spaceship' | 'rocket';
+export type VehicleType = 'car' | 'boat' | 'airplane' | 'spaceship' | 'rocket' | 'saucer' | 'hovercraft';
 
 export interface VehicleTelemetry {
   readonly type: VehicleType;
@@ -49,6 +49,10 @@ export interface VehicleTelemetry {
   readonly isAirborne: boolean;
   readonly isDrifting: boolean;
   readonly health: number;
+  readonly maxHealth: number;
+  readonly nitro: number;
+  readonly isBoosting: boolean;
+  readonly isTractorActive: boolean;
 }
 
 export class VehicleController {
@@ -75,9 +79,12 @@ export class VehicleController {
   gear = 1;
   rpm = 1000;
   health = 100;
+  maxHealth = 100;
+  nitro = 100;
   isDrifting = false;
   isAirborne = false;
   isBoosting = false;
+  isTractorActive = false;
   headlightsOn = true;
   fireCooldown = 0;
   onFireWeapon?: (origin: Vector3, direction: Vector3) => void;
@@ -93,11 +100,16 @@ export class VehicleController {
   private readonly planeMesh = new Group();
   private readonly shipMesh = new Group();
   private readonly rocketMesh = new Group();
+  private readonly saucerMesh = new Group();
+  private readonly hoverMesh = new Group();
 
   private wheels: Mesh[] = [];
   private propeller: Mesh | null = null;
   private thrusterRing: Mesh | null = null;
   private rocketPlume: Mesh | null = null;
+  private saucerRing: Mesh | null = null;
+  private tractorCone: Mesh | null = null;
+  private hoverFans: Mesh[] = [];
 
   // Scratch vectors for zero GC
   private readonly _tempVec = new Vector3();
@@ -111,12 +123,16 @@ export class VehicleController {
     this.buildPlaneVisuals();
     this.buildSpaceshipVisuals();
     this.buildRocketVisuals();
+    this.buildSaucerVisuals();
+    this.buildHovercraftVisuals();
 
     this.group.add(this.carMesh);
     this.group.add(this.boatMesh);
     this.group.add(this.planeMesh);
     this.group.add(this.shipMesh);
     this.group.add(this.rocketMesh);
+    this.group.add(this.saucerMesh);
+    this.group.add(this.hoverMesh);
 
     this.selectVehicleType('car');
   }
@@ -131,6 +147,8 @@ export class VehicleController {
     this.planeMesh.visible = type === 'airplane';
     this.shipMesh.visible = type === 'spaceship';
     this.rocketMesh.visible = type === 'rocket';
+    this.saucerMesh.visible = type === 'saucer';
+    this.hoverMesh.visible = type === 'hovercraft';
 
     // Reset dynamics
     this.velocity.set(0, 0, 0);
@@ -140,6 +158,7 @@ export class VehicleController {
     this.suspensionRoll = 0;
     this.rpm = 1000;
     this.gear = 1;
+    this.isTractorActive = false;
   }
 
   /**
@@ -179,8 +198,14 @@ export class VehicleController {
         case 'rocket':
           this.updateRocketPhysics(clampedDt);
           break;
+        case 'saucer':
+          this.updateSaucerPhysics(clampedDt);
+          break;
+        case 'hovercraft':
+          this.updateHovercraftPhysics(clampedDt);
+          break;
       }
-      const colRadius = this.activeType === 'car' ? 1.8 : this.activeType === 'boat' ? 3.5 : 4.5;
+      const colRadius = this.activeType === 'car' ? 1.8 : this.activeType === 'hovercraft' ? 2.2 : this.activeType === 'boat' ? 3.5 : 4.5;
       this.handleCollisions(colRadius, colliders);
     } else {
       // Idle dampening
@@ -335,20 +360,32 @@ export class VehicleController {
     this.steeringAngle = MathUtils.lerp(this.steeringAngle, targetSteer * 0.55, dt * 6.0);
 
     this.isDrifting = handbrake && this.activeType === 'car' && this.velocity.length() > 6.0;
-    this.isBoosting = input.held('ShiftLeft') || input.held('ShiftRight');
+
+    // Nitro boost fuel management (recharges over time, burns at 25%/s)
+    const wantsBoost = input.held('ShiftLeft') || input.held('ShiftRight');
+    if (wantsBoost && this.nitro > 2.0) {
+      this.isBoosting = true;
+      this.nitro = Math.max(0, this.nitro - dt * 25.0);
+    } else {
+      this.isBoosting = false;
+      this.nitro = Math.min(100, this.nitro + dt * 15.0);
+    }
+
+    // Alien Saucer Tractor Beam (KeyT or Mouse1)
+    this.isTractorActive = (input.held('KeyT') || input.held('Mouse1')) && this.activeType === 'saucer';
 
     // Weapons fire
     const fire = input.held('Mouse0') || input.held('KeyE');
     this.fireCooldown = Math.max(0, this.fireCooldown - dt);
-    if (fire && this.fireCooldown <= 0 && (this.activeType === 'airplane' || this.activeType === 'spaceship' || this.activeType === 'rocket')) {
+    if (fire && this.fireCooldown <= 0 && (this.activeType === 'airplane' || this.activeType === 'spaceship' || this.activeType === 'rocket' || this.activeType === 'saucer')) {
       this.fireWeapon();
       this.fireCooldown = 0.12;
     }
   }
 
   public fireWeapon(): void {
-    const muzzle = this.position.clone().addScaledVector(this.forward, 3.5).addScaledVector(this.up, 0.2);
-    this.onFireWeapon?.(muzzle, this.forward);
+    this._tempVec.copy(this.position).addScaledVector(this.forward, 3.5).addScaledVector(this.up, 0.2);
+    this.onFireWeapon?.(this._tempVec, this.forward);
   }
 
   /**
@@ -653,6 +690,121 @@ export class VehicleController {
   }
 
   /**
+   * 6. ALIEN FLYING SAUCER (UFO) PHYSICS:
+   * Omnidirectional anti-gravity levitation, 360-degree strafe, quantum inertia damping,
+   * tractor beam gravitational field, and tilt banking.
+   */
+  private updateSaucerPhysics(dt: number): void {
+    const maxSpeed = this.isBoosting ? 360.0 : 180.0;
+    const accelRate = this.isBoosting ? 160.0 : 75.0;
+
+    // Forward/backward drive
+    if (this.throttle > 0) {
+      this.velocity.addScaledVector(this.forward, this.throttle * accelRate * dt);
+    } else if (this.brake > 0) {
+      this.velocity.addScaledVector(this.forward, -this.brake * (accelRate * 0.7) * dt);
+    }
+
+    // Omnidirectional lateral strafe
+    this.yaw += this.steeringAngle * 2.2 * dt;
+    this.velocity.addScaledVector(this.right, -this.steeringAngle * accelRate * 0.85 * dt);
+
+    // Natural banking into turns & strafe
+    const targetRoll = this.steeringAngle * 0.45;
+    const targetPitch = (this.throttle - this.brake) * 0.25;
+    this.roll = MathUtils.lerp(this.roll, targetRoll, dt * 6.0);
+    this.pitch = MathUtils.lerp(this.pitch, targetPitch, dt * 6.0);
+
+    // Quantum hover height lock (maintains ~12m altitude above terrain/water)
+    const terrainH = PhysicsWorld.terrainHeight(this.position.x, this.position.z);
+    const waterH = sampleManausWater(this.position.x, this.position.z, performance.now() * 0.001).height;
+    const groundH = Math.max(terrainH, waterH);
+    const targetHoverY = groundH + 12.0;
+
+    if (this.position.y < targetHoverY) {
+      this.velocity.y += (targetHoverY - this.position.y) * 8.0 * dt;
+    }
+
+    // Inertial quantum damping
+    this.velocity.multiplyScalar(Math.exp(-dt * 0.45));
+    if (this.velocity.length() > maxSpeed) {
+      this.velocity.setLength(maxSpeed);
+    }
+
+    // Orientation updates
+    this.quaternion.setFromEuler(new Euler(this.pitch, this.yaw, this.roll, 'YXZ'));
+    this.forward.set(0, 0, -1).applyQuaternion(this.quaternion);
+    this.up.set(0, 1, 0).applyQuaternion(this.quaternion);
+    this.right.set(1, 0, 0).applyQuaternion(this.quaternion);
+
+    this.position.addScaledVector(this.velocity, dt);
+
+    // Floor clamp
+    if (this.position.y < groundH + 2.0) {
+      this.position.y = groundH + 2.0;
+      if (this.velocity.y < 0) this.velocity.y = 0;
+    }
+
+    this.isAirborne = true;
+    this.rpm = MathUtils.lerp(this.rpm, 2500 + (this.velocity.length() / maxSpeed) * 7500, dt * 5.0);
+  }
+
+  /**
+   * 7. AMPHIBIOUS RIVER-STREET HOVERCRAFT PHYSICS:
+   * Air cushion levitation skimming seamlessly across both solid roads and Amazon waters,
+   * ducted fan thrust with low surface friction drift, and steerable air rudders.
+   */
+  private updateHovercraftPhysics(dt: number): void {
+    const maxSpeed = this.isBoosting ? 72.0 : 45.0; // Up to ~260 km/h with Nitrous
+    const fanThrust = this.isBoosting ? 50.0 : 25.0;
+
+    // Ground and water surface sampling
+    const terrainH = PhysicsWorld.terrainHeight(this.position.x, this.position.z);
+    const waterH = sampleManausWater(this.position.x, this.position.z, performance.now() * 0.001).height;
+    const surfaceH = Math.max(terrainH, waterH);
+    const targetY = surfaceH + 0.65;
+
+    // Air cushion spring
+    this.position.y = MathUtils.lerp(this.position.y, targetY, dt * 10.0);
+
+    // Ducted fan propulsion
+    if (this.throttle > 0) {
+      this.velocity.addScaledVector(this.forward, this.throttle * fanThrust * dt);
+    }
+    if (this.brake > 0) {
+      this.velocity.multiplyScalar(Math.exp(-dt * 3.5));
+    }
+
+    // Air rudder steering
+    this.yaw += this.steeringAngle * 2.8 * dt;
+
+    // Low-friction air cushion drift (slide sideways on turns)
+    const sideSpeed = this.right.dot(this.velocity);
+    this.velocity.sub(this._tempVec.copy(this.right).multiplyScalar(sideSpeed * dt * 1.8));
+
+    // Clamp speed
+    if (this.velocity.length() > maxSpeed) {
+      this.velocity.setLength(maxSpeed);
+    }
+
+    // Suspension tilt: body roll with steering and pitch with acceleration
+    this.roll = MathUtils.lerp(this.roll, this.steeringAngle * 0.22, dt * 6.0);
+    this.pitch = MathUtils.lerp(this.pitch, (this.throttle - this.brake) * 0.08, dt * 6.0);
+
+    // Orientation updates
+    this.quaternion.setFromEuler(new Euler(this.pitch, this.yaw, this.roll, 'YXZ'));
+    this.forward.set(0, 0, -1).applyQuaternion(this.quaternion);
+    this.up.set(0, 1, 0).applyQuaternion(this.quaternion);
+    this.right.set(1, 0, 0).applyQuaternion(this.quaternion);
+
+    this.position.addScaledVector(this.velocity, dt);
+
+    this.isAirborne = false;
+    this.isDrifting = Math.abs(sideSpeed) > 4.0;
+    this.rpm = MathUtils.lerp(this.rpm, 1200 + this.throttle * 5800 + (this.isBoosting ? 1500 : 0), dt * 6.0);
+  }
+
+  /**
    * Applies position and rotation to the Three.js scene group.
    */
   private updateTransform(): void {
@@ -705,6 +857,26 @@ export class VehicleController {
         this.rocketPlume.scale.set(flameWidth, flameLength, flameWidth);
       }
     }
+
+    // Saucer ring rotation & tractor beam pulse
+    if (this.saucerRing && this.activeType === 'saucer') {
+      this.saucerRing.rotation.z += dt * 4.0;
+      if (this.tractorCone) {
+        this.tractorCone.visible = this.isTractorActive;
+        if (this.isTractorActive) {
+          const pulse = 1.0 + Math.sin(performance.now() * 0.015) * 0.15;
+          this.tractorCone.scale.set(pulse, 1.0, pulse);
+        }
+      }
+    }
+
+    // Hovercraft ducted fan blades spin
+    if (this.activeType === 'hovercraft' && this.hoverFans.length > 0) {
+      const fanSpeed = (this.rpm / 60.0) * 2.0 * Math.PI * dt;
+      for (const fan of this.hoverFans) {
+        fan.rotation.z += fanSpeed;
+      }
+    }
   }
 
   public getTelemetry(): VehicleTelemetry {
@@ -720,7 +892,11 @@ export class VehicleController {
       altitudeM: this.position.y,
       isAirborne: this.isAirborne,
       isDrifting: this.isDrifting,
-      health: this.health
+      health: Math.max(0, Math.round(this.health)),
+      maxHealth: this.maxHealth,
+      nitro: Math.max(0, Math.min(100, Math.round(this.nitro))),
+      isBoosting: this.isBoosting,
+      isTractorActive: this.isTractorActive,
     };
   }
 
@@ -902,6 +1078,91 @@ export class VehicleController {
     this.rocketPlume = new Mesh(plumeGeo, exhaustMat);
     this.rocketPlume.position.y = -2.2;
     this.rocketMesh.add(this.rocketPlume);
+  }
+
+  private buildSaucerVisuals(): void {
+    const hullMat = new MeshStandardMaterial({ color: 0x1f2937, roughness: 0.15, metalness: 0.95 });
+    const domeMat = new MeshStandardMaterial({ color: 0x06b6d4, emissive: 0x0891b2, emissiveIntensity: 1.2, roughness: 0.1 });
+    const ringMat = new MeshStandardMaterial({ color: 0xa855f7, emissive: 0x9333ea, emissiveIntensity: 2.5 });
+    const tractorMat = new MeshStandardMaterial({
+      color: 0x06b6d4,
+      emissive: 0x22d3ee,
+      emissiveIntensity: 2.2,
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false
+    });
+
+    // Saucer biconvex disc hull
+    const disc = new Mesh(new CylinderGeometry(4.0, 4.0, 0.45, 28), hullMat);
+    this.saucerMesh.add(disc);
+
+    // Glowing alien cockpit dome
+    const dome = new Mesh(new SphereGeometry(1.6, 20, 14), domeMat);
+    dome.position.y = 0.35;
+    dome.scale.y = 0.65;
+    this.saucerMesh.add(dome);
+
+    // Rotating peripheral photon ring
+    const ringGeo = new TorusGeometry(3.9, 0.14, 8, 28);
+    ringGeo.rotateX(Math.PI / 2);
+    this.saucerRing = new Mesh(ringGeo, ringMat);
+    this.saucerRing.position.y = 0.05;
+    this.saucerMesh.add(this.saucerRing);
+
+    // Gravitational Tractor Beam cone
+    const tractorGeo = new ConeGeometry(3.2, 9.0, 20);
+    tractorGeo.rotateX(Math.PI);
+    this.tractorCone = new Mesh(tractorGeo, tractorMat);
+    this.tractorCone.position.y = -4.5;
+    this.tractorCone.visible = false;
+    this.saucerMesh.add(this.tractorCone);
+  }
+
+  private buildHovercraftVisuals(): void {
+    const skirtMat = new MeshStandardMaterial({ color: 0x18181b, roughness: 0.95 });
+    const deckMat = new MeshStandardMaterial({ color: 0xd97706, roughness: 0.45, metalness: 0.4 });
+    const cabinMat = new MeshStandardMaterial({ color: 0xf3f4f6, roughness: 0.3, metalness: 0.5 });
+    const fanCowlMat = new MeshStandardMaterial({ color: 0x374151, roughness: 0.4, metalness: 0.8 });
+    const bladeMat = new MeshStandardMaterial({ color: 0x111827, roughness: 0.3 });
+    const searchlightMat = new MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 3.0 });
+
+    // Perimeter rubber air cushion skirt
+    const skirt = new Mesh(new BoxGeometry(3.2, 0.65, 5.8), skirtMat);
+    skirt.position.y = 0.32;
+    this.hoverMesh.add(skirt);
+
+    // Upper reinforced composite deck
+    const deck = new Mesh(new BoxGeometry(3.0, 0.25, 5.4), deckMat);
+    deck.position.y = 0.72;
+    this.hoverMesh.add(deck);
+
+    // Enclosed passenger cabin
+    const cabin = new Mesh(new BoxGeometry(2.2, 0.95, 3.2), cabinMat);
+    cabin.position.set(0, 1.25, -0.4);
+    this.hoverMesh.add(cabin);
+
+    // Twin roof searchlights
+    const lightL = new Mesh(new BoxGeometry(0.25, 0.2, 0.2), searchlightMat);
+    lightL.position.set(-0.6, 1.85, -1.8);
+    const lightR = lightL.clone();
+    lightR.position.x = 0.6;
+    this.hoverMesh.add(lightL, lightR);
+
+    // Dual aft ducted air fans
+    this.hoverFans = [];
+    const fanOffsets = [-0.85, 0.85];
+    for (const fx of fanOffsets) {
+      const duct = new Mesh(new CylinderGeometry(0.7, 0.7, 0.55, 16), fanCowlMat);
+      duct.rotation.x = Math.PI / 2;
+      duct.position.set(fx, 1.2, 2.1);
+      this.hoverMesh.add(duct);
+
+      const blades = new Mesh(new BoxGeometry(1.2, 0.12, 0.04), bladeMat);
+      blades.position.set(fx, 1.2, 2.1);
+      this.hoverMesh.add(blades);
+      this.hoverFans.push(blades);
+    }
   }
 
   public dispose(): void {

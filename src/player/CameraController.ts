@@ -123,12 +123,18 @@ export class CameraController {
         if (vehicleType === 'car') {
           baseDistance = 8.5;
           heightOffset = 1.35;
+        } else if (vehicleType === 'hovercraft') {
+          baseDistance = 10.5;
+          heightOffset = 1.7;
         } else if (vehicleType === 'boat') {
           baseDistance = 14.0;
           heightOffset = 2.4;
         } else if (vehicleType === 'airplane') {
           baseDistance = 16.5;
           heightOffset = 2.6;
+        } else if (vehicleType === 'saucer') {
+          baseDistance = 15.0;
+          heightOffset = 2.5;
         } else if (vehicleType === 'spaceship' || vehicleType === 'rocket') {
           baseDistance = 22.0;
           heightOffset = 3.6;

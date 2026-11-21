@@ -16,9 +16,10 @@ import { formatDistance, formatDuration, formatSpeed, formatGalaxyName } from '.
 import { DiegeticHUD, ZeroReflowDOMCache } from './DiegeticHUD';
 import type { UniversalTargetDescriptor } from '../world/travel/UniversalNavigationTarget';
 import { travelCapabilityLabel, type ResolvedUniversalTarget } from '../world/travel/UniversalTargetResolver';
+import type { VehicleTelemetry } from '../player/vehicles/VehicleController';
 export interface HUDHooks { power:(name:string)=>void; travel:(id:string,debug?:boolean)=>void; setTarget:(id:string,source?:NavigationLock['source'])=>string|undefined|void; settings:(settings:Settings)=>void; pause:(open:boolean)=>void; debug:(option:string,value:boolean|number)=>void; reset:()=>void; stress:()=>void; atlas?: import('../world/exploration/CosmicAtlasModel').CosmicAtlasModel; }
 export type HUDPresentationDomain = 'local' | 'planetary' | 'orbital';
-export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; bossStatus?: { name: string; phase: number; health: number; maxHealth: number; shield: number; maxShield: number; enraged: boolean; distanceM?: number } | null; interactionPrompt?: string | null; }
+export interface HUDState { position:Vector3; origin:Vector3; velocity:Vector3; yaw:number; state:string; size:number; selected:string; temporal:boolean; title:string; objective:string; hint:string; destination:Vector3; remaining:number; stage:number; time:string; weather:string; fps:number; backend:string; speedMode:string; megaMode:boolean; interplanetaryMode:boolean; flightLabel?:string; spaceFactor:number; district:string; debug:Record<string,string|number>; location: UniverseLocation; speedMps?: number; altitudeM?: number; missionMarkerActive: boolean; presentationDomain?: HUDPresentationDomain; targetCatalog?:readonly UniversalTargetDescriptor[]; systemBodies?: readonly HUDBody[]; flight?: HUDFlightTelemetry; nearbyBody?: HUDNearbyBody; bossStatus?: { name: string; phase: number; health: number; maxHealth: number; shield: number; maxShield: number; enraged: boolean; distanceM?: number } | null; interactionPrompt?: string | null; vehicleTelemetry?: VehicleTelemetry | null; }
 
 /** The body close enough to be a place rather than a point of light. */
 export interface HUDNearbyBody {
@@ -202,6 +203,44 @@ export class HUD {
       <div class="toast" id="toast" role="status"></div>
       <div class="location"><span class="eyebrow"><span id="location-domain">MANAUS</span> · <b id="district">AMAZONAS</b></span><h2 id="place-name">Teatro Amazonas</h2><p id="coordinates">3.1303° S &nbsp; 60.0234° O</p><div class="location-line"><i></i><span id="location-state">CENTRO HISTÓRICO</span></div></div>
       <footer class="power-dock"><div class="power-caption"><span>MANIPULAÇÃO CÓSMICA</span><i></i><span id="power-current">EMISSÃO DE ENERGIA</span></div><div class="power-buttons">${POWERS.map(([id,label,key],i)=>`<button class="power ${i===0?'active':''}" data-power="${id}" title="${label} (${key})" aria-label="${label}">${icon(id)}<kbd>${key}</kbd><span>${label}</span></button>`).join('')}</div><div class="control-hint" id="control-hint"><kbd>F</kbd> levitar <i></i><kbd>W A S D</kbd> mover <i></i><span>clique na cena para controlar a câmera</span></div></footer>
+      <section class="vehicle-cluster" id="vehicle-cluster" hidden>
+        <div class="veh-header">
+          <div class="veh-title">
+            <span class="veh-icon" id="veh-icon">🚗</span>
+            <strong id="veh-name">CARRO ESPORTIVO</strong>
+          </div>
+          <div class="veh-badges">
+            <span class="veh-badge drift" id="veh-badge-drift" hidden>DRIFT</span>
+            <span class="veh-badge nitro" id="veh-badge-boost" hidden>NITRO</span>
+            <span class="veh-badge tractor" id="veh-badge-tractor" hidden>RAIO TRATOR</span>
+            <span class="veh-badge air" id="veh-badge-air" hidden>NO AR</span>
+          </div>
+        </div>
+        <div class="veh-body">
+          <div class="veh-main-speed">
+            <b id="veh-speed-num">0</b>
+            <small id="veh-speed-unit">KM/H</small>
+            <span class="veh-gear" id="veh-gear-indicator">G 1</span>
+          </div>
+          <div class="veh-meters">
+            <div class="veh-bar-row">
+              <span>RPM</span>
+              <div class="veh-bar-track"><div class="veh-bar-fill rpm" id="veh-rpm-fill"></div></div>
+              <b id="veh-rpm-num">800</b>
+            </div>
+            <div class="veh-bar-row">
+              <span>NITRO</span>
+              <div class="veh-bar-track"><div class="veh-bar-fill nitro" id="veh-nitro-fill"></div></div>
+              <b id="veh-nitro-num">100%</b>
+            </div>
+            <div class="veh-bar-row">
+              <span>CASCO</span>
+              <div class="veh-bar-track"><div class="veh-bar-fill hull" id="veh-hull-fill"></div></div>
+              <b id="veh-hull-num">100%</b>
+            </div>
+          </div>
+        </div>
+      </section>
       <aside class="mini-cluster"><div class="space-band" id="space-band" hidden>${icon('flight',11)}<span id="space-label">ALTA ATMOSFERA</span><i></i></div><div class="flight-modes" id="flight-modes"><b data-mode="normal">NORMAL</b><b data-mode="fast">RÁPIDO</b><b data-mode="super">SUPER</b><b data-mode="mega">MEGA</b><b data-mode="interplanetary">INTERPLANETAR</b><em id="flight-tier-label" hidden style="font-style:normal;margin-left:8px;letter-spacing:.08em;font-size:11px;opacity:.9"></em></div><div class="cruise-block" id="cruise-block" hidden></div><div class="flight-readout">${icon('flight',17)}<span id="flight-state">EM SOLO</span><b id="speed">0</b><small id="speed-unit">km/h</small></div><button class="minimap-button" data-panel="map" aria-label="Abrir mapa da cidade"><canvas id="minimap"></canvas><span class="map-caption">${icon('map',13)} EXPLORAR MANAUS <kbd>M</kbd></span></button><div class="mini-status"><i></i><span id="render-state">MUNDO CONECTADO</span><span id="altitude">38 m</span></div></aside>
       <div id="panel-backdrop" class="panel-backdrop" hidden></div>
       <section class="panel pause-panel" id="pause-panel" hidden><div class="pause-layout">
@@ -531,6 +570,44 @@ export class HUD {
     document.querySelectorAll<HTMLButtonElement>('[data-power]').forEach(button=>button.classList.toggle('active',button.dataset.power===state.selected));
     const powerLabel = state.selected==='punch'?'COMBATE · SOCO':state.selected==='kick'?'COMBATE · CHUTE':POWERS.find(p=>p[0]===state.selected)?.[1].toUpperCase()??'EMISSÃO';
     this.domCache.setCachedText($('#power-current'), powerLabel);
+
+    const vehCluster = $('#vehicle-cluster');
+    const vt = state.vehicleTelemetry;
+    if (vt) {
+      vehCluster.hidden = false;
+      const VEHICLE_NAMES: Record<string, { name: string; icon: string; maxRpm: number }> = {
+        car: { name: 'CARRO ESPORTIVO', icon: '🚗', maxRpm: 7000 },
+        boat: { name: 'BARCO FLUVIAL AMAZÔNICO', icon: '🛥️', maxRpm: 5000 },
+        airplane: { name: 'CAÇA AÉREO EXPERIMENTAL', icon: '🛩️', maxRpm: 6000 },
+        spaceship: { name: 'NAVE QUANTUM 6-DOF', icon: '🚀', maxRpm: 10000 },
+        rocket: { name: 'FOGUETE ORBITAL MULTI-ESTÁGIO', icon: '🛸', maxRpm: 11000 },
+        saucer: { name: 'DISCO VOADOR ALIENÍGENA', icon: '🛸', maxRpm: 10000 },
+        hovercraft: { name: 'HOVERCRAFT ANFÍBIO', icon: '💨', maxRpm: 7000 },
+      };
+      const info = VEHICLE_NAMES[vt.type] ?? { name: vt.type.toUpperCase(), icon: '🚗', maxRpm: 7000 };
+      this.domCache.setCachedText($('#veh-icon'), info.icon);
+      this.domCache.setCachedText($('#veh-name'), info.name);
+      this.domCache.setCachedText($('#veh-speed-num'), vt.speedKmh.toFixed(0));
+      this.domCache.setCachedText($('#veh-speed-unit'), vt.type === 'boat' ? 'KM/H' : 'KM/H');
+      const gearStr = vt.type === 'spaceship' || vt.type === 'rocket' ? 'VTOL' : vt.type === 'saucer' ? 'WARP' : `G ${vt.gear}`;
+      this.domCache.setCachedText($('#veh-gear-indicator'), gearStr);
+      this.domCache.setCachedText($('#veh-rpm-num'), `${vt.rpm}`);
+      this.domCache.setCachedText($('#veh-nitro-num'), `${vt.nitro}%`);
+      this.domCache.setCachedText($('#veh-hull-num'), `${vt.health}%`);
+
+      const rpmPct = Math.min(100, Math.max(0, (vt.rpm / info.maxRpm) * 100));
+      $('#veh-rpm-fill').style.width = `${rpmPct.toFixed(1)}%`;
+      $('#veh-nitro-fill').style.width = `${vt.nitro.toFixed(1)}%`;
+      $('#veh-hull-fill').style.width = `${vt.health.toFixed(1)}%`;
+
+      $('#veh-badge-drift').hidden = !vt.isDrifting;
+      $('#veh-badge-boost').hidden = !vt.isBoosting;
+      $('#veh-badge-tractor').hidden = !vt.isTractorActive;
+      $('#veh-badge-air').hidden = !vt.isAirborne;
+    } else {
+      vehCluster.hidden = true;
+    }
+
     document.body.classList.toggle('temporal',state.temporal);document.body.classList.toggle('supersonic',state.velocity.length()>300);
     const marker=$('#objective-marker');this.temp.copy(state.destination).sub(state.origin).project(camera);marker.hidden=!localMissionActive||state.stage===0||state.stage===4&&state.remaining===0||this.temp.z>1||Math.abs(this.temp.x)>.85||Math.abs(this.temp.y)>.7;
     if(!marker.hidden){marker.style.left=`${(this.temp.x*.5+.5)*100}%`;marker.style.top=`${(-this.temp.y*.5+.5)*100}%`;marker.querySelector('small')!.textContent=distance>1000?(distance/1000).toFixed(1)+' km':Math.round(distance)+' m';}
