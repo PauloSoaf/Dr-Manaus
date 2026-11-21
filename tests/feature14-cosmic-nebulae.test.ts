@@ -75,3 +75,4 @@ test('CT-14-04: Embedded star cluster pulsation and clean disposal', () => {
   system.dispose();
   assert.strictEqual(system.root.children.length, 0, 'Disposal must clear all child meshes from scene');
 });
+

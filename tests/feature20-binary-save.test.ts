@@ -254,3 +254,4 @@ test('FEATURE 20: 6. Performance and payload size compliance (< 500KB RNF-20-01,
   // Verify execution speed < 15ms (on modern CPU, typically 1-3ms)
   assert.ok(durationMs < 50, `Serialization duration (${durationMs.toFixed(2)} ms) must be fast`);
 });
+

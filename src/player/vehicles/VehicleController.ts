@@ -33,6 +33,7 @@ import {
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import { sampleManausWater } from '../../world/water/ManausHydrology';
 import type { InputController } from '../InputController';
+import type { Collider } from '../../core/types';
 
 export type VehicleType = 'car' | 'boat' | 'airplane' | 'spaceship' | 'rocket';
 
@@ -80,6 +81,7 @@ export class VehicleController {
   headlightsOn = true;
   fireCooldown = 0;
   onFireWeapon?: (origin: Vector3, direction: Vector3) => void;
+  onCrash?: (speed: number) => void;
 
   // Suspension & body lean
   private suspensionPitch = 0;
@@ -156,14 +158,14 @@ export class VehicleController {
   /**
    * Updates vehicle physics and visual state for the current frame.
    */
-  public update(dt: number, input: InputController, playerPos: Vector3): void {
+  public update(dt: number, input: InputController, playerPos?: Vector3, colliders?: readonly Collider[]): void {
     const clampedDt = Math.min(0.1, Math.max(0.001, dt));
 
     if (this.isOccupied) {
       this.readInputs(clampedDt, input);
       switch (this.activeType) {
         case 'car':
-          this.updateCarPhysics(clampedDt);
+          this.updateCarPhysics(clampedDt, colliders);
           break;
         case 'boat':
           this.updateBoatPhysics(clampedDt);
@@ -178,6 +180,8 @@ export class VehicleController {
           this.updateRocketPhysics(clampedDt);
           break;
       }
+      const colRadius = this.activeType === 'car' ? 1.8 : this.activeType === 'boat' ? 3.5 : 4.5;
+      this.handleCollisions(colRadius, colliders);
     } else {
       // Idle dampening
       this.velocity.multiplyScalar(Math.exp(-clampedDt * 4));
@@ -189,6 +193,119 @@ export class VehicleController {
 
     this.updateTransform();
     this.animateSubComponents(clampedDt);
+  }
+
+  /**
+   * Zero-GC collision resolution with buildings, obstacles, and elevated bridge decks.
+   */
+  private handleCollisions(radius: number, colliders?: readonly Collider[]): void {
+    if (!colliders || colliders.length === 0) return;
+    const px = this.position.x;
+    const py = this.position.y;
+    const pz = this.position.z;
+    const speed = this.velocity.length();
+
+    for (let i = 0; i < colliders.length; i++) {
+      const box = colliders[i];
+      if (box.id && box.id.startsWith('vehicle-player')) continue;
+
+      const halfW = box.width * 0.5;
+      const halfH = box.height * 0.5;
+      const halfD = box.depth * 0.5;
+
+      const minX = box.x - halfW;
+      const maxX = box.x + halfW;
+      const minY = box.y - halfH;
+      const maxY = box.y + halfH;
+      const minZ = box.z - halfD;
+      const maxZ = box.z + halfD;
+
+      // Elevated bridge or viaduct support deck
+      if (px >= minX && px <= maxX && pz >= minZ && pz <= maxZ) {
+        if (maxY > py - 1.2 && maxY <= py + 1.2) {
+          const targetY = maxY + (this.activeType === 'car' ? 0.65 : 1.2);
+          if (targetY > this.position.y) {
+            this.position.y = targetY;
+            if (this.velocity.y < 0) this.velocity.y = 0;
+          }
+        }
+      }
+
+      // Check if vehicle origin is already penetrating inside box
+      const isInside = px >= minX && px <= maxX && py >= minY && py <= maxY && pz >= minZ && pz <= maxZ;
+      if (isInside) {
+        const dMinX = px - minX;
+        const dMaxX = maxX - px;
+        const dMinY = py - minY;
+        const dMaxY = maxY - py;
+        const dMinZ = pz - minZ;
+        const dMaxZ = maxZ - pz;
+
+        const minOverlap = Math.min(dMinX, dMaxX, dMinY, dMaxY, dMinZ, dMaxZ);
+        let nx = 0, ny = 0, nz = 0;
+        if (minOverlap === dMinX) nx = -1;
+        else if (minOverlap === dMaxX) nx = 1;
+        else if (minOverlap === dMinY) ny = -1;
+        else if (minOverlap === dMaxY) ny = 1;
+        else if (minOverlap === dMinZ) nz = -1;
+        else nz = 1;
+
+        const pushDist = minOverlap + radius;
+        this.position.x += nx * pushDist;
+        this.position.y += ny * pushDist;
+        this.position.z += nz * pushDist;
+
+        const vDotN = this.velocity.x * nx + this.velocity.y * ny + this.velocity.z * nz;
+        if (vDotN < 0) {
+          const restitution = 0.35;
+          this.velocity.x -= (1 + restitution) * vDotN * nx;
+          this.velocity.y -= (1 + restitution) * vDotN * ny;
+          this.velocity.z -= (1 + restitution) * vDotN * nz;
+
+          if (speed > 5.0) {
+            this.health = Math.max(0, this.health - speed * 0.25);
+            this.onCrash?.(speed);
+          }
+        }
+        continue;
+      }
+
+      // Horizontal solid obstacle collision
+      const closestX = Math.max(minX, Math.min(px, maxX));
+      const closestY = Math.max(minY, Math.min(py, maxY));
+      const closestZ = Math.max(minZ, Math.min(pz, maxZ));
+
+      const dx = px - closestX;
+      const dy = py - closestY;
+      const dz = pz - closestZ;
+      const distSq = dx * dx + dy * dy + dz * dz;
+
+      if (distSq < radius * radius && distSq > 0.0001) {
+        const dist = Math.sqrt(distSq);
+        const overlap = radius - dist;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const nz = dz / dist;
+
+        // Push vehicle out horizontally and slightly vertically
+        this.position.x += nx * overlap;
+        this.position.z += nz * overlap;
+
+        // Velocity reflection / damping
+        const vDotN = this.velocity.x * nx + this.velocity.y * ny + this.velocity.z * nz;
+        if (vDotN < 0) {
+          const restitution = 0.35;
+          this.velocity.x -= (1 + restitution) * vDotN * nx;
+          this.velocity.y -= (1 + restitution) * vDotN * ny;
+          this.velocity.z -= (1 + restitution) * vDotN * nz;
+
+          if (speed > 5.0) {
+            this.health = Math.max(0, this.health - speed * 0.25);
+            this.onCrash?.(speed);
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -237,7 +354,7 @@ export class VehicleController {
   /**
    * 1. CAR PHYSICS: Acceleration, steering, braking, drifting, and suspension lean.
    */
-  private updateCarPhysics(dt: number): void {
+  private updateCarPhysics(dt: number, colliders?: readonly Collider[]): void {
     const speed = this.forward.dot(this.velocity);
     const absSpeed = Math.abs(speed);
 
@@ -287,8 +404,23 @@ export class VehicleController {
     this.position.z += this.velocity.z * dt;
 
     // Ground clamping & road deck height
-    const terrainH = PhysicsWorld.terrainHeight(this.position.x, this.position.z);
-    const targetH = terrainH + 0.65; // Wheel center offset
+    let groundH = PhysicsWorld.terrainHeight(this.position.x, this.position.z);
+    if (colliders && colliders.length > 0) {
+      const px = this.position.x;
+      const pz = this.position.z;
+      for (let i = 0; i < colliders.length; i++) {
+        const box = colliders[i];
+        const halfW = box.width * 0.5;
+        const halfD = box.depth * 0.5;
+        if (px >= box.x - halfW && px <= box.x + halfW && pz >= box.z - halfD && pz <= box.z + halfD) {
+          const topY = box.y + box.height * 0.5;
+          if (topY > groundH && (this.position.y >= topY - 1.5 || groundH < 0)) {
+            groundH = topY;
+          }
+        }
+      }
+    }
+    const targetH = groundH + 0.65; // Wheel center offset
     this.position.y = MathUtils.lerp(this.position.y, targetH, dt * 14.0);
 
     // Suspension body pitch and roll

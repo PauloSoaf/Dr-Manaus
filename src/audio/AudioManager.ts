@@ -609,6 +609,27 @@ export class AudioManager {
       return;
     }
 
+    if (name === 'crash' || name === 'vehicle-impact') {
+      // Crunchy vehicular kinetic collision: punchy low transient + metallic crunch
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(175, t);
+      osc.frequency.exponentialRampToValueAtTime(28, t + 0.36);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.65, t + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+      osc.connect(gain);
+      gain.connect(this.effects);
+      osc.start(t);
+      osc.stop(t + 0.38);
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
+      return;
+    }
+
     if (name === 'alien-comm') {
       // Shimmering extraterrestrial diplomatic chime (crystal resonant 4-tone sequence)
       const notes = [587.33, 739.99, 880.0, 1174.66]; // D5, F#5, A5, D6

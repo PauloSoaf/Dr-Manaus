@@ -79,7 +79,14 @@ export class CameraController {
    * behaviour in a way nobody had measured. Dead scaffolding that quietly fights the real
    * mechanism is worse than no mechanism, so it is gone.
    */
-  update(player: PlayerController, origin: Vector3, dt: number, colliders: readonly Collider[]): void {
+  update(
+    player: PlayerController,
+    origin: Vector3,
+    dt: number,
+    colliders: readonly Collider[],
+    isVehicleOccupied = false,
+    vehicleType: string = 'car',
+  ): void {
     this.prepareLook();
     const switched = this.input.consume('F5');
     if (switched) {
@@ -87,14 +94,15 @@ export class CameraController {
       this.mode = modes[(modes.indexOf(this.mode) + 1) % modes.length];
       this.intro = false;
     }
-    player.model.visible = this.mode !== 'first' && this.mode !== 'lookBack';
+    player.model.visible = !isVehicleOccupied && this.mode !== 'first' && this.mode !== 'lookBack';
     this.elapsed += dt;
     if (this.input.held('KeyW') || this.input.held('KeyA') || this.input.held('KeyS') || this.input.held('KeyD') || this.input.held('KeyF') || Math.abs(this.input.mouseDelta.x) > 1) this.intro = false;
     this.target.copy(player.position); this.target.y += 1.5 * player.size;
     if (this.inSpace) {
       this.intro = false;
-      const distance = (this.mode === 'first' || this.mode === 'lookBack') ? 0 : 6.2 * player.size;
-      this.desired.set(0, 1.5 * player.size, distance).applyQuaternion(this.spaceOrientation).add(player.position);
+      const baseDist = isVehicleOccupied ? (vehicleType === 'spaceship' || vehicleType === 'rocket' ? 18.0 : 12.0) : 6.2;
+      const distance = (this.mode === 'first' || this.mode === 'lookBack') ? 0 : baseDist * player.size;
+      this.desired.set(0, (isVehicleOccupied ? 2.5 : 1.5) * player.size, distance).applyQuaternion(this.spaceOrientation).add(player.position);
       this.globalPosition.copy(this.desired);
       this.following = true;
     } else if (this.intro && this.elapsed < 6) {
@@ -109,11 +117,29 @@ export class CameraController {
       // Transport the rig with its subject before damping the orbit. World-space
       // damping accumulated speed/rate metres of lag, then repeatedly snapped at 400 m.
       if (this.following) this.globalPosition.add(player.position).sub(this.previousPlayer);
-      if (player.state !== 'Grounded') {
+      let baseDistance = 6.2;
+      let heightOffset = 1.05;
+      if (isVehicleOccupied) {
+        if (vehicleType === 'car') {
+          baseDistance = 8.5;
+          heightOffset = 1.35;
+        } else if (vehicleType === 'boat') {
+          baseDistance = 14.0;
+          heightOffset = 2.4;
+        } else if (vehicleType === 'airplane') {
+          baseDistance = 16.5;
+          heightOffset = 2.6;
+        } else if (vehicleType === 'spaceship' || vehicleType === 'rocket') {
+          baseDistance = 22.0;
+          heightOffset = 3.6;
+        }
+        this.target.copy(player.position);
+        this.target.y += heightOffset;
+      } else if (player.state !== 'Grounded') {
         this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.hips.rotation).applyAxisAngle(this.up, player.model.rotation.y);
         this.target.copy(player.position).add(this.pivotOffset);
       }
-      const distance = (6.2 + Math.min(.6, player.velocity.length() * .001)) * player.size;
+      const distance = (baseDistance + Math.min(isVehicleOccupied ? 4.0 : 0.6, player.velocity.length() * (isVehicleOccupied ? 0.02 : 0.001))) * player.size;
       this.direction.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
       if (this.mode === 'front') {
         // Face the actual character, independently of the movement/camera heading.

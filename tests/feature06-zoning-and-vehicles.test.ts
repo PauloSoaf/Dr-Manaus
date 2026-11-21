@@ -133,3 +133,64 @@ test('CT-06-03: VehicleController simulates drivable Car, Boat, Airplane, and Sp
   }
 });
 
+test('CT-06-04: VehicleController resolves building collision impulses and bridge deck heights', () => {
+  const vehicle = new VehicleController();
+  const mockInput = {
+    held: () => false,
+    consume: () => false,
+    mouseDelta: { x: 0, y: 0 },
+    enabled: true,
+  } as any;
+
+  try {
+    vehicle.spawnAt(new Vector3(0, 0.65, 0), 0, 'car');
+    vehicle.isOccupied = true;
+    vehicle.velocity.set(0, 0, -20); // Moving forward at 20 m/s towards obstacle at z = -5
+
+    let crashSpeedRecorded = 0;
+    vehicle.onCrash = (speed) => {
+      crashSpeedRecorded = speed;
+    };
+
+    // Solid obstacle box at (0, 2, -5) with dimensions (4, 4, 2)
+    const obstacleCollider = {
+      id: 'building-block-01',
+      x: 0,
+      y: 2,
+      z: -5,
+      width: 4,
+      height: 4,
+      depth: 2,
+    };
+
+    // Elevated bridge deck at (0, 15, -20) with dimensions (10, 2, 20)
+    const bridgeCollider = {
+      id: 'bridge-ponte-rio-negro',
+      x: 0,
+      y: 15,
+      z: -20,
+      width: 10,
+      height: 2,
+      depth: 20,
+    };
+
+    const colliders = [obstacleCollider, bridgeCollider];
+
+    // Simulate vehicle reaching obstacle
+    vehicle.position.set(0, 0.65, -3.5);
+    vehicle.update(0.05, mockInput, vehicle.position, colliders);
+
+    // Collision should repel the vehicle or invert velocity
+    assert.ok(crashSpeedRecorded > 5.0, 'Vehicle onCrash callback should fire on high-speed collision');
+    assert.ok(vehicle.position.z > -4.5, 'Vehicle should not penetrate deep into solid obstacle');
+
+    // Simulate driving on elevated bridge deck
+    vehicle.position.set(0, 16.0, -20.0);
+    vehicle.update(0.05, mockInput, vehicle.position, colliders);
+    assert.ok(vehicle.position.y >= 16.0, 'Vehicle should ride on elevated bridge deck (y >= 16m)');
+  } finally {
+    vehicle.dispose();
+  }
+});
+
+

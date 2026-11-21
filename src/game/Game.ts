@@ -466,6 +466,10 @@ export class Game {
       this.camera.shake(0.12);
       this.destruction.damageAt(origin, 4.0, 150);
     };
+    this.vehicle.onCrash = (speed) => {
+      this.audio?.play('crash');
+      this.camera.shake(Math.min(0.85, speed * 0.022));
+    };
     this.portals = new PortalSystem(this.worldRoot);
     this.portals.registerPortal({
       id: 'portal_sao_sebastiao',
@@ -1093,7 +1097,7 @@ export class Game {
       this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
       this.traffic?.update(worldDt,updatedLegacyPos);this.lap('traffic');
       this.vessels.update(worldDt, performance.now() * 0.001, updatedLegacyPos.x, updatedLegacyPos.z);
-      this.vehicle?.update(worldDt, this.input, updatedLegacyPos);
+      this.vehicle?.update(worldDt, this.input, updatedLegacyPos, this.colliders);
       if (this.vehicle?.isOccupied) {
         if (this.portals) {
           const vCrossing = this.portals.checkCrossing(
@@ -1137,7 +1141,15 @@ export class Game {
       this.missions.update(worldDt,updatedLegacyPos);
     }
     this.camera.inSpace = !local;
-    this.camera.update(this.player,this.renderOriginVec,dt,local ? (FEATURES.curvedManaus?this.curvedColliders:this.colliders) : []);this.rendering.camera.updateMatrixWorld();
+    this.camera.update(
+      this.player,
+      this.renderOriginVec,
+      dt,
+      local ? (FEATURES.curvedManaus ? this.curvedColliders : this.colliders) : [],
+      this.vehicle?.isOccupied,
+      this.vehicle?.activeType
+    );
+    this.rendering.camera.updateMatrixWorld();
 
     // Render celestial presentation
     if(!this.universalTravelController?.active)this.celestialController.render({

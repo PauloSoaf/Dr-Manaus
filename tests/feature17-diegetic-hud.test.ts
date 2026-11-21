@@ -156,3 +156,4 @@ test('FEATURE 17: 4. Cosmic Species Scanner taxonomic visor profile lifecycle', 
 
   diegetic.dispose();
 });
+
