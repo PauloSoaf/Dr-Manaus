@@ -190,3 +190,28 @@ test('FEATURE 16: 7. HypersonicAudioSystem and AudioManager headless integration
   audio.play('colossus-roar');
 });
 
+test('FEATURE 16: 8. Procedural vehicle engine acoustic synthesis across vehicle classes', () => {
+  const audio = new AudioManager();
+  audio.setEnabled(true);
+
+  // When unoccupied: engine silent
+  audio.updateVehicleEngine(false, 'car', 0, 0, false, 0);
+
+  // When occupied: Car at idle vs high RPM
+  audio.updateVehicleEngine(true, 'car', 1000, 0, false, 0);
+  audio.updateVehicleEngine(true, 'car', 6500, 1.0, true, 45);
+
+  // Boat diesel chug
+  audio.updateVehicleEngine(true, 'boat', 2400, 0.8, false, 12);
+
+  // Airplane propeller & wind
+  audio.updateVehicleEngine(true, 'airplane', 4500, 0.9, false, 80);
+
+  // Spaceship / Rocket rumble
+  audio.updateVehicleEngine(true, 'rocket', 7500, 1.0, true, 200);
+
+  // Verify crash effect play
+  audio.play('crash');
+});
+
+

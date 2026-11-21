@@ -1323,6 +1323,19 @@ export class Game {
       warpFactor: warpFactorNow,
       blackHoleProximity: blackHoleProx,
     });
+    if (this.vehicle?.isOccupied) {
+      const telem = this.vehicle.getTelemetry();
+      this.audio?.updateVehicleEngine(
+        true,
+        telem.type,
+        telem.rpm,
+        telem.throttle,
+        this.vehicle.isBoosting,
+        telem.speedMps
+      );
+    } else {
+      this.audio?.updateVehicleEngine(false);
+    }
     if(manaus){
       this.discoveryTime+=dt;if(this.discoveryTime>.5){this.discoveryTime=0;for(const landmark of LANDMARKS)if(Math.hypot(landmark.x-this.player.position.x,landmark.z-this.player.position.z)<Math.max(240,landmark.radius)&&this.save.discover(landmark.id)){this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`);this.audio?.play('discovery');}this.streamer.setNight(this.atmosphere.time==='Night');this.realCity.setNight(this.atmosphere.time==='Night');this.realCity.syncProceduralVisibility();this.updateDistrict();}
     }

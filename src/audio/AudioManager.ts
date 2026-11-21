@@ -147,6 +147,10 @@ export class AudioManager {
   private titanSubBassOsc?: OscillatorNode;
   private titanSubBassGain?: GainNode;
   private hypersonicSystem?: HypersonicAudioSystem;
+  private vehicleEngineOsc?: OscillatorNode;
+  private vehicleEngineSubOsc?: OscillatorNode;
+  private vehicleEngineFilter?: BiquadFilterNode;
+  private vehicleEngineBus?: GainNode;
 
   /** Mixer buses, 0..1, set from the pause menu. `enabled` mutes the master independently. */
   private volumes = { master: 0.7, ambience: 0.6, effects: 0.8 };
@@ -294,6 +298,35 @@ export class AudioManager {
     } catch {
       // Audio node setup resilient
     }
+
+    // Setup Continuous Vehicle Engine Synthesizer
+    try {
+      this.vehicleEngineOsc = ctx.createOscillator();
+      this.vehicleEngineOsc.type = 'sawtooth';
+      this.vehicleEngineOsc.frequency.value = 55;
+
+      this.vehicleEngineSubOsc = ctx.createOscillator();
+      this.vehicleEngineSubOsc.type = 'triangle';
+      this.vehicleEngineSubOsc.frequency.value = 27.5;
+
+      this.vehicleEngineFilter = ctx.createBiquadFilter();
+      this.vehicleEngineFilter.type = 'lowpass';
+      this.vehicleEngineFilter.frequency.value = 450;
+      this.vehicleEngineFilter.Q.value = 2.5;
+
+      this.vehicleEngineBus = ctx.createGain();
+      this.vehicleEngineBus.gain.value = 0;
+
+      this.vehicleEngineOsc.connect(this.vehicleEngineFilter);
+      this.vehicleEngineSubOsc.connect(this.vehicleEngineFilter);
+      this.vehicleEngineFilter.connect(this.vehicleEngineBus);
+      this.vehicleEngineBus.connect(this.master);
+
+      this.vehicleEngineOsc.start();
+      this.vehicleEngineSubOsc.start();
+    } catch {
+      // Audio node setup resilient
+    }
   }
 
   private masterGain() {
@@ -385,6 +418,60 @@ export class AudioManager {
       0.016,
       () => this.play('hypersonic-boom'),
     );
+  }
+
+  updateVehicleEngine(
+    isOccupied: boolean,
+    type: string = 'car',
+    rpm: number = 1000,
+    throttle: number = 0,
+    isBoosting: boolean = false,
+    speedMps: number = 0,
+  ): void {
+    if (!this.context || !this.vehicleEngineBus || !this.vehicleEngineOsc || !this.vehicleEngineSubOsc || !this.vehicleEngineFilter) return;
+    const t = this.context.currentTime;
+
+    if (!this.enabled || !isOccupied) {
+      this.vehicleEngineBus.gain.setTargetAtTime(0, t, 0.12);
+      return;
+    }
+
+    let primaryFreq = 55;
+    let subFreq = 27.5;
+    let filterCutoff = 450;
+    let baseGain = 0.25;
+
+    if (type === 'car') {
+      // 50 Hz at 1000 RPM up to 280 Hz at redline (7000 RPM)
+      primaryFreq = 48 + (Math.max(800, Math.min(8000, rpm)) / 7000) * 230;
+      subFreq = primaryFreq * 0.5;
+      filterCutoff = 350 + throttle * 1200 + (isBoosting ? 800 : 0);
+      baseGain = 0.22 + throttle * 0.15 + (isBoosting ? 0.12 : 0);
+    } else if (type === 'boat') {
+      // Throbbing Amazonian twin-cylinder marine diesel (24 Hz to 75 Hz)
+      primaryFreq = 24 + (Math.max(600, Math.min(5000, rpm)) / 5000) * 50;
+      subFreq = primaryFreq * 0.5;
+      filterCutoff = 280 + throttle * 600;
+      baseGain = 0.26 + throttle * 0.14;
+    } else if (type === 'airplane') {
+      // Airplane propeller wash & acoustic whine (65 Hz to 220 Hz)
+      primaryFreq = 65 + (Math.max(1000, Math.min(6000, rpm)) / 6000) * 155;
+      subFreq = primaryFreq * 0.5;
+      filterCutoff = 600 + throttle * 1800 + Math.min(2500, speedMps * 25);
+      baseGain = 0.24 + throttle * 0.16 + (isBoosting ? 0.15 : 0);
+    } else if (type === 'spaceship' || type === 'rocket') {
+      // Deep resonant rocket turbopump rumble & plasma roar (34 Hz to 95 Hz)
+      primaryFreq = 34 + throttle * 60 + (isBoosting ? 30 : 0);
+      subFreq = primaryFreq * 0.5;
+      filterCutoff = 500 + throttle * 2200 + (isBoosting ? 1500 : 0);
+      baseGain = 0.28 + throttle * 0.22 + (isBoosting ? 0.2 : 0);
+    }
+
+    const targetGain = baseGain * this.volumes.effects;
+    this.vehicleEngineOsc.frequency.setTargetAtTime(primaryFreq, t, 0.08);
+    this.vehicleEngineSubOsc.frequency.setTargetAtTime(subFreq, t, 0.08);
+    this.vehicleEngineFilter.frequency.setTargetAtTime(filterCutoff, t, 0.08);
+    this.vehicleEngineBus.gain.setTargetAtTime(targetGain, t, 0.08);
   }
 
   play(name: string) {
