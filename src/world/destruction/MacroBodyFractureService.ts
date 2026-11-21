@@ -472,6 +472,19 @@ export class MacroBodyFractureService {
     return this.plans.get(bodyId);
   }
 
+  /**
+   * Returns list of planetary body IDs currently in RUPTURED state for SaveManager persistence.
+   */
+  serializeRupturedBodies(): string[] {
+    const ruptured: string[] = [];
+    for (const [bodyId, plan] of this.plans.entries()) {
+      if (plan.state === 'RUPTURED') {
+        ruptured.push(bodyId);
+      }
+    }
+    return ruptured;
+  }
+
   debugMetrics(): Record<string, string | number> {
     return {
       'MACRO-FRACTURE · Active bodies': this.plans.size,

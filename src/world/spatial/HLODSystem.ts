@@ -119,33 +119,38 @@ export class DynamicHLODNode {
       return -1;
     }
 
-    // 2. Distance from entity perimeter to camera
-    const distToCenter = this.boundingSphere.center.distanceTo(cameraPosition);
-    const dist = Math.max(0, distToCenter - this.boundingSphere.radius);
+    // 2. Direct distance from entity perimeter to camera (optimized inline math)
+    const center = this.boundingSphere.center;
+    const dx = center.x - cameraPosition.x;
+    const dy = center.y - cameraPosition.y;
+    const dz = center.z - cameraPosition.z;
+    const distToCenter = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const dist = distToCenter > this.boundingSphere.radius ? distToCenter - this.boundingSphere.radius : 0;
     this.distanceToCamera = dist;
     this.visible = true;
 
     // 3. Classify into 4 adaptive LOD tiers
-    if (dist <= this.config.lod0MaxDistance) {
+    const cfg = this.config;
+    if (dist <= cfg.lod0MaxDistance) {
       this.currentLevel = 0;
       this.transitionAlpha = computeDitherCrossFadeAlpha(
         dist,
-        this.config.lod0MaxDistance,
-        this.config.transitionZoneRatio,
+        cfg.lod0MaxDistance,
+        cfg.transitionZoneRatio,
       );
-    } else if (dist <= this.config.lod1MaxDistance) {
+    } else if (dist <= cfg.lod1MaxDistance) {
       this.currentLevel = 1;
       this.transitionAlpha = computeDitherCrossFadeAlpha(
         dist,
-        this.config.lod1MaxDistance,
-        this.config.transitionZoneRatio,
+        cfg.lod1MaxDistance,
+        cfg.transitionZoneRatio,
       );
-    } else if (dist <= this.config.lod2MaxDistance) {
+    } else if (dist <= cfg.lod2MaxDistance) {
       this.currentLevel = 2;
       this.transitionAlpha = computeDitherCrossFadeAlpha(
         dist,
-        this.config.lod2MaxDistance,
-        this.config.transitionZoneRatio,
+        cfg.lod2MaxDistance,
+        cfg.transitionZoneRatio,
       );
     } else {
       this.currentLevel = 3;

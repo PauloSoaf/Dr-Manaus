@@ -751,6 +751,72 @@ export class CosmicPlanetTitanManager {
     return true;
   }
 
+  /**
+   * Serializes current Astral Leviathan state into compact binary buffer:
+   * [0..3]: float32 health
+   * [4..7]: float32 shield
+   * [8]: uint8 phase (1, 2, 3)
+   * [9]: uint8 active (1/0)
+   * [10]: uint8 enraged (1/0)
+   * [11]: uint8 weakSpotHitCount
+   * [12..15]: float32 driftAngleRad
+   * [16..19]: float32 headingRad
+   * [20]: uint8 weakpoints destroyed bitmask
+   */
+  serializeState(): Uint8Array {
+    const titan = this.titans[0];
+    if (!titan) return new Uint8Array(0);
+    const buffer = new ArrayBuffer(21);
+    const view = new DataView(buffer);
+    view.setFloat32(0, titan.health, true);
+    view.setFloat32(4, titan.shield, true);
+    view.setUint8(8, titan.phase);
+    view.setUint8(9, titan.active ? 1 : 0);
+    view.setUint8(10, titan.enraged ? 1 : 0);
+    view.setUint8(11, titan.weakSpotHitCount);
+    view.setFloat32(12, titan.driftAngleRad, true);
+    view.setFloat32(16, titan.headingRad, true);
+
+    let wpMask = 0;
+    for (let i = 0; i < Math.min(8, this.weakpoints.length); i++) {
+      if (this.weakpoints[i].destroyed) {
+        wpMask |= (1 << i);
+      }
+    }
+    view.setUint8(20, wpMask);
+    return new Uint8Array(buffer);
+  }
+
+  /**
+   * Restores Astral Leviathan state from a compact binary buffer.
+   */
+  deserializeState(data: Uint8Array): void {
+    const titan = this.titans[0];
+    if (!titan || data.byteLength < 12) return;
+    const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    titan.health = view.getFloat32(0, true);
+    titan.shield = view.getFloat32(4, true);
+    titan.phase = Math.min(3, Math.max(1, view.getUint8(8))) as 1 | 2 | 3;
+    titan.active = view.getUint8(9) === 1;
+    titan.enraged = view.getUint8(10) === 1;
+    titan.weakSpotHitCount = view.getUint8(11);
+    if (data.byteLength >= 20) {
+      titan.driftAngleRad = view.getFloat32(12, true);
+      titan.headingRad = view.getFloat32(16, true);
+    }
+    if (data.byteLength >= 21) {
+      const wpMask = view.getUint8(20);
+      for (let i = 0; i < Math.min(8, this.weakpoints.length); i++) {
+        const isDestroyed = (wpMask & (1 << i)) !== 0;
+        this.weakpoints[i].destroyed = isDestroyed;
+        if (isDestroyed) {
+          this.weakpoints[i].shield = 0;
+          this.weakpoints[i].health = 0;
+        }
+      }
+    }
+  }
+
   dispose(): void {
     this.coreMesh.geometry.dispose();
     this.carapaceMesh.geometry.dispose();

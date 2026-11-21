@@ -19,6 +19,206 @@ export interface TitanSaveRecord {
   phase: number;
   defeated: boolean;
 }
+
+export const DR_MANAUS_SAVE_MAGIC = new Uint8Array([0x44, 0x52, 0x4D, 0x4E]); // 'D', 'R', 'M', 'N'
+export const DR_MANAUS_SAVE_VERSION = 1;
+export const HEADER_SIZE = 18;
+
+export class BinarySaveSystem {
+  public static readonly DB_NAME = 'DrManausSaveDB';
+  public static readonly STORE_NAME = 'save_slots';
+  private static readonly memoryFallbackStore = new Map<string, Uint8Array>();
+
+  public static async openDatabase(): Promise<IDBDatabase | null> {
+    if (typeof indexedDB === 'undefined') {
+      return null;
+    }
+    return new Promise((resolve, reject) => {
+      try {
+        const request = indexedDB.open(this.DB_NAME, 1);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(this.STORE_NAME)) {
+            db.createObjectStore(this.STORE_NAME);
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  public static async saveSlot(slotId: string, binaryPayload: Uint8Array): Promise<void> {
+    this.memoryFallbackStore.set(slotId, binaryPayload);
+    try {
+      const db = await this.openDatabase();
+      if (!db) return;
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readwrite');
+        const store = tx.objectStore(this.STORE_NAME);
+        const req = store.put(binaryPayload, slotId);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      // Fallback in memoryFallbackStore already stored
+    }
+  }
+
+  public static async loadSlot(slotId: string): Promise<Uint8Array | null> {
+    try {
+      const db = await this.openDatabase();
+      if (!db) {
+        return this.memoryFallbackStore.get(slotId) ?? null;
+      }
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readonly');
+        const store = tx.objectStore(this.STORE_NAME);
+        const req = store.get(slotId);
+        req.onsuccess = () => {
+          if (req.result) {
+            resolve(req.result as Uint8Array);
+          } else {
+            resolve(this.memoryFallbackStore.get(slotId) ?? null);
+          }
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      return this.memoryFallbackStore.get(slotId) ?? null;
+    }
+  }
+
+  public static async deleteSlot(slotId: string): Promise<void> {
+    this.memoryFallbackStore.delete(slotId);
+    try {
+      const db = await this.openDatabase();
+      if (!db) return;
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readwrite');
+        const store = tx.objectStore(this.STORE_NAME);
+        const req = store.delete(slotId);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      // Ignore
+    }
+  }
+
+  public static async listSlots(): Promise<string[]> {
+    const memoryKeys = Array.from(this.memoryFallbackStore.keys());
+    try {
+      const db = await this.openDatabase();
+      if (!db) return memoryKeys;
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(this.STORE_NAME, 'readonly');
+        const store = tx.objectStore(this.STORE_NAME);
+        const req = store.getAllKeys();
+        req.onsuccess = () => {
+          const keys = (req.result as string[]).concat(memoryKeys);
+          resolve(Array.from(new Set(keys)));
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch {
+      return memoryKeys;
+    }
+  }
+
+  public static clearMemoryStore(): void {
+    this.memoryFallbackStore.clear();
+  }
+
+  public static async compress(data: Uint8Array): Promise<Uint8Array> {
+    if (typeof CompressionStream !== 'undefined' && typeof Blob !== 'undefined' && typeof Response !== 'undefined') {
+      try {
+        const stream = new Blob([data as unknown as BlobPart]).stream().pipeThrough(new CompressionStream('deflate'));
+        const response = new Response(stream);
+        const arrayBuffer = await response.arrayBuffer();
+        return new Uint8Array(arrayBuffer);
+      } catch {
+        return data;
+      }
+    }
+    return data;
+  }
+
+  public static async decompress(data: Uint8Array): Promise<Uint8Array> {
+    if (typeof DecompressionStream !== 'undefined' && typeof Blob !== 'undefined' && typeof Response !== 'undefined') {
+      try {
+        const stream = new Blob([data as unknown as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate'));
+        const response = new Response(stream);
+        const arrayBuffer = await response.arrayBuffer();
+        return new Uint8Array(arrayBuffer);
+      } catch {
+        return data;
+      }
+    }
+    return data;
+  }
+
+  public static async encodeSaveFile(data: SaveData): Promise<Uint8Array> {
+    const jsonStr = JSON.stringify(data);
+    const uncompressedBytes = new TextEncoder().encode(jsonStr);
+    const uncompressedLength = uncompressedBytes.byteLength;
+
+    const compressedBytes = await this.compress(uncompressedBytes);
+    const isCompressed = compressedBytes !== uncompressedBytes && compressedBytes.byteLength < uncompressedLength;
+    const payloadBytes = isCompressed ? compressedBytes : uncompressedBytes;
+
+    const totalLength = HEADER_SIZE + payloadBytes.byteLength;
+    const result = new Uint8Array(totalLength);
+    const view = new DataView(result.buffer);
+
+    // Magic: 'DRMN' (0x44, 0x52, 0x4D, 0x4E)
+    result[0] = 0x44;
+    result[1] = 0x52;
+    result[2] = 0x4D;
+    result[3] = 0x4E;
+    // Version
+    result[4] = DR_MANAUS_SAVE_VERSION;
+    // Flags: 1 = compressed, 0 = uncompressed
+    result[5] = isCompressed ? 1 : 0;
+    // Uncompressed byte length
+    view.setUint32(6, uncompressedLength, true);
+    // Timestamp
+    view.setFloat64(10, Date.now(), true);
+    // Payload
+    result.set(payloadBytes, HEADER_SIZE);
+
+    return result;
+  }
+
+  public static async decodeSaveFile(buffer: Uint8Array): Promise<SaveData> {
+    if (buffer.byteLength < HEADER_SIZE) {
+      throw new Error(`Invalid save file: byteLength (${buffer.byteLength}) is less than header size (${HEADER_SIZE})`);
+    }
+    if (buffer[0] !== 0x44 || buffer[1] !== 0x52 || buffer[2] !== 0x4D || buffer[3] !== 0x4E) {
+      throw new Error('Invalid save file: header magic mismatch (expected DRMN)');
+    }
+    const isCompressed = buffer[5] === 1;
+    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    const uncompressedLength = view.getUint32(6, true);
+
+    const payload = buffer.subarray(HEADER_SIZE);
+    let uncompressedBytes: Uint8Array;
+    if (isCompressed) {
+      uncompressedBytes = await this.decompress(payload);
+    } else {
+      uncompressedBytes = payload;
+    }
+
+    if (uncompressedBytes.byteLength !== uncompressedLength) {
+      console.warn(`Save length mismatch: expected ${uncompressedLength}, got ${uncompressedBytes.byteLength}`);
+    }
+
+    const jsonStr = new TextDecoder().decode(uncompressedBytes);
+    return JSON.parse(jsonStr) as SaveData;
+  }
+}
 export interface SaveData {
   version: number;
   discovered: string[];
@@ -55,40 +255,50 @@ const defaults = (): SaveData => ({
 });
 export class SaveManager {
   data = defaults();
+  private autosaveIntervalId: ReturnType<typeof setInterval> | null = null;
+  public onSave?: (slotId: string, timestamp: number) => void;
+
   constructor() {
     try {
       const raw: unknown = JSON.parse(localStorage.getItem('dr-manaus-v1') ?? 'null');
       if (raw && typeof raw === 'object' && 'version' in raw && raw.version === 1) {
-        const saved = raw as Partial<SaveData>;
-        if (Array.isArray(saved.discovered)) this.data.discovered = saved.discovered.filter((v): v is string => typeof v === 'string');
-        if (Array.isArray(saved.completed)) this.data.completed = saved.completed.filter((v): v is string => typeof v === 'string');
-        if (Array.isArray(saved.favorites)) this.data.favorites = saved.favorites.filter((v): v is string => typeof v === 'string');
-        if (Array.isArray(saved.visitedTargets)) this.data.visitedTargets = saved.visitedTargets.filter((v): v is string => typeof v === 'string');
-        if (Array.isArray(saved.discoveredTargets)) this.data.discoveredTargets = saved.discoveredTargets.filter((v): v is string => typeof v === 'string');
-        if (Array.isArray(saved.discoveredSpecies)) this.data.discoveredSpecies = saved.discoveredSpecies.filter((v): v is string => typeof v === 'string');
-        if (Array.isArray(saved.discoveredRuins)) this.data.discoveredRuins = saved.discoveredRuins.filter((v): v is string => typeof v === 'string');
-        if (Array.isArray(saved.defeatedColossi)) this.data.defeatedColossi = saved.defeatedColossi.filter((v): v is string => typeof v === 'string');
-        if (saved.blackHoleTraversals && typeof saved.blackHoleTraversals === 'object') {
-          this.data.blackHoleTraversals = { ...saved.blackHoleTraversals };
-        }
-        this.data.settings = { ...this.data.settings, ...saved.settings };
-        if (!['Low', 'Medium', 'High', 'Ultra'].includes(this.data.settings.quality)) this.data.settings.quality = 'High';
-        // A save written before these existed, or hand-edited, must not produce a silent or unusable game.
-        const settings = this.data.settings as unknown as Record<string, unknown>;
-        const fallback = defaults().settings as unknown as Record<string, number>;
-        for (const [key, [low, high]] of Object.entries(RANGES)) {
-          // JSON turns NaN and Infinity into null, and Number(null) is 0 — which would silently
-          // mute the game or flatten the field of view. Anything not already a finite number
-          // falls back rather than being coerced.
-          const value = settings[key];
-          settings[key] = typeof value === 'number' && Number.isFinite(value)
-            ? Math.min(high, Math.max(low, value)) : fallback[key];
-        }
-        for (const key of ['dynamicResolution', 'sound', 'dayCycle', 'invertY', 'shadows']) {
-          if (typeof settings[key] !== 'boolean') settings[key] = (fallback as unknown as Record<string, boolean>)[key];
-        }
+        this.populateData(raw as Partial<SaveData>);
       }
     } catch { /* Private browsing and malformed saves still allow play. */ }
+  }
+
+  public populateData(saved: Partial<SaveData>): void {
+    if (Array.isArray(saved.discovered)) this.data.discovered = saved.discovered.filter((v): v is string => typeof v === 'string');
+    if (Array.isArray(saved.completed)) this.data.completed = saved.completed.filter((v): v is string => typeof v === 'string');
+    if (Array.isArray(saved.favorites)) this.data.favorites = saved.favorites.filter((v): v is string => typeof v === 'string');
+    if (Array.isArray(saved.visitedTargets)) this.data.visitedTargets = saved.visitedTargets.filter((v): v is string => typeof v === 'string');
+    if (Array.isArray(saved.discoveredTargets)) this.data.discoveredTargets = saved.discoveredTargets.filter((v): v is string => typeof v === 'string');
+    if (Array.isArray(saved.discoveredSpecies)) this.data.discoveredSpecies = saved.discoveredSpecies.filter((v): v is string => typeof v === 'string');
+    if (Array.isArray(saved.discoveredRuins)) this.data.discoveredRuins = saved.discoveredRuins.filter((v): v is string => typeof v === 'string');
+    if (Array.isArray(saved.defeatedColossi)) this.data.defeatedColossi = saved.defeatedColossi.filter((v): v is string => typeof v === 'string');
+    if (Array.isArray(saved.rupturedBodies)) this.data.rupturedBodies = saved.rupturedBodies.filter((v): v is string => typeof v === 'string');
+    if (saved.factionReputations && typeof saved.factionReputations === 'object') {
+      this.data.factionReputations = { ...saved.factionReputations };
+    }
+    if (saved.titans && typeof saved.titans === 'object') {
+      this.data.titans = { ...saved.titans };
+    }
+    if (saved.blackHoleTraversals && typeof saved.blackHoleTraversals === 'object') {
+      this.data.blackHoleTraversals = { ...saved.blackHoleTraversals };
+    }
+    this.data.settings = { ...this.data.settings, ...saved.settings };
+    if (!['Low', 'Medium', 'High', 'Ultra'].includes(this.data.settings.quality)) this.data.settings.quality = 'High';
+
+    const settings = this.data.settings as unknown as Record<string, unknown>;
+    const fallback = defaults().settings as unknown as Record<string, number>;
+    for (const [key, [low, high]] of Object.entries(RANGES)) {
+      const value = settings[key];
+      settings[key] = typeof value === 'number' && Number.isFinite(value)
+        ? Math.min(high, Math.max(low, value)) : fallback[key];
+    }
+    for (const key of ['dynamicResolution', 'sound', 'dayCycle', 'invertY', 'shadows']) {
+      if (typeof settings[key] !== 'boolean') settings[key] = (fallback as unknown as Record<string, boolean>)[key];
+    }
   }
   private batchDepth = 0;
   private dirty = false;
@@ -254,5 +464,69 @@ export class SaveManager {
     this.data.titans[titanId] = { ...record };
     this.save();
   }
+
+  async saveToSlot(slotId = 'autosave'): Promise<void> {
+    const encoded = await BinarySaveSystem.encodeSaveFile(this.data);
+    await BinarySaveSystem.saveSlot(slotId, encoded);
+    this.save();
+    this.onSave?.(slotId, Date.now());
+  }
+
+  async loadFromSlot(slotId = 'autosave'): Promise<boolean> {
+    const raw = await BinarySaveSystem.loadSlot(slotId);
+    if (!raw) return false;
+    try {
+      const loaded = await BinarySaveSystem.decodeSaveFile(raw);
+      this.populateData(loaded);
+      this.save();
+      return true;
+    } catch (e) {
+      console.error('Failed to load save from slot:', slotId, e);
+      return false;
+    }
+  }
+
+  async deleteSlot(slotId: string): Promise<void> {
+    await BinarySaveSystem.deleteSlot(slotId);
+  }
+
+  async listSlots(): Promise<string[]> {
+    return BinarySaveSystem.listSlots();
+  }
+
+  async exportSaveFile(): Promise<Uint8Array> {
+    return BinarySaveSystem.encodeSaveFile(this.data);
+  }
+
+  async importSaveFile(buffer: Uint8Array | ArrayBuffer): Promise<SaveData> {
+    const uint8 = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    const loaded = await BinarySaveSystem.decodeSaveFile(uint8);
+    this.populateData(loaded);
+    this.save();
+    return this.data;
+  }
+
+  startAutosave(intervalMs = 60_000): void {
+    this.stopAutosave();
+    this.autosaveIntervalId = setInterval(() => {
+      void this.triggerAutosave();
+    }, intervalMs);
+  }
+
+  stopAutosave(): void {
+    if (this.autosaveIntervalId !== null) {
+      clearInterval(this.autosaveIntervalId);
+      this.autosaveIntervalId = null;
+    }
+  }
+
+  isAutosaveRunning(): boolean {
+    return this.autosaveIntervalId !== null;
+  }
+
+  async triggerAutosave(): Promise<void> {
+    await this.saveToSlot('autosave');
+  }
+
   reset() { this.data = defaults(); this.save(); }
 }

@@ -720,11 +720,13 @@ export class Game {
         const minor = this.minorBodyDisruption.isBodyDisrupted(bodyId) || this.minorBodyDisruption.disruptMinorBody(bodyId, energyJoules);
         if (minor) {
           this.save.recordBodyRupture(bodyId);
+          void this.save.saveToSlot('autosave');
           return true;
         }
         const plan = this.macroBodyFracture.rupturePlanet(bodyId, energyJoules);
         if (plan) {
           this.save.recordBodyRupture(bodyId);
+          void this.save.saveToSlot('autosave');
           const body = this.universe.activeSystem?.bodies.find(b => b.id === bodyId);
           const radiusM = body?.equatorialRadiusM ?? 6371000;
           this.planetaryRupturePresentation.startRupture(bodyId, plan, radiusM);
@@ -744,6 +746,7 @@ export class Game {
         const mRestored = this.minorBodyDisruption.restoreBody(bodyId);
         if (pRestored || mRestored) {
           this.save.recordBodyRestoration(bodyId);
+          void this.save.saveToSlot('autosave');
           const reconstructing = this.planetaryRupturePresentation.startReverseReconstruction(bodyId, 3.5);
           if (!reconstructing) {
             this.planetaryRupturePresentation.restore(bodyId);
@@ -757,6 +760,12 @@ export class Game {
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
     this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:(id,source)=>this.selectNavigationTarget(id,source),settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress(),atlas:this.cosmicAtlas});
+    this.save.onSave = (slotId) => {
+      if (slotId === 'autosave') {
+        this.hud?.notify('JOGO SALVO · Salvamento automático');
+      }
+    };
+    this.save.startAutosave(60_000);
     this.localWorldRoot.add(this.hud.diegetic.root);
     this.applySettings(this.save.data.settings);
     this.rendering.renderer.domElement.addEventListener('pointerdown',()=>{void this.audio.unlock();});
