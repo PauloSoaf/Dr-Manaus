@@ -377,6 +377,24 @@ export class FluvialVesselSystem {
     return this.fleet;
   }
 
+  public findNearestBoat(pos: Vector3, maxRadiusM = 18.0): { x: number; y: number; z: number; yaw: number; vClass: VesselClass; index: number } | null {
+    let nearest: { x: number; y: number; z: number; yaw: number; vClass: VesselClass; index: number } | null = null;
+    let minDistSq = maxRadiusM * maxRadiusM;
+
+    for (let i = 0; i < this.fleet.length; i++) {
+      const v = this.fleet[i];
+      if (!v.active || v.wreck) continue;
+      const dx = v.x - pos.x;
+      const dz = v.z - pos.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq < minDistSq) {
+        minDistSq = distSq;
+        nearest = { x: v.x, y: v.y, z: v.z, yaw: v.yaw, vClass: v.vesselClass, index: i };
+      }
+    }
+    return nearest;
+  }
+
   public dispose(): void {
     this.hulls.geometry.dispose();
     (this.hulls.material as MeshStandardMaterial).dispose();

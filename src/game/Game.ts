@@ -1901,10 +1901,25 @@ export class Game {
         this.hud.notify(`Saiu do veículo (${this.vehicle.activeType.toUpperCase()})`);
       } else {
         const dist = this.player.position.distanceTo(this.vehicle.position);
-        if (dist < 12.0) {
+        const nearTraffic = this.traffic?.findNearestCar(this.player.position, 6.0);
+        const nearBoat = this.vessels?.findNearestBoat(this.player.position, 18.0);
+
+        if (nearTraffic) {
+          this.vehicle.spawnAt(new Vector3(nearTraffic.x, nearTraffic.y, nearTraffic.z), nearTraffic.yaw, 'car');
           this.vehicle.isOccupied = true;
           this.player.model.visible = false;
-          this.hud.notify(`Pilotando ${this.vehicle.activeType.toUpperCase()} (WASD acelerar/virar, Espaço freio/vtol, F sair, V trocar)`);
+          this.hud.notify(`Assumiu o controle do Carro de Trânsito! (WASD pilotar, Espaço drift, H buzina, F sair)`);
+          this.audio?.play('car-horn');
+        } else if (nearBoat) {
+          this.vehicle.spawnAt(new Vector3(nearBoat.x, nearBoat.y, nearBoat.z), nearBoat.yaw, 'boat');
+          this.vehicle.isOccupied = true;
+          this.player.model.visible = false;
+          this.hud.notify(`Embarcou no Barco (${nearBoat.vClass.toUpperCase()})! (WASD navegar, H buzina, F desembarcar)`);
+          this.audio?.play('foghorn');
+        } else if (dist < 12.0) {
+          this.vehicle.isOccupied = true;
+          this.player.model.visible = false;
+          this.hud.notify(`Pilotando ${this.vehicle.activeType.toUpperCase()} (WASD acelerar/virar, Espaço freio/vtol, H buzina, F sair, V trocar)`);
           this.audio?.play('warp-engage');
         } else {
           this.vehicle.spawnAt(
@@ -1913,10 +1928,14 @@ export class Game {
           );
           this.vehicle.isOccupied = true;
           this.player.model.visible = false;
-          this.hud.notify(`Entrou no ${this.vehicle.activeType.toUpperCase()} (WASD pilotar, F sair, V trocar)`);
+          this.hud.notify(`Entrou no ${this.vehicle.activeType.toUpperCase()} (WASD pilotar, H buzina, F sair, V trocar)`);
           this.audio?.play('warp-engage');
         }
       }
+    }
+
+    if (this.travelDomain.localPhysicsActive && this.vehicle?.isOccupied && this.input.consume('KeyH')) {
+      this.audio?.play(this.vehicle.activeType === 'boat' ? 'foghorn' : 'car-horn');
     }
 
     if (this.travelDomain.localPhysicsActive && this.vehicle && this.input.consume('KeyV')) {
@@ -2159,7 +2178,15 @@ export class Game {
     if (this.travelDomain.localPhysicsActive && this.vehicle) {
       if (this.vehicle.isOccupied) {
         const t = this.vehicle.getTelemetry();
-        return `[F] Sair do Veículo · [V] Trocar (${t.type.toUpperCase()} · ${t.speedKmh.toFixed(0)} km/h · Marcha ${t.gear})`;
+        return `[F] Sair do Veículo · [H] Buzina · [V] Trocar (${t.type.toUpperCase()} · ${t.speedKmh.toFixed(0)} km/h · Marcha ${t.gear})`;
+      }
+      const nearTraffic = this.traffic?.findNearestCar(this.player.position, 6.0);
+      if (nearTraffic) {
+        return `[F] Assumir Carro de Trânsito · [V] Trocar Veículo`;
+      }
+      const nearBoat = this.vessels?.findNearestBoat(this.player.position, 18.0);
+      if (nearBoat) {
+        return `[F] Embarcar no Barco (${nearBoat.vClass.toUpperCase()}) · [V] Trocar Veículo`;
       }
       const dist = this.player.position.distanceTo(this.vehicle.position);
       if (dist < 12.0) {

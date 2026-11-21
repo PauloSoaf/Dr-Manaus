@@ -11,6 +11,7 @@ import { CharacterAnimator } from './animations/CharacterAnimator';
 import { ANIMATION_LIBRARY, loadAnimationLibrary } from './animations/AnimationLibrary';
 import { measureSkinnedGround, type GroundAlignmentResult } from './animations/GroundAlignment';
 import { ProceduralFlightPoseLayer } from './animations/ProceduralFlightPose';
+import { TwoBoneIKSolver } from './animations/TwoBoneIKSolver';
 
 export type { CosmicLevel };
 const TARGET_HEIGHT = 2.07;
@@ -40,6 +41,7 @@ export class CharacterModel {
   readonly cosmicSource?: CosmicVideoSource;
   readonly cosmicMaterial?: CosmicMaterial;
   readonly animationController = new AnimationController();
+  ikSolver?: TwoBoneIKSolver;
   private readonly echoMaterial?: MeshBasicMaterial;
   private readonly aura?: CosmicAura;
   private readonly trail?: CosmicTrail;
@@ -143,6 +145,10 @@ export class CharacterModel {
     this.setBodyPivot(scaled.minY, scaled.maxY);
     this.group.updateMatrixWorld(true);
     this.animator = new CharacterAnimator(asset.scene, asset.animations);
+    this.ikSolver = new TwoBoneIKSolver(
+      this.leftLeg, this.leftShin, this.leftFoot,
+      this.rightLeg, this.rightShin, this.rightFoot
+    );
   }
 
   /**
@@ -222,6 +228,8 @@ export class CharacterModel {
     this.animator?.update(dt, params, this.animationController.activeCombatMove, this.animationController.isDoubleJumping, this.animationController.currentFlipPhase);
     if (params.flying && this.asset) {
       this.flightPoseLayer.apply(this.asset.bonesByName, this.animationController.currentFlightPose, dt, !!this.animationController.activeCombatMove);
+    } else if (this.ikSolver && this.asset && params.grounded) {
+      this.ikSolver.solve(dt, params.grounded, params.flying, this.hips);
     }
 
     const level: CosmicLevel = pose ? 'power' : this.level ?? (boost ? 'boost' : flying ? 'flight' : 'idle');

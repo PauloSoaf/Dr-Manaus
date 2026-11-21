@@ -386,6 +386,24 @@ export class TrafficSystem {
     }
   }
 
+  findNearestCar(pos: Vector3, maxRadiusM = 6.0): { x: number; y: number; z: number; yaw: number; slot: number } | null {
+    let nearest: { x: number; y: number; z: number; yaw: number; slot: number } | null = null;
+    let minDistSq = maxRadiusM * maxRadiusM;
+
+    for (let i = 0; i < this.count; i++) {
+      const v = this.pool[i];
+      if (!v.shown || v.wreck) continue;
+      const dx = v.x - pos.x;
+      const dz = v.z - pos.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq < minDistSq) {
+        minDistSq = distSq;
+        nearest = { x: v.x, y: v.y, z: v.z, yaw: v.yaw, slot: i };
+      }
+    }
+    return nearest;
+  }
+
   dispose(): void {
     for (const mesh of [this.bodies, this.glass]) {
       mesh.removeFromParent();

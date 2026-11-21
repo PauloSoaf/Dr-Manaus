@@ -475,6 +475,27 @@ export class AudioManager {
       return;
     }
 
+    if (name === 'foghorn') {
+      // Low-frequency Amazonian river vessel foghorn
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(118, t);
+      osc.frequency.linearRampToValueAtTime(110, t + 1.2);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 1.4);
+      osc.connect(gain);
+      gain.connect(this.effects);
+      osc.start(t);
+      osc.stop(t + 1.4);
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
+      return;
+    }
+
     if (name === 'crowd-gasp') {
       // Breathy crowd gasp / startled vocal formant
       const osc = ctx.createOscillator();

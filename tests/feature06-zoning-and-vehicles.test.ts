@@ -132,3 +132,4 @@ test('CT-06-03: VehicleController simulates drivable Car, Boat, Airplane, and Sp
     vehicle.dispose();
   }
 });
+

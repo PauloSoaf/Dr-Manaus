@@ -55,6 +55,7 @@ export class AnimationController {
   readonly rootOrientation = new Quaternion();
   readonly bodyOffset = new Vector3();
   private readonly qFlip = new Quaternion();
+  private readonly qSpine = new Quaternion();
   private readonly flipAxis = new Vector3(1, 0, 0);
   private readonly targetYaw = new Quaternion();
   private doubleJump: DoubleJumpState = { active: false, progress: 0, duration: 0.44, direction: 'front' };
@@ -217,6 +218,36 @@ export class AnimationController {
       : params.speed > 8 ? 'run' : params.speed > 0.4 ? 'walk' : 'idle';
     this.locomotionTime += dt;
     this.updateCombat(dt * (params.combatTimeFactor ?? 1));
+    this.updateSpineAimMasking(_bones, dt, params);
+  }
+
+  private updateSpineAimMasking(bones: readonly Bone[], dt: number, params: AnimationUpdateParams): void {
+    if (!bones.length || params.flying || !params.forward) return;
+
+    const targetYaw = Math.atan2(-params.forward.x, -params.forward.z);
+    const facingYaw = params.facingYaw ?? 0;
+    let yawDelta = targetYaw - facingYaw;
+    while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
+    while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
+
+    const targetPitch = Math.asin(Math.max(-0.9, Math.min(0.9, params.forward.y)));
+
+    const clampedYaw = Math.max(-Math.PI * 0.45, Math.min(Math.PI * 0.45, yawDelta));
+    const clampedPitch = Math.max(-Math.PI * 0.25, Math.min(Math.PI * 0.25, targetPitch));
+
+    const spineNames = ['spine_01', 'spine_02', 'spine_03', 'Head'];
+    const fractions = [0.20, 0.30, 0.30, 0.20];
+
+    for (let i = 0; i < bones.length; i++) {
+      const bone = bones[i];
+      const idx = spineNames.indexOf(bone.name);
+      if (idx >= 0) {
+        const frac = fractions[idx];
+        tmpEuler.set(clampedPitch * frac, clampedYaw * frac, 0, 'YXZ');
+        this.qSpine.setFromEuler(tmpEuler);
+        bone.quaternion.slerp(this.qSpine, 1.0 - Math.exp(-dt * 12.0));
+      }
+    }
   }
 
   private updateDoubleJump(dt: number): void {
