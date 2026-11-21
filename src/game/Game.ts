@@ -28,6 +28,7 @@ import { SpaceLayer } from '../rendering/SpaceLayer';
 import { SpeedVFX, type SpeedState } from '../rendering/SpeedVFX';
 import { WeatherSystem } from '../rendering/WeatherSystem';
 import { WaterSystem } from '../rendering/WaterSystem';
+import { FluvialVesselSystem } from '../world/traffic/FluvialVesselSystem';
 import { ManausAerialPresentation } from '../rendering/ManausAerialPresentation';
 import { EarthRiverLayer } from '../world/planet/EarthRiverLayer';
 import { MANAUS_ANCHOR_ECEF } from '../world/spatial/ManausFrameAdapter';
@@ -152,7 +153,7 @@ export class Game {
   readonly worldRoot = this.localWorldRoot;
   readonly planetRoot = this.planetaryRoot;
   private readonly renderOriginVec = new Vector3(); readonly player: PlayerController; readonly input: InputController; readonly camera: CameraController;
-  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;
+  readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
   readonly forest:ForestBackdrop;readonly terrain:TerrainDestruction;readonly airport=new AuthoredDestruction();
   /**
@@ -450,7 +451,7 @@ export class Game {
     this.actorRoot.add(this.activePlanetaryLifeRoot);
     this.atmosphere=new Atmosphere(this.rendering.scene);
     // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
-    this.space=new SpaceLayer(this.celestialRoot,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);
+    this.space=new SpaceLayer(this.celestialRoot,this.rendering.camera);this.speedVfx=new SpeedVFX(this.rendering.scene);this.water=new WaterSystem(this.worldRoot);this.weather=new WeatherSystem(this.worldRoot);this.vessels=new FluvialVesselSystem(this.worldRoot);
     this.celestialRoot.add(this.celestialVisuals.root);
     this.universe=new UniverseRuntime({streaming:FEATURES.planetStreaming||FEATURES.earthGlobe,volume:IMPACT_VOLUME_LIMITS});
     if(FEATURES.earthGlobe){
@@ -1033,6 +1034,7 @@ export class Game {
         : this.player.position;
       this.destruction.update(dt,this.player.position,this.player.velocity,this.player.state==='Grounded');this.lap('destruction');
       this.traffic?.update(worldDt,updatedLegacyPos);this.lap('traffic');
+      this.vessels.update(worldDt, performance.now() * 0.001, updatedLegacyPos.x, updatedLegacyPos.z);
     }
     // Actors are suppressed as the world starts to blur past: simulating NPCs kilometres behind
     // the player costs the same as simulating them in front, and none of it can be seen.
@@ -1447,6 +1449,7 @@ export class Game {
     if(!this.manausSimulationActive){
       this.population.npcCount=0;
       this.traffic?.setCount(0);
+      this.vessels.setFleetSize(0);
       return;
     }
     const speed=this.player.velocity.length();
@@ -1454,6 +1457,7 @@ export class Game {
     const fade=speed<=WORLD.actorSpeedLimit?1:Math.max(0,1-(speed-WORLD.actorSpeedLimit)/(WORLD.actorCutoffSpeed-WORLD.actorSpeedLimit));
     this.population.npcCount=Math.round(config.npcs*fade);
     this.traffic?.setCount(Math.round(config.vehicles*2*fade));
+    this.vessels.setFleetSize(Math.round(28 * fade));
   }
   private currentGameplaySpeedMps():number{
     if(this.travelDomain.state){

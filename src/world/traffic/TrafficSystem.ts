@@ -7,6 +7,7 @@ import { roadHeightOf } from '../realcity/roads';
 import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
 import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
 import { IMPACT } from '../../player/combat/MeteorImpact';
+import { FastSpatialGrid2D } from '../spatial/FastSpatialGrid2D';
 
 /** The pool is sized once; `setCount` only changes how much of it drives. */
 const CAPACITY = 256;
@@ -68,6 +69,7 @@ export class TrafficSystem {
   private lastX = Infinity;
   private lastZ = Infinity;
   private debugColours = false;
+  private readonly spatialGrid = new FastSpatialGrid2D(12000, 32, CAPACITY);
 
   constructor(root: Group, private readonly graph: RoadGraph, private readonly onHorn?: () => void) {
     this.bodies = new InstancedMesh(
@@ -140,6 +142,16 @@ export class TrafficSystem {
     // A tab restored after a stall must not teleport the whole city's traffic across the map.
     const step = Math.min(dt, .1);
     const blend = 1 - Math.exp(-step * 11);
+
+    // Fast Spatial Grid 2D pre-pass: register current vehicle positions for O(1) neighbor lookups
+    this.spatialGrid.clear();
+    for (let i = 0; i < CAPACITY; i++) {
+      const v = this.pool[i];
+      if (v.shown && !v.wreck && v.nav.active) {
+        this.spatialGrid.insert(i, v.x, v.z);
+      }
+    }
+
     let active = 0, spawns = 0;
     for (let i = 0; i < CAPACITY; i++) {
       const vehicle = this.pool[i];
@@ -184,6 +196,47 @@ export class TrafficSystem {
       } else if (vehicle.braking) {
         vehicle.braking = false;
         if (nav.segment) nav.targetSpeed = nav.segment.speed * 0.85;
+      }
+
+      // Craig Reynolds Separation & Boids Queueing: check other vehicles ahead in the lane corridor
+      if (!vehicle.wreck) {
+        const fwdX = Math.sin(vehicle.yaw);
+        const fwdZ = Math.cos(vehicle.yaw);
+        let leaderDist = Infinity;
+        let leaderBraking = false;
+        let leaderWreck = false;
+
+        this.spatialGrid.forEachNeighbor(vehicle.x, vehicle.z, 26.0, (otherIdx, ox, oz) => {
+          if (otherIdx === i) return;
+          const other = this.pool[otherIdx];
+          const relX = ox - vehicle.x;
+          const relZ = oz - vehicle.z;
+          const ahead = relX * fwdX + relZ * fwdZ;
+          const lateral = Math.abs(-relX * fwdZ + relZ * fwdX);
+
+          // In same forward travel corridor
+          if (ahead > 0.8 && ahead < 22.0 && lateral < 2.8) {
+            if (ahead < leaderDist) {
+              leaderDist = ahead;
+              leaderBraking = other.braking;
+              leaderWreck = other.wreck;
+            }
+          }
+        });
+
+        if (leaderDist < 22.0) {
+          const safeGap = Math.max(7.0, nav.speed * 0.8);
+          if (leaderDist < safeGap || leaderWreck) {
+            const brakeFactor = leaderWreck ? 28.0 : 16.0;
+            nav.speed = Math.max(0, nav.speed - step * brakeFactor);
+            nav.targetSpeed = 0;
+            vehicle.braking = true;
+            vehicle.pitch = Math.max(-0.04, vehicle.pitch - step * 0.2);
+          } else if (leaderDist < safeGap * 1.4 && leaderBraking) {
+            nav.speed = Math.max(0, nav.speed - step * 9.0);
+            vehicle.braking = true;
+          }
+        }
       }
       if (!vehicle.wreck && !vehicle.braking) {
         vehicle.pitch *= Math.exp(-step * 5);

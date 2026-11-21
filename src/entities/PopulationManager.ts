@@ -5,6 +5,7 @@ import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { IMPACT, type ImpactFootprint } from '../player/combat/MeteorImpact';
 import { localManausPresentationMode } from '../world/spatial/ManausSurfacePresentation';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
+import { FastSpatialGrid2D } from '../world/spatial/FastSpatialGrid2D';
 
 interface Body extends Target { base: Vector3; velocity: Vector3; index: number; angle: number; chunk: string }
 export interface NpcBody { id: string; index: number; base: Vector3; position: Vector3; velocity: Vector3; active: boolean; state: 'walking'|'fleeing'|'knocked'|'disabled'; timer: number }
@@ -21,6 +22,7 @@ export class PopulationManager {
   private dummy=new Object3D(); private color=new Color(); private cell=''; private elapsed=0;
   private gaspCooldown = 0;
   private readonly surfaceService = new SurfaceFrameService('earth');
+  private readonly spatialGrid = new FastSpatialGrid2D(4000, 16, NPC_CAPACITY);
   constructor(root:Group, private readonly onGasp?: () => void){
     this.props=new InstancedMesh(new BoxGeometry(1,1,1),new MeshStandardMaterial({color:'#ba8a56',roughness:.8}),48);
     this.people=new InstancedMesh(new CapsuleGeometry(.28,.9,3,6),new MeshStandardMaterial({roughness:.9}),NPC_CAPACITY);
@@ -100,6 +102,14 @@ export class PopulationManager {
     const playerSpeed = playerVelocity ? playerVelocity.length() : 0;
     const isSupersonicFlyby = playerSpeed > 28;
 
+    // Fast Spatial Grid pre-pass for pedestrian crowd separation
+    this.spatialGrid.clear();
+    for (const npc of this.npcs) {
+      if (npc.active) {
+        this.spatialGrid.insert(npc.index, npc.position.x, npc.position.z);
+      }
+    }
+
     for(const body of this.targets){
       const enabled=body.active&&Math.abs(player.y-body.position.y)<250;
       if(enabled){
@@ -125,6 +135,17 @@ export class PopulationManager {
         if(npc.state==='walking')npc.position.z=npc.base.z+Math.sin(this.elapsed*.07+npc.index)*38;
         this.advance(npc,dt,knocked?.35:1);npc.timer=Math.max(0,npc.timer-dt);
         if(npc.state==='fleeing'&&npc.timer===0){npc.state='walking';npc.base.copy(npc.position);npc.base.z-=Math.sin(this.elapsed*.07+npc.index)*38;}
+
+        // Reynolds Crowd Separation: prevent pedestrian overlap
+        if (!knocked && npc.active) {
+          this.spatialGrid.forEachNeighbor(npc.position.x, npc.position.z, 2.2, (otherIdx, ox, oz, distSq) => {
+            if (otherIdx === npc.index || distSq < 0.001) return;
+            const d = Math.sqrt(distSq);
+            const push = Math.min(1.5, (2.2 - d) * 1.8);
+            npc.position.x += ((npc.position.x - ox) / d) * push * dt;
+            npc.position.z += ((npc.position.z - oz) / d) * push * dt;
+          });
+        }
       }
       const enabled=(npc.active||knocked)&&npc.index<this.npcCount&&Math.abs(player.y-npc.position.y)<250;
       const renderPos = curved ? this.surfaceService.legacyPointToRenderLocal(npc.position.x, npc.position.y, npc.position.z) : npc.position;
