@@ -439,6 +439,10 @@ export class RealCityLayer {
     this.materials?.setNight(night);
   }
 
+  setWetness(factor: number): void {
+    this.materials?.setWetness(factor);
+  }
+
   /** Quality presets trade near-tier detail for frame time without changing the streamed set. */
   setDetail(enabled: boolean): void {
     if (enabled === this.detailEnabled) return;

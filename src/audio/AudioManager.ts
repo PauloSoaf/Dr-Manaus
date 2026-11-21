@@ -417,6 +417,37 @@ export class AudioManager {
       return;
     }
 
+    if (name === 'thunder') {
+      // Atmospheric equatorial thunder: dual-stage low-frequency reverberant rumble
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc1.type = 'sawtooth';
+      osc2.type = 'sine';
+      osc1.frequency.setValueAtTime(95, t);
+      osc1.frequency.exponentialRampToValueAtTime(28, t + 2.8);
+      osc2.frequency.setValueAtTime(54, t);
+      osc2.frequency.exponentialRampToValueAtTime(18, t + 3.2);
+
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.65, t + 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 3.4);
+
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(this.effects);
+      osc1.start(t);
+      osc2.start(t);
+      osc1.stop(t + 3.4);
+      osc2.stop(t + 3.4);
+      osc1.onended = () => {
+        osc1.disconnect();
+        osc2.disconnect();
+        gain.disconnect();
+      };
+      return;
+    }
+
     if (name === 'car-horn') {
       // Dual-tone automotive horn: 420 Hz + 525 Hz (major third chord)
       const osc1 = ctx.createOscillator();

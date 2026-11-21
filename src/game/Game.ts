@@ -1113,8 +1113,20 @@ export class Game {
         this.audio?.play('energy');
       },
     );
-    const flash = manaus ? this.weather.update(worldDt, this.player.position, this.atmosphere.weather) : 0;
+    const flash = manaus ? this.weather.update(
+      worldDt,
+      this.player.position,
+      this.atmosphere.weather,
+      14.0,
+      (_intensity) => {
+        this.camera.shake(0.35);
+        this.audio?.play('thunder');
+      }
+    ) : 0;
     if (flash) this.atmosphere.sun.intensity += flash;
+    if (manaus) {
+      this.realCity.setWetness(this.weather.wetnessFactor);
+    }
 
     if (this.district === 'FOTOSFERA' || this.physicsDomain === 'sun') {
       this.atmosphere.sky.visible = false;
