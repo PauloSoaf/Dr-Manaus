@@ -76,6 +76,8 @@ export class SpaceLayer {
   private uHalo = uniform(.52);
   private uSunTint = uniform(new Color(SUN_AIR));
   private uHaloTint = uniform(new Color(HALO_AIR));
+  private uWarpAberration = uniform(0);
+  private uWarpHeading = uniform(new Vector3(0, 0, -1));
   private factor = 0;
   private height = 0;
   private nightBlend = 0;
@@ -185,6 +187,13 @@ export class SpaceLayer {
     return this.stars.visible;
   }
 
+  public setWarpAberration(beta: number, heading?: Vector3): void {
+    this.uWarpAberration.value = Math.max(0, Math.min(0.99, beta));
+    if (heading) {
+      this.uWarpHeading.value.copy(heading).normalize();
+    }
+  }
+
   dispose() {
     this.scene.remove(this.rig);
     this.stars.geometry.dispose(); this.shell.geometry.dispose(); this.disc.geometry.dispose();
@@ -254,7 +263,9 @@ export class SpaceLayer {
     const stellarGlare = float(1).sub(smoothstep(this.uStellarGlareOuterCos, this.uStellarGlareInnerCos,
       direction.dot(this.uStellarDirection)).mul(this.uStellarGlareStrength));
     const glare = atmosphericGlare.mul(stellarGlare);
-    this.starMaterial.colorNode = tint.mul(glint.x).mul(float(1).add(twinkle)).mul(lift).mul(glare);
+    const forwardAlign = direction.dot(this.uWarpHeading);
+    const dopplerShift = mix(float(1.0), forwardAlign.add(1.0).mul(0.5).add(0.25), this.uWarpAberration);
+    this.starMaterial.colorNode = tint.mul(glint.x).mul(float(1).add(twinkle)).mul(lift).mul(glare).mul(dopplerShift);
     this.starMaterial.opacityNode = shape.mul(glint.x).mul(this.uVisible).mul(lift).mul(glare).saturate();
   }
   private writeShellShader() {

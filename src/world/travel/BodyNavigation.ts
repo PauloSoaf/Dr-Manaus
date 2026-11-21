@@ -1,3 +1,4 @@
+import { MathUtils, Vector3 } from 'three/webgpu';
 import type { CelestialSystemRuntime } from '../celestial/CelestialSystemRuntime';
 import { bodyArrivalPolicy, bodyProfile } from '../celestial/CelestialBodyProfile';
 import type { NavigationTarget, ResolvedTarget } from './CosmicFlight';
@@ -84,4 +85,95 @@ export function bodyExclusionEnvelopes(
     }
   }
   return envelopes;
+}
+
+export interface RelativisticFlightTelemetry {
+  readonly currentSpeedMps: number;
+  readonly warpRatio: number; // 0 to 1
+  readonly effectiveC: number;
+  readonly fovDeg: number;
+  readonly aberrationBeta: number; // 0 to 0.999
+  readonly inGravityWell: boolean;
+  readonly speedCapMps: number;
+}
+
+export class RelativisticWarpController {
+  public static readonly LIGHT_SPEED_MPS = 299_792_458;
+  public static readonly MAX_SUBLIGHT_SPEED_MPS = 10_000; // 10 km/s safe orbital insertion
+  public static readonly MAX_WARP_SPEED_MPS = 299_792_458 * 10; // 10c superluminal cruise
+  public static readonly GRAVITY_WELL_RADIUS_M = 500_000; // 500 km proximity threshold
+  public static readonly BASE_FOV_DEG = 60.0;
+  public static readonly MAX_FOV_DEG = 95.0;
+
+  private currentSpeedMps = 0;
+  private targetSpeedMps = 0;
+  private readonly _perp = new Vector3();
+
+  public updateFlightVelocity(
+    dt: number,
+    throttleInput: number,
+    distanceToNearestMassM: number,
+    forwardDirection: Vector3,
+    outVelocity: Vector3
+  ): RelativisticFlightTelemetry {
+    const inGravityWell = distanceToNearestMassM < RelativisticWarpController.GRAVITY_WELL_RADIUS_M;
+    const speedCap = inGravityWell
+      ? RelativisticWarpController.MAX_SUBLIGHT_SPEED_MPS
+      : RelativisticWarpController.MAX_WARP_SPEED_MPS;
+
+    const clampedThrottle = Math.max(0, Math.min(1, throttleInput));
+    this.targetSpeedMps = clampedThrottle * speedCap;
+
+    // Smooth exponential acceleration / deceleration ramp
+    const lerpFactor = 1.0 - Math.exp(-2.0 * dt);
+    this.currentSpeedMps = MathUtils.lerp(this.currentSpeedMps, this.targetSpeedMps, lerpFactor);
+
+    outVelocity.copy(forwardDirection).multiplyScalar(this.currentSpeedMps);
+
+    const warpRatio = Math.min(1.0, this.currentSpeedMps / RelativisticWarpController.MAX_WARP_SPEED_MPS);
+    const fovDeg = RelativisticWarpController.BASE_FOV_DEG + warpRatio * (RelativisticWarpController.MAX_FOV_DEG - RelativisticWarpController.BASE_FOV_DEG);
+    const effectiveC = this.currentSpeedMps / RelativisticWarpController.LIGHT_SPEED_MPS;
+    const aberrationBeta = Math.min(0.999, this.currentSpeedMps / (RelativisticWarpController.LIGHT_SPEED_MPS * 1.05));
+
+    return {
+      currentSpeedMps: this.currentSpeedMps,
+      warpRatio,
+      effectiveC,
+      fovDeg,
+      aberrationBeta,
+      inGravityWell,
+      speedCapMps: speedCap
+    };
+  }
+
+  public getRelativisticFoV(baseFoV = RelativisticWarpController.BASE_FOV_DEG): number {
+    const warpRatio = Math.min(1.0, this.currentSpeedMps / RelativisticWarpController.MAX_WARP_SPEED_MPS);
+    return baseFoV + warpRatio * (RelativisticWarpController.MAX_FOV_DEG - RelativisticWarpController.BASE_FOV_DEG);
+  }
+
+  public computeAberrationDirection(
+    photonDirection: Vector3,
+    headingDirection: Vector3,
+    beta: number,
+    out: Vector3
+  ): Vector3 {
+    // Einstein/Lorentz aberration of light: cos(theta') = (cos(theta) + beta) / (1 + beta * cos(theta))
+    const cosTheta = Math.max(-1, Math.min(1, photonDirection.dot(headingDirection)));
+    const denom = 1 + beta * cosTheta;
+    if (Math.abs(denom) < 1e-6) return out.copy(headingDirection);
+
+    const cosThetaPrime = Math.max(-1, Math.min(1, (cosTheta + beta) / denom));
+    const sinThetaPrime = Math.sqrt(Math.max(0, 1 - cosThetaPrime * cosThetaPrime));
+
+    // Orthogonal component
+    this._perp.copy(photonDirection).addScaledVector(headingDirection, -cosTheta);
+    const perpLen = this._perp.length();
+    if (perpLen > 1e-6) {
+      this._perp.divideScalar(perpLen);
+    } else {
+      this._perp.set(0, 1, 0).cross(headingDirection).normalize();
+    }
+
+    return out.copy(headingDirection).multiplyScalar(cosThetaPrime).addScaledVector(this._perp, sinThetaPrime).normalize();
+  }
 }

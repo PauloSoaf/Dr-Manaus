@@ -144,3 +144,4 @@ test('CT-12-04: Radial spherical gravity vector points toward planet center with
 
   planet.dispose();
 });
+
