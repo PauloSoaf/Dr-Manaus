@@ -1279,6 +1279,11 @@ export class Game {
     const blackHoleProx = isBlackHoleNearby ? Math.min(1, Math.max(0, 1 - (altitudeNow / 1e11))) : 0;
 
     const isUnderwaterNow = manaus && this.water && this.player.position.y < (this.water.surfaceY + 0.1) && !isLand(this.player.position.x, this.player.position.z);
+    const riverName = (this.player.position.z > 2000 || this.player.position.x > 3000) ? 'solimoes' : 'negro';
+    const teatro = LANDMARKS.find(l => l.id === 'teatro');
+    const isTheaterIndoor = Boolean(manaus && teatro && Math.hypot(this.player.position.x - teatro.x, this.player.position.z - teatro.z) < 48 && this.player.position.y < 35);
+    const titanDist = this.planetTitans?.titans?.[0] ? this.planetTitans.root.position.length() : 999_999_999;
+    const titanProximity = this.travelDomain.localPhysicsActive ? 0 : Math.min(1, Math.max(0, 1 - (titanDist / 2_500_000)));
 
     this.audio?.update({
       medium: audioMedium,
@@ -1288,6 +1293,9 @@ export class Game {
       rain: manaus && ['rain', 'storm'].includes(this.atmosphere.weather),
       river: manaus && !isLand(this.player.position.x, this.player.position.z),
       underwater: Boolean(isUnderwaterNow),
+      riverName,
+      theaterIndoor: isTheaterIndoor,
+      titanProximity,
       hazardIntensity: hazardState.intensity,
       hypersonicActive: speedNow > 340 && currentDensity > 0.01,
       warpActive: warpEngaged,

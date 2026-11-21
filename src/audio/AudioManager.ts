@@ -1,3 +1,10 @@
+import {
+  HypersonicAudioSystem,
+  getMasterCutoffFrequency,
+  generateTeatroAmazonasImpulseResponse,
+  computeTitanInfrasound,
+} from './HypersonicAudioSystem';
+
 export type AtmosphericMedium =
   | 'earth-atmosphere'
   | 'alien-dense'
@@ -15,6 +22,9 @@ export interface AudioEnvironment {
   rain: boolean;
   river: boolean;
   underwater?: boolean;
+  riverName?: 'negro' | 'solimoes';
+  theaterIndoor?: boolean;
+  titanProximity?: number;
   hazardIntensity?: number;
   hypersonicActive?: boolean;
   warpActive?: boolean;
@@ -71,9 +81,9 @@ export function environmentalAudioMix(environment: AudioEnvironment) {
   let ambienceGain = (environment.rain ? 0.55 : baseGain) * density + (environment.rain ? 0 : windGain);
   let frequency = environment.rain ? 2400 : environment.altitudeM > 70 ? baseCutoff + Math.min(speed * 4, 1500) : environment.river ? 550 : baseCutoff;
 
-  // RF-01-05: Underwater acoustic muffling (Low-pass filter clamped at 320 Hz)
+  // RF-01-05 & RF-12-03: Underwater acoustic muffling (Low-pass filter clamped at 350 Hz in Rio Negro and Solimões)
   if (environment.underwater) {
-    frequency = 320;
+    frequency = getMasterCutoffFrequency(true, environment.riverName);
     ambienceGain = 0.28;
   }
 
@@ -131,6 +141,12 @@ export class AudioManager {
   private blackHoleOsc?: OscillatorNode;
   private hypersonicBus?: GainNode;
   private hypersonicFilter?: BiquadFilterNode;
+  private masterFilter?: BiquadFilterNode;
+  private reverbNode?: ConvolverNode;
+  private reverbGain?: GainNode;
+  private titanSubBassOsc?: OscillatorNode;
+  private titanSubBassGain?: GainNode;
+  private hypersonicSystem?: HypersonicAudioSystem;
 
   /** Mixer buses, 0..1, set from the pause menu. `enabled` mutes the master independently. */
   private volumes = { master: 0.7, ambience: 0.6, effects: 0.8 };
@@ -145,7 +161,51 @@ export class AudioManager {
     const ctx = (this.context = new AudioContext());
     this.master = ctx.createGain();
     this.master.gain.value = this.masterGain();
-    this.master.connect(ctx.destination);
+
+    // RF-12-03: Master low-pass filter (22kHz transparent by default, 350Hz when submerged in rivers)
+    this.masterFilter = ctx.createBiquadFilter();
+    this.masterFilter.type = 'lowpass';
+    this.masterFilter.frequency.value = 22000;
+    this.master.connect(this.masterFilter);
+    this.masterFilter.connect(ctx.destination);
+
+    // RF-12-04: Teatro Amazonas Convolution Reverb
+    try {
+      this.reverbNode = ctx.createConvolver();
+      const ir = generateTeatroAmazonasImpulseResponse(ctx.sampleRate, 2.4, 2.8);
+      const irBuffer = ctx.createBuffer(2, ir.length, ctx.sampleRate);
+      irBuffer.getChannelData(0).set(ir);
+      irBuffer.getChannelData(1).set(ir);
+      this.reverbNode.buffer = irBuffer;
+
+      this.reverbGain = ctx.createGain();
+      this.reverbGain.gain.value = 0.0;
+      this.reverbNode.connect(this.reverbGain);
+      this.reverbGain.connect(this.master);
+    } catch {
+      // Reverb fallback
+    }
+
+    // Astral Leviathan Sub-Bass Infrasound Resonator (18-24 Hz)
+    try {
+      this.titanSubBassOsc = ctx.createOscillator();
+      this.titanSubBassOsc.type = 'sine';
+      this.titanSubBassOsc.frequency.value = 20;
+      this.titanSubBassGain = ctx.createGain();
+      this.titanSubBassGain.gain.value = 0.0;
+      this.titanSubBassOsc.connect(this.titanSubBassGain);
+      this.titanSubBassGain.connect(this.master);
+      this.titanSubBassOsc.start();
+    } catch {
+      // Infrasound fallback
+    }
+
+    // Hypersonic Procedural Audio System
+    try {
+      this.hypersonicSystem = new HypersonicAudioSystem(ctx, this.master);
+    } catch {
+      // Hypersonic system fallback
+    }
 
     // Continuous brown noise buffer for atmospheric wind
     const buffer = ctx.createBuffer(1, ctx.sampleRate * 3, ctx.sampleRate);
@@ -169,6 +229,9 @@ export class AudioManager {
     this.effects = ctx.createGain();
     this.effects.gain.value = this.volumes.effects;
     this.effects.connect(this.master);
+    if (this.reverbNode) {
+      try { this.effects.connect(this.reverbNode); } catch { /* Ignore node routing errors */ }
+    }
 
     source.connect(this.filter);
     this.filter.connect(this.ambience);
@@ -294,6 +357,34 @@ export class AudioManager {
       this.blackHoleOsc.frequency.setTargetAtTime(bh.frequency, t, 0.3);
       this.blackHoleBus.gain.setTargetAtTime(bhGain, t, 0.25);
     }
+
+    // RF-12-03: Master low-pass filter: 350 Hz cutoff when submerged in Rio Negro / Solimões
+    if (this.masterFilter) {
+      const cutoff = getMasterCutoffFrequency(Boolean(environment.underwater), environment.riverName);
+      this.masterFilter.frequency.setTargetAtTime(cutoff, t, 0.08);
+    }
+
+    // RF-12-04: Teatro Amazonas Convolution Reverb wet mix
+    if (this.reverbGain) {
+      const wet = environment.theaterIndoor ? 0.65 * this.volumes.effects : 0.0;
+      this.reverbGain.gain.setTargetAtTime(wet, t, 0.15);
+    }
+
+    // Astral Leviathan Sub-Bass Infrasonic Resonator (18-24 Hz)
+    if (this.titanSubBassGain && this.titanSubBassOsc) {
+      const infra = computeTitanInfrasound(environment.titanProximity ?? 0);
+      const infraGain = infra.active ? infra.gain * this.volumes.effects : 0;
+      this.titanSubBassOsc.frequency.setTargetAtTime(infra.frequency, t, 0.25);
+      this.titanSubBassGain.gain.setTargetAtTime(infraGain, t, 0.2);
+    }
+
+    // Hypersonic flight synthesis and sonic boom detection
+    this.hypersonicSystem?.update(
+      environment.speedMps,
+      environment.atmosphericDensity01,
+      0.016,
+      () => this.play('hypersonic-boom'),
+    );
   }
 
   play(name: string) {
