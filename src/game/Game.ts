@@ -17,7 +17,7 @@ import { knownGalaxyRuntime } from '../world/galaxy/GalaxyRuntime';
 import { Group as SystemResourceGroup } from 'three/webgpu';
 import { universalTargetDiagnostics } from '../ui/UniversalTargetDiagnostics';
 import { ForestBackdrop } from '../world/ForestBackdrop';
-import { CameraHelper, Group, Mesh, Vector3 } from 'three/webgpu';
+import { CameraHelper, Euler, Group, Mesh, Vector3 } from 'three/webgpu';
 import { WORLD, QUALITY, FEATURES } from '../core/config';
 import type { Collider, Target } from '../core/types';
 import { SaveManager, type Settings } from '../core/SaveManager';
@@ -160,6 +160,8 @@ export class Game {
   readonly streamer:WorldStreamer;readonly hlod:HLODManager;readonly realCity:RealCityLayer;readonly landmarks:LandmarkManager;readonly geoDebug:GeoDebug;readonly largo:LargoDistrict;readonly atmosphere:Atmosphere;readonly space:SpaceLayer;readonly speedVfx:SpeedVFX;readonly weather:WeatherSystem;readonly water:WaterSystem;readonly vessels:FluvialVesselSystem;readonly vehicle:VehicleController;readonly portals:PortalSystem;readonly cosmicNebulae:CosmicNebulaeSystem;readonly hlodSystem:HLODSystem;
   private readonly playerPrevPosition = new Vector3();
   private readonly vehiclePrevPosition = new Vector3();
+  private hijackedTraffic = false;
+  private readonly activeThrownObjects: Array<{ pos: Vector3; vel: Vector3; slot?: number; life: number }> = [];
   readonly population:PopulationManager;readonly missions:MissionManager;readonly powers:PowerSystem;readonly destruction:DestructionSystem;traffic?:TrafficSystem;readonly audio=new AudioManager();readonly hud:HUD;readonly quality:QualityManager;
   readonly forest:ForestBackdrop;readonly terrain:TerrainDestruction;readonly airport=new AuthoredDestruction();
   /**
@@ -461,14 +463,73 @@ export class Game {
     this.vehicle=new VehicleController();
     this.worldRoot.add(this.vehicle.group);
     this.vehicle.spawnAt(new Vector3(WORLD.spawn.x + 5, WORLD.spawn.y + 0.5, WORLD.spawn.z - 8), 0, 'car');
-    this.vehicle.onFireWeapon = (origin) => {
+    this.vehicle.onFireWeapon = (origin, direction) => {
       this.audio?.play('laser');
-      this.camera.shake(0.12);
-      this.destruction.damageAt(origin, 4.0, 150);
+      this.camera.shake(0.14);
+
+      // Real ballistic raycast targeting against colliders, buildings, and terrain
+      const maxDistance = 350.0;
+      const hit = PhysicsWorld.raycast(origin, direction, this.colliders, maxDistance);
+      const impactPoint = new Vector3();
+
+      if (hit && hit.point) {
+        impactPoint.copy(hit.point);
+      } else {
+        // Raymarch against terrain elevation
+        const steps = 35;
+        const stepDist = maxDistance / steps;
+        let foundTerrain = false;
+        const checkPos = origin.clone();
+        for (let i = 0; i < steps; i++) {
+          checkPos.addScaledVector(direction, stepDist);
+          const th = PhysicsWorld.terrainHeight(checkPos.x, checkPos.z);
+          if (checkPos.y <= th) {
+            checkPos.y = th;
+            impactPoint.copy(checkPos);
+            foundTerrain = true;
+            break;
+          }
+        }
+        if (!foundTerrain) {
+          impactPoint.copy(origin).addScaledVector(direction, maxDistance);
+        }
+      }
+
+      // Apply explosive impact damage at actual target hit point
+      this.destruction.damageAt(impactPoint, 6.0, 250);
+      this.powers?.effects.burst(impactPoint, 0x00f0ff, 1.4, 32);
+      this.powers?.effects.wave(impactPoint, 8.0);
     };
     this.vehicle.onCrash = (speed) => {
       this.audio?.play('crash');
       this.camera.shake(Math.min(0.85, speed * 0.022));
+    };
+    this.vehicle.onTractorCapture = (searchPos) => {
+      const nearTraffic = this.traffic?.findNearestCar(searchPos, 24.0);
+      if (nearTraffic) {
+        const taken = this.traffic?.takeOverCar(nearTraffic.slot);
+        if (taken) {
+          this.audio?.play('warp-engage');
+          return {
+            slot: nearTraffic.slot,
+            type: 'traffic',
+            position: new Vector3(taken.x, taken.y, taken.z),
+            velocity: new Vector3(),
+            rotation: new Euler(0, taken.yaw, 0),
+            mass: 1400,
+          };
+        }
+      }
+      return null;
+    };
+    this.vehicle.onTractorRelease = (target, releaseVel) => {
+      this.audio?.play('shockwave');
+      this.activeThrownObjects.push({
+        pos: target.position.clone(),
+        vel: releaseVel.clone(),
+        slot: target.slot,
+        life: 5.0,
+      });
     };
     this.portals = new PortalSystem(this.worldRoot);
     this.portals.registerPortal({
@@ -761,6 +822,7 @@ export class Game {
       },
       getTargetBodyId: () => this.navigationLock?.bodyId ?? this.universe.telemetry.dominantBody ?? null,
       getActiveBodyId: () => this.universe.telemetry.dominantBody ?? null,
+      isVehicleOccupied: () => !!this.vehicle?.isOccupied,
     });
     this.quality=new QualityManager(this.rendering,level=>this.applyDensity(level));
     this.hud=new HUD(this.save,{power:name=>{void this.audio.unlock();this.powers.use(name);},travel:(id,debug)=>{void this.travel(id,debug);},setTarget:(id,source)=>this.selectNavigationTarget(id,source),settings:settings=>this.applySettings(settings),pause:open=>{this.input.enabled=!open;if(open&&document.pointerLockElement)void document.exitPointerLock();},debug:(option,value)=>this.setDebug(option,value),reset:()=>{this.save.reset();location.reload();},stress:()=>this.startStress(),atlas:this.cosmicAtlas});
@@ -775,7 +837,7 @@ export class Game {
     this.rendering.renderer.domElement.addEventListener('pointerdown',()=>{void this.audio.unlock();});
     window.addEventListener('keydown',()=>{void this.audio.unlock();},{once:true});
     window.addEventListener('drmanaus-shake',event=>this.camera.shake((event as CustomEvent<number>).detail));
-    window.addEventListener('keydown',event=>{if(event.code==='F3'){event.preventDefault();this.hud.toggleDebug();}if(event.code==='KeyM'){event.preventDefault();this.hud.togglePanel('map');}if(event.code==='KeyH'){event.preventDefault();this.hud.openPause('controls');}if(event.code==='Escape'){event.preventDefault();this.hud.togglePause();}});
+    window.addEventListener('keydown',event=>{if(event.code==='F3'){event.preventDefault();this.hud.toggleDebug();}if(event.code==='KeyM'){event.preventDefault();this.hud.togglePanel('map');}if(event.code==='KeyH'&&!this.vehicle?.isOccupied){event.preventDefault();this.hud.openPause('controls');}if(event.code==='Escape'){event.preventDefault();this.hud.togglePause();}});
   }
   async initialize(){
     this.cosmicAtlas.recordArrival(this.universe.location);
@@ -1119,8 +1181,32 @@ export class Game {
         this.player.position.copy(this.vehicle.position);
         this.player.velocity.copy(this.vehicle.velocity);
         if (this.vehicle.activeType === 'saucer' && this.vehicle.isTractorActive) {
-          this.traffic?.pullTowards(this.vehicle.position, 35.0, 15.0 * worldDt);
           this.camera.shake(0.04);
+        }
+      }
+      // Ballistic simulation of tractor beam thrown physical objects
+      for (let i = this.activeThrownObjects.length - 1; i >= 0; i--) {
+        const obj = this.activeThrownObjects[i];
+        obj.life -= worldDt;
+        obj.vel.y -= 9.81 * worldDt;
+        obj.pos.addScaledVector(obj.vel, worldDt);
+
+        const groundY = PhysicsWorld.terrainHeight(obj.pos.x, obj.pos.z);
+        const hit = PhysicsWorld.raycast(obj.pos, obj.vel.clone().normalize(), this.colliders, obj.vel.length() * worldDt + 0.5);
+
+        if (hit || obj.pos.y <= groundY + 0.6 || obj.life <= 0) {
+          const impactPoint = hit?.point ?? obj.pos;
+          const impactSpeed = obj.vel.length();
+          if (impactSpeed > 10.0) {
+            this.audio?.play('crash');
+            this.camera.shake(Math.min(0.75, impactSpeed * 0.022));
+            this.destruction.damageAt(impactPoint, 6.0, 300);
+            this.powers?.effects.burst(impactPoint, 0xffa500, 1.8, 48);
+            this.powers?.effects.wave(impactPoint, 10.0);
+          } else if (obj.slot !== undefined) {
+            this.traffic?.returnCar(impactPoint, 0);
+          }
+          this.activeThrownObjects.splice(i, 1);
         }
       }
     }
@@ -1998,7 +2084,13 @@ export class Game {
     // Requires flight state, safe altitude above atmosphere (>= 9000m), and active climb/departure intent (Space or Space+Shift)
     const intuitiveDeparture = isFlying && altitude >= 9000 && (spaceHeld || (shiftHeld && this.player.velocity.y > 0));
 
-    const requested = legacyDeparture || intuitiveDeparture;
+    // Space vehicle departure: climbing rocket, spaceship, or saucer above atmosphere
+    const isVehicleClimbing = !!this.vehicle?.isOccupied
+      && (this.vehicle.activeType === 'spaceship' || this.vehicle.activeType === 'rocket' || this.vehicle.activeType === 'saucer')
+      && altitude >= 9000
+      && (this.vehicle.velocity.y > 0 || this.vehicle.throttle > 0);
+
+    const requested = legacyDeparture || intuitiveDeparture || isVehicleClimbing;
     const motion=this.landingMotion(t.dominantBody);
 
     /**
@@ -2022,6 +2114,10 @@ export class Game {
         this.player.model.visible = true;
         this.player.position.copy(this.vehicle.position).addScaledVector(this.vehicle.right, 2.8);
         this.player.position.y = PhysicsWorld.terrainHeight(this.player.position.x, this.player.position.z) + 1.0;
+        if (this.hijackedTraffic && this.vehicle.activeType === 'car') {
+          this.traffic?.returnCar(this.vehicle.position, this.vehicle.yaw);
+          this.hijackedTraffic = false;
+        }
         this.hud.notify(`Saiu do veículo (${this.vehicle.activeType.toUpperCase()})`);
       } else {
         const dist = this.player.position.distanceTo(this.vehicle.position);
@@ -2029,17 +2125,24 @@ export class Game {
         const nearBoat = this.vessels?.findNearestBoat(this.player.position, 18.0);
 
         if (nearTraffic) {
-          this.vehicle.spawnAt(new Vector3(nearTraffic.x, nearTraffic.y, nearTraffic.z), nearTraffic.yaw, 'car');
-          this.vehicle.isOccupied = true;
-          this.player.model.visible = false;
-          this.hud.notify(`Assumiu o controle do Carro de Trânsito! (WASD pilotar, Espaço drift, H buzina, F sair)`);
-          this.audio?.play('car-horn');
+          const taken = this.traffic?.takeOverCar(nearTraffic.slot);
+          if (taken) {
+            this.hijackedTraffic = true;
+            this.vehicle.spawnAt(new Vector3(taken.x, taken.y, taken.z), taken.yaw, 'car');
+            this.vehicle.isOccupied = true;
+            this.player.model.visible = false;
+            this.hud.notify(`Assumiu o controle do Carro de Trânsito! (WASD pilotar, Espaço drift, H buzina, F sair)`);
+            this.audio?.play('car-horn');
+          }
         } else if (nearBoat) {
-          this.vehicle.spawnAt(new Vector3(nearBoat.x, nearBoat.y, nearBoat.z), nearBoat.yaw, 'boat');
-          this.vehicle.isOccupied = true;
-          this.player.model.visible = false;
-          this.hud.notify(`Embarcou no Barco (${nearBoat.vClass.toUpperCase()})! (WASD navegar, H buzina, F desembarcar)`);
-          this.audio?.play('foghorn');
+          const taken = this.vessels?.takeOverBoat(nearBoat.index);
+          if (taken) {
+            this.vehicle.spawnAt(new Vector3(taken.x, taken.y, taken.z), taken.yaw, 'boat');
+            this.vehicle.isOccupied = true;
+            this.player.model.visible = false;
+            this.hud.notify(`Embarcou no Barco (${taken.vClass.toUpperCase()})! (WASD navegar, H buzina, F desembarcar)`);
+            this.audio?.play('foghorn');
+          }
         } else if (dist < 12.0) {
           this.vehicle.isOccupied = true;
           this.player.model.visible = false;

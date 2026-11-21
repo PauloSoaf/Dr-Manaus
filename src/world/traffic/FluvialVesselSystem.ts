@@ -395,6 +395,22 @@ export class FluvialVesselSystem {
     return nearest;
   }
 
+  public takeOverBoat(index: number): { x: number; y: number; z: number; yaw: number; vClass: VesselClass } | null {
+    if (index < 0 || index >= this.fleet.length) return null;
+    const v = this.fleet[index];
+    if (!v.active) return null;
+    const state = { x: v.x, y: v.y, z: v.z, yaw: v.yaw, vClass: v.vesselClass };
+    v.active = false;
+    this.dummy.position.set(0, -9999, 0);
+    this.dummy.scale.setScalar(0);
+    this.dummy.updateMatrix();
+    this.hulls.setMatrixAt(index, this.dummy.matrix);
+    this.cabins.setMatrixAt(index, this.dummy.matrix);
+    this.hulls.instanceMatrix.needsUpdate = true;
+    this.cabins.instanceMatrix.needsUpdate = true;
+    return state;
+  }
+
   public dispose(): void {
     this.hulls.geometry.dispose();
     (this.hulls.material as MeshStandardMaterial).dispose();

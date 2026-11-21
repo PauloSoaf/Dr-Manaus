@@ -53,6 +53,17 @@ export interface VehicleTelemetry {
   readonly nitro: number;
   readonly isBoosting: boolean;
   readonly isTractorActive: boolean;
+  readonly isTractorHolding: boolean;
+}
+
+export interface TractorTarget {
+  id?: string;
+  slot?: number;
+  type: 'traffic' | 'debris' | 'prop';
+  position: Vector3;
+  velocity: Vector3;
+  rotation: Euler;
+  mass: number;
 }
 
 export class VehicleController {
@@ -81,14 +92,18 @@ export class VehicleController {
   health = 100;
   maxHealth = 100;
   nitro = 100;
+  verticalThrust = 0;
   isDrifting = false;
   isAirborne = false;
   isBoosting = false;
   isTractorActive = false;
+  tractorTarget: TractorTarget | null = null;
   headlightsOn = true;
   fireCooldown = 0;
   onFireWeapon?: (origin: Vector3, direction: Vector3) => void;
   onCrash?: (speed: number) => void;
+  onTractorCapture?: (searchPos: Vector3) => TractorTarget | null;
+  onTractorRelease?: (target: TractorTarget, releaseVel: Vector3) => void;
 
   // Suspension & body lean
   private suspensionPitch = 0;
@@ -360,6 +375,15 @@ export class VehicleController {
     this.steeringAngle = MathUtils.lerp(this.steeringAngle, targetSteer * 0.55, dt * 6.0);
 
     this.isDrifting = handbrake && this.activeType === 'car' && this.velocity.length() > 6.0;
+
+    // 6-DoF Vertical Heave (Space = ascend, Ctrl/KeyC = descend)
+    if (this.activeType === 'saucer' || this.activeType === 'spaceship') {
+      const up = input.held('Space');
+      const down = input.held('ControlLeft') || input.held('ControlRight') || input.held('KeyC');
+      this.verticalThrust = (up ? 1.0 : 0.0) - (down ? 1.0 : 0.0);
+    } else {
+      this.verticalThrust = 0;
+    }
 
     // Nitro boost fuel management (recharges over time, burns at 25%/s)
     const wantsBoost = input.held('ShiftLeft') || input.held('ShiftRight');
@@ -690,43 +714,44 @@ export class VehicleController {
   }
 
   /**
-   * 6. ALIEN FLYING SAUCER (UFO) PHYSICS:
-   * Omnidirectional anti-gravity levitation, 360-degree strafe, quantum inertia damping,
-   * tractor beam gravitational field, and tilt banking.
+   * 6. ALIEN FLYING SAUCER (UFO) PHYSICS (6-DoF):
+   * Full 6 degrees of freedom: longitudinal surge (W/S), lateral sway strafe (A/D),
+   * vertical heave climb/descent (Space/Ctrl), 360-degree yaw, and gyro auto-stabilized banking.
+   * Free altitude navigation without artificial 12m clamps.
    */
   private updateSaucerPhysics(dt: number): void {
-    const maxSpeed = this.isBoosting ? 360.0 : 180.0;
-    const accelRate = this.isBoosting ? 160.0 : 75.0;
+    const maxSpeed = this.isBoosting ? 380.0 : 190.0;
+    const accelRate = this.isBoosting ? 180.0 : 85.0;
 
-    // Forward/backward drive
+    // 1. Surge (longitudinal forward/back)
     if (this.throttle > 0) {
       this.velocity.addScaledVector(this.forward, this.throttle * accelRate * dt);
     } else if (this.brake > 0) {
-      this.velocity.addScaledVector(this.forward, -this.brake * (accelRate * 0.7) * dt);
+      this.velocity.addScaledVector(this.forward, -this.brake * (accelRate * 0.75) * dt);
     }
 
-    // Omnidirectional lateral strafe
-    this.yaw += this.steeringAngle * 2.2 * dt;
-    this.velocity.addScaledVector(this.right, -this.steeringAngle * accelRate * 0.85 * dt);
+    // 2. Sway (lateral strafe translation)
+    this.velocity.addScaledVector(this.right, -this.steeringAngle * accelRate * dt);
 
-    // Natural banking into turns & strafe
+    // 3. Heave (vertical ascend/descend thrust without 12m terrain lock)
+    if (this.verticalThrust !== 0) {
+      this.velocity.y += this.verticalThrust * accelRate * 0.9 * dt;
+    } else {
+      // Gentle auto-leveling vertical drag
+      this.velocity.y *= Math.exp(-dt * 1.5);
+    }
+
+    // 4. Yaw rotation
+    this.yaw += this.steeringAngle * 2.4 * dt;
+
+    // 5. Pitch & Roll dynamic banking and gyro auto-stabilization
     const targetRoll = this.steeringAngle * 0.45;
-    const targetPitch = (this.throttle - this.brake) * 0.25;
-    this.roll = MathUtils.lerp(this.roll, targetRoll, dt * 6.0);
-    this.pitch = MathUtils.lerp(this.pitch, targetPitch, dt * 6.0);
-
-    // Quantum hover height lock (maintains ~12m altitude above terrain/water)
-    const terrainH = PhysicsWorld.terrainHeight(this.position.x, this.position.z);
-    const waterH = sampleManausWater(this.position.x, this.position.z, performance.now() * 0.001).height;
-    const groundH = Math.max(terrainH, waterH);
-    const targetHoverY = groundH + 12.0;
-
-    if (this.position.y < targetHoverY) {
-      this.velocity.y += (targetHoverY - this.position.y) * 8.0 * dt;
-    }
+    const targetPitch = (this.throttle - this.brake) * 0.35;
+    this.roll = MathUtils.lerp(this.roll, targetRoll, dt * 5.0);
+    this.pitch = MathUtils.lerp(this.pitch, targetPitch, dt * 5.0);
 
     // Inertial quantum damping
-    this.velocity.multiplyScalar(Math.exp(-dt * 0.45));
+    this.velocity.multiplyScalar(Math.exp(-dt * 0.35));
     if (this.velocity.length() > maxSpeed) {
       this.velocity.setLength(maxSpeed);
     }
@@ -739,14 +764,51 @@ export class VehicleController {
 
     this.position.addScaledVector(this.velocity, dt);
 
-    // Floor clamp
-    if (this.position.y < groundH + 2.0) {
-      this.position.y = groundH + 2.0;
+    // Floor clearance clamp
+    const terrainH = PhysicsWorld.terrainHeight(this.position.x, this.position.z);
+    const waterH = sampleManausWater(this.position.x, this.position.z, performance.now() * 0.001).height;
+    const groundH = Math.max(terrainH, waterH);
+    if (this.position.y < groundH + 1.2) {
+      this.position.y = groundH + 1.2;
       if (this.velocity.y < 0) this.velocity.y = 0;
     }
 
     this.isAirborne = true;
     this.rpm = MathUtils.lerp(this.rpm, 2500 + (this.velocity.length() / maxSpeed) * 7500, dt * 5.0);
+
+    // 6. Physical Tractor Beam Update
+    this.updateTractorBeamPhysics(dt);
+  }
+
+  private updateTractorBeamPhysics(dt: number): void {
+    if (this.isTractorActive) {
+      // 1. If not holding any target yet, attempt to acquire one
+      if (!this.tractorTarget && this.onTractorCapture) {
+        this._tempVec.copy(this.position).addScaledVector(this.up, -15.0);
+        this.tractorTarget = this.onTractorCapture(this._tempVec);
+      }
+
+      // 2. If target is held, suspend and transport it under the saucer
+      if (this.tractorTarget) {
+        this._tempVec.copy(this.position).addScaledVector(this.up, -6.5);
+        this.tractorTarget.position.lerp(this._tempVec, dt * 8.0);
+        this.tractorTarget.rotation.y = this.yaw;
+        this.tractorTarget.velocity.copy(this.velocity);
+
+        // Keep target above terrain
+        const th = PhysicsWorld.terrainHeight(this.tractorTarget.position.x, this.tractorTarget.position.z);
+        if (this.tractorTarget.position.y < th + 1.0) {
+          this.tractorTarget.position.y = th + 1.0;
+        }
+      }
+    } else {
+      // Tractor beam deactivated: release captured object with momentum
+      if (this.tractorTarget) {
+        const releaseVel = this.velocity.clone().addScaledVector(this.forward, 25.0).addScaledVector(this.up, 6.0);
+        this.onTractorRelease?.(this.tractorTarget, releaseVel);
+        this.tractorTarget = null;
+      }
+    }
   }
 
   /**
@@ -897,6 +959,7 @@ export class VehicleController {
       nitro: Math.max(0, Math.min(100, Math.round(this.nitro))),
       isBoosting: this.isBoosting,
       isTractorActive: this.isTractorActive,
+      isTractorHolding: !!this.tractorTarget,
     };
   }
 

@@ -404,6 +404,49 @@ export class TrafficSystem {
     return nearest;
   }
 
+  takeOverCar(slot: number): { x: number; y: number; z: number; yaw: number } | null {
+    if (slot < 0 || slot >= this.count) return null;
+    const v = this.pool[slot];
+    if (!v.shown) return null;
+    const state = { x: v.x, y: v.y, z: v.z, yaw: v.yaw };
+    v.shown = false;
+    v.fresh = true;
+    this.dummy.position.set(0, -9999, 0);
+    this.dummy.scale.setScalar(0);
+    this.dummy.updateMatrix();
+    this.bodies.setMatrixAt(slot, this.dummy.matrix);
+    this.glass.setMatrixAt(slot, this.dummy.matrix);
+    this.bodies.instanceMatrix.needsUpdate = true;
+    this.glass.instanceMatrix.needsUpdate = true;
+    return state;
+  }
+
+  returnCar(pos: Vector3, yaw: number): void {
+    for (let i = 0; i < this.count; i++) {
+      const v = this.pool[i];
+      if (!v.shown) {
+        v.x = pos.x;
+        v.y = pos.y;
+        v.z = pos.z;
+        v.yaw = yaw;
+        v.vx = 0;
+        v.vz = 0;
+        v.vy = 0;
+        v.shown = true;
+        v.wreck = false;
+        this.dummy.position.set(v.x, v.y + BODY_H / 2, v.z);
+        this.dummy.rotation.set(0, v.yaw, 0);
+        this.dummy.scale.setScalar(1);
+        this.dummy.updateMatrix();
+        this.bodies.setMatrixAt(i, this.dummy.matrix);
+        this.glass.setMatrixAt(i, this.dummy.matrix);
+        this.bodies.instanceMatrix.needsUpdate = true;
+        this.glass.instanceMatrix.needsUpdate = true;
+        break;
+      }
+    }
+  }
+
   pullTowards(pos: Vector3, radius: number, strength: number): void {
     const radSq = radius * radius;
     for (let i = 0; i < this.count; i++) {

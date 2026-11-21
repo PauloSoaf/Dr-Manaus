@@ -49,6 +49,8 @@ export interface PowerHooks {
   getTargetBodyId?: () => string | null;
   /** Returns the active dominant celestial body id (e.g. 'earth', 'mars', 'moon', procedural body). */
   getActiveBodyId?: () => string | null;
+  /** Returns whether the player is currently piloting a vehicle. */
+  isVehicleOccupied?: () => boolean;
 }
 
 export type PlanetRuptureState = 'idle' | 'charging' | 'ready' | 'executing' | 'cooldown';
@@ -89,7 +91,7 @@ export class PowerSystem {
     return this.hooks.getTargetBodyId?.() ?? this.hooks.getActiveBodyId?.() ?? null;
   }
   readonly destination = new Vector3();
-  private readonly effects: EffectPool;
+  readonly effects: EffectPool;
   private readonly indicator: Mesh;
   private readonly clones: Clone[] = [];
   private readonly rayOrigin = new Vector3();
@@ -132,6 +134,19 @@ export class PowerSystem {
     if (this.cooldowns.planetRupture <= 0 && this._planetRuptureState === 'cooldown') {
       this._planetRuptureState = 'idle';
     }
+
+    // Vehicle control isolation: when piloting a vehicle, character power inputs are suppressed
+    if (this.hooks.isVehicleOccupied?.()) {
+      this.laserActive = false;
+      this.meleePending = null;
+      this.indicator.visible = false;
+      this.laser.visible = false;
+      this.updateClones(worldDt);
+      this.updateLaser(realDt);
+      this.effects.update(realDt);
+      return;
+    }
+
     const keys: [string, string][] = [['KeyL','laser'],['Digit1', 'energy'], ['KeyE', 'teleport'], ['KeyQ', 'shockwave'], ['KeyR', 'reconstruct'], ['KeyG', 'giant'], ['KeyC', 'clone'], ['KeyT', 'temporal'], ['Digit9', 'planetRupture']];
     for (const [key, name] of keys) if (this.input.consume(key)) this.use(name);
     if (this.input.consume('KeyX')) {
