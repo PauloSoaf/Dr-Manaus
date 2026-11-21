@@ -101,3 +101,4 @@ test('CT-08-04: Vehicle Controller Nitrous Boost and Weapons Cannon fire', () =>
     vehicle.dispose();
   }
 });
+

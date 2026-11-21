@@ -10,6 +10,7 @@ import { COMBAT_MOVES } from '../combat/CombatMoves';
 import { SoftTargeting, type SoftTargetCandidate } from '../combat/SoftTargeting';
 import { HitStopSystem } from '../combat/HitStopSystem';
 import { IMPACT } from '../combat/MeteorImpact';
+import { TeleportSystem } from '../../world/spatial/TeleportSystem';
 
 export interface PowerHooks {
   targets: () => readonly Target[];
@@ -69,6 +70,7 @@ export class PowerSystem {
   temporal = false;
   selected = 'energy';
   teleporting = false;
+  readonly teleportSystem = new TeleportSystem();
   readonly cooldowns: Record<string, number> = { punch: 0, kick: 0, energy: 0, laser:0, teleport: 0, shockwave: 0, reconstruct: 0, giant: 0, clone: 0, temporal: 0, planetRupture: 0 };
   private _planetRuptureState: PlanetRuptureState = 'idle';
   private ruptureNeedsRelease = false;
@@ -209,6 +211,7 @@ export class PowerSystem {
     const landing = this.player.consumeImpact();
     if (landing) this.applyImpact(landing);
     this.effects.update(this.temporal ? worldDt + realDt * 0.35 : realDt);
+    this.teleportSystem.updateQuantumJump(realDt);
     this.updateClones(realDt);
     this.updateLaser(realDt);
   }
@@ -488,12 +491,24 @@ export class PowerSystem {
 
   private updateDestination(): void {
     this.cameraRay();
-    const hit = PhysicsWorld.raycast(this.rayOrigin, this.rayDirection, this.hooks.getColliders(), 2500, 0, true);
-    this.destinationValid = hit !== null;
-    if (!hit) return;
-    this.destination.copy(hit.point);
-    if (hit.collider) this.destination.y = hit.collider.y + hit.collider.height / 2 + 0.08;
-    else this.destination.y = hit.point.y + 0.08;
+    const tactical = this.teleportSystem.resolveTacticalTarget(
+      this.rayOrigin,
+      this.rayDirection,
+      this.hooks.getColliders(),
+      this.player.size,
+      TeleportSystem.MAX_TACTICAL_RANGE_M
+    );
+    if (tactical.success) {
+      this.destinationValid = true;
+      this.destination.copy(tactical.safePlacement);
+    } else {
+      const hit = PhysicsWorld.raycast(this.rayOrigin, this.rayDirection, this.hooks.getColliders(), 2500, 0, true);
+      this.destinationValid = hit !== null;
+      if (!hit) return;
+      this.destination.copy(hit.point);
+      if (hit.collider) this.destination.y = hit.collider.y + hit.collider.height / 2 + 0.08;
+      else this.destination.y = hit.point.y + 0.08;
+    }
   }
 
   private acquireTarget(maxDistance = 1200): Target | null {
