@@ -1,5 +1,6 @@
 import { Vector3 } from 'three/webgpu';
 import { isLand, SHORELINE, shoreZ, riverWidth } from '../geodata/geodata';
+import { manausBathymetry } from '../water/ManausBathymetry';
 
 /**
  * Footprint elevation sample result.
@@ -216,7 +217,7 @@ export class ManausUrbanElevation {
     const shore = shoreZ(x);
     const riverBed = z > shore && z < shore + riverWidth(x);
 
-    // Deep water bed
+    // Deep water bed datum for urban plateau relief
     if (!land || riverBed) {
       return 0.0;
     }
@@ -317,6 +318,23 @@ export class ManausUrbanElevation {
     // Ensure non-negative land height
     const finalHeight = Math.max(0.0, rawElevation + demContribution);
     return finalHeight;
+  }
+
+  /**
+   * Returns the excavated physical 3D riverbed elevation (< 0 in water, 0 on land) from ManausBathymetry.
+   */
+  public getRiverbedHeight(x: number, z: number): number {
+    return manausBathymetry.sampleRiverbedHeight(x, z);
+  }
+
+  /**
+   * Unified elevation query returning urban relief on land and excavated bathymetry in rivers.
+   */
+  public getTerrainOrRiverbedHeight(x: number, z: number): number {
+    if (manausBathymetry.isWater(x, z)) {
+      return manausBathymetry.sampleRiverbedHeight(x, z);
+    }
+    return this.getTerrainHeight(x, z);
   }
 
   /**
