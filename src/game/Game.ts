@@ -28,6 +28,11 @@ import { SpaceLayer } from '../rendering/SpaceLayer';
 import { SpeedVFX, type SpeedState } from '../rendering/SpeedVFX';
 import { WeatherSystem } from '../rendering/WeatherSystem';
 import { WaterSystem } from '../rendering/WaterSystem';
+import {
+  WaterDiagnosticIsolationController,
+  type VisualIsolationMode,
+  type VisualIsolationTargets,
+} from '../rendering/WaterDiagnosticIsolation';
 import { manausBathymetry } from '../world/water/ManausBathymetry';
 import { FluvialVesselSystem } from '../world/traffic/FluvialVesselSystem';
 import { VehicleController, type VehicleType } from '../player/vehicles/VehicleController';
@@ -199,6 +204,7 @@ export class Game {
   private wasUnderwater = false;
   private waterRippleTimer = 0;
   private readonly underwaterBgColor = new Color('#06202c');
+  readonly diagnosticIsolation = new WaterDiagnosticIsolationController();
   private hazardAlertTimer = 0;
   galaxyMaterializer?: GalaxyMaterializer;
   get galaxy(): StarSectorProvider | undefined { return this.galaxyMaterializer?.current?.starSectorProvider; }
@@ -1428,9 +1434,26 @@ export class Game {
       this.water.setClearDebugMode(nextDebug);
       this.hud.notify(
         nextDebug
-          ? 'Depuração Batimétrica (U): ÁGUA CRISTALINA — leito 3D totalmente visível'
-          : 'Depuração Batimétrica (U): Turbidez natural do Rio Negro restaurada'
+          ? 'Diagnóstico Óptico (U): ÁGUA CRISTALINA + CONTORNOS 2m — leito 3D totalmente visível'
+          : 'Diagnóstico Óptico (U): Visual final do Rio Negro restaurado'
       );
+    }
+    if (manaus && this.input.consume('KeyI')) {
+      const nextMode = this.diagnosticIsolation.cycleNext(this.getIsolationTargets());
+      this.hud.notify(`Isolamento Visual (I): ${this.diagnosticIsolation.label} [${nextMode}]`);
+    }
+    if (manaus && this.input.consume('KeyO')) {
+      const nextLock = !this.quality.diagnosticNativeLock;
+      this.quality.setDiagnosticNativeLock(nextLock);
+      const diag = this.rendering.resolutionDiagnostics;
+      this.hud.notify(
+        nextLock
+          ? `Diagnóstico de Resolução (O): TRAVADO EM 100% NATIVO (${diag.internalWidthPx}x${diag.internalHeightPx})`
+          : `Diagnóstico de Resolução (O): Escala dinâmica restaurada (${Math.round(diag.renderScale * 100)}%)`
+      );
+    }
+    if (this.diagnosticIsolation.isActive) {
+      this.diagnosticIsolation.apply(this.getIsolationTargets());
     }
 
     const sub = this.player.submersion;
@@ -1462,8 +1485,6 @@ export class Game {
       camWorldX,
       camWorldY,
       camWorldZ,
-      sub.riverType,
-      timeSecNow,
     );
 
     const riverName = sub.riverType === 'solimoes' ? 'solimoes' : 'negro';
@@ -1617,12 +1638,32 @@ export class Game {
     if (this.telemetryTime > .2) { this.telemetryTime = 0; this.sample(); }
     const frame = this.frame;
     const animDebug = this.player.character.animationController.debugState;
+    const activeClipName = this.player.character.animationDebug?.clip ?? animDebug.currentAnimation;
+    const resDiag = this.rendering.resolutionDiagnostics;
     const softTarget = this.powers.softTargetInfo;
     const hitStopMs = this.powers.hitStop.remainingMs;
     const navFlight = this.hudFlight();
-    this.hud.update(dt, { position: this.player.position, origin: this.renderOriginVec, velocity: this.player.velocity, speedMps: speedNow, altitudeM: altitudeNow, yaw: this.camera.yaw, state: this.player.state, size: this.player.size, selected: this.powers.selected, temporal: this.powers.temporal, title: this.missions.title, objective: this.missions.objective, hint: this.missions.hint, destination: this.missions.destination, remaining: this.missions.remaining, stage: this.missions.stage, time: this.atmosphere.clock, weather: this.atmosphere.weather, fps: frame.fps, backend: this.rendering.backend, speedMode: this.player.speedMode, megaMode: this.player.megaMode, interplanetaryMode: this.travelDomain.localPhysicsActive ? this.player.interplanetaryMode : this.travelDomain.isTravelling, flightLabel: this.flightLabel(), spaceFactor: this.spaceFactor, district: this.district, location: this.universe.location, missionMarkerActive: this.manausSimulationActive, presentationDomain: this.presentationDomain, targetCatalog: this.universalTargetCatalog.descriptors, systemBodies: this.hudBodies(), flight: navFlight, nearbyBody: this.nearestNamedBody(), bossStatus: this.planetTitans?.bossTelemetry ?? null, interactionPrompt: this.getInteractionPrompt(), vehicleTelemetry: this.vehicle?.isOccupied ? this.vehicle.getTelemetry() : null, playerVitals: { health: this.player.health, maxHealth: this.player.maxHealth, shield: this.player.shield, maxShield: this.player.maxShield, isInvulnerable: this.player.isInvulnerable, damageFlash: this.player.damageFlash }, debug: { 'Renderer': this.rendering.backend, 'FPS': frame.fps, 'Frame (ms)': this.quality.averageMs.toFixed(1), 'CPU (ms)': this.cpu.toFixed(1), 'GPU (ms)': 'indisponível', 'Draw calls': frame.drawCalls, 'Triângulos': frame.triangles.toLocaleString(), 'Geometrias / texturas': `${frame.geometries} / ${frame.textures}`, 'Chunks ativos / cache': `${frame.active} / ${frame.cached}`, 'Fila de streaming': frame.queued, 'Streaming (ms)': frame.streamMs.toFixed(2), 'Memória estimada (MB)': frame.loadedMB.toFixed(1), 'HLOD instâncias': this.hlod.nodeCount, 'Cidade real · tiles': `${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`, 'Cidade real · triângulos': `${Math.round(this.realCity.stats.detailTriangles / 1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles / 1000)}k casca`, 'Cidade real · skyline': this.realCity.stats.skyline, 'Cidade real · colisores': this.realCity.stats.colliders, 'Destruição': `${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`, 'Perfil (ms)': Object.entries(this.profile).filter(([, v]) => v > .05).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ') || '—', 'Animação · Base / Voo': `${animDebug.baseLayer} / ${animDebug.flightLayer}`, 'Animação · Combate': `${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`, 'Animação · Pulo / Flip': `jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress * 100).toFixed(0)}%`, 'Voo · Alinhamento / Vel': `${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`, 'Voo · Pitch / Bank': `${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`, 'Voo · Modo / Vertical': `${animDebug.flightMode} · ${(animDebug.upright * 100).toFixed(0)}% em pé`, 'Movimento · Esquiva / Mortal': `${animDebug.dodge ?? 'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming ? ' · SLAM' : ''}`, 'Combate · Soft Target': `${softTarget.id ?? 'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`, 'Combate · Hit Stop': `${hitStopMs} ms`, 'Largo': `${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`, 'Skin cósmica': Object.entries(this.player.character.cosmicDiagnostics).filter(([, v]) => v !== undefined && v !== null).slice(0, 5).map(([k, v]) => `${k} ${v}`).join(' · '), 'Trânsito': this.traffic ? `${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos` : 'sem malha viária', 'Ruas reais (tri)': this.realCity.stats.roadTriangles, 'Voo': this.player.speedMode + (this.player.armed === 'none' ? '' : ` · ${this.player.armed.toUpperCase()} armado`), 'NPCs / veículos': `${this.population.npcCount} / ${this.population.vehicleCount}`, 'Global XYZ': `${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`, 'Local XYZ': `${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`, 'Qualidade / resolução': `${this.rendering.preset} / ${Math.round(this.rendering.renderScale * 100)}%`, ...this.universeDebug(navFlight) } }, this.rendering.camera);
+    this.hud.update(dt, { position: this.player.position, origin: this.renderOriginVec, velocity: this.player.velocity, speedMps: speedNow, altitudeM: altitudeNow, yaw: this.camera.yaw, state: this.player.state, size: this.player.size, selected: this.powers.selected, temporal: this.powers.temporal, title: this.missions.title, objective: this.missions.objective, hint: this.missions.hint, destination: this.missions.destination, remaining: this.missions.remaining, stage: this.missions.stage, time: this.atmosphere.clock, weather: this.atmosphere.weather, fps: frame.fps, backend: this.rendering.backend, speedMode: this.player.speedMode, megaMode: this.player.megaMode, interplanetaryMode: this.travelDomain.localPhysicsActive ? this.player.interplanetaryMode : this.travelDomain.isTravelling, flightLabel: this.flightLabel(), spaceFactor: this.spaceFactor, district: this.district, location: this.universe.location, missionMarkerActive: this.manausSimulationActive, presentationDomain: this.presentationDomain, targetCatalog: this.universalTargetCatalog.descriptors, systemBodies: this.hudBodies(), flight: navFlight, nearbyBody: this.nearestNamedBody(), bossStatus: this.planetTitans?.bossTelemetry ?? null, interactionPrompt: this.getInteractionPrompt(), vehicleTelemetry: this.vehicle?.isOccupied ? this.vehicle.getTelemetry() : null, playerVitals: { health: this.player.health, maxHealth: this.player.maxHealth, shield: this.player.shield, maxShield: this.player.maxShield, isInvulnerable: this.player.isInvulnerable, damageFlash: this.player.damageFlash }, debug: { 'Renderer': this.rendering.backend, 'FPS': frame.fps, 'Frame (ms)': this.quality.averageMs.toFixed(1), 'CPU (ms)': this.cpu.toFixed(1), 'GPU (ms)': 'indisponível', 'Draw calls': frame.drawCalls, 'Triângulos': frame.triangles.toLocaleString(), 'Geometrias / texturas': `${frame.geometries} / ${frame.textures}`, 'Chunks ativos / cache': `${frame.active} / ${frame.cached}`, 'Fila de streaming': frame.queued, 'Streaming (ms)': frame.streamMs.toFixed(2), 'Memória estimada (MB)': frame.loadedMB.toFixed(1), 'HLOD instâncias': this.hlod.nodeCount, 'Cidade real · tiles': `${this.realCity.stats.tiles} (${this.realCity.stats.near} células)`, 'Cidade real · triângulos': `${Math.round(this.realCity.stats.detailTriangles / 1000)}k perto / ${Math.round(this.realCity.stats.shellTriangles / 1000)}k casca`, 'Cidade real · skyline': this.realCity.stats.skyline, 'Cidade real · colisores': this.realCity.stats.colliders, 'Destruição': `${this.destruction.stats.destroyed} prédios · ${this.destruction.stats.debris} escombros · ${this.destruction.stats.scars} marcas`, 'Perfil (ms)': Object.entries(this.profile).filter(([, v]) => v > .05).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(' · ') || '—', 'Animação · Base / Voo': `${animDebug.baseLayer} / ${animDebug.flightLayer}`, 'Natação · Estado / Clip': `${this.player.state} [${this.player.swimmingVisualState}] · clip=${activeClipName}`, 'Água · Ondas / Batimetria': `${this.water.waveProfile} · prof=${sub.totalWaterDepthM.toFixed(1)}m · leito=${sub.riverbedY.toFixed(1)}m · U=${this.water.clearDebugMode ? 'CRISTALINO' : 'NATURAL'}`, 'Resolução Interna (O)': `${resDiag.internalWidthPx}x${resDiag.internalHeightPx} (scale=${Math.round(resDiag.renderScale * 100)}% · dpr=${resDiag.effectivePixelRatio.toFixed(2)} · ${this.quality.diagnosticNativeLock ? 'FIXO 100%' : 'DINÂMICO'})`, 'Isolamento Visual (I)': this.diagnosticIsolation.label, 'Animação · Combate': `${animDebug.combatMove} [${animDebug.movePhase}] (${animDebug.boneMask})`, 'Animação · Pulo / Flip': `jumps: ${this.player.jumpCount} · flip: ${(animDebug.doubleJumpProgress * 100).toFixed(0)}%`, 'Voo · Alinhamento / Vel': `${animDebug.flightAlignment.toFixed(3)} · XYZ(${animDebug.velocityDir.x.toFixed(2)}, ${animDebug.velocityDir.y.toFixed(2)}, ${animDebug.velocityDir.z.toFixed(2)})`, 'Voo · Pitch / Bank': `${animDebug.rootPitch.toFixed(2)} / ${animDebug.rootBank.toFixed(2)}`, 'Voo · Modo / Vertical': `${animDebug.flightMode} · ${(animDebug.upright * 100).toFixed(0)}% em pé`, 'Movimento · Esquiva / Mortal': `${animDebug.dodge ?? 'nenhuma'} · ${animDebug.flipPhase}${this.player.isSlamming ? ' · SLAM' : ''}`, 'Combate · Soft Target': `${softTarget.id ?? 'nenhum'} (${softTarget.angleDeg.toFixed(1)}°)`, 'Combate · Hit Stop': `${hitStopMs} ms`, 'Largo': `${this.largo.stats.detail} · ${this.largo.stats.draws} draws · ${this.largo.stats.colliders} colisores`, 'Skin cósmica': Object.entries(this.player.character.cosmicDiagnostics).filter(([, v]) => v !== undefined && v !== null).slice(0, 5).map(([k, v]) => `${k} ${v}`).join(' · '), 'Trânsito': this.traffic ? `${this.traffic.stats.active} carros · ${this.traffic.stats.segments} vias · ${this.traffic.stats.nodes} cruzamentos` : 'sem malha viária', 'Ruas reais (tri)': this.realCity.stats.roadTriangles, 'Voo': this.player.speedMode + (this.player.armed === 'none' ? '' : ` · ${this.player.armed.toUpperCase()} armado`), 'NPCs / veículos': `${this.population.npcCount} / ${this.population.vehicleCount}`, 'Global XYZ': `${this.player.position.x.toFixed(0)} ${this.player.position.y.toFixed(0)} ${this.player.position.z.toFixed(0)}`, 'Local XYZ': `${this.playerLocal.x.toFixed(0)} ${this.playerLocal.y.toFixed(0)} ${this.playerLocal.z.toFixed(0)}`, 'Qualidade / resolução': `${this.rendering.preset} / ${Math.round(this.rendering.renderScale * 100)}%`, ...this.universeDebug(navFlight) } }, this.rendering.camera);
     this.input.endFrame();
   };
+
+  public setVisualIsolationMode(mode: VisualIsolationMode): VisualIsolationMode {
+    return this.diagnosticIsolation.setMode(mode, this.getIsolationTargets());
+  }
+
+  private getIsolationTargets(): VisualIsolationTargets {
+    return {
+      waterMesh: this.water?.mesh,
+      waterVfxGroup: this.water?.vfx?.group,
+      flatTerrainGroup: this.flatTerrain,
+      realCityRoot: (this.realCity as any)?.root,
+      streamerRoot: (this.streamer as any)?.root,
+      hlodRoot: (this.hlod as any)?.root,
+      landmarksRoot: (this.landmarks as any)?.root,
+      largoRoot: (this.largo as any)?.root,
+      forestRoot: (this.forest as any)?.group,
+    };
+  }
   /** Rebuilt in place every frame: spreads and filters would allocate three arrays per tick. */
   private gatherColliders() {
     const list = this.colliders; list.length = 0;

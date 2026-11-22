@@ -154,7 +154,7 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
       const base = t < 0.5 ? forest : scrub, target = t < 0.5 ? scrub : city;
       const f = t < 0.5 ? t * 2 : (t - 0.5) * 2;
       const jitter = ((Math.imul(Math.round(cx / CELL) * 73856093 ^ Math.round(cz / CELL) * 19349663, 2654435761) >>> 8) % 1000) / 1000;
-      const shade = 0.88 + jitter * 0.24;
+      const shade = 0.96 + jitter * 0.08;
       const r = (base[0] + (target[0] - base[0]) * f) * shade;
       const g = (base[1] + (target[1] - base[1]) * f) * shade;
       const b = (base[2] + (target[2] - base[2]) * f) * shade;
@@ -183,8 +183,11 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
         continue;
       }
 
-      // 3. Coastal boundary or near-corridor river cell: subdivide into 64m quads
+      // 3. Coastal boundary or near-corridor river cell: subdivide into 64m quads,
+      // and refine immediate shoreline / shallow wading margin into 16m micro-quads
       const SUB = 64;
+      const COAST_SUB = 16;
+      const isCentralShoreCorridor = Math.abs(cx) <= 8192 && cz >= -2048 && cz <= 6144;
       for (let sz = z; sz < z + CELL; sz += SUB) {
         for (let sx = x; sx < x + CELL; sx += SUB) {
           const s00 = isLand(sx, sz);
@@ -195,6 +198,25 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
 
           if (s00 && s10 && s11 && s01 && scc) {
             emitLandQuad(sx, sz, sx + SUB, sz + SUB, r, g, b);
+          } else if (
+            isCentralShoreCorridor
+            && ((s00 || s10 || s11 || s01 || scc)
+              || Math.abs(manausBathymetry.sampleSignedShoreDistance(sx + SUB * 0.5, sz + SUB * 0.5)) <= 72)
+          ) {
+            for (let czSub = sz; czSub < sz + SUB; czSub += COAST_SUB) {
+              for (let cxSub = sx; cxSub < sx + SUB; cxSub += COAST_SUB) {
+                const k00 = isLand(cxSub, czSub);
+                const k10 = isLand(cxSub + COAST_SUB, czSub);
+                const k11 = isLand(cxSub + COAST_SUB, czSub + COAST_SUB);
+                const k01 = isLand(cxSub, czSub + COAST_SUB);
+                const kcc = isLand(cxSub + COAST_SUB * 0.5, czSub + COAST_SUB * 0.5);
+                if (k00 && k10 && k11 && k01 && kcc) {
+                  emitLandQuad(cxSub, czSub, cxSub + COAST_SUB, czSub + COAST_SUB, r, g, b);
+                } else {
+                  emitRiverbedQuad(cxSub, czSub, cxSub + COAST_SUB, czSub + COAST_SUB);
+                }
+              }
+            }
           } else {
             emitRiverbedQuad(sx, sz, sx + SUB, sz + SUB);
           }

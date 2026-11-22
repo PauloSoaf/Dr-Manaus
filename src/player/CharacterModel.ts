@@ -4,7 +4,7 @@ import { CosmicTrail } from './cosmic/CosmicTrail';
 import { CosmicMaterial, type CosmicLevel } from './cosmic/CosmicMaterial';
 import { SpeedArcs } from './vfx/SpeedArcs';
 import { CosmicVideoSource } from './cosmic/CosmicVideoSource';
-import { AnimationController } from './animations/AnimationController';
+import { AnimationController, type SwimmingVisualState } from './animations/AnimationController';
 import type { CombatMove } from './animations/types';
 import { findCharacterBone, loadCharacterAsset, type CharacterAsset } from './animations/CharacterAsset';
 import { CharacterAnimator } from './animations/CharacterAnimator';
@@ -29,6 +29,9 @@ export interface MotionIntent {
   /** Speed the player is asking for, so flight can start righting the body while it decelerates. */
   desiredSpeed?: number;
   grounded?: boolean;
+  swimming?: boolean;
+  wading?: boolean;
+  swimmingState?: SwimmingVisualState;
   dodge?: 'roll' | 'airDash' | null;
   /** Crouched locomotion. */
   crouch?: boolean;
@@ -228,9 +231,13 @@ export class CharacterModel {
   ): void {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
     const vel = velocity ?? this.defaultVelocity.set(0, verticalSpeed, -speed);
+    const isSwimming = Boolean(intent?.swimming) && !flying;
     const params = {
       speed, verticalSpeed, velocity: vel, flying,
-      grounded: intent?.grounded ?? (!flying && pose !== 'jump' && pose !== 'vault'),
+      grounded: intent?.grounded ?? (!flying && !isSwimming && pose !== 'jump' && pose !== 'vault'),
+      swimming: isSwimming,
+      wading: Boolean(intent?.wading) && !isSwimming && !flying,
+      swimmingState: intent?.swimmingState,
       boosting: boost, size, turn, powerPoseName: pose,
       combatTimeFactor: combatFactor, speedMode, forward, facingYaw,
       desiredSpeed: intent?.desiredSpeed, dodge: intent?.dodge ?? null,

@@ -36,6 +36,7 @@ export const CHARACTER_CLIPS = {
   vault: 'ClimbUp_1m', sitEnter: 'Sit_Enter', sitIdle: 'Sit_Idle_Loop', sitExit: 'Sit_Exit', driving: 'Driving_Loop',
   reachRight: 'Reach_R', reachLeft: 'Reach_L', push: 'Push_Loop',
   talk: 'Talk_Loop', wave: 'Wave', nodYes: 'Nod_Yes', shakeNo: 'Shake_No',
+  swimIdle: 'Swim_Idle_Loop', swimForward: 'Swim_Fwd_Loop',
 } as const;
 
 /** Hover rest engages below `enter` and only lets go above `exit`, so the pose never flickers. */
@@ -113,6 +114,7 @@ export class CharacterAnimator {
   private moveHandle: ActionHandle | null = null;
   private wasGrounded?: boolean;
   private wasFlying = false;
+  private wasSwimming = false;
   private wasDoubleJumping = false;
   private hoverRest = false;
   private lastDodge: DodgePose = null;
@@ -178,11 +180,31 @@ export class CharacterAnimator {
     } else this.hoverRest = false;
 
     const intent = this.intent;
+    const isSwimming = Boolean(params.swimming) && !params.flying;
+    const swimState = params.swimmingState ?? (
+      isSwimming
+        ? (params.speed > 0.35 || Math.abs(params.verticalSpeed) > 0.45 ? 'SwimmingSurfaceForward' : 'SwimmingSurfaceIdle')
+        : 'None'
+    );
+    graph.suppressFootsteps = isSwimming;
+
     // ---- Base layer.
     if (this.override) {
       graph.setTransition(0.3).setPose(this.override.pose, this.override.rate);
     } else if (params.flying) {
       graph.setTransition(0.35).setPose(this.hoverRest ? CHARACTER_CLIPS.hoverRest : CHARACTER_CLIPS.hoverCruise);
+    } else if (isSwimming) {
+      const hasExplicitSwimState = params.swimmingState !== undefined && params.swimmingState !== 'None';
+      const isMovingInWater = hasExplicitSwimState
+        ? (swimState === 'SwimmingSurfaceForward' || swimState === 'SwimmingDive' || swimState === 'SwimmingAscend')
+        : (params.speed > 0.35 || Math.abs(params.verticalSpeed) > 0.45);
+      if (isMovingInWater) {
+        const swim3DSpeed = Math.hypot(params.speed, params.verticalSpeed);
+        const swimRate = Math.min(1.65, Math.max(0.82, 0.78 + swim3DSpeed * 0.11));
+        graph.setTransition(0.22).setPose(CHARACTER_CLIPS.swimForward, swimRate);
+      } else {
+        graph.setTransition(0.24).setPose(CHARACTER_CLIPS.swimIdle, 1.0);
+      }
     } else if (!params.grounded) {
       graph.setTransition(0.18).setPose(CHARACTER_CLIPS.airborne);
     } else if (intent.crouch) {
@@ -190,21 +212,28 @@ export class CharacterAnimator {
     } else if (intent.strafe && graph.has(STRAFE_SET.forward)) {
       graph.setTransition(0.22).setDirectional(STRAFE_SET, { speed: params.speed, direction: intent.localDirection ?? 0 });
     } else {
-      graph.setTransition(this.wasGrounded === false ? 0.12 : 0.24).setLocomotion(GAITS, { speed: params.speed });
+      const wadeSpeed = params.wading ? params.speed * 0.88 : params.speed;
+      graph.setTransition(this.wasGrounded === false && !this.wasSwimming ? 0.12 : 0.24).setLocomotion(GAITS, { speed: wadeSpeed });
     }
 
     // ---- Edges.
-    const startedJump = this.wasGrounded === true && !params.grounded && !params.flying;
-    const landed = this.wasGrounded === false && params.grounded && !params.flying;
+    if (isSwimming && !this.wasSwimming) {
+      graph.stopTag('jump', 0.12);
+      graph.stopTag('land', 0.12);
+      graph.stopTag('flip', 0.12);
+    }
+    const startedJump = this.wasGrounded === true && !params.grounded && !params.flying && !isSwimming && !this.wasSwimming;
+    const landed = this.wasGrounded === false && !this.wasSwimming && params.grounded && !params.flying && !isSwimming;
     const tookOff = params.flying && !this.wasFlying;
-    const startedDoubleJump = doubleJumping && !this.wasDoubleJumping;
+    const startedDoubleJump = doubleJumping && !this.wasDoubleJumping && !isSwimming;
     const dodge = params.dodge ?? null;
     const startedDodge = dodge !== null && this.lastDodge !== dodge;
-    const openedOut = doubleJumping && flipPhase === 'untuck' && this.lastFlipPhase !== 'untuck';
+    const openedOut = doubleJumping && flipPhase === 'untuck' && this.lastFlipPhase !== 'untuck' && !isSwimming;
     const pose = params.powerPoseName ?? '';
     const poseStarted = pose !== this.lastPose && pose !== '';
     this.wasGrounded = params.grounded;
     this.wasFlying = params.flying;
+    this.wasSwimming = isSwimming;
     this.wasDoubleJumping = doubleJumping;
     this.lastDodge = dodge;
     this.lastFlipPhase = doubleJumping ? flipPhase : 'recovery';

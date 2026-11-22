@@ -15,12 +15,25 @@ const HOVER_SWAY = 0.045;
 
 export type DodgePose = 'roll' | 'airDash' | null;
 
+export type SwimmingVisualState =
+  | 'None'
+  | 'Wading'
+  | 'SwimmingSurfaceIdle'
+  | 'SwimmingSurfaceForward'
+  | 'SwimmingDive'
+  | 'SwimmingAscend'
+  | 'SwimmingUnderwaterIdle'
+  | 'SwimmingExit';
+
 export interface AnimationUpdateParams {
   speed: number;
   verticalSpeed: number;
   velocity: Vector3;
   flying: boolean;
   grounded: boolean;
+  swimming?: boolean;
+  wading?: boolean;
+  swimmingState?: SwimmingVisualState;
   boosting: boolean;
   size: number;
   turn: number;
@@ -43,6 +56,7 @@ export interface AnimationDebugState {
   movePhase: MovePhase; boneMask: BoneMaskName; jumpCount: number; doubleJumpProgress: number;
   flipDirection: FlipDirection; flightAlignment: number; rootPitch: number; rootBank: number;
   velocityDir: Vector3; flightMode: FlightMode; upright: number; flipPhase: FlipPhase; dodge: DodgePose;
+  swimmingState?: SwimmingVisualState;
 }
 
 /**
@@ -79,6 +93,10 @@ export class AnimationController {
   private flipPhaseName: FlipPhase = 'recovery';
   private flipTuckAmount = 0;
   private dodgePose: DodgePose = null;
+  private swimmingState: SwimmingVisualState = 'None';
+  private swimPitch = 0;
+  private readonly qSwimPitch = new Quaternion();
+  private readonly swimPitchAxis = new Vector3(1, 0, 0);
 
   get isDoubleJumping(): boolean { return this.doubleJump.active; }
   get doubleJumpProgress(): number { return this.doubleJump.progress; }
@@ -92,6 +110,7 @@ export class AnimationController {
   /** How settled the hover is, 0 to 1. Drives both the sway and the at-ease posture. */
   get restAmount(): number { return this.restPose; }
   get flipTuckAmountNow(): number { return this.flipTuckAmount; }
+  get currentSwimmingState(): SwimmingVisualState { return this.swimmingState; }
   get debugState(): AnimationDebugState {
     const total = this.currentMove ? this.currentMove.startup + this.currentMove.active + this.currentMove.recovery : 1;
     return {
@@ -108,6 +127,7 @@ export class AnimationController {
       flightAlignment: this.debugAlignment, rootPitch: this.debugPitch, rootBank: this.debugBank,
       velocityDir: this.debugVelocityDir, flightMode: this.flightMode, upright: this.upright,
       flipPhase: this.flipPhaseName, dodge: this.dodgePose,
+      swimmingState: this.swimmingState,
     };
   }
 
@@ -172,7 +192,26 @@ export class AnimationController {
       : this.flightMode === 'hover' ? 'hover' : 'cruise';
 
     const facingYaw = params.facingYaw ?? 0;
+    const isSwimming = Boolean(params.swimming) && !params.flying;
+    if (isSwimming) {
+      if (params.swimmingState && params.swimmingState !== 'None' && params.swimmingState !== 'Wading' && params.swimmingState !== 'SwimmingExit') {
+        this.swimmingState = params.swimmingState;
+      } else if (params.verticalSpeed < -0.5) {
+        this.swimmingState = 'SwimmingDive';
+      } else if (params.verticalSpeed > 0.5) {
+        this.swimmingState = 'SwimmingAscend';
+      } else if (params.speed > 0.35) {
+        this.swimmingState = 'SwimmingSurfaceForward';
+      } else {
+        this.swimmingState = 'SwimmingSurfaceIdle';
+      }
+    } else {
+      this.swimmingState = params.swimmingState ?? (params.wading ? 'Wading' : 'None');
+    }
+
     if (params.flying) {
+      this.swimPitch = 0;
+      this.qSwimPitch.identity();
       computeFlightOrientation(params.velocity, this.baseOrientation, dt, params.turn, params.speedMode ?? 'normal', this.baseOrientation, facingYaw, this.upright);
       tmpHead.set(0, 1, 0).applyQuaternion(this.baseOrientation);
       if (speed > 1e-4) {
@@ -186,7 +225,28 @@ export class AnimationController {
       this.debugBank = params.turn * (1 - this.upright);
       tmpEuler.setFromQuaternion(this.baseOrientation, 'YXZ');
       this.debugPitch = tmpEuler.x;
+    } else if (isSwimming) {
+      this.targetYaw.setFromAxisAngle(up, facingYaw);
+      this.baseOrientation.slerp(this.targetYaw, 1 - Math.exp(-dt * 10));
+      let targetSwimPitch = 0;
+      if (this.swimmingState === 'SwimmingDive' || params.verticalSpeed < -0.45) {
+        targetSwimPitch = Math.min(0.55, Math.max(0.14, -params.verticalSpeed * 0.075));
+      } else if (this.swimmingState === 'SwimmingAscend' || params.verticalSpeed > 0.45) {
+        targetSwimPitch = Math.max(-0.42, Math.min(-0.10, -params.verticalSpeed * 0.055));
+      }
+      this.swimPitch += (targetSwimPitch - this.swimPitch) * (1 - Math.exp(-dt * 8));
+      this.qSwimPitch.setFromAxisAngle(this.swimPitchAxis, this.swimPitch);
+      this.debugAlignment = 1;
+      this.debugBank = 0;
+      this.debugPitch = this.swimPitch;
     } else {
+      this.swimPitch *= Math.exp(-dt * 14);
+      if (Math.abs(this.swimPitch) < 1e-4) {
+        this.swimPitch = 0;
+        this.qSwimPitch.identity();
+      } else {
+        this.qSwimPitch.setFromAxisAngle(this.swimPitchAxis, this.swimPitch);
+      }
       this.targetYaw.setFromAxisAngle(up, facingYaw);
       this.baseOrientation.slerp(this.targetYaw, 1 - Math.exp(-dt * 12));
       this.debugAlignment = 1; this.debugBank = 0; this.debugPitch = 0;
@@ -203,6 +263,9 @@ export class AnimationController {
       const resting = this.upright * (1 - Math.min(1, speed / 12));
       this.restPose += (resting - this.restPose) * (1 - Math.exp(-dt * 5));
       if (this.restPose > 0.002) this.bodyOffset.y = Math.sin(this.hoverTime * 1.15) * HOVER_SWAY * this.restPose;
+    } else if (isSwimming && (this.swimmingState === 'SwimmingSurfaceIdle' || this.swimmingState === 'SwimmingUnderwaterIdle')) {
+      this.restPose += (1 - this.restPose) * (1 - Math.exp(-dt * 5));
+      this.bodyOffset.y = Math.sin(this.hoverTime * 1.65) * 0.032 * this.restPose;
     } else {
       // Feet on the ground means exactly zero offset. Decaying it instead would leave the
       // character standing a few centimetres above or below the surface for a third of a second.
@@ -210,10 +273,17 @@ export class AnimationController {
     }
 
     this.updateDoubleJump(dt);
-    this.rootOrientation.copy(this.baseOrientation).multiply(this.qFlip);
+    this.rootOrientation.copy(this.baseOrientation).multiply(this.qSwimPitch).multiply(this.qFlip);
+    const hasExplicitSwimState = params.swimmingState !== undefined && params.swimmingState !== 'None';
+    const swimClipName = (
+      hasExplicitSwimState
+        ? (this.swimmingState === 'SwimmingSurfaceForward' || this.swimmingState === 'SwimmingDive' || this.swimmingState === 'SwimmingAscend')
+        : (params.speed > 0.35 || Math.abs(params.verticalSpeed) > 0.45)
+    ) ? 'Swim_Fwd_Loop' : 'Swim_Idle_Loop';
     this.locomotion = this.dodgePose ? this.dodgePose
       : this.doubleJump.active ? 'doubleJump'
       : params.flying ? this.flightPose
+      : isSwimming ? swimClipName
       : !params.grounded ? 'airborne'
       : params.speed > 8 ? 'run' : params.speed > 0.4 ? 'walk' : 'idle';
     this.locomotionTime += dt;
@@ -228,7 +298,7 @@ export class AnimationController {
     if (!delta) return;
     this.targetYaw.setFromAxisAngle(up, delta);
     this.baseOrientation.premultiply(this.targetYaw);
-    this.rootOrientation.copy(this.baseOrientation).multiply(this.qFlip);
+    this.rootOrientation.copy(this.baseOrientation).multiply(this.qSwimPitch).multiply(this.qFlip);
   }
 
   /** Severity of the last landing, for the animator's landing choice. */

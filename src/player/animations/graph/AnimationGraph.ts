@@ -222,6 +222,8 @@ export class AnimationGraph {
   worldScale = 1;
   /** Footstep notifies from locomotion (foot plants in the catalogue). */
   onFootstep?: (foot: 'l' | 'r', strength: number) => void;
+  /** Suspended while free-swimming so water locomotion never fires terrestrial footstep events. */
+  suppressFootsteps = false;
   private readonly entries = new Map<string, ClipEntry>();
   private readonly states: BaseState[] = [];
   private stateFade = 0.2;
@@ -405,7 +407,7 @@ export class AnimationGraph {
   }
 
   private emitFootsteps(state: BaseState, gaitNames: readonly string[], weights: Map<string, number>): void {
-    if (!this.onFootstep || state !== this.target) { this.lastPhase = state.phase; return; }
+    if (!this.onFootstep || this.suppressFootsteps || state !== this.target) { this.lastPhase = state.phase; return; }
     const prev = this.lastPhase, now = state.phase;
     this.lastPhase = now;
     const movingWeight = gaitNames.reduce((s, n) => s + (weights.get(n) ?? 0), 0);

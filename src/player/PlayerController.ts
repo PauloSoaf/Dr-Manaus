@@ -14,6 +14,7 @@ import type { FlipDirection } from './animations/types';
 import { DodgeSystem, type DodgeKind } from './movement/DodgeSystem';
 import { resolveContactImpact, type ImpactResult } from './combat/MeteorImpact';
 import { manausBathymetry, type PlayerSubmersionState } from '../world/water/ManausBathymetry';
+import type { SwimmingVisualState } from './animations/AnimationController';
 
 /** Fraction of the run speed the somersault throws forward, so the flip travels. */
 const DOUBLE_JUMP_CARRY = 0.45;
@@ -47,9 +48,11 @@ export class PlayerController {
   onDamageTaken?: (amount: number, health: number, shield: number, reason: string) => void;
   onDeath?: (reason: string) => void;
   state: 'Grounded' | 'Falling' | 'Hover' | 'Flight' | 'Swimming' = 'Grounded';
+  swimmingVisualState: SwimmingVisualState = 'None';
   submersion: PlayerSubmersionState = manausBathymetry.evaluateSubmersion(this.position, 1.8, 0);
   waterVolumeActive = true;
   onRiverbed = false;
+  private swimExitTimer = 0;
   facingYaw = 0;
   size = 1;
   speedMultiplier = 1;
@@ -288,27 +291,20 @@ export class PlayerController {
       this.toggleFlight();
     }
     const wasSwimming = this.state === 'Swimming';
-
-    // Sample shared Manaus bathymetry & water volume authority
-    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
-    const swimThresholdDepth = 1.15 * this.size;
-    const inDeepWater = this.waterVolumeActive && this.submersion.inWater && this.submersion.totalWaterDepthM >= swimThresholdDepth;
-
-    // If the player flies down onto the river surface (and isn't within the takeoff grace window or holding Space),
-    // automatically splash down into Swimming at the water surface instead of flying through the water into a void
-    if (
-      this.isFlying
-      && inDeepWater
-      && this.flightTakeoffGraceS <= 0
-      && this.slamTimer <= 0
-      && this.position.y <= this.submersion.surfaceY + 0.05
-      && !this.input.held('Space')
-    ) {
-      this.state = 'Swimming';
-    }
     const flying = this.isFlying;
-    const isSwimming = !flying && inDeepWater && this.position.y <= this.submersion.surfaceY + 0.05;
-    const isWading = !flying && this.waterVolumeActive && this.submersion.inWater && !inDeepWater && this.submersion.feetSubmerged;
+
+    // Sample shared Manaus bathymetry & water volume authority with hysteresis near shoreline and surface
+    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
+    const swimDepthEnter = 1.15 * this.size;
+    const swimDepthStay = 0.90 * this.size;
+    const swimSurfaceEnter = 0.06 * this.size;
+    const swimSurfaceStay = 0.32 * this.size;
+    const activeDepthThreshold = wasSwimming ? swimDepthStay : swimDepthEnter;
+    const activeSurfaceMargin = wasSwimming ? swimSurfaceStay : swimSurfaceEnter;
+
+    const inDeepWater = this.waterVolumeActive && this.submersion.inWater && this.submersion.totalWaterDepthM >= activeDepthThreshold;
+    const isSwimming = !flying && inDeepWater && this.position.y <= this.submersion.surfaceY + activeSurfaceMargin;
+    const isWading = !flying && !isSwimming && this.waterVolumeActive && this.submersion.inWater && this.submersion.feetSubmerged;
 
     const boosting = isB;
     const sprinting = isShift;
@@ -488,10 +484,13 @@ export class PlayerController {
       !flying ? 0.55 * this.size : 0
     );
 
-    // Re-evaluate submersion at post-move coordinates
+    // Re-evaluate submersion at post-move coordinates with hysteresis
     this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
-    const nowDeepWater = this.waterVolumeActive && this.submersion.inWater && this.submersion.totalWaterDepthM >= swimThresholdDepth;
-    const nowSwimming = !flying && nowDeepWater && this.position.y <= this.submersion.surfaceY + 0.05;
+    const postDepthThreshold = (wasSwimming || isSwimming) ? swimDepthStay : swimDepthEnter;
+    const postSurfaceMargin = (wasSwimming || isSwimming) ? swimSurfaceStay : swimSurfaceEnter;
+    const nowDeepWater = this.waterVolumeActive && this.submersion.inWater && this.submersion.totalWaterDepthM >= postDepthThreshold;
+    const nowSwimming = !flying && nowDeepWater && this.position.y <= this.submersion.surfaceY + postSurfaceMargin;
+    const nowWading = !flying && !nowSwimming && this.waterVolumeActive && this.submersion.inWater && this.submersion.feetSubmerged;
     this.onRiverbed = this.submersion.inWater && this.position.y <= this.submersion.riverbedY + 0.08 * this.size;
 
     // Evaluate titan ground support and fall animation suppression
@@ -508,6 +507,36 @@ export class PlayerController {
       this.state = 'Grounded';
     } else if (!flying) {
       this.state = 'Falling';
+    }
+
+    // Resolve explicit visual swimming state for CharacterAnimator
+    const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (nowSwimming) {
+      this.swimExitTimer = 0;
+      const wantsDiveNow = this.input.held('ControlLeft') || this.input.held('ControlRight') || this.input.held('KeyC') || this.input.held('KeyZ');
+      const wantsAscendNow = this.input.held('Space');
+      const isDeepSubmerged = this.position.y < this.submersion.surfaceY - 1.55 * this.size;
+      if (wantsDiveNow || (isDeepSubmerged && this.velocity.y < -1.1 * sizeSpeed)) {
+        this.swimmingVisualState = 'SwimmingDive';
+      } else if ((wantsAscendNow && this.position.y < this.submersion.surfaceY - 1.30 * this.size) || (isDeepSubmerged && this.velocity.y > 1.1 * sizeSpeed)) {
+        this.swimmingVisualState = 'SwimmingAscend';
+      } else if (isDeepSubmerged) {
+        this.swimmingVisualState = horizontalSpeed > 0.35 ? 'SwimmingSurfaceForward' : 'SwimmingUnderwaterIdle';
+      } else if (horizontalSpeed > 0.35) {
+        this.swimmingVisualState = 'SwimmingSurfaceForward';
+      } else {
+        this.swimmingVisualState = 'SwimmingSurfaceIdle';
+      }
+    } else if (wasSwimming && !flying) {
+      this.swimExitTimer = 0.25;
+      this.swimmingVisualState = 'SwimmingExit';
+    } else if (this.swimExitTimer > 0 && !flying) {
+      this.swimExitTimer = Math.max(0, this.swimExitTimer - dt);
+      this.swimmingVisualState = this.swimExitTimer > 0 ? 'SwimmingExit' : (nowWading ? 'Wading' : 'None');
+    } else if (nowWading) {
+      this.swimmingVisualState = 'Wading';
+    } else {
+      this.swimmingVisualState = 'None';
     }
 
     // Contact impact craters only on dry land or high-speed meteor strikes
@@ -527,17 +556,16 @@ export class PlayerController {
     this.poseTime -= dt;
     if (this.poseTime <= 0) this.pose = '';
 
-    const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
     const bank = horizontalSpeed > 2 ? Math.sin(Math.atan2(-this.velocity.x, -this.velocity.z) - this.facingYaw) : 0;
 
-    // Titan Fall visual check: giants only show jump/fall pose if supportInfo.isFallingVisually
-    const showFallAnimation = !nowSwimming && (this.size >= 4
+    // Titan Fall visual check: never trigger jump/fall pose while swimming or diving
+    const showFallAnimation = !nowSwimming && !wasSwimming && (this.size >= 4
       ? supportInfo.isFallingVisually
       : (!flying && !this.grounded));
 
     this.character.animate(
       dt,
-      Math.hypot(this.velocity.x, this.velocity.z) / sizeSpeed,
+      horizontalSpeed / sizeSpeed,
       flying,
       sprinting,
       this.pose || (showFallAnimation ? 'jump' : ''),
@@ -549,7 +577,14 @@ export class PlayerController {
       this.speedMode,
       this.forward,
       this.facingYaw,
-      { desiredSpeed: this.desiredSpeed, grounded: this.grounded || nowSwimming, dodge: this.dodge.kind },
+      {
+        desiredSpeed: this.desiredSpeed,
+        grounded: this.grounded && !nowSwimming,
+        swimming: nowSwimming,
+        wading: nowWading,
+        swimmingState: this.swimmingVisualState,
+        dodge: this.dodge.kind,
+      },
     );
 
     this.model.position.copy(this.position);
@@ -688,10 +723,14 @@ export class PlayerController {
     this.model.position.copy(position);
     this.submersion = manausBathymetry.evaluateSubmersion(position, 1.8 * this.size, this.armClockS);
     if (this.waterVolumeActive && this.submersion.inWater && position.y <= this.submersion.surfaceY + 0.5) {
-      this.state = this.submersion.totalWaterDepthM >= 1.15 * this.size ? 'Swimming' : 'Grounded';
+      const isDeep = this.submersion.totalWaterDepthM >= 1.15 * this.size;
+      this.state = isDeep ? 'Swimming' : 'Grounded';
+      this.swimmingVisualState = isDeep ? 'SwimmingSurfaceIdle' : (this.submersion.feetSubmerged ? 'Wading' : 'None');
     } else {
       this.state = position.y > PhysicsWorld.terrainHeight(position.x, position.z, 0.32 * this.size) + 1 ? 'Hover' : 'Grounded';
+      this.swimmingVisualState = 'None';
     }
+    this.swimExitTimer = 0;
     this.grounded = false;
     this.jumps = 0;
     this.slamTimer = 0;

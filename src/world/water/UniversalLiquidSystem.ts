@@ -134,6 +134,48 @@ export interface GerstnerWaveHarmonic {
   steepness: number;
 }
 
+export type WaterWaveProfileId =
+  | 'RIO_NEGRO_CALM'
+  | 'RIO_NEGRO_WINDY'
+  | 'SOLIMOES_CURRENT'
+  | 'TERRESTRIAL_OCEAN';
+
+/**
+ * Shared parameterized Gerstner wave profiles used identically by CPU physics/buoyancy
+ * and GPU TSL shaders across UniversalLiquidSystem, ManausHydrology, and WaterSystem.
+ */
+export const WATER_WAVE_PROFILES: Readonly<Record<WaterWaveProfileId, readonly GerstnerWaveHarmonic[]>> = {
+  RIO_NEGRO_CALM: [
+    { direction: [0.92, 0.38], amplitude: 0.16, wavelength: 42.0, speed: 1.15, steepness: 0.38 },
+    { direction: [-0.35, 0.94], amplitude: 0.09, wavelength: 22.0, speed: 1.45, steepness: 0.34 },
+    { direction: [0.55, -0.83], amplitude: 0.05, wavelength: 11.5, speed: 1.95, steepness: 0.28 },
+    { direction: [-0.88, -0.47], amplitude: 0.025, wavelength: 5.2, speed: 2.60, steepness: 0.22 },
+  ],
+  RIO_NEGRO_WINDY: [
+    { direction: [0.92, 0.38], amplitude: 0.28, wavelength: 42.0, speed: 1.15, steepness: 0.45 },
+    { direction: [-0.35, 0.94], amplitude: 0.16, wavelength: 22.0, speed: 1.45, steepness: 0.40 },
+    { direction: [0.55, -0.83], amplitude: 0.09, wavelength: 11.5, speed: 1.95, steepness: 0.35 },
+    { direction: [-0.88, -0.47], amplitude: 0.05, wavelength: 5.2, speed: 2.60, steepness: 0.30 },
+  ],
+  SOLIMOES_CURRENT: [
+    { direction: [0.95, 0.31], amplitude: 0.22, wavelength: 38.0, speed: 1.30, steepness: 0.42 },
+    { direction: [-0.28, 0.96], amplitude: 0.13, wavelength: 20.0, speed: 1.60, steepness: 0.38 },
+    { direction: [0.62, -0.78], amplitude: 0.075, wavelength: 10.5, speed: 2.10, steepness: 0.32 },
+    { direction: [-0.84, -0.54], amplitude: 0.04, wavelength: 5.0, speed: 2.75, steepness: 0.26 },
+  ],
+  TERRESTRIAL_OCEAN: [
+    { direction: [0.89, 0.45], amplitude: 0.55, wavelength: 68.0, speed: 1.35, steepness: 0.45 },
+    { direction: [-0.42, 0.91], amplitude: 0.28, wavelength: 34.0, speed: 1.70, steepness: 0.40 },
+    { direction: [0.60, -0.80], amplitude: 0.14, wavelength: 16.0, speed: 2.30, steepness: 0.35 },
+    { direction: [-0.85, -0.52], amplitude: 0.07, wavelength: 7.5, speed: 3.10, steepness: 0.30 },
+  ],
+};
+
+export function getWaveSpectrumForProfile(profileId: WaterWaveProfileId): GerstnerWaveHarmonic[] {
+  const source = WATER_WAVE_PROFILES[profileId] ?? WATER_WAVE_PROFILES.RIO_NEGRO_CALM;
+  return source.map(w => ({ ...w, direction: [w.direction[0], w.direction[1]] }));
+}
+
 /**
  * Procedural harmonic wave spectrum for planetary surfaces.
  */

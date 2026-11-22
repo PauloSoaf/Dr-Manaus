@@ -224,9 +224,10 @@ export class ManausBathymetryService {
         dist = Math.min(dist, polyDist);
       }
 
-      // Beyond the 768m local search window inside the wide Rio Negro, blend smoothly with macro channel distance
-      if (inWater && dist >= maxCells * 128 - 16 && macroWaterDist > dist) {
-        dist = Math.max(dist, macroWaterDist);
+      // Beyond the local search window inside the wide Rio Negro, blend smoothly with macro channel distance
+      if (inWater && macroWaterDist > dist) {
+        const blend = smoothstep((maxCells - 1) * 128, maxCells * 128, dist);
+        dist = dist + (macroWaterDist - dist) * blend;
       }
 
       return inWater ? dist : -dist;
@@ -243,10 +244,10 @@ export class ManausBathymetryService {
    * Excavated physical 3D riverbed elevation `bedY(x, z)` in meters.
    * - On dry land (`!isWater(x, z)`): returns `0.0 m` (matches `MANAUS_GROUND_COVER_Y`).
    * - At the shoreline (`d = 0 m`): starts continuously at `0.0 m`.
-   * - Shallow wading zone (`0..14 m`): gentle slope `0.0 m -> -2.1 m` (player can walk in/out).
-   * - Near-shore sandbar shelf (`14..65 m`): slopes `-2.1 m -> -8.8 m`.
-   * - Intermediate channel (`65..220 m`): slopes `-8.8 m -> -19.2 m`.
-   * - Main thalweg fairway (`220..620 m+`): descends `-19.2 m -> -26.8 m` with deterministic
+   * - Shallow wading zone (`0..24 m`): gentle slope `0.0 m -> -1.85 m` (player can walk in/out).
+   * - Near-shore sandbar shelf (`24..85 m`): slopes `-1.85 m -> -7.5 m`.
+   * - Intermediate channel (`85..240 m`): slopes `-7.5 m -> -18.5 m`.
+   * - Main thalweg fairway (`240..640 m+`): descends `-18.5 m -> -27.0 m` with deterministic
    *   sub-aquatic dunes and valley relief (down to `-28.8 m`).
    *
    * Procedural bathymetric estimate based on Overture river boundaries.
@@ -257,23 +258,23 @@ export class ManausBathymetryService {
 
     const d = Math.max(0, this.sampleSignedShoreDistance(x, z));
 
-    // Zone 1: Shallow wading bank (0m to 14m from shore) -> 0.0m to -2.1m
+    // Zone 1: Shallow wading bank (0m to 24m from shore) -> 0.0m to -1.85m
     // Linear-to-smooth progression so a character can walk smoothly down the bank into the water
-    const t1 = clamp(d / 14.0, 0, 1);
-    const depth1 = 2.1 * (0.65 * t1 + 0.35 * t1 * t1);
+    const t1 = clamp(d / 24.0, 0, 1);
+    const depth1 = 1.85 * (0.65 * t1 + 0.35 * t1 * t1);
 
-    // Zone 2: Near-shore shelf (14m to 65m) -> adds up to 6.7m (total -8.8m)
-    const depth2 = 6.7 * smoothstep(14.0, 65.0, d);
+    // Zone 2: Near-shore shelf (24m to 85m) -> adds up to 5.65m (total -7.5m)
+    const depth2 = 5.65 * smoothstep(24.0, 85.0, d);
 
-    // Zone 3: Intermediate channel slope (65m to 220m) -> adds up to 10.4m (total -19.2m)
-    const depth3 = 10.4 * smoothstep(65.0, 220.0, d);
+    // Zone 3: Intermediate channel slope (85m to 240m) -> adds up to 11.0m (total -18.5m)
+    const depth3 = 11.0 * smoothstep(85.0, 240.0, d);
 
-    // Zone 4: Main shipping channel / thalweg (220m to 620m) -> adds up to 7.6m (total -26.8m)
-    const depth4 = 7.6 * smoothstep(220.0, 620.0, d);
+    // Zone 4: Main shipping channel / thalweg (240m to 640m) -> adds up to 8.5m (total -27.0m)
+    const depth4 = 8.5 * smoothstep(240.0, 640.0, d);
 
     // Deterministic sub-aquatic geomorphology (submerged sandwaves, ridges & thalweg troughs)
-    // Attenuated to 0 near the shoreline (d < 8m) so the shoreline seam stays strictly at Y = 0.0m
-    const reliefAmp = smoothstep(8.0, 85.0, d);
+    // Attenuated to 0 near the shoreline (d < 12m) so the shoreline seam stays strictly at Y = 0.0m
+    const reliefAmp = smoothstep(12.0, 95.0, d);
     const duneWave1 = Math.sin(x * 0.0042 + z * 0.0031) * Math.cos(x * 0.0027 - z * 0.0048) * 1.45;
     const duneWave2 = Math.sin(x * 0.0135 - z * 0.0112) * 0.65;
     const relief = (duneWave1 + duneWave2) * reliefAmp;
@@ -356,6 +357,35 @@ export class ManausBathymetryService {
       headSubmerged,
       completelySubmerged,
     };
+  }
+
+  /**
+   * Locates the exact shoreline Z coordinate at a given X where `isWater(x, z)` transitions from false to true.
+   */
+  findShorelineZ(x: number, zMin = 800, zMax = 3000, stepM = 0.5): number {
+    const step = Math.max(0.1, stepM);
+    for (let z = zMin; z <= zMax; z += step) {
+      if (this.isWater(x, z)) return z;
+    }
+    return shoreZ(x);
+  }
+
+  /**
+   * High-resolution (0.5m..2m) shoreline profile sampler spanning from dry land across the shoreline
+   * into the shallow wading zone and near-shore shelf.
+   */
+  sampleDenseShorelineProfile(
+    x: number,
+    landMarginM = 10,
+    waterSpanM = 60,
+    stepM = 1.0,
+    timeSec = 0,
+  ): BathymetryCrossSectionPoint[] {
+    const bankZ = this.findShorelineZ(x, 800, 3200, 0.5);
+    const zStart = bankZ - Math.max(1, landMarginM);
+    const zEnd = bankZ + Math.max(2, waterSpanM);
+    const steps = Math.max(4, Math.round((zEnd - zStart) / Math.max(0.25, stepM)) + 1);
+    return this.sampleCrossSection(x, zStart, zEnd, steps, timeSec);
   }
 
   /**
