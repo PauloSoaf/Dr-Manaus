@@ -139,6 +139,46 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
     emitRiverbedVertex(x0, z1);
   }
 
+  /**
+   * Adaptive bed refinement for the central corridor. A block is split while the linear surface
+   * through its corners (the exact triangles that get rendered) deviates from the bathymetry field
+   * by more than BED_TOLERANCE_M at its edge midpoints, centre or quarter points. Shoreline blocks
+   * (any land sample) always refine down to SHORE_QUAD_M so land/water seams stay at Y = 0.
+   */
+  const BED_TOLERANCE_M = 0.12, BED_MIN_QUAD_M = 8, SHORE_QUAD_M = 16;
+  function emitBedAdaptive(x0: number, z0: number, size: number, lr: number, lg: number, lb: number) {
+    const x1 = x0 + size, z1 = z0 + size, mx = x0 + size / 2, mz = z0 + size / 2;
+    const l00 = isLand(x0, z0), l10 = isLand(x1, z0), l11 = isLand(x1, z1), l01 = isLand(x0, z1), lcc = isLand(mx, mz);
+    if (l00 && l10 && l11 && l01 && lcc) { emitLandQuad(x0, z0, x1, z1, lr, lg, lb); return; }
+    const anyLand = l00 || l10 || l11 || l01 || lcc;
+    if (anyLand) {
+      if (size > SHORE_QUAD_M) { splitBed(x0, z0, size, lr, lg, lb); return; }
+      emitRiverbedQuad(x0, z0, x1, z1);
+      return;
+    }
+    if (size > BED_MIN_QUAD_M) {
+      const h = (x: number, z: number) => manausBathymetry.sampleRiverbedHeight(x, z);
+      const h00 = h(x0, z0), h10 = h(x1, z0), h11 = h(x1, z1), h01 = h(x0, z1);
+      const q = size / 4;
+      // Triangles are (00,10,11) and (00,11,01): the diagonal runs 00 -> 11.
+      const probes: Array<[number, number, number]> = [
+        [mx, z0, (h00 + h10) / 2], [x1, mz, (h10 + h11) / 2], [mx, z1, (h01 + h11) / 2], [x0, mz, (h00 + h01) / 2],
+        [mx, mz, (h00 + h11) / 2],
+        [x0 + q * 3, z0 + q, h00 * 0.25 + h10 * 0.5 + h11 * 0.25],
+        [x0 + q, z0 + q * 3, h00 * 0.25 + h01 * 0.5 + h11 * 0.25],
+      ];
+      let worst = 0;
+      for (const [px, pz, expected] of probes) worst = Math.max(worst, Math.abs(h(px, pz) - expected));
+      if (worst > BED_TOLERANCE_M) { splitBed(x0, z0, size, lr, lg, lb); return; }
+    }
+    emitRiverbedQuad(x0, z0, x1, z1);
+  }
+  function splitBed(x0: number, z0: number, size: number, lr: number, lg: number, lb: number) {
+    const half = size / 2;
+    emitBedAdaptive(x0, z0, half, lr, lg, lb); emitBedAdaptive(x0 + half, z0, half, lr, lg, lb);
+    emitBedAdaptive(x0, z0 + half, half, lr, lg, lb); emitBedAdaptive(x0 + half, z0 + half, half, lr, lg, lb);
+  }
+
   for (let z = -REACH; z < REACH; z += CELL) {
     for (let x = -REACH; x < REACH; x += CELL) {
       const cx = x + CELL * 0.5, cz = z + CELL * 0.5;
@@ -183,10 +223,10 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
         continue;
       }
 
-      // 3. Coastal boundary or near-corridor river cell: subdivide into 64m quads,
-      // and refine immediate shoreline / shallow wading margin into 16m micro-quads
+      // 3. Coastal boundary or near-corridor river cell: 64m blocks. Inside the central corridor each
+      // block is refined adaptively against the real bathymetry field (see emitBedAdaptive), so the
+      // rendered bed cannot drift away from the collision field by more than BED_TOLERANCE_M.
       const SUB = 64;
-      const COAST_SUB = 16;
       const isCentralShoreCorridor = Math.abs(cx) <= 8192 && cz >= -2048 && cz <= 6144;
       for (let sz = z; sz < z + CELL; sz += SUB) {
         for (let sx = x; sx < x + CELL; sx += SUB) {
@@ -198,25 +238,8 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
 
           if (s00 && s10 && s11 && s01 && scc) {
             emitLandQuad(sx, sz, sx + SUB, sz + SUB, r, g, b);
-          } else if (
-            isCentralShoreCorridor
-            && ((s00 || s10 || s11 || s01 || scc)
-              || Math.abs(manausBathymetry.sampleSignedShoreDistance(sx + SUB * 0.5, sz + SUB * 0.5)) <= 72)
-          ) {
-            for (let czSub = sz; czSub < sz + SUB; czSub += COAST_SUB) {
-              for (let cxSub = sx; cxSub < sx + SUB; cxSub += COAST_SUB) {
-                const k00 = isLand(cxSub, czSub);
-                const k10 = isLand(cxSub + COAST_SUB, czSub);
-                const k11 = isLand(cxSub + COAST_SUB, czSub + COAST_SUB);
-                const k01 = isLand(cxSub, czSub + COAST_SUB);
-                const kcc = isLand(cxSub + COAST_SUB * 0.5, czSub + COAST_SUB * 0.5);
-                if (k00 && k10 && k11 && k01 && kcc) {
-                  emitLandQuad(cxSub, czSub, cxSub + COAST_SUB, czSub + COAST_SUB, r, g, b);
-                } else {
-                  emitRiverbedQuad(cxSub, czSub, cxSub + COAST_SUB, czSub + COAST_SUB);
-                }
-              }
-            }
+          } else if (isCentralShoreCorridor) {
+            emitBedAdaptive(sx, sz, SUB, r, g, b);
           } else {
             emitRiverbedQuad(sx, sz, sx + SUB, sz + SUB);
           }

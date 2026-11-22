@@ -291,10 +291,25 @@ export class PlayerController {
       this.toggleFlight();
     }
     const wasSwimming = this.state === 'Swimming';
+    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
+
+    // Descending cosmic flight that reaches the river surface (outside the take-off grace window,
+    // not climbing with Space, not mid-slam) splashes down into Swimming instead of flying through
+    // the water column. Voluntary flight above the surface is never overridden.
+    if (
+      this.isFlying
+      && this.waterVolumeActive && this.submersion.inWater
+      && this.submersion.totalWaterDepthM >= 1.15 * this.size
+      && this.flightTakeoffGraceS <= 0
+      && this.slamTimer <= 0
+      && this.position.y <= this.submersion.surfaceY + 0.05
+      && !this.input.held('Space')
+    ) {
+      this.state = 'Swimming';
+    }
     const flying = this.isFlying;
 
     // Sample shared Manaus bathymetry & water volume authority with hysteresis near shoreline and surface
-    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
     const swimDepthEnter = 1.15 * this.size;
     const swimDepthStay = 0.90 * this.size;
     const swimSurfaceEnter = 0.06 * this.size;

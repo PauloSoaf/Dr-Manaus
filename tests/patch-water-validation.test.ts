@@ -335,6 +335,7 @@ describe('PATCH WATER-01..WATER-04A Complete Physical Riverbed, Swimming & Wave 
       assert.strictEqual(player.swimmingVisualState, 'SwimmingSurfaceIdle');
       assert.strictEqual(player.character.animationDebug?.clip, 'Swim_Idle_Loop', 'Stationary swimmer must play Swim_Idle_Loop');
       assert.strictEqual(player.character.animationController.debugState.currentAnimation, 'Swim_Idle_Loop');
+      assert.ok(player.character.animationController.bodyOffset.y > 1.0, 'Swim visual lift must align waterline origin to water surface');
 
       // 3. Deep water forward swimming (KeyW + ShiftLeft): SwimmingSurfaceForward -> Swim_Fwd_Loop (never Jog/Sprint!)
       input.setHeld('KeyW', true);
@@ -358,6 +359,7 @@ describe('PATCH WATER-01..WATER-04A Complete Physical Riverbed, Swimming & Wave 
       }
       assert.strictEqual(player.swimmingVisualState, 'SwimmingDive');
       assert.strictEqual(player.character.animationDebug?.clip, 'Swim_Fwd_Loop');
+      assert.ok(player.character.animationController.debugState.rootPitch < -0.2, 'Diving must pitch body downward (-X rotation)');
       for (let i = 0; i < 150; i++) player.update(1 / 30, [], 0, 0);
       input.setHeld('ControlLeft', false);
 
@@ -373,6 +375,7 @@ describe('PATCH WATER-01..WATER-04A Complete Physical Riverbed, Swimming & Wave 
         assert.notStrictEqual(player.character.animationDebug?.clip, 'Sprint_Loop');
       }
       assert.strictEqual(player.swimmingVisualState, 'SwimmingAscend');
+      assert.ok(player.character.animationController.debugState.rootPitch > 0.25, 'Ascending must pitch body upward (+X rotation)');
       for (let i = 0; i < 150; i++) player.update(1 / 30, [], 0, 0);
       input.setHeld('Space', false);
       assert.ok(player.position.y > surfaceY - 1.6, 'Swimmer must return to surface');
@@ -386,6 +389,7 @@ describe('PATCH WATER-01..WATER-04A Complete Physical Riverbed, Swimming & Wave 
       input.setHeld('KeyW', false);
       assert.strictEqual(player.state, 'Grounded');
       assert.strictEqual(player.swimmingVisualState, 'None');
+      assert.strictEqual(player.character.animationController.bodyOffset.y, 0, 'Terrestrial ground contact must have zero bodyOffset.y');
       assert.ok(
         ['Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop'].includes(player.character.animationDebug?.clip ?? ''),
         `Exiting water onto land must restore terrestrial locomotion (got ${player.character.animationDebug?.clip})`,

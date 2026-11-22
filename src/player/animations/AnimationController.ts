@@ -95,6 +95,7 @@ export class AnimationController {
   private dodgePose: DodgePose = null;
   private swimmingState: SwimmingVisualState = 'None';
   private swimPitch = 0;
+  private swimVisualLift = 0;
   private readonly qSwimPitch = new Quaternion();
   private readonly swimPitchAxis = new Vector3(1, 0, 0);
 
@@ -228,11 +229,16 @@ export class AnimationController {
     } else if (isSwimming) {
       this.targetYaw.setFromAxisAngle(up, facingYaw);
       this.baseOrientation.slerp(this.targetYaw, 1 - Math.exp(-dt * 10));
+      // In flightRoot local space (-Z forward, +Y up, +X right):
+      // Positive X rotation tilts the forward (-Z) head UPWARD; negative X rotation tilts the head DOWNWARD.
+      // Swim_Fwd_Loop has a baked -11 deg (-0.19 rad) downward spine tilt, so +0.22 rad levels the swimmer at the surface.
       let targetSwimPitch = 0;
-      if (this.swimmingState === 'SwimmingDive' || params.verticalSpeed < -0.45) {
-        targetSwimPitch = Math.min(0.55, Math.max(0.14, -params.verticalSpeed * 0.075));
-      } else if (this.swimmingState === 'SwimmingAscend' || params.verticalSpeed > 0.45) {
-        targetSwimPitch = Math.max(-0.42, Math.min(-0.10, -params.verticalSpeed * 0.055));
+      if (this.swimmingState === 'SwimmingDive') {
+        targetSwimPitch = -Math.min(0.45, Math.max(0.24, Math.abs(params.verticalSpeed) * 0.06));
+      } else if (this.swimmingState === 'SwimmingAscend') {
+        targetSwimPitch = Math.min(0.58, Math.max(0.32, Math.abs(params.verticalSpeed) * 0.07 + 0.22));
+      } else if (this.swimmingState === 'SwimmingSurfaceForward') {
+        targetSwimPitch = 0.22;
       }
       this.swimPitch += (targetSwimPitch - this.swimPitch) * (1 - Math.exp(-dt * 8));
       this.qSwimPitch.setFromAxisAngle(this.swimPitchAxis, this.swimPitch);
@@ -252,6 +258,22 @@ export class AnimationController {
       this.debugAlignment = 1; this.debugBank = 0; this.debugPitch = 0;
     }
 
+    // Quaternius authored Swim_Idle_Loop (pelvis.z = -0.297) and Swim_Fwd_Loop (pelvis.z = -0.045)
+    // with root (0,0,0) at the water surface rather than at the soles of the feet (Idle_Loop pelvis.z = +0.91).
+    // Compensate visualRoot height while swimming so the character's head/shoulders sit at the water surface
+    // while the physical capsule feet remain at `player.position.y = surfaceY - 1.18 * size`.
+    if (isSwimming) {
+      const targetLift = (this.swimmingState === 'SwimmingSurfaceIdle' || this.swimmingState === 'SwimmingUnderwaterIdle')
+        ? 1.22
+        : 1.12;
+      this.swimVisualLift += (targetLift - this.swimVisualLift) * (1 - Math.exp(-dt * 10));
+    } else if (params.grounded || params.flying) {
+      this.swimVisualLift = 0;
+    } else {
+      this.swimVisualLift *= Math.exp(-dt * 12);
+      if (this.swimVisualLift < 1e-3) this.swimVisualLift = 0;
+    }
+
     // Resting in the air is the one state with nothing else moving the body, so it gets a slow
     // sway. It rides `bodyOffset`, which is visual only and never touches the collider.
     this.hoverTime += dt;
@@ -259,17 +281,22 @@ export class AnimationController {
       // A strike or an evade owns the whole body. Easing the posture out instead of dropping it
       // lets the at-ease pose fight the first frames of a kick, which bends the leg sideways.
       this.restPose = 0;
+      this.bodyOffset.y = this.swimVisualLift;
     } else if (params.flying) {
       const resting = this.upright * (1 - Math.min(1, speed / 12));
       this.restPose += (resting - this.restPose) * (1 - Math.exp(-dt * 5));
       if (this.restPose > 0.002) this.bodyOffset.y = Math.sin(this.hoverTime * 1.15) * HOVER_SWAY * this.restPose;
-    } else if (isSwimming && (this.swimmingState === 'SwimmingSurfaceIdle' || this.swimmingState === 'SwimmingUnderwaterIdle')) {
+    } else if (isSwimming) {
       this.restPose += (1 - this.restPose) * (1 - Math.exp(-dt * 5));
-      this.bodyOffset.y = Math.sin(this.hoverTime * 1.65) * 0.032 * this.restPose;
+      const bob = (this.swimmingState === 'SwimmingSurfaceIdle' || this.swimmingState === 'SwimmingUnderwaterIdle')
+        ? Math.sin(this.hoverTime * 1.65) * 0.032 * this.restPose
+        : Math.sin(this.hoverTime * 2.4) * 0.018 * this.restPose;
+      this.bodyOffset.y = this.swimVisualLift + bob;
     } else {
       // Feet on the ground means exactly zero offset. Decaying it instead would leave the
       // character standing a few centimetres above or below the surface for a third of a second.
       this.restPose = 0;
+      this.bodyOffset.y = this.swimVisualLift;
     }
 
     this.updateDoubleJump(dt);
