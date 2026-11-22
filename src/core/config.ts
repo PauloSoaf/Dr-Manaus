@@ -50,23 +50,23 @@ export const DESTRUCTION = {
   /** Health = base + volume·perVolume, capped. A shack falls to one beam, a tower to a volley. */
   baseHealth: 60, healthPerVolume: .02, maxHealth: 9000,
   /** Energy beam. Radius and damage are both multiplied by sqrt(player size). */
-  beamDamage: 700, beamRadius: 7, beamThickness: 2.6, shockwaveDamage: 2600, noticeInterval: 2.5,
+  beamDamage: 250000, beamRadius: 16, beamThickness: 4.5, shockwaveDamage: 500000, noticeInterval: 1.5,
   /** Gravel and a scorch on every hit, so a shot that fells nothing still reads as a hit. */
-  impactChunks: 5, impactEnergy: 1.6, impactColour: 0x9b9184,
+  impactChunks: 8, impactEnergy: 2.5, impactColour: 0x9b9184,
   /** Rubble released by a collapse, scaled by the building's cube-root extent. */
-  chunksPerCollapse: 9, maxChunksPerCollapse: 46, maxChunkEnergy: 26,
+  chunksPerCollapse: 12, maxChunksPerCollapse: 64, maxChunkEnergy: 36,
   /** Bounds the cost of a single frame: surplus damage collapses the rest on the next one. */
-  maxCollapsesPerFrame: 16,
+  maxCollapsesPerFrame: 32,
   maxLightRetirementsPerFrame: 1024,
   /** Debris pool. `maxDebris` is the hard instance cap; `debrisPerParticle` scales it by preset. */
-  maxDebris: 420, debrisPerParticle: .7, debrisGravity: 26, debrisBounce: .26, debrisFriction: 3.2,
+  maxDebris: 512, debrisPerParticle: .7, debrisGravity: 26, debrisBounce: .26, debrisFriction: 3.2,
   debrisLifetime: 4.5, debrisSpeed: 1, debrisSize: 1, debrisCullRadius: 1400,
   /** Scars. `scarHeight` clears the road ribbons and their lane paint, which top out at 38 mm. */
   maxScars: 256, scarsPerParticle: .42, scarLifetime: 95, scarHotTime: 3.2, scarFadeTime: 14,
   scarHeight: .06, scarMaxHeight: 6, scarRadiusScale: 1.35,
   /** The high-speed ram: damage is per metre driven through a mass, so it is frame-rate free. */
-  ploughSpeed: 420, ploughDamage: .02, ploughMaxSweep: 220,
-  ploughRadius: 8, ploughRadiusPerSpeed: .006, ploughMaxRadius: 70,
+  ploughSpeed: 200, ploughDamage: 5.0, ploughMaxSweep: 350,
+  ploughRadius: 12, ploughRadiusPerSpeed: .012, ploughMaxRadius: 120,
   /** Damage map bound: buildings stream forever, so records age out and the map is capped. */
   maxEntries: 512, entryTtl: 25, evictInterval: 2,
 } as const;

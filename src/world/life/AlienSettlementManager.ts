@@ -394,6 +394,7 @@ export class AlienSettlementManager {
     if (
       !surface ||
       !biosphere ||
+      biosphere.bodyId === 'earth' ||
       (biosphere.lifeTier !== 'civilized' && biosphere.civilizationStage === 'none')
     ) {
       this.clear();
@@ -961,6 +962,7 @@ export class AlienSettlementManager {
     for (const inb of this.inhabitants) inb.active = false;
     for (const mesh of this.structureMeshes.values()) mesh.count = 0;
     this.inhabitantMesh.count = 0;
+    this.metropolis.clear();
   }
 
   dispose(): void {

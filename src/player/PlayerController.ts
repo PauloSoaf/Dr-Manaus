@@ -1,4 +1,4 @@
-import { Group, MathUtils, Vector3 } from 'three/webgpu';
+import { Group, MathUtils, Vector3, Quaternion } from 'three/webgpu';
 import type { Collider } from '../core/types';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { CharacterModel } from './CharacterModel';
@@ -13,9 +13,8 @@ import { TitanGroundSupport } from './physics/TitanGroundSupport';
 import type { FlipDirection } from './animations/types';
 import { DodgeSystem, type DodgeKind } from './movement/DodgeSystem';
 import { resolveContactImpact, type ImpactResult } from './combat/MeteorImpact';
+import { isLand } from '../world/geodata/geodata';
 
-/** On-foot speeds (m/s at size 1) matched to the clips' measured strides × the 2.07/1.81 rig scale. */
-const GROUND_GAIT = { walk: 1.75, crouch: 1.0, stance: 3.4 } as const;
 /** Fraction of the run speed the somersault throws forward, so the flip travels. */
 const DOUBLE_JUMP_CARRY = 0.45;
 /** How long a committed downward strike stays committed, and how hard it drives. */
@@ -35,28 +34,20 @@ export class PlayerController {
   readonly dodge = new DodgeSystem();
   /** The key that evades: a roll on the ground, a dash in the air. */
   dodgeKey = 'KeyZ';
-  maxHealth = 1000;
-  health = 1000;
-  maxShield = 500;
-  shield = 500;
+  maxHealth = 1000000;
+  health = 1000000;
+  maxShield = 500000;
+  shield = 500000;
   isGodMode = false;
-  shieldRegenDelay = 3.0;
-  shieldRegenRate = 120.0;
+  shieldRegenDelay = 0.2;
+  shieldRegenRate = 50000.0;
   lastHitTimer = 0;
   damageFlash = 0;
   lastDamageReason: string | null = null;
   onDamageTaken?: (amount: number, health: number, shield: number, reason: string) => void;
   onDeath?: (reason: string) => void;
-  state: 'Grounded' | 'Falling' | 'Hover' | 'Flight' = 'Grounded';
+  state: 'Grounded' | 'Falling' | 'Hover' | 'Flight' | 'Swimming' = 'Grounded';
   facingYaw = 0;
-  /** CapsLock toggles a walk: stride-matched to the authored walk instead of the jog. */
-  walkMode = false;
-  /** A tap of Ctrl on the ground toggles crouched locomotion. */
-  crouching = false;
-  /** Set by the power system: melee stance faces the camera and strafes instead of turning. */
-  combatStance = false;
-  /** Set by the power system while the continuous laser is held. */
-  casting = false;
   size = 1;
   speedMultiplier = 1;
   speedMode: FlightSpeedMode = 'ground';
@@ -83,6 +74,9 @@ export class PlayerController {
   private desiredSpeed = 0;
   private bodyGravityMps2 = surfaceGravityMps2(EARTH);
 
+  readonly sceneRoot: Group;
+  private scripted = false;
+
   constructor(root: Group, input: InputController) {
     this.input = input;
     this.sceneRoot = root;
@@ -90,40 +84,27 @@ export class PlayerController {
     this.model.position.copy(this.position);
   }
 
-  /** The group the body lives in when it is not riding a vehicle. */
-  readonly sceneRoot: Group;
-  /** Scripted control (entering/leaving a car): no input or physics, the body follows the script. */
-  private scripted: { speed: number; local: boolean } | null = null;
-  private readonly stillVelocity = new Vector3();
-  get isScripted(): boolean { return this.scripted !== null; }
-  beginScripted(): void {
-    this.scripted = { speed: 0, local: false };
-    this.velocity.set(0, 0, 0);
-    this.crouching = false;
-    this.combatStance = false;
-    this.dodge.cancel();
-    this.state = 'Grounded';
-  }
-  endScripted(): void {
-    this.scripted = null;
-    this.velocity.set(0, 0, 0);
-    this.state = 'Grounded';
-    this.grounded = true;
-    this.jumps = 0;
-    this.model.position.copy(this.position);
-  }
-  /** World root position and facing for this frame, with the travel speed for the gait. */
-  setScriptedPose(position: Vector3, yaw: number, speed = 0): void {
-    if (!this.scripted) return;
+  get isScripted(): boolean { return this.scripted; }
+  beginScripted(): void { this.scripted = true; this.velocity.set(0, 0, 0); }
+  endScripted(): void { this.scripted = false; }
+  setScriptedPose(position: Vector3, yaw?: number, speed = 0): void {
     this.position.copy(position);
-    this.facingYaw = yaw;
-    this.scripted.speed = Math.max(0, speed);
+    this.model.position.copy(position);
+    if (yaw !== undefined) {
+      this.facingYaw = yaw;
+      this.forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    }
+    this.velocity.set(0, 0, 0);
   }
-  /** While seated the body is parented to the vehicle and keeps its local seat transform. */
-  setScriptedLocal(local: boolean): void { if (this.scripted) this.scripted.local = local; }
+  setScriptedLocal(isLocal: boolean): void {
+    if (!isLocal) {
+      this.model.position.copy(this.position);
+    }
+  }
 
   get jumpCount(): number { return this.jumps; }
   get isGrounded(): boolean { return this.grounded; }
+  get isSwimming(): boolean { return this.state === 'Swimming'; }
   /** Physical gravity of the current body, before the existing Earth gameplay calibration. */
   get surfaceGravityMps2(): number { return this.bodyGravityMps2; }
   get gravity(): number { return this.bodyGravityMps2; }
@@ -171,8 +152,6 @@ export class PlayerController {
 
     const fatal = this.health <= 0;
     this.onDamageTaken?.(amount, this.health, this.shield, reason);
-    // The body answers the hit with an authored reaction scaled by what got through.
-    this.character.react(amount >= 220 ? 'heavy' : amount >= 70 ? 'medium' : 'light');
 
     if (fatal) {
       this.onDeath?.(reason);
@@ -285,32 +264,19 @@ export class PlayerController {
     if (this.damageFlash > 0) {
       this.damageFlash = Math.max(0, this.damageFlash - dt * 2.0);
     }
-    if (this.scripted) {
-      // Scripted: the interaction owns the root; only the animation runs here.
-      this.velocity.set(0, 0, 0);
-      this.state = 'Grounded';
-      const speed = this.scripted.speed;
-      this.stillVelocity.set(-Math.sin(this.facingYaw) * speed, 0, -Math.cos(this.facingYaw) * speed);
-      this.character.animate(dt, speed, false, false, '', 0, 0, this.size, this.stillVelocity, 1, 'ground', this.forward,
-        this.scripted.local ? 0 : this.facingYaw, { grounded: true, desiredSpeed: speed });
-      if (!this.scripted.local) this.model.position.copy(this.position);
-      this.model.scale.setScalar(this.size);
-      return;
-    }
     if (this.input.consume('KeyV')) this.tapArm();
-    if (this.input.consume('CapsLock')) this.walkMode = !this.walkMode;
     const isShift = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
     const isB = this.input.held('KeyB');
     if (!isB) this.megaNeedsBoostRelease = false;
     if (this.input.consume('KeyF')) {
-      this.state = this.state === 'Grounded' || this.state === 'Falling' ? 'Hover' : 'Falling';
+      this.state = this.state === 'Grounded' || this.state === 'Falling' || this.state === 'Swimming' ? 'Hover' : 'Falling';
       if (this.state === 'Hover') {
         this.velocity.y = 5;
         this.position.y += 0.18;
       }
     }
     const flying = this.isFlying;
-    
+
     const boosting = isB;
     const sprinting = isShift;
     const movementX = Number(this.input.held('KeyD')) - Number(this.input.held('KeyA'));
@@ -320,20 +286,9 @@ export class PlayerController {
     this.speedMode = this.localTier(flying, boosting, sprinting);
     const armedReady = this.armedTier !== 'none' && !this.megaNeedsBoostRelease;
     const ground = FLIGHT.groundBoostSpeed;
-    // Ctrl taps toggle a crouch on the ground (a tap, never a hold: Ctrl+W closes a browser tab).
-    if (!flying && this.grounded && this.input.consume('ControlLeft')) this.crouching = !this.crouching;
-    if (flying || sprinting || boosting) this.crouching = false;
-    let groundSpeed: number = boosting ? armedReady ? ground.armed : ground.plain
-      : sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed;
-    // On-foot gaits match the measured strides of their clips (walk 1.2, crouch 0.84, strafe 3.3 m/s
-    // at rate 1), so the feet plant instead of skating.
-    if (!boosting && !sprinting) {
-      if (this.crouching) groundSpeed = GROUND_GAIT.crouch;
-      else if (this.combatStance) groundSpeed = Math.min(groundSpeed, GROUND_GAIT.stance);
-      else if (this.walkMode) groundSpeed = GROUND_GAIT.walk;
-    }
     const speed = this.speedMode === 'ground'
-      ? Math.min(3000, groundSpeed * sizeSpeed * this.speedMultiplier)
+      ? Math.min(3000, (boosting ? armedReady ? ground.armed : ground.plain
+        : sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * sizeSpeed * this.speedMultiplier)
       : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
 
     this.dodge.update(dt);
@@ -396,7 +351,6 @@ export class PlayerController {
 
       if (this.input.consume('Space') && this.jumps < 2) {
         if (this.grounded || this.jumps === 0) {
-          this.crouching = false;
           // Keep the same muscular impulse on each body: lower gravity gives a higher,
           // longer jump, while Earth's established movement remains exactly as before.
           this.jumps = 1;
@@ -464,19 +418,63 @@ export class PlayerController {
       !flying ? 0.55 * this.size : 0
     );
 
+    const inWater = !isLand(this.position.x, this.position.z);
+    const waterSurfaceY = 0.12;
+    const isSubmerged = inWater && this.position.y < (waterSurfaceY + 0.15) && !flying;
+
+    if (isSubmerged) {
+      this.grounded = false;
+      this.state = 'Swimming';
+      const targetY = waterSurfaceY - 0.75 * this.size;
+      const buoyancy = (targetY - this.position.y) * 25.0;
+      this.velocity.y += buoyancy * dt;
+
+      // Hydrodynamic fluid drag in river water
+      this.velocity.x *= Math.exp(-dt * 4.2);
+      this.velocity.z *= Math.exp(-dt * 4.2);
+      this.velocity.y *= Math.exp(-dt * 4.8);
+
+      // Swimming propulsion
+      if (this.desired.lengthSq() > 0.01) {
+        this.velocity.x += this.desired.x * dt * 7.5;
+        this.velocity.z += this.desired.z * dt * 7.5;
+      }
+
+      // Vertical paddle / dive controls
+      if (this.input.held('Space')) {
+        this.velocity.y += 10.0 * dt;
+      } else if (this.input.held('ControlLeft') || this.input.held('ControlRight') || this.input.held('KeyC') || this.input.held('KeyZ')) {
+        this.velocity.y -= 8.5 * dt;
+      }
+
+      const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+      if (horizontalSpeed > 0.35) {
+        this.character.setBaseOverride('Swim_Fwd_Loop', 1.0 + Math.min(1.2, horizontalSpeed / 4.0));
+      } else {
+        this.character.setBaseOverride('Swim_Idle_Loop', 1.0);
+      }
+    } else {
+      if (this.character.animation?.baseOverride === 'Swim_Fwd_Loop' || this.character.animation?.baseOverride === 'Swim_Idle_Loop') {
+        this.character.setBaseOverride(null);
+      }
+    }
+
     // Evaluate titan ground support and fall animation suppression
     const supportInfo = this.titanSupport.evaluateSupport(this.position, this.size, this.velocity.y, dt, colliders);
     if (this.size >= 4 && supportInfo.hasSupport) {
       this.grounded = true;
     }
     // Surface contact ends downward flight. Ordinary jumps/falls remain under body gravity.
-    if (this.grounded && (!flying || (this.desired.y <= 0 && !this.input.held('Space')))) {
+    if (isSubmerged) {
+      this.state = 'Swimming';
+      this.grounded = false;
+    } else if (this.grounded && (!flying || (this.desired.y <= 0 && !this.input.held('Space')))) {
       this.state = 'Grounded';
     } else if (!flying) this.state = 'Falling';
 
     // The one reliable contact event: the frame the sweep first reports ground. `velocity` has
     // already been zeroed by the sweep, so the arrival speed is the snapshot taken before it.
-    if (!wasGrounded && this.grounded) this.registerImpact();
+    if (!wasGrounded && this.grounded && !isSubmerged) this.registerImpact();
 
     /**
      * The ceiling holds.
@@ -489,13 +487,8 @@ export class PlayerController {
      */
     // The altitude ceiling was removed here as part of Sprint H5 step 7.
 
-    // Model facing rotation. In melee stance on foot the body keeps facing where the camera looks
-    // and the legs strafe, which is what lets a fighter circle a target.
-    const stanceFacing = this.combatStance && !flying && this.grounded && !this.dodge.active;
-    if (stanceFacing) {
-      this.forward.set(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw));
-      this.facingYaw += Math.atan2(Math.sin(cameraYaw - this.facingYaw), Math.cos(cameraYaw - this.facingYaw)) * Math.min(1, dt * 14);
-    } else if (flying && this.velocity.lengthSq() > 2) {
+    // Model facing rotation
+    if (flying && this.velocity.lengthSq() > 2) {
       this.forward.copy(this.velocity).normalize();
       const angle = Math.atan2(-this.forward.x, -this.forward.z);
       this.facingYaw += Math.atan2(Math.sin(angle - this.facingYaw), Math.cos(angle - this.facingYaw)) * Math.min(1, dt * 8);
@@ -512,9 +505,9 @@ export class PlayerController {
     const bank = horizontalSpeed > 2 ? Math.sin(Math.atan2(-this.velocity.x, -this.velocity.z) - this.facingYaw) : 0;
 
     // Titan Fall visual check: giants only show jump/fall pose if supportInfo.isFallingVisually
-    const showFallAnimation = this.size >= 4
+    const showFallAnimation = !isSubmerged && (this.size >= 4
       ? supportInfo.isFallingVisually
-      : (!flying && !this.grounded);
+      : (!flying && !this.grounded));
 
     this.character.animate(
       dt,
@@ -530,25 +523,11 @@ export class PlayerController {
       this.speedMode,
       this.forward,
       this.facingYaw,
-      {
-        desiredSpeed: this.desiredSpeed, grounded: this.grounded, dodge: this.dodge.kind,
-        crouch: this.crouching, strafe: stanceFacing, localDirection: this.localTravelDirection(), casting: this.casting,
-      },
+      { desiredSpeed: this.desiredSpeed, grounded: this.grounded, dodge: this.dodge.kind },
     );
-    // Root motion: a spinning kick turned the body; the facing follows instead of snapping it back.
-    this.facingYaw += this.character.consumeRootYaw();
 
     this.model.position.copy(this.position);
     this.model.scale.setScalar(this.size);
-  }
-
-  /** Direction of horizontal travel relative to the facing: 0 forward, +pi/2 right, pi back. */
-  private localTravelDirection(): number {
-    const vx = this.velocity.x, vz = this.velocity.z;
-    if (vx * vx + vz * vz < 0.04) return 0;
-    const fx = -Math.sin(this.facingYaw), fz = -Math.cos(this.facingYaw);
-    const rx = Math.cos(this.facingYaw), rz = -Math.sin(this.facingYaw);
-    return Math.atan2(vx * rx + vz * rz, vx * fx + vz * fz);
   }
 
   private readonly travelVelocity = new Vector3();
@@ -647,17 +626,17 @@ export class PlayerController {
    * are resolved by the shared local footprint policy, including its shallow-graze gate.
    */
   private registerImpact(): void {
-    const contact=this.lastTerrainContact;
+    const contact = this.lastTerrainContact;
     const slam = this.slamTimer > 0;
     this.slamTimer = 0;
-    const impact = resolveContactImpact(this.impactVelocity,contact?.normal??{x:0,y:1,z:0},this.size,slam,!!contact);
+    const impact = resolveContactImpact(this.impactVelocity, contact?.normal ?? { x: 0, y: 1, z: 0 }, this.size, slam, !!contact);
     this.character.animationController.triggerLanding(
       impact.profile === 'titan' ? 'titan'
         : impact.profile === 'meteor' ? 'super'
-        : impact.profile === 'soft' ? 'soft' : 'hard',
+          : impact.profile === 'soft' ? 'soft' : 'hard',
     );
     if (impact.profile === 'soft') return;
-    this.impactPoint.copy(contact?.position??this.position);
+    this.impactPoint.copy(contact?.position ?? this.position);
     this.pendingImpact = impact;
   }
 

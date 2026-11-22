@@ -517,6 +517,57 @@ export class AudioManager {
       return;
     }
 
+    if (name === 'water-splash' || name === 'water-wade') {
+      const isSplash = name === 'water-splash';
+      const duration = isSplash ? 0.65 : 0.28;
+      const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * duration), ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, isSplash ? 2.5 : 4.0);
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(isSplash ? 1200 : 650, t);
+      filter.frequency.exponentialRampToValueAtTime(180, t + duration);
+      filter.Q.value = 2.2;
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(isSplash ? 0.6 : 0.2, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+
+      const ploop = ctx.createOscillator();
+      const ploopGain = ctx.createGain();
+      ploop.type = 'sine';
+      ploop.frequency.setValueAtTime(isSplash ? 180 : 120, t);
+      ploop.frequency.exponentialRampToValueAtTime(45, t + duration);
+      ploopGain.gain.setValueAtTime(0.0001, t);
+      ploopGain.gain.exponentialRampToValueAtTime(isSplash ? 0.35 : 0.1, t + 0.03);
+      ploopGain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.effects);
+      ploop.connect(ploopGain);
+      ploopGain.connect(this.effects);
+
+      noise.start(t);
+      ploop.start(t);
+      noise.stop(t + duration);
+      ploop.stop(t + duration);
+
+      noise.onended = () => {
+        noise.disconnect();
+        filter.disconnect();
+        gain.disconnect();
+        ploop.disconnect();
+        ploopGain.disconnect();
+      };
+      return;
+    }
+
     if (name === 'planet-crack') {
       // Massive cosmic tectonic fissure: dual sub-bass sine sweep + deep rumble
       const osc1 = ctx.createOscillator();

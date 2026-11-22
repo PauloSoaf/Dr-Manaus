@@ -6,6 +6,7 @@ import {
 import { bool, positionWorld, texture, uniform } from 'three/tsl';
 import type { TerrainProvider } from '../../physics/PhysicsWorld';
 import { mutationStore } from '../persistence/WorldMutationStore';
+import { isLand } from '../geodata/geodata';
 
 export const TERRAIN_DAMAGE = {
   maxStored: 2048, maxActive: 1024, radiusMin: 3, radiusMax: 1200, depthMax: 600,
@@ -321,13 +322,16 @@ export class TerrainDestruction implements TerrainProvider {
   }
 
   heightAt(x: number, z: number): number {
-    if (!Number.isFinite(x + z) || !this.active.length) return 0;
+    if (!Number.isFinite(x + z)) return 0;
+    const baseFloor = isLand(x, z) ? 0 : -40.0;
+    if (!this.active.length) return baseFloor;
     const gx = (x - this.uMinimum.value.x) / this.step, gz = (z - this.uMinimum.value.y) / this.step;
-    if (gx < 0 || gz < 0 || gx >= TERRAIN_DAMAGE.cells || gz >= TERRAIN_DAMAGE.cells) return 0;
+    if (gx < 0 || gz < 0 || gx >= TERRAIN_DAMAGE.cells || gz >= TERRAIN_DAMAGE.cells) return baseFloor;
     const ix = Math.floor(gx), iz = Math.floor(gz), u = gx - ix, v = gz - iz;
     const a = iz * GRID + ix, b = a + 1, d = a + GRID, c = d + 1;
-    return u + v <= 1 ? this.heights[a] + (this.heights[b] - this.heights[a]) * u + (this.heights[d] - this.heights[a]) * v
+    const craterOffset = u + v <= 1 ? this.heights[a] + (this.heights[b] - this.heights[a]) * u + (this.heights[d] - this.heights[a]) * v
       : this.heights[c] + (this.heights[d] - this.heights[c]) * (1 - u) + (this.heights[b] - this.heights[c]) * (1 - v);
+    return Math.min(baseFloor, baseFloor + craterOffset);
   }
 
   /** Exact grid traversal: at most 514 cells, no whole-world triangle raycast. */

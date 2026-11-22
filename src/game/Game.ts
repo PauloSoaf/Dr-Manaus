@@ -195,6 +195,8 @@ export class Game {
     mitigationHint: 'Operação padrão.',
   };
   private lastAudioMedium: AtmosphericMedium = 'earth-atmosphere';
+  private wasUnderwater = false;
+  private waterRippleTimer = 0;
   private hazardAlertTimer = 0;
   galaxyMaterializer?: GalaxyMaterializer;
   get galaxy(): StarSectorProvider | undefined { return this.galaxyMaterializer?.current?.starSectorProvider; }
@@ -1417,7 +1419,20 @@ export class Game {
     const isBlackHoleNearby = dominantBodyId === 'sgra' || dominantBodyId === 'sagittarius-a-star';
     const blackHoleProx = isBlackHoleNearby ? Math.min(1, Math.max(0, 1 - (altitudeNow / 1e11))) : 0;
 
-    const isUnderwaterNow = manaus && this.water && this.player.position.y < (this.water.surfaceY + 0.1) && !isLand(this.player.position.x, this.player.position.z);
+    const isUnderwaterNow = manaus && this.water && this.player.position.y < (this.water.surfaceY + 0.15) && !isLand(this.player.position.x, this.player.position.z);
+    if (!this.wasUnderwater && isUnderwaterNow) {
+      const impactSpeed = Math.abs(this.player.velocity.y);
+      const intensity = Math.min(3.5, Math.max(1.0, impactSpeed / 5.0));
+      this.water?.createSplash(this.player.position.x, this.player.position.z, intensity, Math.min(14, 5 + impactSpeed * 0.4));
+      this.audio?.play('water-splash');
+    } else if (isUnderwaterNow && speedNow > 0.4) {
+      this.waterRippleTimer += dt;
+      if (this.waterRippleTimer > 0.35) {
+        this.waterRippleTimer = 0;
+        this.water?.createRipple(this.player.position.x, this.player.position.z, 0.4, 2.5, 1.5);
+      }
+    }
+    this.wasUnderwater = Boolean(isUnderwaterNow);
     const riverName = (this.player.position.z > 2000 || this.player.position.x > 3000) ? 'solimoes' : 'negro';
     const teatro = LANDMARKS.find(l => l.id === 'teatro');
     const isTheaterIndoor = Boolean(manaus && teatro && Math.hypot(this.player.position.x - teatro.x, this.player.position.z - teatro.z) < 48 && this.player.position.y < 35);
@@ -1473,10 +1488,17 @@ export class Game {
         const activeBody = activeBodyId ? this.universe.activeSystem.bodies.find(b => b.id === activeBodyId) : undefined;
         const activeSurface = activeBody ? surfaceForBody(activeBody) : undefined;
         const activeBiosphere = activeBody ? bodyProfile(activeBody).environment?.biosphere : undefined;
-        this.alienFlora.update(this.player.position, activeSurface, activeBiosphere);
-        this.alienFauna.update(dt, this.player.position, activeSurface, activeBiosphere);
-        this.alienSettlements.update(dt, this.player.position, activeSurface, activeBiosphere);
-        this.cosmicRuins.update(dt, this.player.position, activeSurface, activeBiosphere);
+        if (activeBodyId === 'earth' || this.manausSimulationActive) {
+          this.alienFlora.clear();
+          this.alienFauna.clear();
+          this.alienSettlements.clear();
+          this.cosmicRuins.clear();
+        } else {
+          this.alienFlora.update(this.player.position, activeSurface, activeBiosphere);
+          this.alienFauna.update(dt, this.player.position, activeSurface, activeBiosphere);
+          this.alienSettlements.update(dt, this.player.position, activeSurface, activeBiosphere);
+          this.cosmicRuins.update(dt, this.player.position, activeSurface, activeBiosphere);
+        }
       }
     }
     const transit = this.universalTravelController?.state;
@@ -2142,18 +2164,20 @@ export class Game {
       }
     }
 
-    if (this.travelDomain.localPhysicsActive && this.vehicle && this.input.consume('KeyF')) {
+    if (this.travelDomain.localPhysicsActive && this.vehicle) {
       if (this.vehicle.isOccupied) {
-        this.vehicle.isOccupied = false;
-        this.player.model.visible = true;
-        this.player.position.copy(this.vehicle.position).addScaledVector(this.vehicle.right, 2.8);
-        this.player.position.y = PhysicsWorld.terrainHeight(this.player.position.x, this.player.position.z) + 1.0;
-        if (this.hijackedTraffic && this.vehicle.activeType === 'car') {
-          this.traffic?.returnCar(this.vehicle.position, this.vehicle.yaw);
-          this.hijackedTraffic = false;
+        if (this.input.consume('KeyF') || this.input.consume('KeyE')) {
+          this.vehicle.isOccupied = false;
+          this.player.model.visible = true;
+          this.player.position.copy(this.vehicle.position).addScaledVector(this.vehicle.right, 2.8);
+          this.player.position.y = PhysicsWorld.terrainHeight(this.player.position.x, this.player.position.z) + 1.0;
+          if (this.hijackedTraffic && this.vehicle.activeType === 'car') {
+            this.traffic?.returnCar(this.vehicle.position, this.vehicle.yaw);
+            this.hijackedTraffic = false;
+          }
+          this.hud.notify(`Saiu do veículo (${this.vehicle.activeType.toUpperCase()})`);
         }
-        this.hud.notify(`Saiu do veículo (${this.vehicle.activeType.toUpperCase()})`);
-      } else {
+      } else if (this.input.consume('KeyE')) {
         const dist = this.player.position.distanceTo(this.vehicle.position);
         const nearTraffic = this.traffic?.findNearestCar(this.player.position, 6.0);
         const nearBoat = this.vessels?.findNearestBoat(this.player.position, 18.0);
@@ -2165,7 +2189,7 @@ export class Game {
             this.vehicle.spawnAt(new Vector3(taken.x, taken.y, taken.z), taken.yaw, 'car');
             this.vehicle.isOccupied = true;
             this.player.model.visible = false;
-            this.hud.notify(`Assumiu o controle do Carro de Trânsito! (WASD pilotar, Espaço drift, H buzina, F sair)`);
+            this.hud.notify(`Assumiu o controle do Carro de Trânsito! (WASD pilotar, Espaço drift, H buzina, E sair)`);
             this.audio?.play('car-horn');
           }
         } else if (nearBoat) {
@@ -2174,23 +2198,16 @@ export class Game {
             this.vehicle.spawnAt(new Vector3(taken.x, taken.y, taken.z), taken.yaw, 'boat');
             this.vehicle.isOccupied = true;
             this.player.model.visible = false;
-            this.hud.notify(`Embarcou no Barco (${taken.vClass.toUpperCase()})! (WASD navegar, H buzina, F desembarcar)`);
+            this.hud.notify(`Embarcou no Barco (${taken.vClass.toUpperCase()})! (WASD navegar, H buzina, E desembarcar)`);
             this.audio?.play('foghorn');
           }
-        } else if (dist < 12.0) {
+        } else if (dist < 8.0) {
           this.vehicle.isOccupied = true;
           this.player.model.visible = false;
-          this.hud.notify(`Pilotando ${this.vehicle.activeType.toUpperCase()} (WASD acelerar/virar, Espaço freio/vtol, H buzina, F sair, V trocar)`);
+          this.hud.notify(`Pilotando ${this.vehicle.activeType.toUpperCase()} (WASD acelerar/virar, Espaço freio/vtol, H buzina, E sair, V trocar)`);
           this.audio?.play('warp-engage');
         } else {
-          this.vehicle.spawnAt(
-            this.player.position.clone().addScaledVector(this.player.forward, 5.0),
-            this.camera.yaw
-          );
-          this.vehicle.isOccupied = true;
-          this.player.model.visible = false;
-          this.hud.notify(`Entrou no ${this.vehicle.activeType.toUpperCase()} (WASD pilotar, H buzina, F sair, V trocar)`);
-          this.audio?.play('warp-engage');
+          this.hud.notify(`Nenhum veículo próximo. Aproxime-se de um carro ou barco e pressione [E], ou pressione [V] para invocar.`);
         }
       }
     }
@@ -2211,7 +2228,7 @@ export class Game {
           nextType
         );
       }
-      this.hud.notify(`Veículo: ${nextType.toUpperCase()} (F para pilotar)`);
+      this.hud.notify(`Veículo: ${nextType.toUpperCase()} (E para pilotar)`);
     }
     if (this.input.consume('KeyN')) {
       this.triggerCosmicScanner();

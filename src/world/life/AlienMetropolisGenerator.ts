@@ -109,6 +109,27 @@ export class AlienMetropolisGenerator {
       mesh.receiveShadow = true;
       this.group.add(mesh);
     }
+    this.clear();
+  }
+
+  /**
+   * Resets and hides all megalith instances so nothing remains rendered.
+   */
+  public clear(): void {
+    this.megaliths.length = 0;
+    this.dummy.position.set(0, -99999, 0);
+    this.dummy.scale.set(0, 0, 0);
+    this.dummy.updateMatrix();
+
+    for (let i = 0; i < 32; i++) this.annularMesh.setMatrixAt(i, this.dummy.matrix);
+    for (let i = 0; i < 32; i++) this.pyramidMesh.setMatrixAt(i, this.dummy.matrix);
+    for (let i = 0; i < 48; i++) this.spireMesh.setMatrixAt(i, this.dummy.matrix);
+    for (let i = 0; i < 24; i++) this.dockMesh.setMatrixAt(i, this.dummy.matrix);
+
+    this.annularMesh.instanceMatrix.needsUpdate = true;
+    this.pyramidMesh.instanceMatrix.needsUpdate = true;
+    this.spireMesh.instanceMatrix.needsUpdate = true;
+    this.dockMesh.instanceMatrix.needsUpdate = true;
   }
 
   /**

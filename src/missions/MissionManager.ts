@@ -32,7 +32,7 @@ export class MissionManager {
       this.targets.push({id:`anomaly:${this.stage}:${i}:${Math.round(this.time)}`,position:anchor.clone(),anchor,radius:7,kind:'anomaly',active:true,health:2,model,phase:i*2.1});
     }
   }
-  hit(id:string,force:number){const t=this.targets.find(t=>t.id===id);if(!t?.active)return false;t.health-=force>=30?2:1;if(t.health<=0){t.active=false;this.notify('Anomalia estabilizada');}return true;}
+  hit(id:string,force:number){const t=this.targets.find(t=>t.id===id);if(!t?.active)return false;t.health-=Math.max(1, Math.floor(force/50));if(t.health<=0){t.active=false;this.notify('Anomalia estabilizada');}return true;}
   update(dt:number,player:Vector3) {
     this.time+=dt;
     const curved = localManausPresentationMode() === 'curved';

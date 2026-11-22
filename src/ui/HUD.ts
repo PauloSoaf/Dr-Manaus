@@ -578,7 +578,7 @@ export class HUD {
     const alt=typeof state.altitudeM==='number'?state.altitudeM:state.position.y;
     const altStr = alt>999999?(alt/1000).toFixed(0)+' km':alt>9999?(alt/1000).toFixed(1)+' km':Math.round(alt)+' m';
     this.domCache.setCachedText($('#altitude'), state.location.transit ? 'EM TRÂNSITO' : altStr);
-    const flightStateStr = speed>343?'SUPERSÔNICO':state.state==='Grounded'?'EM SOLO':state.state==='Falling'?'EM QUEDA':state.state==='Hover'?'LEVITANDO':'EM VOO';
+    const flightStateStr = speed>343?'SUPERSÔNICO':state.state==='Swimming'?'NADANDO':state.state==='Grounded'?'EM SOLO':state.state==='Falling'?'EM QUEDA':state.state==='Hover'?'LEVITANDO':'EM VOO';
     this.domCache.setCachedText($('#flight-state'), state.location.transit ? 'HYPERCRUISE' : flightStateStr);
     this.domCache.setCachedText($('#world-time'), state.time);
     const weatherMap: Record<string, string> = {clear:'CÉU LIMPO',cloudy:'NUBLADO',rain:'CHUVA',storm:'TEMPORAL'};

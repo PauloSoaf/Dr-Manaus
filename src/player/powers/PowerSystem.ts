@@ -23,7 +23,7 @@ export interface PowerHooks {
   sound: (name: string) => void;
   getOrigin: () => Vector3;
   getColliders: () => readonly Collider[];
-  getAttackColliders?: (point:Vector3,radius:number)=>readonly Collider[];
+  getAttackColliders?: (point: Vector3, radius: number) => readonly Collider[];
   /**
    * Optional. Structural damage in a blast radius around a world point; returns how many
    * buildings collapsed. Absent, every power behaves exactly as it did before destruction.
@@ -62,21 +62,19 @@ export class PowerSystem {
   combatMode: 'ranged' | 'melee' = 'ranged';
   private punchIndex = 0;
   private kickIndex = 0;
-  private lastMeleeTime = -99;
-  private lastEnergyTime = -99;
   private meleePending: { kind: 'punch' | 'kick'; time: number } | null = null;
-  laserActive=false;
-  private laserTick=0;
-  private readonly laser=new Mesh(new CylinderGeometry(1,1,1,8),new MeshBasicMaterial({color:0xdffff8,toneMapped:false}));
-  private readonly laserGlow=new Mesh(new CylinderGeometry(1,1,1,10),new MeshBasicMaterial({color:0x25e9ff,transparent:true,opacity:.28,blending:AdditiveBlending,depthWrite:false,toneMapped:false}));
-  private readonly laserImpact=new Mesh(new SphereGeometry(1,12,8),new MeshBasicMaterial({color:0xaaffee,transparent:true,opacity:.8,blending:AdditiveBlending,depthWrite:false,toneMapped:false}));
-  private readonly laserRing=new Mesh(new TorusGeometry(1,.065,6,32),new MeshBasicMaterial({color:0x48dcff,transparent:true,opacity:.6,blending:AdditiveBlending,depthWrite:false,toneMapped:false}));
-  private readonly laserAxis=new Vector3(0,1,0);
+  laserActive = false;
+  private laserTick = 0;
+  private readonly laser = new Mesh(new CylinderGeometry(1, 1, 1, 8), new MeshBasicMaterial({ color: 0xdffff8, toneMapped: false }));
+  private readonly laserGlow = new Mesh(new CylinderGeometry(1, 1, 1, 10), new MeshBasicMaterial({ color: 0x25e9ff, transparent: true, opacity: .28, blending: AdditiveBlending, depthWrite: false, toneMapped: false }));
+  private readonly laserImpact = new Mesh(new SphereGeometry(1, 12, 8), new MeshBasicMaterial({ color: 0xaaffee, transparent: true, opacity: .8, blending: AdditiveBlending, depthWrite: false, toneMapped: false }));
+  private readonly laserRing = new Mesh(new TorusGeometry(1, .065, 6, 32), new MeshBasicMaterial({ color: 0x48dcff, transparent: true, opacity: .6, blending: AdditiveBlending, depthWrite: false, toneMapped: false }));
+  private readonly laserAxis = new Vector3(0, 1, 0);
   temporal = false;
   selected = 'energy';
   teleporting = false;
   readonly teleportSystem = new TeleportSystem();
-  readonly cooldowns: Record<string, number> = { punch: 0, kick: 0, energy: 0, laser:0, teleport: 0, shockwave: 0, reconstruct: 0, giant: 0, clone: 0, temporal: 0, planetRupture: 0 };
+  readonly cooldowns: Record<string, number> = { punch: 0, kick: 0, energy: 0, laser: 0, teleport: 0, shockwave: 0, reconstruct: 0, giant: 0, clone: 0, temporal: 0, planetRupture: 0 };
   private _planetRuptureState: PlanetRuptureState = 'idle';
   private ruptureNeedsRelease = false;
   planetRuptureCharge = 0;
@@ -113,9 +111,9 @@ export class PowerSystem {
 
   constructor(private readonly root: Group, private readonly player: PlayerController, private readonly camera: PerspectiveCamera, private readonly input: InputController, private readonly hooks: PowerHooks) {
     this.effects = new EffectPool(root);
-    this.laser.visible=false;this.laser.name="continuous-laser";root.add(this.laser);
-    this.laserGlow.name='laser-glow';this.laserImpact.name='laser-impact';this.laserRing.name='laser-impact-ring';
-    for(const effect of [this.laserGlow,this.laserImpact,this.laserRing]){effect.visible=false;effect.frustumCulled=false;root.add(effect);}
+    this.laser.visible = false; this.laser.name = "continuous-laser"; root.add(this.laser);
+    this.laserGlow.name = 'laser-glow'; this.laserImpact.name = 'laser-impact'; this.laserRing.name = 'laser-impact-ring';
+    for (const effect of [this.laserGlow, this.laserImpact, this.laserRing]) { effect.visible = false; effect.frustumCulled = false; root.add(effect); }
     this.indicator = new Mesh(new TorusGeometry(1.5, 0.06, 6, 48), new MeshBasicMaterial({ color: 0x8cffdc, transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false }));
     this.indicator.rotation.x = -Math.PI / 2; this.indicator.visible = false; root.add(this.indicator);
     for (let i = 0; i < 3; i++) {
@@ -132,10 +130,6 @@ export class PowerSystem {
 
   update(realDt: number, worldDt: number): void {
     this.time += realDt;
-    // Hitstop ages before this frame resolves any new contact: a freeze triggered by a hit in this
-    // frame must still be active when the next frame reads it, instead of being consumed by the
-    // same dt that produced it.
-    this.combat.update(realDt);
     if (this.meleePending) this.sampleStrikeBone(false);
     for (const name of Object.keys(this.cooldowns)) this.cooldowns[name] = Math.max(0, this.cooldowns[name] - realDt);
     if (this.cooldowns.planetRupture <= 0 && this._planetRuptureState === 'cooldown') {
@@ -146,8 +140,6 @@ export class PowerSystem {
     if (this.hooks.isVehicleOccupied?.()) {
       this.laserActive = false;
       this.meleePending = null;
-      this.player.combatStance = false;
-      this.player.casting = false;
       this.indicator.visible = false;
       this.laser.visible = false;
       this.updateClones(worldDt);
@@ -156,7 +148,7 @@ export class PowerSystem {
       return;
     }
 
-    const keys: [string, string][] = [['KeyL','laser'],['Digit1', 'energy'], ['KeyE', 'teleport'], ['KeyQ', 'shockwave'], ['KeyR', 'reconstruct'], ['KeyG', 'giant'], ['KeyC', 'clone'], ['KeyT', 'temporal'], ['Digit9', 'planetRupture']];
+    const keys: [string, string][] = [['KeyL', 'laser'], ['Digit1', 'energy'], ['KeyE', 'teleport'], ['KeyQ', 'shockwave'], ['KeyR', 'reconstruct'], ['KeyG', 'giant'], ['KeyC', 'clone'], ['KeyT', 'temporal'], ['Digit9', 'planetRupture']];
     for (const [key, name] of keys) if (this.input.consume(key)) this.use(name);
     if (this.input.consume('KeyX')) {
       this.combatMode = this.combatMode === 'ranged' ? 'melee' : 'ranged';
@@ -238,11 +230,7 @@ export class PowerSystem {
     this.teleportSystem.updateQuantumJump(realDt);
     this.updateClones(realDt);
     this.updateLaser(realDt);
-    // Melee stance: in combat mode, recently fighting or with a target close by.
-    this.player.combatStance = this.combatMode === 'melee' && !this.player.isFlying
-      && (this.time - this.lastMeleeTime < 3.5 || this.softTargetId !== null && this.time - this.lastMeleeTime < 6);
-    // The sustained cast pose rides the upper body while the laser or rapid fire is going.
-    this.player.casting = this.laserActive || this.time - this.lastEnergyTime < 0.4;
+    this.combat.update(realDt);
     const buffered = this.combat.consumeBufferedAction();
     if (buffered && !this.meleePending && this.cooldowns.punch <= 0 && this.cooldowns.kick <= 0) {
       if (buffered.type === 'melee_kick') this.use('kick');
@@ -251,8 +239,7 @@ export class PowerSystem {
   }
 
   readonly combat = new CombatSystem();
-  /** Own data property (not an accessor), so fixtures and callers can read or substitute it directly. */
-  readonly hitStop: HitStopSystem = this.combat.hitStop;
+  get hitStop(): HitStopSystem { return this.combat.hitStop; }
   private readonly previousStrikePosition = new Vector3();
   private readonly currentStrikePosition = new Vector3();
   private readonly sweepDirection = new Vector3();
@@ -276,6 +263,7 @@ export class PowerSystem {
           break;
         }
         this.laserActive = false;
+        this.cooldowns[name] = name === 'kick' ? 0.65 : 0.52;
 
         const flying = this.player.state !== 'Grounded';
         const airborne = flying || !this.player.isGrounded;
@@ -292,11 +280,8 @@ export class PowerSystem {
           moveId = 'flyingPunch';
         } else if (flying && speed > 20 && name === 'kick') {
           moveId = 'flyingKick';
-        } else if (name === 'kick' && airborne && !this.player.isFlying) {
-          // Jumping into a kick throws the captured tornado kick.
-          moveId = 'kickSpin';
         } else if (name === 'kick') {
-          moveId = ['kick', 'kickSide', 'kickRoundhouse'][this.kickIndex++ % 3];
+          moveId = ['kick', 'kickSide'][this.kickIndex++ % 2];
         } else {
           moveId = ['punch', 'punchCross', 'punchUpper'][this.punchIndex++ % 3];
         }
@@ -304,11 +289,7 @@ export class PowerSystem {
         this.activeCombatMoveId = moveId;
         if (moveId === 'meteorPunch') this.player.beginSlam();
         const move = COMBAT_MOVES[moveId] ?? COMBAT_MOVES.punch;
-        const moveTotal = move.startup + move.active + move.recovery;
-        // The next strike may start in this one's cancel window, so combos flow at the clip's pace.
-        this.cooldowns[name] = Math.max(0.18, move.cancelAt * moveTotal);
-        this.lastMeleeTime = this.time;
-        this.player.powerPose(moveId, moveTotal);
+        this.player.powerPose(moveId, move.startup + move.active + move.recovery);
         this.player.character.startCombatMove(move);
         this.sampleStrikeBone(true);
 
@@ -335,7 +316,7 @@ export class PowerSystem {
         this.meleePending = { kind: name, time: contact ? contact.time * totalDuration : move.startup };
         break;
       }
-      case 'laser': this.laserActive=!this.laserActive;this.hooks.notify(this.laserActive?'Laser continuo ativo - L para desligar.':'Laser desligado.');break;
+      case 'laser': this.laserActive = !this.laserActive; this.hooks.notify(this.laserActive ? 'Laser continuo ativo - L para desligar.' : 'Laser desligado.'); break;
       case 'energy': this.energy(); break;
       case 'teleport': {
         this.updateDestination();
@@ -467,11 +448,11 @@ export class PowerSystem {
 
     const isKinetic = this.activeCombatMoveId === 'kineticStrike' || impactSpeed >= 800;
     const isMeteor = this.activeCombatMoveId === 'meteorPunch';
-    const baseDamage = isKinetic ? 120000 : isMeteor ? 85000 : (kind === 'kick' ? 38000 : 30000);
+    const baseDamage = isKinetic ? 5000000 : isMeteor ? 3000000 : (kind === 'kick' ? 1200000 : 800000);
     const damageAmount = baseDamage * size * speedFactor;
-    const blastRadius = (isKinetic ? 3.5 : isMeteor ? 2.5 : (kind === 'kick' ? 1.2 : 0.7)) * size * speedRadiusFactor;
+    const blastRadius = (isKinetic ? 6.5 : isMeteor ? 5.0 : (kind === 'kick' ? 2.8 : 2.0)) * size * speedRadiusFactor;
 
-    if (target) this.hooks.hit(target.id, 150 * size * speedFactor);
+    if (target) this.hooks.hit(target.id, damageAmount);
     this.hooks.damage?.(this.aimPoint, blastRadius, damageAmount);
 
     if (isKinetic) {
@@ -510,7 +491,7 @@ export class PowerSystem {
     const hot = impact.profile === 'meteor' || impact.profile === 'titan';
     const core = hot ? 0xffe6a8 : 0xa8fff0;
 
-    const levelled = this.hooks.impact ? this.hooks.impact(position,impact)
+    const levelled = this.hooks.impact ? this.hooks.impact(position, impact)
       : impact.damage > 0 ? this.hooks.damage?.(position, impact.blastDamageRadiusM, impact.damage, 0) ?? 0 : 0;
     if (!this.hooks.impact && impact.impulse > 0) this.hooks.impulse(position, Math.max(2, impact.impulseRadiusM), impact.impulse);
 
@@ -520,7 +501,7 @@ export class PowerSystem {
       this.effects.flash(position, Math.min(IMPACT.maxFlash, 2 + impact.radius * 0.35), 0xfff1c4);
     }
     this.effects.burst(position, core, Math.min(50, Math.sqrt(size) * (1 + impact.radius * 0.06)), impact.debris,
-      IMPACT.maxDustSpeed, impact.craterRadiusM*.85);
+      IMPACT.maxDustSpeed, impact.craterRadiusM * .85);
     if (impact.hitStopMs > 0) this.hitStop.trigger(impact.hitStopMs);
     if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: impact.shake }));
     this.hooks.sound(hot ? 'shockwave' : 'giant');
@@ -576,30 +557,30 @@ export class PowerSystem {
   }
 
   /** Clear the hero before aiming; then trace from the hand so nearby walls still block fire. */
-  private aimBeam(reach:number){
-    this.cameraRay();const size=this.player.size;
-    const colliders=this.hooks.getAttackColliders?.(this.player.position,reach)??this.hooks.getColliders();
-    this.player.facingYaw=Math.atan2(-this.rayDirection.x,-this.rayDirection.z);
-    this.player.model.position.copy(this.player.position);this.player.model.scale.setScalar(size);
+  private aimBeam(reach: number) {
+    this.cameraRay(); const size = this.player.size;
+    const colliders = this.hooks.getAttackColliders?.(this.player.position, reach) ?? this.hooks.getColliders();
+    this.player.facingYaw = Math.atan2(-this.rayDirection.x, -this.rayDirection.z);
+    this.player.model.position.copy(this.player.position); this.player.model.scale.setScalar(size);
     this.player.character.aimEnergy(this.rayDirection);
-    this.player.character.rightHand.getWorldPosition(this.emission);this.emission.add(this.hooks.getOrigin());
-    this.emission.addScaledVector(this.rayDirection,.25*size);
-    this.offset.copy(this.player.position);this.offset.y+=1.5*size;this.offset.sub(this.rayOrigin);
-    this.rayOrigin.addScaledVector(this.rayDirection,Math.max(0,this.offset.dot(this.rayDirection)+.8*size));
-    const aim=PhysicsWorld.raycast(this.rayOrigin,this.rayDirection,colliders,reach,0,true);
-    this.aimPoint.copy(aim?aim.point:this.rayOrigin).addScaledVector(this.rayDirection,aim?0:reach);
-    this.offset.subVectors(this.aimPoint,this.emission);
-    if(this.offset.dot(this.rayDirection)<=0)this.aimPoint.copy(this.emission).addScaledVector(this.rayDirection,reach);
-    this.offset.subVectors(this.aimPoint,this.emission).normalize();
-    const hit=PhysicsWorld.raycast(this.emission,this.offset,colliders,reach,0,true);
-    this.aimPoint.copy(hit?hit.point:this.emission).addScaledVector(this.offset,hit?0:reach);
+    this.player.character.rightHand.getWorldPosition(this.emission); this.emission.add(this.hooks.getOrigin());
+    this.emission.addScaledVector(this.rayDirection, .25 * size);
+    this.offset.copy(this.player.position); this.offset.y += 1.5 * size; this.offset.sub(this.rayOrigin);
+    this.rayOrigin.addScaledVector(this.rayDirection, Math.max(0, this.offset.dot(this.rayDirection) + .8 * size));
+    const aim = PhysicsWorld.raycast(this.rayOrigin, this.rayDirection, colliders, reach, 0, true);
+    this.aimPoint.copy(aim ? aim.point : this.rayOrigin).addScaledVector(this.rayDirection, aim ? 0 : reach);
+    this.offset.subVectors(this.aimPoint, this.emission);
+    if (this.offset.dot(this.rayDirection) <= 0) this.aimPoint.copy(this.emission).addScaledVector(this.rayDirection, reach);
+    this.offset.subVectors(this.aimPoint, this.emission).normalize();
+    const hit = PhysicsWorld.raycast(this.emission, this.offset, colliders, reach, 0, true);
+    this.aimPoint.copy(hit ? hit.point : this.emission).addScaledVector(this.offset, hit ? 0 : reach);
     return hit;
   }
 
-  private updateLaser(dt:number):void{
-    this.laser.visible=this.laserActive&&this.input.enabled&&!this.teleporting;
-    this.laserGlow.visible=this.laser.visible;this.laserImpact.visible=false;this.laserRing.visible=false;
-    if(!this.laser.visible)return;
+  private updateLaser(dt: number): void {
+    this.laser.visible = this.laserActive && this.input.enabled && !this.teleporting;
+    this.laserGlow.visible = this.laser.visible; this.laserImpact.visible = false; this.laserRing.visible = false;
+    if (!this.laser.visible) return;
     const cosmicTarget = this.acquireTarget(2_500_000);
     const isCosmic = cosmicTarget !== null && cosmicTarget.radius >= 10000;
     const reach = isCosmic ? Math.min(2_500_000, cosmicTarget.position.distanceTo(this.player.position) + cosmicTarget.radius * 1.5) : Math.max(1600, this.player.size * 24);
@@ -635,17 +616,16 @@ export class PowerSystem {
     this.laserTick -= dt;
     if (this.laserTick <= 0) {
       this.laserTick = 0.1;
-      if (hit) this.hooks.damage?.(this.aimPoint, 3 * Math.pow(this.player.size, 0.7), 220 * this.player.size);
+      if (hit) this.hooks.damage?.(this.aimPoint, 6 * Math.pow(this.player.size, 0.7), 150000 * this.player.size);
       const target = isCosmic ? cosmicTarget : this.acquireTarget(Math.max(1600, this.player.size * 24));
       if (target && (isCosmic || target.position.distanceTo(this.aimPoint) < target.radius + 3)) {
-        this.hooks.hit(target.id, 25 * this.player.size);
+        this.hooks.hit(target.id, 150000 * this.player.size);
       }
     }
   }
 
   private energy(): void {
     this.cooldowns.energy = 0.25;
-    this.lastEnergyTime = this.time;
     this.player.powerPose('energy', 0.3);
     const power = this.player.size;
     const target = this.acquireTarget();
@@ -664,7 +644,7 @@ export class PowerSystem {
       } else {
         this.aimPoint.copy(target.position);
       }
-      this.hooks.hit(target.id, 38 * power);
+      this.hooks.hit(target.id, 1000000 * power);
       this.targetId = target.id;
     } else {
       // aimBeam already resolved the hit from the hand.
@@ -688,17 +668,17 @@ export class PowerSystem {
 
   private shockwave(): void {
     this.cooldowns.shockwave = 2.4;
-    const radius = 48 + (this.player.size-1)*3;
+    const radius = 60 + (this.player.size - 1) * 5;
     this.player.powerPose('shockwave', 0.8);
     this.effects.wave(this.player.position, radius, 0x79ffcd, 1.15);
     this.effects.wave(this.player.position, radius * 0.75, 0xf4d296, 0.8);
     this.effects.burst(this.player.position, 0x8cffdc, Math.sqrt(this.player.size) * 2.5, 60);
-    this.hooks.impulse(this.player.position, radius, 45 * this.player.size);
+    this.hooks.impulse(this.player.position, radius, 80 * this.player.size);
     for (const target of this.hooks.targets()) {
       if (!target.active) continue;
       const distance = target.position.distanceTo(this.player.position);
       // The outer wave throws props; only its inner core disintegrates them.
-      if (distance < radius && (target.kind === 'anomaly' || target.kind === 'creature' || distance < radius * 0.23)) this.hooks.hit(target.id, 95 * Math.sqrt(this.player.size));
+      if (distance < radius && (target.kind === 'anomaly' || target.kind === 'creature' || distance < radius * 0.35)) this.hooks.hit(target.id, 2500000 * Math.sqrt(this.player.size));
     }
     const levelled = this.hooks.damage?.(this.player.position, radius, DESTRUCTION.shockwaveDamage * this.player.size) ?? 0;
     this.hooks.sound('shockwave');
@@ -757,11 +737,11 @@ export class PowerSystem {
   private giant(): void {
     this.cooldowns.giant = 1.2;
     this.sizeIndex = (this.sizeIndex + 1) % 6;
-    const size = [1, 7, 22, 200/2.07, 500/2.07, 1000/2.07][this.sizeIndex];
+    const size = [1, 7, 22, 200 / 2.07, 500 / 2.07, 1000 / 2.07][this.sizeIndex];
     this.player.setSize(size);
     this.effects.wave(this.player.position, size * 6, 0xf4d296, 1.3);
     this.hooks.sound('giant');
-    this.hooks.notify(['Forma original: 2 m','Gigante: 15 m','Colossal: 46 m','Titã: 200 m','Titã: 500 m','Titã: 1 km'][this.sizeIndex]);
+    this.hooks.notify(['Forma original: 2 m', 'Gigante: 15 m', 'Colossal: 46 m', 'Titã: 200 m', 'Titã: 500 m', 'Titã: 1 km'][this.sizeIndex]);
   }
 
   private clone(): void {
@@ -808,8 +788,8 @@ export class PowerSystem {
   }
 
   dispose(): void {
-    for(const effect of [this.laserGlow,this.laserImpact,this.laserRing]){effect.geometry.dispose();(effect.material as MeshBasicMaterial).dispose();effect.removeFromParent();}
-    this.laser.geometry.dispose();(this.laser.material as MeshBasicMaterial).dispose();this.laser.removeFromParent();
+    for (const effect of [this.laserGlow, this.laserImpact, this.laserRing]) { effect.geometry.dispose(); (effect.material as MeshBasicMaterial).dispose(); effect.removeFromParent(); }
+    this.laser.geometry.dispose(); (this.laser.material as MeshBasicMaterial).dispose(); this.laser.removeFromParent();
     this.effects.dispose(); this.indicator.removeFromParent(); this.indicator.geometry.dispose(); (this.indicator.material as MeshBasicMaterial).dispose();
     for (const clone of this.clones) clone.character.dispose();
   }

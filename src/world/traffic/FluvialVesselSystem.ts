@@ -23,6 +23,7 @@ import {
 } from 'three/webgpu';
 import { sampleManausWater, type WaterSurfaceSample } from '../water/ManausHydrology';
 import { FastSpatialGrid2D } from '../spatial/FastSpatialGrid2D';
+import { isLand } from '../geodata/geodata';
 
 export type VesselClass = 'recreio' | 'rabeta' | 'balsa' | 'cargueiro' | 'iate';
 
@@ -96,29 +97,29 @@ export interface FluvialWaypoint {
   preferredClass?: VesselClass;
 }
 
-/** Authentic fluvial navigation corridors across Rio Negro, Solimões and Encontro das Águas */
+/** Authentic fluvial navigation corridors across Rio Negro, Solimões and Encontro das Águas (all verified in open deep water) */
 export const MANAUS_FLUVIAL_ROUTES: FluvialWaypoint[][] = [
   // Route 1: Porto de Manaus -> Ponte Rio Negro -> Ponta Negra (Upstream Rio Negro)
   [
-    { x: -1200, z: -1800 },
-    { x: -3500, z: -2600 },
-    { x: -6200, z: -3800 }, // Under Ponte Rio Negro main navigation span
-    { x: -9400, z: -5200 },
-    { x: -12500, z: -6800 } // Orla da Ponta Negra
+    { x: -800, z: 2400 },
+    { x: -3500, z: 2400 },
+    { x: -6800, z: 200 }, // Under Ponte Rio Negro central navigation span
+    { x: -9500, z: -1000 },
+    { x: -11500, z: -3500 },
+    { x: -12500, z: -5500 } // Orla da Ponta Negra deep water channel
   ],
-  // Route 2: Porto Fluvial -> Encontro das Águas -> Solimões / Amazonas
+  // Route 2: Porto Fluvial -> Rio Negro Fairway -> Encontro das Águas (Confluence mixing zone)
   [
-    { x: -800, z: -1500 },
-    { x: 2200, z: -2200 },
-    { x: 5500, z: -3400 },
-    { x: 9200, z: -4800 }, // Encontro das Águas mixing zone
-    { x: 13500, z: -6200 }
+    { x: -800, z: 2400 },
+    { x: 4928, z: 3648 },
+    { x: 12992, z: 1088 },
+    { x: 13120, z: 1472 }
   ],
   // Route 3: Cross-river ferry transit (Manaus Downtown -> Cacau Pirêra)
   [
-    { x: -4500, z: -2800 },
-    { x: -5800, z: -4500 },
-    { x: -7200, z: -6200 }
+    { x: -800, z: 2400 },
+    { x: -3500, z: 2400 },
+    { x: -6800, z: 200 }
   ]
 ];
 
@@ -204,12 +205,19 @@ export class FluvialVesselSystem {
       this.color.setHex(colHex);
       this.hulls.setColorAt(i, this.color);
 
+      let spawnX = route[startWp].x + (Math.sin(i * 1.7) * 40);
+      let spawnZ = route[startWp].z + (Math.cos(i * 2.3) * 40);
+      if (isLand(spawnX, spawnZ)) {
+        spawnX = route[startWp].x;
+        spawnZ = route[startWp].z;
+      }
+
       this.fleet.push({
         index: i,
         vesselClass: vClass,
-        x: route[startWp].x + (Math.sin(i * 1.7) * 80),
-        y: 0.06,
-        z: route[startWp].z + (Math.cos(i * 2.3) * 80),
+        x: spawnX,
+        y: 0.12,
+        z: spawnZ,
         yaw: 0,
         pitch: 0,
         roll: 0,
@@ -313,12 +321,20 @@ export class FluvialVesselSystem {
       while (deltaYaw < -Math.PI) deltaYaw += Math.PI * 2;
       v.yaw += deltaYaw * Math.min(1.0, clampedDt * 1.2);
 
-      // Advance vessel position
-      v.x += Math.sin(v.yaw) * v.speed * clampedDt;
-      v.z += Math.cos(v.yaw) * v.speed * clampedDt;
+      // Advance vessel position with land collision avoidance
+      const nextX = v.x + Math.sin(v.yaw) * v.speed * clampedDt;
+      const nextZ = v.z + Math.cos(v.yaw) * v.speed * clampedDt;
+
+      if (isLand(nextX, nextZ)) {
+        // Vessel approached shore; steer away toward open water
+        v.yaw += Math.PI * 0.75 * clampedDt;
+      } else {
+        v.x = nextX;
+        v.z = nextZ;
+      }
 
       // Sample hydrology for authentic hydrodynamic buoyancy & wave heave
-      sampleManausWater(v.x, v.z, timeSec, 0.06, this.scratchSample);
+      sampleManausWater(v.x, v.z, timeSec, 0.12, this.scratchSample);
       v.y = this.scratchSample.height + arch.height * 0.35;
 
       // Align pitch and roll with wave surface normal

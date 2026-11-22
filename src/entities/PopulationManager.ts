@@ -17,6 +17,8 @@ export class PopulationManager {
   readonly npcs: NpcBody[]=[];
   readonly destroyed=new Set<string>();
   readonly colliders:Collider[]=[];
+  readonly presented = new Set<number>();
+  readonly held = new Set<string>();
   npcCount=24; reaction=0; vehicleCount=16;
   private props:InstancedMesh; private people:InstancedMesh; private heads:InstancedMesh;
   private dummy=new Object3D(); private color=new Color(); private cell=''; private elapsed=0;

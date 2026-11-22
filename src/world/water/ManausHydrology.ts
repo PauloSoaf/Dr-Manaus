@@ -9,15 +9,19 @@ export interface GerstnerWaveDefinition {
 }
 
 /**
- * Harmonic Gerstner wave profile designed for Amazonian river hydrology:
- * - Rio Negro: Long, broad, viscous swells with smooth surface tension.
- * - Rio Solimões: Faster, sediment-heavy, choppier gravity waves.
+ * Harmonic Gerstner wave profile designed for authentic Amazonian river hydrology:
+ * - Rio Negro: Calm, glassy, viscous surface tension with gentle downstream drift ripples.
+ * - Rio Solimões: Smooth laminar flow with subtle capillary wind ripples (total peak-to-peak < 9cm).
  */
 export const MANAUS_RIVER_WAVES: GerstnerWaveDefinition[] = [
-  { direction: [0.92, 0.38], amplitude: 0.28, wavelength: 42.0, speed: 1.15, steepness: 0.45 },
-  { direction: [-0.35, 0.94], amplitude: 0.16, wavelength: 22.0, speed: 1.45, steepness: 0.40 },
-  { direction: [0.55, -0.83], amplitude: 0.09, wavelength: 11.5, speed: 1.95, steepness: 0.35 },
-  { direction: [-0.88, -0.47], amplitude: 0.05, wavelength: 5.2, speed: 2.60, steepness: 0.30 }
+  // Primary gentle river drift current aligned downstream toward Encontro das Águas
+  { direction: [0.82, 0.57], amplitude: 0.035, wavelength: 28.0, speed: 0.65, steepness: 0.05 },
+  // Secondary gentle transverse river fairway ripple
+  { direction: [0.60, 0.80], amplitude: 0.022, wavelength: 14.0, speed: 0.85, steepness: 0.04 },
+  // Subtle capillary river breeze ripple
+  { direction: [0.95, 0.31], amplitude: 0.014, wavelength: 6.5, speed: 1.10, steepness: 0.03 },
+  // Fine surface tension capillary ripple
+  { direction: [0.45, 0.89], amplitude: 0.007, wavelength: 2.8, speed: 1.40, steepness: 0.02 }
 ];
 
 export interface WaterSurfaceSample {
