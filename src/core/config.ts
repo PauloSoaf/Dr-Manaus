@@ -56,7 +56,7 @@ export const DESTRUCTION = {
   /** Rubble released by a collapse, scaled by the building's cube-root extent. */
   chunksPerCollapse: 12, maxChunksPerCollapse: 64, maxChunkEnergy: 36,
   /** Bounds the cost of a single frame: surplus damage collapses the rest on the next one. */
-  maxCollapsesPerFrame: 32,
+  maxCollapsesPerFrame: 16,
   maxLightRetirementsPerFrame: 1024,
   /** Debris pool. `maxDebris` is the hard instance cap; `debrisPerParticle` scales it by preset. */
   maxDebris: 512, debrisPerParticle: .7, debrisGravity: 26, debrisBounce: .26, debrisFriction: 3.2,

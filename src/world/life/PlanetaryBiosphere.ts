@@ -49,6 +49,11 @@ export type RadiationLevel =
   | 'moderate'
   | 'lethal-cosmic';
 
+export type EcosystemDomain =
+  | 'earth-native'
+  | 'alien-procedural'
+  | 'special-event';
+
 export interface PlanetarySeedChannels {
   readonly rootSeed: number;
   readonly climateSeed: number;
@@ -73,6 +78,43 @@ export interface PlanetaryBiosphereProfile {
   readonly radiationLevel: RadiationLevel;
   readonly averageTemperatureK: number;
   readonly description: string;
+  readonly ecosystemDomain?: EcosystemDomain;
+  readonly isAlienWorld?: boolean;
+}
+
+/**
+ * Predicates to strictly isolate native Earth gameplay from extraterrestrial procedural life.
+ */
+export function isEligibleForAlienSettlements(biosphere?: PlanetaryBiosphereProfile | null): boolean {
+  if (!biosphere) return false;
+  if (biosphere.bodyId === 'earth') return false;
+  if (biosphere.ecosystemDomain === 'earth-native') return false;
+  return biosphere.civilizationStage !== 'none';
+}
+
+export function isEligibleForAlienFauna(biosphere?: PlanetaryBiosphereProfile | null): boolean {
+  if (!biosphere) return false;
+  if (biosphere.bodyId === 'earth') return false;
+  if (biosphere.ecosystemDomain === 'earth-native') return false;
+  return biosphere.lifeTier === 'fauna' || biosphere.lifeTier === 'civilized';
+}
+
+export function isEligibleForAlienFlora(biosphere?: PlanetaryBiosphereProfile | null): boolean {
+  if (!biosphere) return false;
+  if (biosphere.bodyId === 'earth') return false;
+  if (biosphere.ecosystemDomain === 'earth-native') return false;
+  return biosphere.dominantVegetationType !== 'none' && biosphere.dominantVegetationType !== 'chlorophyll-broadleaf';
+}
+
+export function isEligibleForCosmicRuins(biosphere?: PlanetaryBiosphereProfile | null): boolean {
+  if (!biosphere) return false;
+  if (biosphere.bodyId === 'earth') return false;
+  if (biosphere.ecosystemDomain === 'earth-native') return false;
+  return (
+    biosphere.civilizationStage === 'ancient-ruins-guardians' ||
+    biosphere.lifeTier === 'civilized' ||
+    (biosphere.lifeTier === 'fauna' && biosphere.habitabilityScore > 0.55)
+  );
 }
 
 /**
@@ -192,6 +234,8 @@ export function generatePlanetaryBiosphere(
       radiationLevel: 'negligible',
       averageTemperatureK: 288,
       description: 'Berço da civilização humana, biosfera rica com oceanos líquidos e vasta cobertura vegetal.',
+      ecosystemDomain: 'earth-native',
+      isAlienWorld: false,
     };
   }
 
@@ -407,6 +451,8 @@ export function generatePlanetaryBiosphere(
     radiationLevel: radiation,
     averageTemperatureK: tempK,
     description: desc,
+    ecosystemDomain: body.id === 'earth' ? 'earth-native' : 'alien-procedural',
+    isAlienWorld: body.id !== 'earth',
   };
 }
 

@@ -689,6 +689,7 @@ export class Game {
     this.watchGround(this.worldRoot); this.forest = new ForestBackdrop(this.worldRoot);
     this.input = new InputController(this.rendering.renderer.domElement);
     this.player = new PlayerController(this.actorRoot, this.input);
+    this.player.setDivineVitals();
     if (FEATURES.curvedManaus) {
       const flat = this.player.position;
       const curved = this.surfaceService.legacyPointToRenderLocal(flat.x, flat.y, flat.z);

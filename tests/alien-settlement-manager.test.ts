@@ -29,6 +29,13 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
   };
   const moonBiosphere = generatePlanetaryBiosphere(moonBody, SOLAR_BODY_PROFILES.moon, 1337n);
 
+  const alienBiosphere = {
+    ...earthBiosphere,
+    bodyId: 'procedural-colony-alpha',
+    ecosystemDomain: 'alien-procedural' as const,
+    isAlienWorld: true,
+  };
+
   const fakeSurface: PlanetSurfaceGenerator = {
     body: { semiMajorAxisM: 6378137, flattening: 0.0033528 },
     radiusM: 6378137,
@@ -70,6 +77,20 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
     manager.dispose();
   });
 
+  it('T_VIVO08_02B_EARTH_ECOSYSTEM_ISOLATION', () => {
+    const save = new SaveManager();
+    const manager = new AlienSettlementManager(save);
+
+    for (let x = 0; x < 5; x++) {
+      for (let z = 0; z < 5; z++) {
+        const playerPos = new Vector3(x * 240 + 120, 50, z * 240 + 120);
+        manager.update(0.016, playerPos, fakeSurface, earthBiosphere);
+        assert.strictEqual(manager.activeSettlements.length, 0, 'No alien settlements must spawn on Earth');
+      }
+    }
+    manager.dispose();
+  });
+
   it('T_VIVO08_03_SETTLEMENT_SPAWN_AND_MODULAR_STRUCTURES', () => {
     const save = new SaveManager();
     const manager = new AlienSettlementManager(save);
@@ -79,7 +100,7 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
     for (let x = 0; x < 5; x++) {
       for (let z = 0; z < 5; z++) {
         const playerPos = new Vector3(x * 240 + 120, 50, z * 240 + 120);
-        manager.update(0.016, playerPos, fakeSurface, earthBiosphere);
+        manager.update(0.016, playerPos, fakeSurface, alienBiosphere);
         if (manager.activeSettlements.length > 0) {
           spawned = true;
           break;
@@ -107,7 +128,7 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
     // Locate a settlement
     for (let x = 0; x < 5; x++) {
       const playerPos = new Vector3(x * 240 + 120, 50, 120);
-      manager.update(0.016, playerPos, fakeSurface, earthBiosphere);
+      manager.update(0.016, playerPos, fakeSurface, alienBiosphere);
       if (manager.activeSettlements.length > 0) break;
     }
 
@@ -120,7 +141,7 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
 
     // Move player right into the settlement
     const playerPos = settlement.center.clone().add(new Vector3(5, 0, 5));
-    manager.update(SETTLEMENT_TICK_SEC + 0.05, playerPos, fakeSurface, earthBiosphere);
+    manager.update(SETTLEMENT_TICK_SEC + 0.05, playerPos, fakeSurface, alienBiosphere);
 
     const inhabitant = manager.inhabitants.find(i => i.active && i.factionId === factionId);
     assert.ok(inhabitant);
@@ -137,7 +158,7 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
 
     for (let x = 0; x < 5; x++) {
       const playerPos = new Vector3(x * 240 + 120, 50, 120);
-      manager.update(0.016, playerPos, fakeSurface, earthBiosphere);
+      manager.update(0.016, playerPos, fakeSurface, alienBiosphere);
       if (manager.activeSettlements.length > 0) break;
     }
 
@@ -173,7 +194,7 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
 
     for (let x = 0; x < 5; x++) {
       const playerPos = new Vector3(x * 240 + 120, 50, 120);
-      manager.update(0.016, playerPos, fakeSurface, earthBiosphere);
+      manager.update(0.016, playerPos, fakeSurface, alienBiosphere);
       if (manager.activeSettlements.length > 0) break;
     }
 
@@ -204,7 +225,7 @@ describe('AlienSettlementManager (VIVO-08 & VIVO-09)', () => {
 
     // Advanced industrial alien biosphere
     const advancedBiosphere = {
-      ...earthBiosphere,
+      ...alienBiosphere,
       bodyId: 'procedural-megacity-prime',
       civilizationStage: 'advanced-industrial' as const,
     };

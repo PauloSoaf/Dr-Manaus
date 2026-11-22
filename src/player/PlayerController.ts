@@ -34,13 +34,13 @@ export class PlayerController {
   readonly dodge = new DodgeSystem();
   /** The key that evades: a roll on the ground, a dash in the air. */
   dodgeKey = 'KeyZ';
-  maxHealth = 1000000;
-  health = 1000000;
-  maxShield = 500000;
-  shield = 500000;
+  maxHealth = 1000;
+  health = 1000;
+  maxShield = 500;
+  shield = 500;
   isGodMode = false;
-  shieldRegenDelay = 0.2;
-  shieldRegenRate = 50000.0;
+  shieldRegenDelay = 3.0;
+  shieldRegenRate = 50.0;
   lastHitTimer = 0;
   damageFlash = 0;
   lastDamageReason: string | null = null;
@@ -82,6 +82,15 @@ export class PlayerController {
     this.sceneRoot = root;
     root.add(this.model);
     this.model.position.copy(this.position);
+  }
+
+  setDivineVitals(): void {
+    this.maxHealth = 1000000;
+    this.health = 1000000;
+    this.maxShield = 500000;
+    this.shield = 500000;
+    this.shieldRegenDelay = 0.2;
+    this.shieldRegenRate = 50000.0;
   }
 
   get isScripted(): boolean { return this.scripted; }

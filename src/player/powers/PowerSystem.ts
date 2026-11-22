@@ -130,6 +130,7 @@ export class PowerSystem {
 
   update(realDt: number, worldDt: number): void {
     this.time += realDt;
+    this.combat.update(realDt);
     if (this.meleePending) this.sampleStrikeBone(false);
     for (const name of Object.keys(this.cooldowns)) this.cooldowns[name] = Math.max(0, this.cooldowns[name] - realDt);
     if (this.cooldowns.planetRupture <= 0 && this._planetRuptureState === 'cooldown') {
@@ -230,7 +231,6 @@ export class PowerSystem {
     this.teleportSystem.updateQuantumJump(realDt);
     this.updateClones(realDt);
     this.updateLaser(realDt);
-    this.combat.update(realDt);
     const buffered = this.combat.consumeBufferedAction();
     if (buffered && !this.meleePending && this.cooldowns.punch <= 0 && this.cooldowns.kick <= 0) {
       if (buffered.type === 'melee_kick') this.use('kick');
@@ -239,7 +239,9 @@ export class PowerSystem {
   }
 
   readonly combat = new CombatSystem();
-  get hitStop(): HitStopSystem { return this.combat.hitStop; }
+  private _hitStopOverride?: any;
+  get hitStop(): HitStopSystem { return this._hitStopOverride ?? this.combat.hitStop; }
+  set hitStop(v: any) { this._hitStopOverride = v; }
   private readonly previousStrikePosition = new Vector3();
   private readonly currentStrikePosition = new Vector3();
   private readonly sweepDirection = new Vector3();

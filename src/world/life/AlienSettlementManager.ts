@@ -23,7 +23,7 @@ import {
 } from 'three/webgpu';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Target } from '../../core/types';
-import type { PlanetaryBiosphereProfile } from './PlanetaryBiosphere';
+import { type PlanetaryBiosphereProfile, isEligibleForAlienSettlements } from './PlanetaryBiosphere';
 import type { PlanetSurfaceGenerator } from '../planet/PlanetSurface';
 import type { Vec3 } from '../spatial/units';
 import type { SaveManager } from '../../core/SaveManager';
@@ -385,18 +385,25 @@ export class AlienSettlementManager {
     return list;
   }
 
+  activate(): void {
+    this.root.visible = true;
+  }
+
+  load(cellKey: string): void {
+    this.currentCell = cellKey;
+  }
+
+  unload(): void {
+    this.clear(true);
+  }
+
   update(
     dt: number,
     playerPos: Vector3,
     surface?: PlanetSurfaceGenerator,
     biosphere?: PlanetaryBiosphereProfile,
   ): void {
-    if (
-      !surface ||
-      !biosphere ||
-      biosphere.bodyId === 'earth' ||
-      (biosphere.lifeTier !== 'civilized' && biosphere.civilizationStage === 'none')
-    ) {
+    if (!surface || !biosphere || !isEligibleForAlienSettlements(biosphere)) {
       this.clear();
       return;
     }
@@ -418,6 +425,11 @@ export class AlienSettlementManager {
     surface: PlanetSurfaceGenerator,
     biosphere: PlanetaryBiosphereProfile,
   ): void {
+    if (!isEligibleForAlienSettlements(biosphere)) {
+      this.clear();
+      return;
+    }
+
     const cx = Math.floor(playerPos.x / 240);
     const cz = Math.floor(playerPos.z / 240);
     const cellKey = `${biosphere.bodyId}:${cx},${cz}`;
@@ -431,7 +443,7 @@ export class AlienSettlementManager {
     const spawnChance = hashSettlement(factionSeed, cx, cz);
     // 40% of populated world cells feature a modular settlement outpost
     if (spawnChance > 0.40) {
-      this.clear();
+      this.clear(false);
       return;
     }
 
@@ -454,6 +466,12 @@ export class AlienSettlementManager {
     this.dirVec.set(settlementCenterX, radY, settlementCenterZ).normalize();
     const dir: Vec3 = [this.dirVec.x, this.dirVec.y, this.dirVec.z];
     const groundY = surface.heightAt(dir);
+
+    // Validate water presence / elevation: do not spawn terrestrial settlements submerged in water
+    if (groundY <= 0.5) {
+      this.clear(false);
+      return;
+    }
 
     const settlementCenter = new Vector3(settlementCenterX, groundY, settlementCenterZ);
 
@@ -955,8 +973,8 @@ export class AlienSettlementManager {
     }
   }
 
-  clear(): void {
-    this.currentCell = '';
+  clear(resetCell = true): void {
+    if (resetCell) this.currentCell = '';
     this.activeSettlements.length = 0;
     for (const s of this.structures) s.active = false;
     for (const inb of this.inhabitants) inb.active = false;

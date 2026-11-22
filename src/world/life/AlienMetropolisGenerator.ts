@@ -271,7 +271,20 @@ export class AlienMetropolisGenerator {
     return this.megaliths.length;
   }
 
+  public activate(): void {
+    this.group.visible = true;
+  }
+
+  public unload(): void {
+    this.clear();
+  }
+
+  public update(): void {
+    // Zero-allocation per-frame transform/animation hook if needed
+  }
+
   public dispose(): void {
+    this.clear();
     this.group.removeFromParent();
     for (const mesh of [this.annularMesh, this.pyramidMesh, this.spireMesh, this.dockMesh]) {
       mesh.geometry.dispose();
