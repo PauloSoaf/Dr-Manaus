@@ -48,7 +48,8 @@ export function sampleManausWater(
   z: number,
   timeSec: number,
   baseSurfaceY: number = 0.06,
-  out?: WaterSurfaceSample
+  out?: WaterSurfaceSample,
+  shoreDistanceM?: number
 ): WaterSurfaceSample {
   const result = out || {
     height: baseSurfaceY,
@@ -60,6 +61,9 @@ export function sampleManausWater(
   let dx = 0;
   let dy = 0;
   let dz = 0;
+
+  // Shoreline wave attenuation (smoothly dampens displacement within 20m of bank to prevent shore clipping)
+  const damp = shoreDistanceM !== undefined ? Math.min(1.0, Math.max(0.0, shoreDistanceM / 20.0)) : 1.0;
 
   // Tangent and Binormal derivatives to compute true surface normal
   let waSumX = 0;
@@ -90,9 +94,9 @@ export function sampleManausWater(
     waSumZ += dirZ * wa * cosTheta;
   }
 
-  result.displacementX = dx;
-  result.displacementZ = dz;
-  result.height = baseSurfaceY + dy;
+  result.displacementX = dx * damp;
+  result.displacementZ = dz * damp;
+  result.height = baseSurfaceY + dy * damp;
 
   // Normal vector: (-waSumX, 1, -waSumZ) normalized
   result.normal.set(-waSumX, 1.0, -waSumZ).normalize();

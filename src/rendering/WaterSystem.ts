@@ -35,8 +35,8 @@ export interface WaterFile {
  * the surface is dead flat, so nothing here can ever reach a riverside avenue.
  */
 const RIVER_Y = .12;
-/** The stand-in plane keeps the old depth: generalized water must never wash over the city. */
-const FALLBACK_Y = -3;
+/** The stand-in plane sits safely above the -3.5m subterranean backdrop so fallback water is never occluded. */
+const FALLBACK_Y = -0.2;
 /** Width of the lighter band along the bank, and the cell that indexes the bank segments. */
 const SHORE_BAND = 140, SHORE_CELL = 150;
 /** Triangle size target: fine enough to carry the band at the bank, coarse in open water. */
@@ -249,26 +249,37 @@ function createMaterial(): MeshStandardNodeMaterial {
 
   const totalElevation = wave1.add(wave2).add(wave3).add(wave4);
 
-  // Position displacement node (vertex shader displacement)
-  material.positionNode = positionLocal.add(vec3(0, totalElevation, 0));
+  // Shoreline wave attenuation: waves smoothly dampen to zero within 25m of the bank (shore <= 0.01)
+  // so ripples never intersect or clip through the ground elevation at Y = 0.
+  const waveDamp = smoothstep(0.01, 0.25, shore);
+  material.positionNode = positionLocal.add(vec3(0, totalElevation.mul(waveDamp), 0));
 
   // Schlick-Fresnel Specular Reflectance
   const viewDir = cameraPosition.sub(positionWorld).normalize();
   const cosTheta = normalWorld.dot(viewDir).abs();
   const fresnel = float(1).sub(cosTheta).pow(5);
 
-  // Rio Negro: Deep Humic Dark Water, Obsidian Depth, Copper-Amber Shore Margins
-  // Real Rio Negro absorbs blue and green wavelengths heavily through organic tannins/humic acids.
-  const negroDeep = color('#080605'); // Deep dark tea/coffee obsidian
-  const negroShallow = color('#2e1a0c'); // Warm amber-copper at shallow margins
-  const negroSkyReflect = color('#242930'); // Neutral dark atmospheric Fresnel reflection
-  const negroWater = mix(negroDeep, negroShallow, float(1).sub(shore));
-  const negroFinal = mix(negroWater, negroSkyReflect, fresnel.mul(0.65));
+  // Physical Beer-Lambert Optical Depth Attenuation:
+  // Estimated water column thickness from shoreline gradient: 0.3m at shore to 40m in deep fairway
+  const depthM = shore.mul(38.0).add(0.3);
+
+  // Red/amber wavelengths penetrate shallow blackwater, blue/green are absorbed rapidly by humic tannins:
+  const transR = depthM.mul(-0.06).exp();
+
+  // Translucent amber tea at shallow depths, graduating into obsidian abyss:
+  const negroBed = color('#472b14'); // Riverbed gravel/sand visible through shallow tea water
+  const negroExtinct = color('#060504'); // Deep absorption abyss
+  const negroTranslucent = mix(negroExtinct, negroBed, transR.mul(0.85));
+  const negroWater = mix(negroTranslucent, negroExtinct, float(1).sub(transR));
+
+  // Atmospheric sky reflection for authentic liquid sheen:
+  const negroSkyReflect = color('#3c4756');
+  const negroFinal = mix(negroWater, negroSkyReflect, fresnel.mul(0.70));
 
   // Rio Solimões: Suspended Clay Sediments (Muddy Ochre/Cafe-au-lait)
-  const solimoesDeep = color('#54432a'); // Muddy clay brown
-  const solimoesShallow = color('#7c6644'); // Silty lighter margin
-  const solimoesClayReflect = color('#9c8868'); // Warm silty reflection
+  const solimoesDeep = color('#584832'); // Muddy clay brown
+  const solimoesShallow = color('#806c4e'); // Silty lighter margin
+  const solimoesClayReflect = color('#b09c7a'); // Warm silty reflection
   const solimoesWater = mix(solimoesDeep, solimoesShallow, float(1).sub(shore));
   const solimoesFinal = mix(solimoesWater, solimoesClayReflect, fresnel.mul(0.45));
 
@@ -476,10 +487,35 @@ export class WaterSystem {
   surfaceY = FALLBACK_Y;
   real = false;
   triangles = 0;
+  polygonCount = 0;
+  averageDepthM = 32.0;
+  loadError: string | null = null;
   private readonly mesh: Mesh;
 
   readonly buoyancy = new WaterBuoyancyService();
   readonly vfx: WaterVFX;
+
+  get telemetry(): {
+    real: boolean;
+    polygonCount: number;
+    triangles: number;
+    fallbackActive: boolean;
+    bounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null;
+    averageDepthM: number;
+    surfaceY: number;
+    lastError: string | null;
+  } {
+    return {
+      real: this.real,
+      polygonCount: this.polygonCount,
+      triangles: this.triangles,
+      fallbackActive: !this.real,
+      bounds: this.source?.bounds ?? null,
+      averageDepthM: this.averageDepthM,
+      surfaceY: this.surfaceY,
+      lastError: this.loadError,
+    };
+  }
 
   constructor(root: Group) {
     this.mesh = new Mesh(fallbackSurface(), this.material);
@@ -510,18 +546,36 @@ export class WaterSystem {
   async initialize(): Promise<void> {
     try {
       const response = await fetch(`${baseUrl()}geodata/real-city/water.json`, { cache: 'no-cache' });
-      if (!response.ok) return;
-      const file = await response.json() as WaterFile;
-      if (!file?.polygons?.length) return;
+      if (!response.ok) {
+        this.loadError = `HTTP ${response.status} loading water.json`;
+        console.warn(`[WaterSystem] ${this.loadError} - fallback plane active`);
+        return;
+      }
+      const file = (await response.json()) as WaterFile;
+      if (!file?.polygons?.length) {
+        this.loadError = 'Empty polygons in water.json';
+        console.warn(`[WaterSystem] ${this.loadError} - fallback plane active`);
+        return;
+      }
       const geometry = buildSurface(file);
-      if (!geometry) return;
+      if (!geometry) {
+        this.loadError = 'Triangulation failed for water polygons';
+        console.warn(`[WaterSystem] ${this.loadError} - fallback plane active`);
+        return;
+      }
       this.mesh.geometry.dispose();
       this.mesh.geometry = geometry;
       this.triangles = triangleCount(geometry);
+      this.polygonCount = file.polygons.length;
       this.surfaceY = RIVER_Y;
       this.real = true;
       this.source = file;
-    } catch { this.real = false; }
+      this.loadError = null;
+    } catch (err) {
+      this.real = false;
+      this.loadError = err instanceof Error ? err.message : String(err);
+      console.warn(`[WaterSystem] Load exception: ${this.loadError} - fallback plane active`);
+    }
   }
 
   setNight(night: boolean) { this.material.emissive = new Color(night ? '#030507' : '#000000'); }

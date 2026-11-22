@@ -2997,6 +2997,7 @@ export class Game {
       'UNIVERSO VIVO · Titãs Planetários': this.planetTitans.titans.filter(t => t.active).length,
       'UNIVERSO VIVO · Perigo': `${this.activeHazardState.type} [${(this.activeHazardState.intensity * 100).toFixed(0)}%] (${this.activeHazardState.alertLevel})`,
       'UNIVERSO VIVO · Atmosfera': `${this.atmosphere.activePaletteLabel} · ${this.lastAudioMedium}`,
+      'HIDROLOGIA · Rio Negro': `${this.water?.real ? 'real (water.json)' : 'fallback plano'} · ${this.water?.triangles ?? 0} tri · batimetria ~${this.water?.telemetry.averageDepthM ?? 0}m`,
       ...this.solarDebug(),
       'EARTH MAP · 3D Canvas / Visible / Dim': `${this.hud.isMapOpen ? 'aberto' : 'fechado'} / ${this.hud.universalMapLevel === 'planet' ? '3D ativo' : '2D universal'} / 800x600`,
       'EARTH MAP · Rotation yaw / pitch / zoom': `${(this.hud.mapRenderer3D?.yaw ?? 1.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.pitch ?? 0.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.zoomLevel ?? 1.0).toFixed(1)}x`,

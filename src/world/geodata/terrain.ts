@@ -48,28 +48,14 @@ function groundCover(): Mesh {
   const forest: readonly [number, number, number] = [.156, .268, .137];
   const scrub: readonly [number, number, number] = [.243, .316, .180];
   const city: readonly [number, number, number] = [.331, .336, .322];
-  for (let z = -REACH; z < REACH; z += CELL) for (let x = -REACH; x < REACH; x += CELL) {
-    const cx = x + CELL * .5, cz = z + CELL * .5;
-    // Water is drawn by the river surface; leaving a hole here would show the backdrop through it.
-    if (LAND_MASK.covers(cx, cz) && LAND_MASK.isWater(cx, cz)) continue;
-    if (!isLand(cx, cz)) continue;
-    const density = urbanDensity(cx, cz);
-    // Two stops: forest to scrub as the city approaches, scrub to asphalt inside it.
-    const t = Math.min(1, density * 1.35);
-    const base = t < .5 ? forest : scrub, target = t < .5 ? scrub : city;
-    const f = t < .5 ? t * 2 : (t - .5) * 2;
-    // A little deterministic variation stops the canopy reading as a flat painted sheet.
-    const jitter = ((Math.imul(Math.round(cx / CELL) * 73856093 ^ Math.round(cz / CELL) * 19349663, 2654435761) >>> 8) % 1000) / 1000;
-    const shade = .88 + jitter * .24;
-    const r = (base[0] + (target[0] - base[0]) * f) * shade;
-    const g = (base[1] + (target[1] - base[1]) * f) * shade;
-    const b = (base[2] + (target[2] - base[2]) * f) * shade;
-    for (const [px, pz] of [[x, z], [x + CELL, z], [x + CELL, z + CELL], [x, z], [x + CELL, z + CELL], [x, z + CELL]] as const) {
+
+  function emitQuad(x0: number, z0: number, x1: number, z1: number, r: number, g: number, b: number) {
+    for (const [px, pz] of [[x0, z0], [x1, z0], [x1, z1], [x0, z0], [x1, z1], [x0, z1]] as const) {
       if (localManausPresentationMode() === 'curved') {
         const pt = surfaceService.legacyPointToRenderLocal(px, MANAUS_GROUND_COVER_Y, pz);
-        position.push(pt.x, pt.y, pt.z); 
+        position.push(pt.x, pt.y, pt.z);
         const up = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, px, MANAUS_GROUND_COVER_Y, pz);
-        normal.push(up.x, up.y, up.z); 
+        normal.push(up.x, up.y, up.z);
       } else {
         position.push(px, MANAUS_GROUND_COVER_Y, pz);
         normal.push(0, 1, 0);
@@ -77,6 +63,52 @@ function groundCover(): Mesh {
       color.push(r, g, b);
     }
   }
+
+  for (let z = -REACH; z < REACH; z += CELL) {
+    for (let x = -REACH; x < REACH; x += CELL) {
+      const cx = x + CELL * 0.5, cz = z + CELL * 0.5;
+
+      const c00 = isLand(x, z);
+      const c10 = isLand(x + CELL, z);
+      const c11 = isLand(x + CELL, z + CELL);
+      const c01 = isLand(x, z + CELL);
+      const cc = isLand(cx, cz);
+
+      // 1. Fully water cell: skip entirely so the river surface is completely unobstructed
+      if (!c00 && !c10 && !c11 && !c01 && !cc) {
+        continue;
+      }
+
+      const density = urbanDensity(cx, cz);
+      const t = Math.min(1, density * 1.35);
+      const base = t < 0.5 ? forest : scrub, target = t < 0.5 ? scrub : city;
+      const f = t < 0.5 ? t * 2 : (t - 0.5) * 2;
+      const jitter = ((Math.imul(Math.round(cx / CELL) * 73856093 ^ Math.round(cz / CELL) * 19349663, 2654435761) >>> 8) % 1000) / 1000;
+      const shade = 0.88 + jitter * 0.24;
+      const r = (base[0] + (target[0] - base[0]) * f) * shade;
+      const g = (base[1] + (target[1] - base[1]) * f) * shade;
+      const b = (base[2] + (target[2] - base[2]) * f) * shade;
+
+      // 2. Fully land cell: emit single 512m quad for maximum runtime efficiency
+      if (c00 && c10 && c11 && c01 && cc) {
+        emitQuad(x, z, x + CELL, z + CELL, r, g, b);
+        continue;
+      }
+
+      // 3. Coastal boundary cell: adaptively subdivide into 8x8 sub-cells (64m each)
+      // so the terrain strictly conforms to the geographical landmask without invading rivers!
+      const SUB = 64;
+      for (let sz = z; sz < z + CELL; sz += SUB) {
+        for (let sx = x; sx < x + CELL; sx += SUB) {
+          const subCx = sx + SUB * 0.5, subCz = sz + SUB * 0.5;
+          if (isLand(subCx, subCz)) {
+            emitQuad(sx, sz, sx + SUB, sz + SUB, r, g, b);
+          }
+        }
+      }
+    }
+  }
+
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new Float32BufferAttribute(position, 3));
   geometry.setAttribute('normal', new Float32BufferAttribute(normal, 3));
@@ -95,20 +127,18 @@ export function createTerrain(root: Group): Group {
   const urban = new MeshStandardMaterial({ color: '#565753', roughness: 1, side: DoubleSide });
   const irandubaUrban = new MeshStandardMaterial({ color: '#59624f', roughness: 1, side: DoubleSide });
   const sand = new MeshStandardMaterial({ color: '#b0a185', roughness: 1, side: DoubleSide });
-  // A backdrop under everything. The generalized shoreline disagrees with the compiled river in
-  // places, and the real water surface is what paints the Rio Negro on top; without this plane a
-  // stretch of genuine land that the old polyline called river would render as a hole in the world.
-  const backdrop = polygon([[-120000, -120000], [120000, -120000], [120000, 120000], [-120000, 120000]], green, -.6);
+  // A subterranean backdrop under everything at -3.5m, well below the river bed and fallback water.
+  const backdrop = polygon([[-120000, -120000], [120000, -120000], [120000, 120000], [-120000, 120000]], green, -3.5);
   backdrop.name = 'terrain-backdrop';
   backdrop.userData.terrainSurface = 'sheet';
   backdrop.userData.terrainFallback = true;
   terrain.add(backdrop);
   const opposite = SHORELINE.map(([x, z]) => [x, z + riverWidth(x)] as const);
-  const shore1 = polygon([...SHORELINE, [50000, -50000], [-50000, -50000]], green, -.15);
+  const shore1 = polygon([...SHORELINE, [50000, -50000], [-50000, -50000]], green, -1.5);
   shore1.name = 'terrain-shoreline-north';
   shore1.userData.terrainSurface = 'sheet';
   terrain.add(shore1);
-  const shore2 = polygon([...opposite, [50000, 50000], [-50000, 50000]], green, -.2);
+  const shore2 = polygon([...opposite, [50000, 50000], [-50000, 50000]], green, -1.8);
   shore2.name = 'terrain-shoreline-south';
   shore2.userData.terrainSurface = 'sheet';
   terrain.add(shore2);
