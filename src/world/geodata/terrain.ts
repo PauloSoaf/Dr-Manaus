@@ -1,18 +1,34 @@
-import { BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Shape, ShapeGeometry } from 'three/webgpu';
+import { BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Path, Shape, ShapeGeometry, Vector3 } from 'three/webgpu';
 import { localManausPresentationMode, MANAUS_GROUND_COVER_Y } from '../spatial/ManausSurfacePresentation';
-import { LAND_MASK } from './landmask';
 import { urbanDensity } from '../chunks/BuildingGenerator';
-import { LANDMARKS, OSM_ROADS, SHORELINE, isLand, riverWidth, shoreZ } from './geodata';
+import { LANDMARKS, OSM_ROADS, isLand } from './geodata';
 import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
+import { manausBathymetry } from '../water/ManausBathymetry';
 
 const surfaceService = new SurfaceFrameService('earth');
+const _scratchNormal = new Vector3();
 
-function polygon(points: readonly (readonly [number, number])[], material: MeshStandardMaterial, y: number): Mesh {
+function horizonBackdrop(material: MeshStandardMaterial, y: number, outerReach: number, innerReach: number): Mesh {
   const shape = new Shape();
-  points.forEach(([x, z], i) => i === 0 ? shape.moveTo(x, -z) : shape.lineTo(x, -z));
+  shape.moveTo(-outerReach, -outerReach);
+  shape.lineTo(outerReach, -outerReach);
+  shape.lineTo(outerReach, outerReach);
+  shape.lineTo(-outerReach, outerReach);
   shape.closePath();
-  const geometry = new ShapeGeometry(shape); geometry.rotateX(-Math.PI / 2);
-  
+
+  // Cut out the inner [-innerReach, innerReach] square so the backdrop at Y = -0.6m never
+  // slices horizontally across the excavated 3D riverbed (which descends to -28.5m).
+  const hole = new Path();
+  hole.moveTo(-innerReach, -innerReach);
+  hole.lineTo(-innerReach, innerReach);
+  hole.lineTo(innerReach, innerReach);
+  hole.lineTo(innerReach, -innerReach);
+  hole.closePath();
+  shape.holes.push(hole);
+
+  const geometry = new ShapeGeometry(shape);
+  geometry.rotateX(-Math.PI / 2);
+
   const posAttr = geometry.getAttribute('position');
   const arr = posAttr.array as Float32Array;
   if (localManausPresentationMode() === 'curved') {
@@ -31,37 +47,96 @@ function polygon(points: readonly (readonly [number, number])[], material: MeshS
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
 
-  const mesh = new Mesh(geometry, material); mesh.receiveShadow = true; return mesh;
+  const mesh = new Mesh(geometry, material);
+  mesh.receiveShadow = true;
+  return mesh;
 }
 
 /**
- * The ground under the city, coloured from the data instead of one flat grey rectangle.
+ * Builds both the flat urban/forest `ground-cover` mesh (strictly at Y = MANAUS_GROUND_COVER_Y = 0)
+ * and the 3D excavated `manaus-riverbed` mesh (sloping continuously from Y = 0.0m at the shoreline
+ * down to Y = -28.5m in the main Rio Negro and Solimões channels).
  *
- * The old version painted the whole 32 x 17 km city bounding box asphalt grey, which meant the
- * rainforest that surrounds Manaus — most of that box — had grey ground. Here each 512 m cell
- * takes its colour from how urban it actually is and whether the compiled river covers it, so
- * forest reads as forest, the dense centre reads as city, and the edges blend between them.
+ * Because `ground-cover` takes all sub-quads where all 4 corners + center are land, and
+ * `manaus-riverbed` takes all remaining sub-quads (evaluating `sampleRiverbedHeight(px, pz)` which
+ * is 0.0m at land corners and < 0.0m at water corners), the two meshes share exact Y = 0.0m vertices
+ * along the entire coastline with zero holes, zero overlap, and zero flat planes cutting the water.
  */
-function groundCover(): Mesh {
+function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
   const CELL = 512, REACH = 26000;
-  const position: number[] = [], normal: number[] = [], color: number[] = [];
+  const landPos: number[] = [], landNorm: number[] = [], landCol: number[] = [];
+  const bedPos: number[] = [], bedNorm: number[] = [], bedCol: number[] = [];
+
   const forest: readonly [number, number, number] = [.156, .268, .137];
   const scrub: readonly [number, number, number] = [.243, .316, .180];
   const city: readonly [number, number, number] = [.331, .336, .322];
 
-  function emitQuad(x0: number, z0: number, x1: number, z1: number, r: number, g: number, b: number) {
+  // Riverbed sediment palette: shallow quartz/amber sand -> intermediate alluvial silt -> deep benthic bedrock/mud
+  const shallowSand: readonly [number, number, number] = [0.54, 0.43, 0.29];
+  const midSilt: readonly [number, number, number] = [0.35, 0.27, 0.19];
+  const deepBenthic: readonly [number, number, number] = [0.17, 0.14, 0.11];
+  const solimoesClay: readonly [number, number, number] = [0.52, 0.42, 0.28];
+
+  const curved = localManausPresentationMode() === 'curved';
+
+  function emitLandQuad(x0: number, z0: number, x1: number, z1: number, r: number, g: number, b: number) {
     for (const [px, pz] of [[x0, z0], [x1, z0], [x1, z1], [x0, z0], [x1, z1], [x0, z1]] as const) {
-      if (localManausPresentationMode() === 'curved') {
+      if (curved) {
         const pt = surfaceService.legacyPointToRenderLocal(px, MANAUS_GROUND_COVER_Y, pz);
-        position.push(pt.x, pt.y, pt.z);
+        landPos.push(pt.x, pt.y, pt.z);
         const up = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, px, MANAUS_GROUND_COVER_Y, pz);
-        normal.push(up.x, up.y, up.z);
+        landNorm.push(up.x, up.y, up.z);
       } else {
-        position.push(px, MANAUS_GROUND_COVER_Y, pz);
-        normal.push(0, 1, 0);
+        landPos.push(px, MANAUS_GROUND_COVER_Y, pz);
+        landNorm.push(0, 1, 0);
       }
-      color.push(r, g, b);
+      landCol.push(r, g, b);
     }
+  }
+
+  function emitRiverbedVertex(px: number, pz: number) {
+    const py = manausBathymetry.sampleRiverbedHeight(px, pz);
+    const n = manausBathymetry.sampleRiverbedNormal(px, pz, _scratchNormal);
+    if (curved) {
+      const pt = surfaceService.legacyPointToRenderLocal(px, py, pz);
+      bedPos.push(pt.x, pt.y, pt.z);
+      const cn = surfaceService.legacyDirectionToRenderLocal(n.x, n.y, n.z, px, py, pz);
+      bedNorm.push(cn.x, cn.y, cn.z);
+    } else {
+      bedPos.push(px, py, pz);
+      bedNorm.push(n.x, n.y, n.z);
+    }
+
+    const depth = Math.max(0, -py);
+    const silt = manausBathymetry.sampleSiltFactor(px, pz);
+    const grain = 0.90 + (((Math.imul(Math.round(px) * 73856093 ^ Math.round(pz) * 19349663, 2654435761) >>> 8) % 1000) / 1000) * 0.20;
+
+    let r: number, g: number, b: number;
+    if (depth < 3.0) {
+      const f = depth / 3.0;
+      r = shallowSand[0] + (midSilt[0] - shallowSand[0]) * f;
+      g = shallowSand[1] + (midSilt[1] - shallowSand[1]) * f;
+      b = shallowSand[2] + (midSilt[2] - shallowSand[2]) * f;
+    } else {
+      const f = Math.min(1, (depth - 3.0) / 18.0);
+      r = midSilt[0] + (deepBenthic[0] - midSilt[0]) * f;
+      g = midSilt[1] + (deepBenthic[1] - midSilt[1]) * f;
+      b = midSilt[2] + (deepBenthic[2] - midSilt[2]) * f;
+    }
+    // Blend Solimões ochre clay on the eastern river branch
+    r = (r * (1 - silt * 0.35) + solimoesClay[0] * (silt * 0.35)) * grain;
+    g = (g * (1 - silt * 0.35) + solimoesClay[1] * (silt * 0.35)) * grain;
+    b = (b * (1 - silt * 0.35) + solimoesClay[2] * (silt * 0.35)) * grain;
+    bedCol.push(r, g, b);
+  }
+
+  function emitRiverbedQuad(x0: number, z0: number, x1: number, z1: number) {
+    emitRiverbedVertex(x0, z0);
+    emitRiverbedVertex(x1, z0);
+    emitRiverbedVertex(x1, z1);
+    emitRiverbedVertex(x0, z0);
+    emitRiverbedVertex(x1, z1);
+    emitRiverbedVertex(x0, z1);
   }
 
   for (let z = -REACH; z < REACH; z += CELL) {
@@ -74,11 +149,6 @@ function groundCover(): Mesh {
       const c01 = isLand(x, z + CELL);
       const cc = isLand(cx, cz);
 
-      // 1. Fully water cell: skip entirely so the river surface is completely unobstructed
-      if (!c00 && !c10 && !c11 && !c01 && !cc) {
-        continue;
-      }
-
       const density = urbanDensity(cx, cz);
       const t = Math.min(1, density * 1.35);
       const base = t < 0.5 ? forest : scrub, target = t < 0.5 ? scrub : city;
@@ -89,35 +159,71 @@ function groundCover(): Mesh {
       const g = (base[1] + (target[1] - base[1]) * f) * shade;
       const b = (base[2] + (target[2] - base[2]) * f) * shade;
 
-      // 2. Fully land cell: emit single 512m quad for maximum runtime efficiency
-      if (c00 && c10 && c11 && c01 && cc) {
-        emitQuad(x, z, x + CELL, z + CELL, r, g, b);
+      // Also check midpoint edges so a narrow 128m creek crossing a 512m cell is never missed
+      const cm0 = isLand(cx, z);
+      const cm1 = isLand(x + CELL, cz);
+      const cm2 = isLand(cx, z + CELL);
+      const cm3 = isLand(x, cz);
+
+      // 1. Pure inland cell: single 512m quad in ground-cover
+      if (c00 && c10 && c11 && c01 && cc && cm0 && cm1 && cm2 && cm3) {
+        emitLandQuad(x, z, x + CELL, z + CELL, r, g, b);
         continue;
       }
 
-      // 3. Coastal boundary cell: adaptively subdivide into 8x8 sub-cells (64m each)
-      // so the terrain strictly conforms to the geographical landmask without invading rivers!
+      // 2. Pure far-field deep water cell (> 16km from center): 128m riverbed quads
+      const isNearCorridor = Math.abs(cx) <= 16384 && cz >= -6144 && cz <= 12288;
+      if (!c00 && !c10 && !c11 && !c01 && !cc && !cm0 && !cm1 && !cm2 && !cm3 && !isNearCorridor) {
+        const FAR_SUB = 128;
+        for (let sz = z; sz < z + CELL; sz += FAR_SUB) {
+          for (let sx = x; sx < x + CELL; sx += FAR_SUB) {
+            emitRiverbedQuad(sx, sz, sx + FAR_SUB, sz + FAR_SUB);
+          }
+        }
+        continue;
+      }
+
+      // 3. Coastal boundary or near-corridor river cell: subdivide into 64m quads
       const SUB = 64;
       for (let sz = z; sz < z + CELL; sz += SUB) {
         for (let sx = x; sx < x + CELL; sx += SUB) {
-          const subCx = sx + SUB * 0.5, subCz = sz + SUB * 0.5;
-          if (isLand(subCx, subCz)) {
-            emitQuad(sx, sz, sx + SUB, sz + SUB, r, g, b);
+          const s00 = isLand(sx, sz);
+          const s10 = isLand(sx + SUB, sz);
+          const s11 = isLand(sx + SUB, sz + SUB);
+          const s01 = isLand(sx, sz + SUB);
+          const scc = isLand(sx + SUB * 0.5, sz + SUB * 0.5);
+
+          if (s00 && s10 && s11 && s01 && scc) {
+            emitLandQuad(sx, sz, sx + SUB, sz + SUB, r, g, b);
+          } else {
+            emitRiverbedQuad(sx, sz, sx + SUB, sz + SUB);
           }
         }
       }
     }
   }
 
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new Float32BufferAttribute(position, 3));
-  geometry.setAttribute('normal', new Float32BufferAttribute(normal, 3));
-  geometry.setAttribute('color', new Float32BufferAttribute(color, 3));
-  geometry.computeBoundingSphere();
-  const mesh = new Mesh(geometry, new MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
-  mesh.name = 'ground-cover'; mesh.receiveShadow = true;
-  mesh.userData.terrainSurface = 'sheet';
-  return mesh;
+  const landGeo = new BufferGeometry();
+  landGeo.setAttribute('position', new Float32BufferAttribute(landPos, 3));
+  landGeo.setAttribute('normal', new Float32BufferAttribute(landNorm, 3));
+  landGeo.setAttribute('color', new Float32BufferAttribute(landCol, 3));
+  landGeo.computeBoundingSphere();
+  const groundCover = new Mesh(landGeo, new MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+  groundCover.name = 'ground-cover';
+  groundCover.receiveShadow = true;
+  groundCover.userData.terrainSurface = 'sheet';
+
+  const bedGeo = new BufferGeometry();
+  bedGeo.setAttribute('position', new Float32BufferAttribute(bedPos, 3));
+  bedGeo.setAttribute('normal', new Float32BufferAttribute(bedNorm, 3));
+  bedGeo.setAttribute('color', new Float32BufferAttribute(bedCol, 3));
+  bedGeo.computeBoundingSphere();
+  const riverbed = new Mesh(bedGeo, new MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0.04, side: DoubleSide }));
+  riverbed.name = 'manaus-riverbed';
+  riverbed.receiveShadow = true;
+  riverbed.userData.terrainSurface = 'sheet';
+
+  return { groundCover, riverbed };
 }
 
 /** A handful of terrain/road batches covering the horizon, never detailed city objects. */
@@ -125,38 +231,19 @@ export function createTerrain(root: Group): Group {
   const terrain = new Group(); terrain.name = 'Generalized Manaus land and OSM arteries';
   const green = new MeshStandardMaterial({ color: '#465c3b', roughness: 1, side: DoubleSide });
   const urban = new MeshStandardMaterial({ color: '#565753', roughness: 1, side: DoubleSide });
-  const irandubaUrban = new MeshStandardMaterial({ color: '#59624f', roughness: 1, side: DoubleSide });
-  const sand = new MeshStandardMaterial({ color: '#b0a185', roughness: 1, side: DoubleSide });
-  // A subterranean backdrop under everything at -3.5m, well below the river bed and fallback water.
-  const backdrop = polygon([[-120000, -120000], [120000, -120000], [120000, 120000], [-120000, 120000]], green, -3.5);
+
+  // Outer horizon backdrop at authored -0.6m with an inner cutout for [-26000, 26000]
+  // so it never blocks the excavated 3D riverbed while preserving the -0.6m horizon contract.
+  const backdrop = horizonBackdrop(green, -0.6, 120000, 26000);
   backdrop.name = 'terrain-backdrop';
   backdrop.userData.terrainSurface = 'sheet';
   backdrop.userData.terrainFallback = true;
   terrain.add(backdrop);
-  const opposite = SHORELINE.map(([x, z]) => [x, z + riverWidth(x)] as const);
-  const shore1 = polygon([...SHORELINE, [50000, -50000], [-50000, -50000]], green, -1.5);
-  shore1.name = 'terrain-shoreline-north';
-  shore1.userData.terrainSurface = 'sheet';
-  terrain.add(shore1);
-  const shore2 = polygon([...opposite, [50000, 50000], [-50000, 50000]], green, -1.8);
-  shore2.name = 'terrain-shoreline-south';
-  shore2.userData.terrainSurface = 'sheet';
-  terrain.add(shore2);
-  terrain.add(groundCover());
-  const irandubaCoast = opposite.filter(([x]) => x > -11200 && x < -5900);
-  if (irandubaCoast.length > 1) {
-    const inland = [...irandubaCoast].reverse().map(([x, z]) => [x, z + 2600] as const);
-    const irandubaMesh = polygon([...irandubaCoast, ...inland], irandubaUrban, .01);
-    irandubaMesh.name = 'terrain-iranduba-urban';
-    irandubaMesh.userData.terrainSurface = 'sheet';
-    terrain.add(irandubaMesh);
-  }
-  // Narrow embankment ribbon makes river scale readable from flight altitude.
-  const bank: (readonly [number, number])[] = [...SHORELINE, ...[...SHORELINE].reverse().map(([x, z]) => [x, z - 16] as const)];
-  const bankMesh = polygon(bank, sand, .035);
-  bankMesh.name = 'terrain-shore-bank';
-  bankMesh.userData.terrainSurface = 'sheet';
-  terrain.add(bankMesh);
+
+  const { groundCover, riverbed } = buildGroundAndRiverbed();
+  terrain.add(groundCover);
+  terrain.add(riverbed);
+
   const roadVertices: number[] = [], lineVertices: number[] = [];
   const ribbon = (target: number[], ax: number, az: number, bx: number, bz: number, width: number, y: number) => {
     const length = Math.hypot(bx - ax, bz - az); if (!length) return;
