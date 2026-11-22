@@ -28,6 +28,7 @@ import { SpaceLayer } from '../rendering/SpaceLayer';
 import { SpeedVFX, type SpeedState } from '../rendering/SpeedVFX';
 import { WeatherSystem } from '../rendering/WeatherSystem';
 import { WaterSystem } from '../rendering/WaterSystem';
+import { manausBathymetry } from '../world/water/ManausBathymetry';
 import { FluvialVesselSystem } from '../world/traffic/FluvialVesselSystem';
 import { VehicleController, type VehicleType } from '../player/vehicles/VehicleController';
 import { PortalSystem } from '../world/spatial/PortalSystem';
@@ -1420,21 +1421,62 @@ export class Game {
     const isBlackHoleNearby = dominantBodyId === 'sgra' || dominantBodyId === 'sagittarius-a-star';
     const blackHoleProx = isBlackHoleNearby ? Math.min(1, Math.max(0, 1 - (altitudeNow / 1e11))) : 0;
 
-    const isUnderwaterNow = manaus && this.water && this.player.position.y < (this.water.surfaceY + 0.15) && !isLand(this.player.position.x, this.player.position.z);
-    if (!this.wasUnderwater && isUnderwaterNow) {
+    this.player.waterVolumeActive = manaus;
+    if (manaus && this.water && this.input.consume('KeyU')) {
+      const nextDebug = !this.water.clearDebugMode;
+      this.water.setClearDebugMode(nextDebug);
+      this.hud.notify(
+        nextDebug
+          ? 'Depuração Batimétrica (U): ÁGUA CRISTALINA — leito 3D totalmente visível'
+          : 'Depuração Batimétrica (U): Turbidez natural do Rio Negro restaurada'
+      );
+    }
+
+    const sub = this.player.submersion;
+    const isPlayerInWater = Boolean(manaus && this.water && sub.inWater && sub.feetSubmerged);
+    if (!this.wasUnderwater && isPlayerInWater) {
       const impactSpeed = Math.abs(this.player.velocity.y);
       const intensity = Math.min(3.5, Math.max(1.0, impactSpeed / 5.0));
       this.water?.createSplash(this.player.position.x, this.player.position.z, intensity, Math.min(14, 5 + impactSpeed * 0.4));
       this.audio?.play('water-splash');
-    } else if (isUnderwaterNow && speedNow > 0.4) {
+    } else if (isPlayerInWater && speedNow > 0.4 && sub.submergeDepthM < 1.8 * this.player.size) {
       this.waterRippleTimer += dt;
       if (this.waterRippleTimer > 0.35) {
         this.waterRippleTimer = 0;
         this.water?.createRipple(this.player.position.x, this.player.position.z, 0.4, 2.5, 1.5);
       }
     }
-    this.wasUnderwater = Boolean(isUnderwaterNow);
-    const riverName = (this.player.position.z > 2000 || this.player.position.x > 3000) ? 'solimoes' : 'negro';
+    this.wasUnderwater = isPlayerInWater;
+
+    // Evaluate camera underwater medium transition
+    const camWorldX = this.rendering.camera.position.x + this.renderOriginVec.x;
+    const camWorldY = this.rendering.camera.position.y + this.renderOriginVec.y;
+    const camWorldZ = this.rendering.camera.position.z + this.renderOriginVec.z;
+    const camWaterY = manausBathymetry.sampleWaterSurface(camWorldX, camWorldZ, this.lastTime * 0.001);
+    const isCameraUnderwater = Boolean(manaus && this.water && manausBathymetry.isWater(camWorldX, camWorldZ) && camWorldY < camWaterY - 0.04);
+    this.water?.setCameraUnderwater(isCameraUnderwater);
+
+    const riverName = sub.riverType === 'solimoes' ? 'solimoes' : 'negro';
+    if (isCameraUnderwater) {
+      const fog = this.rendering.scene.fog as any;
+      if (fog) {
+        if (this.water?.clearDebugMode) {
+          fog.color?.set?.('#2a3542');
+          fog.near = 65;
+          fog.far = 650;
+        } else if (riverName === 'solimoes') {
+          fog.color?.set?.('#463826');
+          fog.near = 4;
+          fog.far = 52;
+        } else {
+          // Rio Negro amber-tea underwater medium: near riverbed relief clearly legible
+          fog.color?.set?.('#22160c');
+          fog.near = 6;
+          fog.far = 75;
+        }
+      }
+    }
+
     const teatro = LANDMARKS.find(l => l.id === 'teatro');
     const isTheaterIndoor = Boolean(manaus && teatro && Math.hypot(this.player.position.x - teatro.x, this.player.position.z - teatro.z) < 48 && this.player.position.y < 35);
     const titanDist = this.planetTitans?.titans?.[0] ? this.planetTitans.root.position.length() : 999_999_999;
@@ -1446,8 +1488,8 @@ export class Game {
       speedMps: speedNow,
       altitudeM: altitudeNow,
       rain: manaus && ['rain', 'storm'].includes(this.atmosphere.weather),
-      river: manaus && !isLand(this.player.position.x, this.player.position.z),
-      underwater: Boolean(isUnderwaterNow),
+      river: manaus && sub.inWater,
+      underwater: Boolean(isCameraUnderwater || sub.headSubmerged),
       riverName,
       theaterIndoor: isTheaterIndoor,
       titanProximity,
@@ -2997,7 +3039,9 @@ export class Game {
       'UNIVERSO VIVO · Titãs Planetários': this.planetTitans.titans.filter(t => t.active).length,
       'UNIVERSO VIVO · Perigo': `${this.activeHazardState.type} [${(this.activeHazardState.intensity * 100).toFixed(0)}%] (${this.activeHazardState.alertLevel})`,
       'UNIVERSO VIVO · Atmosfera': `${this.atmosphere.activePaletteLabel} · ${this.lastAudioMedium}`,
-      'HIDROLOGIA · Rio Negro': `${this.water?.real ? 'real (water.json)' : 'fallback plano'} · ${this.water?.triangles ?? 0} tri · batimetria ~${this.water?.telemetry.averageDepthM ?? 0}m`,
+      'HIDROLOGIA · Rio Negro': `${this.water?.real ? 'real (water.json)' : 'fallback plano'} · ${this.water?.triangles ?? 0} tri · modo ${this.water?.clearDebugMode ? 'CRISTALINO (U)' : 'natural'}`,
+      'BATIMETRIA · Sup / Leito / Colisão': `sup ${this.player.submersion.surfaceY.toFixed(2)}m · leito ${this.player.submersion.riverbedY.toFixed(2)}m · col ${PhysicsWorld.terrainHeight(this.player.position.x, this.player.position.z).toFixed(2)}m · prof ${this.player.submersion.totalWaterDepthM.toFixed(2)}m`,
+      'SUBMERSÃO · Jogador / Fundo / Margem': `${this.player.submersion.inWater ? this.player.submersion.riverType.toUpperCase() : 'TERRA'} · Y=${this.player.position.y.toFixed(2)}m · distFundo=${this.player.submersion.distanceToBedM.toFixed(2)}m · distMargem=${this.player.submersion.signedShoreDistanceM.toFixed(1)}m`,
       ...this.solarDebug(),
       'EARTH MAP · 3D Canvas / Visible / Dim': `${this.hud.isMapOpen ? 'aberto' : 'fechado'} / ${this.hud.universalMapLevel === 'planet' ? '3D ativo' : '2D universal'} / 800x600`,
       'EARTH MAP · Rotation yaw / pitch / zoom': `${(this.hud.mapRenderer3D?.yaw ?? 1.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.pitch ?? 0.05).toFixed(2)} rad / ${(this.hud.mapRenderer3D?.zoomLevel ?? 1.0).toFixed(1)}x`,
