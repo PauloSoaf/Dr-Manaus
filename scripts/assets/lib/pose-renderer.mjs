@@ -12,8 +12,20 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { encodePng } from './png.mjs';
 
 export async function loadGltf(path) {
+  if (path.toLowerCase().endsWith('.gltf')) return loadGltfWithoutTextures(path);
   const data = readFileSync(path);
   const buffer = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+  return new Promise((resolve, reject) => new GLTFLoader().parse(buffer, '', resolve, reject));
+}
+
+/** Loads a .gltf/.glb through glTF-Transform with textures stripped (Node has no image decoder). */
+export async function loadGltfWithoutTextures(path) {
+  const { NodeIO } = await import('@gltf-transform/core');
+  const io = new NodeIO();
+  const document = await io.read(path);
+  for (const texture of document.getRoot().listTextures()) texture.dispose();
+  const bytes = await io.writeBinary(document);
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   return new Promise((resolve, reject) => new GLTFLoader().parse(buffer, '', resolve, reject));
 }
 
@@ -51,6 +63,38 @@ export function prepareSkinned(scene) {
     meshes.push({ mesh: object, colours, index, world: new Float32Array(position.count * 3) });
   });
   return meshes;
+}
+
+/**
+ * Static (non-skinned) meshes under `root`, coloured by material colour (or a fixed colour), for
+ * drawing props such as a car next to an animated character. Call `staticToWorld` each frame.
+ */
+export function prepareStatic(root, { colour, skip } = {}) {
+  const out = [];
+  root.traverse(object => {
+    if (!object.isMesh || object.isSkinnedMesh) return;
+    for (let o = object; o; o = o.parent) if (!o.visible) return;
+    if (skip?.(object)) return;
+    const geometry = object.geometry, position = geometry.attributes.position;
+    if (!position) return;
+    const material = Array.isArray(object.material) ? object.material[0] : object.material;
+    const c = colour ?? (material?.color ? [material.color.r * 255, material.color.g * 255, material.color.b * 255] : [180, 180, 180]);
+    const colours = new Uint8Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) { colours[i * 3] = c[0]; colours[i * 3 + 1] = c[1]; colours[i * 3 + 2] = c[2]; }
+    const index = geometry.index ? geometry.index.array : Uint32Array.from({ length: position.count }, (_, i) => i);
+    out.push({ mesh: object, colours, index, world: new Float32Array(position.count * 3), static: true });
+  });
+  return out;
+}
+
+export function staticToWorld(prepared) {
+  const v = new Vector3();
+  for (const entry of prepared) {
+    const { mesh, world } = entry;
+    mesh.updateWorldMatrix(true, false);
+    const position = mesh.geometry.attributes.position;
+    for (let i = 0; i < position.count; i++) { v.fromBufferAttribute(position, i).applyMatrix4(mesh.matrixWorld); world[i * 3] = v.x; world[i * 3 + 1] = v.y; world[i * 3 + 2] = v.z; }
+  }
 }
 
 const tmp = new Vector3();

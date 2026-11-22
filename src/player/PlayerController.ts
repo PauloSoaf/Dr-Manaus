@@ -85,9 +85,42 @@ export class PlayerController {
 
   constructor(root: Group, input: InputController) {
     this.input = input;
+    this.sceneRoot = root;
     root.add(this.model);
     this.model.position.copy(this.position);
   }
+
+  /** The group the body lives in when it is not riding a vehicle. */
+  readonly sceneRoot: Group;
+  /** Scripted control (entering/leaving a car): no input or physics, the body follows the script. */
+  private scripted: { speed: number; local: boolean } | null = null;
+  private readonly stillVelocity = new Vector3();
+  get isScripted(): boolean { return this.scripted !== null; }
+  beginScripted(): void {
+    this.scripted = { speed: 0, local: false };
+    this.velocity.set(0, 0, 0);
+    this.crouching = false;
+    this.combatStance = false;
+    this.dodge.cancel();
+    this.state = 'Grounded';
+  }
+  endScripted(): void {
+    this.scripted = null;
+    this.velocity.set(0, 0, 0);
+    this.state = 'Grounded';
+    this.grounded = true;
+    this.jumps = 0;
+    this.model.position.copy(this.position);
+  }
+  /** World root position and facing for this frame, with the travel speed for the gait. */
+  setScriptedPose(position: Vector3, yaw: number, speed = 0): void {
+    if (!this.scripted) return;
+    this.position.copy(position);
+    this.facingYaw = yaw;
+    this.scripted.speed = Math.max(0, speed);
+  }
+  /** While seated the body is parented to the vehicle and keeps its local seat transform. */
+  setScriptedLocal(local: boolean): void { if (this.scripted) this.scripted.local = local; }
 
   get jumpCount(): number { return this.jumps; }
   get isGrounded(): boolean { return this.grounded; }
@@ -251,6 +284,18 @@ export class PlayerController {
     }
     if (this.damageFlash > 0) {
       this.damageFlash = Math.max(0, this.damageFlash - dt * 2.0);
+    }
+    if (this.scripted) {
+      // Scripted: the interaction owns the root; only the animation runs here.
+      this.velocity.set(0, 0, 0);
+      this.state = 'Grounded';
+      const speed = this.scripted.speed;
+      this.stillVelocity.set(-Math.sin(this.facingYaw) * speed, 0, -Math.cos(this.facingYaw) * speed);
+      this.character.animate(dt, speed, false, false, '', 0, 0, this.size, this.stillVelocity, 1, 'ground', this.forward,
+        this.scripted.local ? 0 : this.facingYaw, { grounded: true, desiredSpeed: speed });
+      if (!this.scripted.local) this.model.position.copy(this.position);
+      this.model.scale.setScalar(this.size);
+      return;
     }
     if (this.input.consume('KeyV')) this.tapArm();
     if (this.input.consume('CapsLock')) this.walkMode = !this.walkMode;

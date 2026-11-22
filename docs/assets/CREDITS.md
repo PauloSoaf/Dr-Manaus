@@ -40,3 +40,31 @@ both bones share axes, so the knee folded about the wrong axis. Those clips are 
 
 - Duplicate-rig canonicalisation follows Station-Sciences/bot-crossing (MIT).
 - ASF/AMC parsing follows the Acclaim specification as used by the CMU database.
+
+<!-- vehicles:begin -->
+## Vehicles
+
+Source: **Kenney Car Kit 3.1** by Kenney (www.kenney.nl) - https://kenney.nl/assets/car-kit - licence CC0 1.0.
+Built by `scripts/assets/build-vehicles.mjs` into `public/assets/vehicles/` (GLB + `vehicles.json`).
+
+| id | Kenney source file | category | derivation applied |
+| --- | --- | --- | --- |
+| hatch | hatchback-sports.glb | Hatch compacto | uniform scale ×1.55; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| sedan | sedan.glb | Sedã popular | uniform scale ×1.55; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| sedan_exec | sedan-sports.glb | Sedã executivo | uniform scale ×1.55; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| suv | suv.glb | SUV | uniform scale ×1.6; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| pickup | truck.glb | Picape | uniform scale ×1.6; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| sports | race.glb | Esportivo | uniform scale ×1.55; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting; open-wheel single-seater (no roof or door panels, centred driver seat) |
+| taxi | taxi.glb | Táxi | uniform scale ×1.55; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| security | police.glb | Carro de segurança | uniform scale ×1.55; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting; fixed livery (not tintable) |
+| van | van.glb | Van | uniform scale ×1.6; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| cargo | delivery.glb | Utilitário de carga | uniform scale ×1.65; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| luxury | suv-luxury.glb | Carro de luxo | uniform scale ×1.6; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| future | race-future.glb | Conceito futurista | uniform scale ×1.55; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting; open-wheel single-seater (no roof or door panels, centred driver seat) |
+| flatbed | truck-flat.glb | Caminhonete de carroceria | uniform scale ×1.65; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+| ambulance | ambulance.glb | Ambulância | uniform scale ×1.65; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting; fixed livery (not tintable) |
+| firetruck | firetruck.glb | Caminhão de bombeiros | uniform scale ×1.7; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting; fixed livery (not tintable) |
+| garbage | garbage-truck.glb | Caminhão de lixo | uniform scale ×1.7; glass split; driver/passenger door panels cut from the shell; interior, seats, dashboard and steering wheel added; paint split for tinting |
+
+No antique car exists in the pack; the category "Carro antigo" is listed as `missingCategories` in the manifest.
+<!-- vehicles:end -->

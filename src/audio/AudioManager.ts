@@ -492,6 +492,31 @@ export class AudioManager {
     const t = ctx.currentTime;
 
     // Specialized procedural sound synthesis by event
+    if (name === 'car-door-open' || name === 'car-door-close' || name === 'footstep') {
+      // Short filtered noise burst (latch / step) over a low body thump (the panel or the heel).
+      const close = name === 'car-door-close', step = name === 'footstep';
+      const length = step ? 0.09 : close ? 0.22 : 0.16;
+      const buffer = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * length), ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, close ? 6 : 3);
+      const noise = ctx.createBufferSource(); noise.buffer = buffer;
+      const filter = ctx.createBiquadFilter(); filter.type = 'bandpass';
+      filter.frequency.value = step ? 420 : close ? 260 : 1800; filter.Q.value = step ? 0.8 : 1.4;
+      const noiseGain = ctx.createGain(); noiseGain.gain.value = step ? 0.12 : close ? 0.5 : 0.28;
+      noise.connect(filter); filter.connect(noiseGain); noiseGain.connect(this.effects);
+      const thump = ctx.createOscillator(); const thumpGain = ctx.createGain();
+      thump.type = 'sine';
+      thump.frequency.setValueAtTime(step ? 110 : close ? 85 : 160, t);
+      thump.frequency.exponentialRampToValueAtTime(step ? 60 : close ? 38 : 90, t + length);
+      thumpGain.gain.setValueAtTime(0.0001, t);
+      thumpGain.gain.exponentialRampToValueAtTime(step ? 0.1 : close ? 0.55 : 0.12, t + 0.01);
+      thumpGain.gain.exponentialRampToValueAtTime(0.0001, t + length);
+      thump.connect(thumpGain); thumpGain.connect(this.effects);
+      noise.start(t); thump.start(t); thump.stop(t + length); noise.stop(t + length);
+      thump.onended = () => { noise.disconnect(); filter.disconnect(); noiseGain.disconnect(); thump.disconnect(); thumpGain.disconnect(); };
+      return;
+    }
+
     if (name === 'planet-crack') {
       // Massive cosmic tectonic fissure: dual sub-bass sine sweep + deep rumble
       const osc1 = ctx.createOscillator();

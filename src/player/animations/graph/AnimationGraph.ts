@@ -1,4 +1,4 @@
-import { AnimationClip, AnimationMixer, LoopRepeat, NumberKeyframeTrack, QuaternionKeyframeTrack, VectorKeyframeTrack, type AnimationAction, type Object3D } from 'three/webgpu';
+import { AnimationClip, AnimationMixer, LoopRepeat, NumberKeyframeTrack, Quaternion, QuaternionKeyframeTrack, VectorKeyframeTrack, type AnimationAction, type Object3D } from 'three/webgpu';
 import { clipInfo, plantPhase, rootYawAt } from '../ClipCatalog';
 
 /**
@@ -32,8 +32,33 @@ const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi 
 
 export type BodyPart = 'full' | 'upper' | 'lower';
 
+/**
+ * Re-bases clips authored on the hero's rest pose onto another body of the same skeleton (the
+ * pedestrian female body): `local' = (bodyRest * heroRest^-1) * local`, the same local-delta
+ * transfer the asset build uses, plus the hip height ratio for the pelvis track.
+ */
+export interface RigAdapter {
+  readonly rotation: ReadonlyMap<string, Quaternion>;
+  readonly pelvisScale: number;
+}
+
+/** Builds an adapter from the two bodies' rest local rotations, keyed by bone name. */
+export function createRigAdapter(heroBones: Iterable<{ name: string; quaternion: Quaternion; position: { y: number } }>, bodyBones: Iterable<{ name: string; quaternion: Quaternion; position: { y: number } }>, heroPelvisY: number, bodyPelvisY: number): RigAdapter {
+  const body = new Map<string, Quaternion>();
+  for (const b of bodyBones) body.set(b.name, b.quaternion.clone());
+  const rotation = new Map<string, Quaternion>();
+  for (const h of heroBones) {
+    const r = body.get(h.name);
+    if (!r) continue;
+    const c = r.clone().multiply(h.quaternion.clone().invert()).normalize();
+    if (Math.abs(c.w) < 0.99999) rotation.set(h.name, c);
+  }
+  return { rotation, pelvisScale: heroPelvisY > 1e-6 ? bodyPelvisY / heroPelvisY : 1 };
+}
+
 /** Root X/Z is neutralised; only root/pelvis keep translation; optional upper/lower bone mask. */
-export function prepareClip(source: AnimationClip, part: BodyPart): AnimationClip {
+export function prepareClip(source: AnimationClip, part: BodyPart, adapter?: RigAdapter): AnimationClip {
+  const correction = new Quaternion(), value = new Quaternion();
   const tracks = source.tracks.flatMap(track => {
     const property = track.name.slice(track.name.lastIndexOf('.') + 1);
     const node = trackNode(track.name);
@@ -48,13 +73,26 @@ export function prepareClip(source: AnimationClip, part: BodyPart): AnimationCli
       const values = copy.values, x = values[0], z = values[2];
       for (let i = 0; i < values.length; i += 3) { values[i] = x; values[i + 2] = z; }
     }
+    if (adapter) {
+      const fix = adapter.rotation.get(node);
+      if (fix && property === 'quaternion') {
+        correction.copy(fix);
+        const values = copy.values;
+        for (let i = 0; i < values.length; i += 4) {
+          value.fromArray(values, i).premultiply(correction).normalize().toArray(values, i);
+        }
+      } else if (property === 'position' && key === 'pelvis' && adapter.pelvisScale !== 1) {
+        const values = copy.values;
+        for (let i = 0; i < values.length; i++) values[i] *= adapter.pelvisScale;
+      }
+    }
     return [copy as VectorKeyframeTrack | QuaternionKeyframeTrack | NumberKeyframeTrack];
   });
   return new AnimationClip(`${source.name}::${part}`, source.duration, tracks);
 }
 
 interface Variant { clip: AnimationClip; action?: AnimationAction }
-interface ClipEntry { name: string; duration: number; variants: Partial<Record<BodyPart, Variant>> }
+interface ClipEntry { name: string; duration: number; source: AnimationClip; variants: Partial<Record<BodyPart, Variant>> }
 
 /** One weighted source inside a base state, with its own clock (seconds) or phase-locked. */
 interface BaseClip { name: string; weight: number; time: number; synced: boolean; offset: number; rate: number }
@@ -195,7 +233,7 @@ export class AnimationGraph {
   private locomotion: LocomotionInput = { speed: 0 };
   private readonly touched = new Set<AnimationAction>();
 
-  constructor(readonly root: Object3D, clips: readonly AnimationClip[] = []) {
+  constructor(readonly root: Object3D, clips: readonly AnimationClip[] = [], readonly adapter?: RigAdapter) {
     this.mixer = new AnimationMixer(root);
     this.register(clips);
   }
@@ -205,7 +243,7 @@ export class AnimationGraph {
     let added = 0;
     for (const clip of clips) {
       if (!clip.name || this.entries.has(clip.name)) continue;
-      this.entries.set(clip.name, { name: clip.name, duration: clip.duration, variants: { full: { clip } } });
+      this.entries.set(clip.name, { name: clip.name, duration: clip.duration, source: clip, variants: {} });
       added++;
     }
     return added;
@@ -220,11 +258,9 @@ export class AnimationGraph {
     if (!entry) return undefined;
     let variant = entry.variants[part];
     if (!variant) {
-      const full = entry.variants.full!.clip;
-      variant = { clip: prepareClip(full, part) };
+      // Always prepared from the untouched source, so masks and rig adaptation apply exactly once.
+      variant = { clip: prepareClip(entry.source, part, this.adapter) };
       entry.variants[part] = variant;
-    } else if (part === 'full' && !variant.action) {
-      variant.clip = prepareClip(variant.clip, 'full');
     }
     if (!variant.action) {
       const action = this.mixer.clipAction(variant.clip);

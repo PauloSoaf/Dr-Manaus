@@ -1,4 +1,6 @@
-import { BoxGeometry, Color, Group, InstancedMesh, MeshStandardMaterial, Object3D, Vector3, Matrix4 } from 'three/webgpu';
+import { BoxGeometry, BufferGeometry, Color, Group, InstancedMesh, MeshStandardMaterial, Object3D, Vector3, Matrix4, type Material, type Mesh } from 'three/webgpu';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { PAINT, pickTrafficModel, type VehicleManifest, type VehicleSpec } from '../vehicles/VehicleCatalog';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import type { Collider } from '../../core/types';
 import type { RoadGraph, RoadSegment } from './RoadGraph';
@@ -33,6 +35,20 @@ const CLASS_COLOUR: Record<string, number> = {
   tertiary: 0x00c7be, residential: 0x0a84ff, living_street: 0x5e5ce6, service: 0xaf52de,
   unclassified: 0x8e8e93,
 };
+
+/**
+ * One catalogue model drawn for every traffic car that uses it: textured body and wheels, tintable
+ * paint (per-car colour), and tinted glass. Instances are kept compact (no zero-scale holes), so a
+ * model nobody drives right now costs nothing.
+ */
+interface ModelBatch {
+  spec: VehicleSpec;
+  body: InstancedMesh;
+  paint: InstancedMesh | null;
+  glass: InstancedMesh | null;
+  /** Instance index -> pool slot. */
+  slots: number[];
+}
 
 interface Vehicle {
   vx:number; vz:number; vy:number; wreck:boolean; wreckLife:number; pitch:number;
@@ -70,8 +86,16 @@ export class TrafficSystem {
   private lastZ = Infinity;
   private debugColours = false;
   private readonly spatialGrid = new FastSpatialGrid2D(12000, 32, CAPACITY);
+  private readonly root: Group;
+  private manifest: VehicleManifest | null = null;
+  private readonly batches: ModelBatch[] = [];
+  private readonly slotModel = new Int16Array(CAPACITY).fill(-1);
+  private readonly slotInstance = new Int16Array(CAPACITY).fill(-1);
+  private readonly slotPaint: Color[] = Array.from({ length: CAPACITY }, () => new Color());
+  private static readonly tintedGlass = new MeshStandardMaterial({ color: '#1d2a33', roughness: 0.15, metalness: 0.6 });
 
   constructor(root: Group, private readonly graph: RoadGraph, private readonly onHorn?: () => void) {
+    this.root = root;
     this.bodies = new InstancedMesh(
       new BoxGeometry(BODY_W, BODY_H, BODY_D),
       new MeshStandardMaterial({ roughness: .45, metalness: .28 }), CAPACITY,
@@ -95,6 +119,113 @@ export class TrafficSystem {
       this.glass.setMatrixAt(i, this.dummy.matrix);
     }
     this.repaint();
+  }
+
+  /**
+   * Installs the car catalogue (LOD1 scenes keyed by file). From here on every car is a real model
+   * with its own paint; the box silhouettes stay as the fallback when nothing loaded.
+   */
+  setVehicleModels(manifest: VehicleManifest, lod1: ReadonlyMap<string, Object3D>): number {
+    this.manifest = manifest;
+    for (const batch of this.batches) for (const mesh of [batch.body, batch.paint, batch.glass]) { mesh?.removeFromParent(); mesh?.dispose(); }
+    this.batches.length = 0;
+    for (const spec of manifest.vehicles) {
+      const file = spec.lods?.find(l => l.file.includes('lod1'))?.file ?? spec.file;
+      const scene = lod1.get(file);
+      if (!scene) continue;
+      scene.updateMatrixWorld(true);
+      const groups = new Map<string, { geometries: BufferGeometry[]; material: Material }>();
+      scene.traverse(object => {
+        const mesh = object as Mesh;
+        if (!mesh.isMesh) return;
+        const material = (Array.isArray(mesh.material) ? mesh.material[0] : mesh.material) as Material;
+        const key = material.name === 'paint' ? 'paint' : material.name === 'glass' ? 'glass' : 'body';
+        const geometry = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+        // Body keeps its palette UVs; flat-coloured paint and glass only need positions and normals.
+        for (const name of Object.keys(geometry.attributes)) if (name !== 'position' && name !== 'normal' && (name !== 'uv' || key !== 'body')) geometry.deleteAttribute(name);
+        if (key === 'body' && !geometry.getAttribute('uv')) return;
+        const entry = groups.get(key) ?? { geometries: [], material };
+        entry.geometries.push(geometry.index ? geometry.toNonIndexed() : geometry);
+        groups.set(key, entry);
+      });
+      const build = (key: string, material?: Material): InstancedMesh | null => {
+        const entry = groups.get(key);
+        if (!entry?.geometries.length) return null;
+        const merged = mergeGeometries(entry.geometries, false);
+        if (!merged) return null;
+        const mesh = new InstancedMesh(merged, material ?? entry.material, CAPACITY);
+        mesh.count = 0;
+        mesh.frustumCulled = false;
+        mesh.castShadow = key !== 'glass';
+        mesh.name = `traffic-${spec.id}-${key}`;
+        this.root.add(mesh);
+        return mesh;
+      };
+      const paintMaterial = groups.get('paint') ? new MeshStandardMaterial({ color: '#ffffff', roughness: 0.35, metalness: 0.45 }) : undefined;
+      const body = build('body');
+      if (!body) continue;
+      this.batches.push({ spec, body, paint: build('paint', paintMaterial), glass: build('glass', TrafficSystem.tintedGlass), slots: [] });
+    }
+    this.slotModel.fill(-1); this.slotInstance.fill(-1);
+    const ready = this.batches.length > 0;
+    this.bodies.visible = !ready; this.glass.visible = !ready;
+    if (ready) for (let i = 0; i < CAPACITY; i++) {
+      const v = this.pool[i];
+      if (v.shown && v.nav.active) { this.assignModel(i, v.nav.seed); this.drawVehicle(i, v, v.wreck); }
+    }
+    this.flushBatches();
+    return this.batches.length;
+  }
+
+  /** Model and paint of a traffic car (to keep the same car when the hero takes it). */
+  modelOf(slot: number): { spec: VehicleSpec; paint: Color } | null {
+    const index = this.slotModel[slot];
+    if (index < 0) return null;
+    return { spec: this.batches[index].spec, paint: this.slotPaint[slot].clone() };
+  }
+
+  private assignModel(slot: number, seed: number, forced?: { id: string; paint: Color }): void {
+    if (!this.batches.length || !this.manifest) return;
+    this.releaseModel(slot);
+    let index = forced ? this.batches.findIndex(b => b.spec.id === forced.id) : -1;
+    if (index < 0) {
+      const spec = pickTrafficModel(this.manifest, (hash32(seed, 0x51ed) % 100000) / 100000);
+      index = Math.max(0, this.batches.findIndex(b => b.spec === spec));
+    }
+    const batch = this.batches[index];
+    const instance = batch.slots.length;
+    batch.slots.push(slot);
+    this.slotModel[slot] = index;
+    this.slotInstance[slot] = instance;
+    const paint = forced?.paint ?? this.colour.set(PAINT[hash32(seed, 0x9a17) % PAINT.length]);
+    this.slotPaint[slot].copy(paint);
+    for (const mesh of [batch.body, batch.paint, batch.glass]) if (mesh) mesh.count = batch.slots.length;
+    if (batch.paint) { batch.paint.setColorAt(instance, this.slotPaint[slot]); if (batch.paint.instanceColor) batch.paint.instanceColor.needsUpdate = true; }
+  }
+
+  /** Swap-remove the slot's instance so every batch stays dense. */
+  private releaseModel(slot: number): void {
+    const index = this.slotModel[slot];
+    if (index < 0) return;
+    const batch = this.batches[index];
+    const instance = this.slotInstance[slot];
+    const last = batch.slots.length - 1;
+    if (instance !== last) {
+      const moved = batch.slots[last];
+      batch.slots[instance] = moved;
+      this.slotInstance[moved] = instance;
+      const m = new Matrix4();
+      for (const mesh of [batch.body, batch.paint, batch.glass]) if (mesh) { mesh.getMatrixAt(last, m); mesh.setMatrixAt(instance, m); mesh.instanceMatrix.needsUpdate = true; }
+      if (batch.paint) { batch.paint.setColorAt(instance, this.slotPaint[moved]); if (batch.paint.instanceColor) batch.paint.instanceColor.needsUpdate = true; }
+    }
+    batch.slots.pop();
+    for (const mesh of [batch.body, batch.paint, batch.glass]) if (mesh) mesh.count = batch.slots.length;
+    this.slotModel[slot] = -1;
+    this.slotInstance[slot] = -1;
+  }
+
+  private flushBatches(): void {
+    for (const batch of this.batches) for (const mesh of [batch.body, batch.paint, batch.glass]) if (mesh) mesh.instanceMatrix.needsUpdate = true;
   }
 
   /** Clamped to the pool: a quality preset may ask for more cars than the meshes were built for. */
@@ -274,6 +405,7 @@ export class TrafficSystem {
     this.stats.active = active;
     this.bodies.instanceMatrix.needsUpdate = true;
     this.glass.instanceMatrix.needsUpdate = true;
+    this.flushBatches();
   }
 
   destroy(id:string):boolean{
@@ -320,6 +452,18 @@ export class TrafficSystem {
         this.dummy.rotation.set(vehicle.pitch, vehicle.yaw, wreck?.18:0);
         this.dummy.updateMatrix();
       }
+      const model = this.slotModel[i];
+      if (model >= 0) {
+        // Catalogue models stand on their wheels: their origin is the ground, the box's was its middle.
+        this.dummy.translateY(-BODY_H * .5);
+        this.dummy.updateMatrix();
+        const batch = this.batches[model], instance = this.slotInstance[i];
+        batch.body.setMatrixAt(instance, this.dummy.matrix);
+        batch.paint?.setMatrixAt(instance, this.dummy.matrix);
+        batch.glass?.setMatrixAt(instance, this.dummy.matrix);
+        vehicle.shown = true;
+        return;
+      }
       this.bodies.setMatrixAt(i, this.dummy.matrix);
       this.dummy.translateY(GLASS_Y);
       this.dummy.updateMatrix();
@@ -352,6 +496,7 @@ export class TrafficSystem {
       if(!segment.bridge&&PhysicsWorld.terrainHeight(this.position.x,this.position.z)<-.5)continue;
       vehicle.fresh = true;vehicle.wreck=false;vehicle.wreckLife=0;vehicle.vx=0;vehicle.vz=0;vehicle.vy=0;vehicle.pitch=0;
       this.tint(slot, segment, seed);
+      this.assignModel(slot, seed);
       return true;
     }
     vehicle.nav.clear();
@@ -361,6 +506,7 @@ export class TrafficSystem {
   private retire(slot: number, vehicle: Vehicle): void {
     vehicle.nav.clear();vehicle.wreck=false;vehicle.vx=0;vehicle.vz=0;vehicle.vy=0;vehicle.pitch=0;
     vehicle.fresh = true;
+    this.releaseModel(slot);
     if (!vehicle.shown) return;
     vehicle.shown = false;
     this.dummy.scale.setScalar(0);
@@ -411,6 +557,8 @@ export class TrafficSystem {
     const state = { x: v.x, y: v.y, z: v.z, yaw: v.yaw };
     v.shown = false;
     v.fresh = true;
+    this.releaseModel(slot);
+    this.flushBatches();
     this.dummy.position.set(0, -9999, 0);
     this.dummy.scale.setScalar(0);
     this.dummy.updateMatrix();
@@ -421,10 +569,18 @@ export class TrafficSystem {
     return state;
   }
 
-  returnCar(pos: Vector3, yaw: number): void {
+  returnCar(pos: Vector3, yaw: number, model?: { id: string; paint: Color }): void {
     for (let i = 0; i < this.count; i++) {
       const v = this.pool[i];
       if (!v.shown) {
+        if (this.batches.length) {
+          // The car the hero drove goes back as itself (same model and paint), parked.
+          v.x = pos.x; v.y = pos.y + BODY_H / 2; v.z = pos.z; v.yaw = yaw; v.vx = 0; v.vz = 0; v.vy = 0; v.wreck = false;
+          this.assignModel(i, hash32(i, 0x1234), model);
+          this.drawVehicle(i, v, false);
+          this.flushBatches();
+          break;
+        }
         v.x = pos.x;
         v.y = pos.y;
         v.z = pos.z;
