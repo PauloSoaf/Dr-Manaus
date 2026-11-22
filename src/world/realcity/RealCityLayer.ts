@@ -17,7 +17,6 @@ import {
 import { manausTileSceneMatrix } from '../spatial/ManausSurfacePresentation';
 import { getManausTerrainHeight } from './ManausUrbanElevation';
 import { VectorTileCache } from './VectorTileCache';
-import { UrbanZoningGenerator } from './buildings';
 
 interface PackedTile { key: string; tx: number; tz: number; buildings: RealBuilding[] }
 interface RuinedBuilding { bounds: Collider; tile: string; blocks: number[] }
@@ -592,12 +591,18 @@ export class RealCityLayer {
           void VectorTileCache.getInstance().setTile(key, packed);
         }
       }
+      if (packed?.buildings) {
+        // Purge any synthetic infill buildings previously cached in IndexedDB over riverfront/port tiles
+        const cleaned = packed.buildings.filter(b => !b.id.startsWith('infill:'));
+        if (cleaned.length !== packed.buildings.length) {
+          packed.buildings = cleaned;
+          if (!file.includes('fixture')) {
+            void VectorTileCache.getInstance().setTile(key, packed);
+          }
+        }
+      }
       if (!packed?.buildings?.length || this.tiles.has(key)) return;
       const size = this.manifest.tileSize, cellSize = size / CELLS_PER_SIDE;
-      if (!file.includes('fixture') && packed.buildings.length < 12) {
-        const infill = UrbanZoningGenerator.generateParcelInfill(packed.tx, packed.tz, size, packed.buildings.length);
-        packed.buildings.push(...infill);
-      }
       const cells: RealBuilding[][] = Array.from({ length: CELLS_PER_SIDE * CELLS_PER_SIDE }, () => []);
       const bounds=new Map<string,Collider>();
       for (const building of packed.buildings) {

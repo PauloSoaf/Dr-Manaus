@@ -15,6 +15,7 @@
 
 import { Vector2 } from 'three/webgpu';
 import { type RealBuilding, type MeshBuffers, appendNearBuilding, appendShellBuilding, createBuffers } from './buildingGeometry';
+import { isLandFootprint } from '../geodata/geodata';
 
 export * from './buildingGeometry';
 
@@ -168,6 +169,12 @@ export class UrbanZoningGenerator {
             const d = lotD - policy.setbackM * 2.0;
 
             if (w < 6.0 || d < 6.0) continue;
+
+            // Strict geographical landmask check: never generate infill buildings over rivers or harbors
+            const worldLotX = tileX * tileSizeM + lx + w * 0.5;
+            const worldLotZ = tileZ * tileSizeM + lz + d * 0.5;
+            const lotRadius = Math.hypot(w, d) * 0.5 + 4.0;
+            if (!isLandFootprint(worldLotX, worldLotZ, lotRadius)) continue;
 
             // Height calculation with distance decay
             const heightVariation = policy.minHeightM + rand * (policy.maxHeightM - policy.minHeightM);
