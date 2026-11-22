@@ -88,28 +88,24 @@ export interface PlanetaryBiosphereProfile {
 export function isEligibleForAlienSettlements(biosphere?: PlanetaryBiosphereProfile | null): boolean {
   if (!biosphere) return false;
   if (biosphere.bodyId === 'earth') return false;
-  if (biosphere.ecosystemDomain === 'earth-native') return false;
   return biosphere.civilizationStage !== 'none';
 }
 
 export function isEligibleForAlienFauna(biosphere?: PlanetaryBiosphereProfile | null): boolean {
   if (!biosphere) return false;
   if (biosphere.bodyId === 'earth') return false;
-  if (biosphere.ecosystemDomain === 'earth-native') return false;
   return biosphere.lifeTier === 'fauna' || biosphere.lifeTier === 'civilized';
 }
 
 export function isEligibleForAlienFlora(biosphere?: PlanetaryBiosphereProfile | null): boolean {
   if (!biosphere) return false;
   if (biosphere.bodyId === 'earth') return false;
-  if (biosphere.ecosystemDomain === 'earth-native') return false;
   return biosphere.dominantVegetationType !== 'none' && biosphere.dominantVegetationType !== 'chlorophyll-broadleaf';
 }
 
 export function isEligibleForCosmicRuins(biosphere?: PlanetaryBiosphereProfile | null): boolean {
   if (!biosphere) return false;
   if (biosphere.bodyId === 'earth') return false;
-  if (biosphere.ecosystemDomain === 'earth-native') return false;
   return (
     biosphere.civilizationStage === 'ancient-ruins-guardians' ||
     biosphere.lifeTier === 'civilized' ||

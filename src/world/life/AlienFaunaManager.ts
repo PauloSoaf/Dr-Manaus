@@ -231,11 +231,10 @@ export class AlienFaunaManager {
     surface?: PlanetSurfaceGenerator,
     biosphere?: PlanetaryBiosphereProfile,
   ): void {
-    // If world has no animal life, is Earth, or surface missing: deactivate all creatures
+    // If world has no animal life or surface: deactivate all creatures
     if (
       !surface ||
       !biosphere ||
-      biosphere.bodyId === 'earth' ||
       biosphere.lifeTier === 'sterile' ||
       biosphere.lifeTier === 'microbial' ||
       biosphere.lifeTier === 'vegetative'

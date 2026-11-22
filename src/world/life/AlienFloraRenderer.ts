@@ -239,8 +239,8 @@ export class AlienFloraRenderer {
     biosphere?: PlanetaryBiosphereProfile,
     forceRebuild = false,
   ): void {
-    // 1. If world is Earth, sterile, in vacuum, or no surface exists: clear all instances
-    if (!surface || !biosphere || biosphere.bodyId === 'earth' || biosphere.lifeTier === 'sterile' || biosphere.lifeTier === 'microbial') {
+    // 1. If world is sterile, in vacuum, or no surface exists: clear all instances
+    if (!surface || !biosphere || biosphere.lifeTier === 'sterile' || biosphere.lifeTier === 'microbial') {
       this.clear();
       return;
     }

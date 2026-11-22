@@ -275,7 +275,7 @@ export class CosmicAnomaliesAndRuinsManager {
     this.colossi.length = 0;
     this.targetList.length = 0;
 
-    if (!bodyId || bodyId === 'earth' || !surface || !biosphere) {
+    if (!bodyId || !surface || !biosphere) {
       this.clearMeshes();
       return;
     }
