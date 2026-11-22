@@ -71,11 +71,11 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
   const scrub: readonly [number, number, number] = [.243, .316, .180];
   const city: readonly [number, number, number] = [.331, .336, .322];
 
-  // Riverbed sediment palette: shallow quartz/amber sand -> intermediate alluvial silt -> deep benthic bedrock/mud
-  const shallowSand: readonly [number, number, number] = [0.54, 0.43, 0.29];
-  const midSilt: readonly [number, number, number] = [0.35, 0.27, 0.19];
-  const deepBenthic: readonly [number, number, number] = [0.17, 0.14, 0.11];
-  const solimoesClay: readonly [number, number, number] = [0.52, 0.42, 0.28];
+  // Riverbed sediment palette: submerged dark amber sand -> intermediate alluvial silt -> deep benthic bedrock/mud
+  const shallowSand: readonly [number, number, number] = [0.28, 0.23, 0.17];
+  const midSilt: readonly [number, number, number] = [0.16, 0.14, 0.12];
+  const deepBenthic: readonly [number, number, number] = [0.07, 0.08, 0.10];
+  const solimoesClay: readonly [number, number, number] = [0.34, 0.27, 0.19];
 
   const curved = localManausPresentationMode() === 'curved';
 

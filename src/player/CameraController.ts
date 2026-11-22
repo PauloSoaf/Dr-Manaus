@@ -20,7 +20,7 @@ export class CameraController {
   private shakeAmount = 0;
   private readonly target = new Vector3();
   private readonly desired = new Vector3();
-  private readonly globalPosition = new Vector3(0, 65, 110);
+  readonly globalPosition = new Vector3(0, 65, 110);
   private readonly direction = new Vector3();
   private readonly previousPlayer = new Vector3();
   private readonly pivotOffset = new Vector3();
@@ -141,6 +141,17 @@ export class CameraController {
         }
         this.target.copy(player.position);
         this.target.y += heightOffset;
+      } else if (player.state === 'Swimming') {
+        const surfY = player.submersion.surfaceY;
+        const isSurfaceSwimming = player.position.y >= surfY - 1.45 * player.size;
+        this.target.copy(player.position);
+        if (isSurfaceSwimming) {
+          // Focus on swimmer's head/shoulders above water so the camera never clips into the water sheet
+          this.target.y = Math.max(player.position.y + 1.48 * player.size, surfY + 0.36 * player.size);
+        } else {
+          // Diving underwater: track diver's torso smoothly through the water column
+          this.target.y = player.position.y + 1.05 * player.size;
+        }
       } else if (player.state !== 'Grounded') {
         this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.hips.rotation).applyAxisAngle(this.up, player.model.rotation.y);
         this.target.copy(player.position).add(this.pivotOffset);
@@ -159,7 +170,11 @@ export class CameraController {
       const safeDistance = obstruction ? Math.max(0.1, obstruction.distance - 0.6) : distance;
       this.desired.copy(this.target).addScaledVector(this.direction, safeDistance);
       if (!this.inSpace) {
-        this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .3, this.desired.y);
+        this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .35, this.desired.y);
+        if (player.state === 'Swimming' && player.position.y >= player.submersion.surfaceY - 1.45 * player.size && this.pitch >= -0.28) {
+          // Keep third-person camera cleanly above the water surface during surface swimming
+          this.desired.y = Math.max(this.desired.y, player.submersion.surfaceY + 0.48);
+        }
       }
       if (switched || !this.following) this.globalPosition.copy(this.desired);
       else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstruction ? 25 : 9)));

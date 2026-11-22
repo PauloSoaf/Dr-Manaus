@@ -1439,40 +1439,49 @@ export class Game {
       const intensity = Math.min(3.5, Math.max(1.0, impactSpeed / 5.0));
       this.water?.createSplash(this.player.position.x, this.player.position.z, intensity, Math.min(14, 5 + impactSpeed * 0.4));
       this.audio?.play('water-splash');
-    } else if (isPlayerInWater && speedNow > 0.4 && sub.submergeDepthM < 1.8 * this.player.size) {
+    } else if (isPlayerInWater && speedNow > 0.4 && sub.submergeDepthM < 1.5 * this.player.size) {
       this.waterRippleTimer += dt;
-      if (this.waterRippleTimer > 0.35) {
+      if (this.waterRippleTimer > 0.42) {
         this.waterRippleTimer = 0;
-        this.water?.createRipple(this.player.position.x, this.player.position.z, 0.4, 2.5, 1.5);
+        this.water?.createRipple(this.player.position.x, this.player.position.z, 0.3, 1.5, 1.3);
       }
     }
     this.wasUnderwater = isPlayerInWater;
 
-    // Evaluate camera underwater medium transition
-    const camWorldX = this.rendering.camera.position.x + this.renderOriginVec.x;
-    const camWorldY = this.rendering.camera.position.y + this.renderOriginVec.y;
-    const camWorldZ = this.rendering.camera.position.z + this.renderOriginVec.z;
-    const camWaterY = manausBathymetry.sampleWaterSurface(camWorldX, camWorldZ, this.lastTime * 0.001);
-    const isCameraUnderwater = Boolean(manaus && this.water && manausBathymetry.isWater(camWorldX, camWorldZ) && camWorldY < camWaterY - 0.04);
-    this.water?.setCameraUnderwater(isCameraUnderwater);
+    // Evaluate camera underwater volumetric medium transition
+    const camWorldX = this.camera.globalPosition.x;
+    const camWorldY = this.camera.globalPosition.y;
+    const camWorldZ = this.camera.globalPosition.z;
+    const timeSecNow = this.lastTime * 0.001;
+    const camWaterY = manausBathymetry.sampleWaterSurface(camWorldX, camWorldZ, timeSecNow);
+    const camOverWater = manausBathymetry.isWater(camWorldX, camWorldZ) || sub.inWater;
+    const isCameraUnderwater = Boolean(manaus && this.water && camOverWater && camWorldY < camWaterY + 0.04);
+    this.water?.setCameraUnderwater(
+      isCameraUnderwater,
+      camWorldX,
+      camWorldY,
+      camWorldZ,
+      sub.riverType,
+      timeSecNow,
+    );
 
     const riverName = sub.riverType === 'solimoes' ? 'solimoes' : 'negro';
     if (isCameraUnderwater) {
       const fog = this.rendering.scene.fog as any;
       if (fog) {
         if (this.water?.clearDebugMode) {
-          fog.color?.set?.('#2a3542');
-          fog.near = 65;
-          fog.far = 650;
+          fog.color?.set?.('#123a4d');
+          fog.near = 25;
+          fog.far = 360;
         } else if (riverName === 'solimoes') {
-          fog.color?.set?.('#463826');
-          fog.near = 4;
-          fog.far = 52;
+          fog.color?.set?.('#3a2c1a');
+          fog.near = 0.8;
+          fog.far = 34;
         } else {
-          // Rio Negro amber-tea underwater medium: near riverbed relief clearly legible
-          fog.color?.set?.('#22160c');
-          fog.near = 6;
-          fog.far = 75;
+          // Authentic Rio Negro deep aquatic teal-black underwater medium
+          fog.color?.set?.('#071f2b');
+          fog.near = 1.0;
+          fog.far = 46;
         }
       }
     }

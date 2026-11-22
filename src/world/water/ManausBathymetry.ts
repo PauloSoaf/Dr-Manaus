@@ -243,11 +243,11 @@ export class ManausBathymetryService {
    * Excavated physical 3D riverbed elevation `bedY(x, z)` in meters.
    * - On dry land (`!isWater(x, z)`): returns `0.0 m` (matches `MANAUS_GROUND_COVER_Y`).
    * - At the shoreline (`d = 0 m`): starts continuously at `0.0 m`.
-   * - Shallow wading zone (`0..18 m`): gentle slope `0.0 m -> -1.6 m` (player can walk in/out).
-   * - Near-shore sandbar shelf (`18..75 m`): slopes `-1.6 m -> -6.5 m`.
-   * - Intermediate channel (`75..240 m`): slopes `-6.5 m -> -17.5 m`.
-   * - Main thalweg fairway (`240..650 m+`): descends `-17.5 m -> -26.5 m` with deterministic
-   *   sub-aquatic dunes and valley relief (down to `-28.5 m`).
+   * - Shallow wading zone (`0..14 m`): gentle slope `0.0 m -> -2.1 m` (player can walk in/out).
+   * - Near-shore sandbar shelf (`14..65 m`): slopes `-2.1 m -> -8.8 m`.
+   * - Intermediate channel (`65..220 m`): slopes `-8.8 m -> -19.2 m`.
+   * - Main thalweg fairway (`220..620 m+`): descends `-19.2 m -> -26.8 m` with deterministic
+   *   sub-aquatic dunes and valley relief (down to `-28.8 m`).
    *
    * Procedural bathymetric estimate based on Overture river boundaries.
    */
@@ -257,23 +257,23 @@ export class ManausBathymetryService {
 
     const d = Math.max(0, this.sampleSignedShoreDistance(x, z));
 
-    // Zone 1: Shallow wading bank (0m to 18m from shore) -> 0.0m to -1.6m
+    // Zone 1: Shallow wading bank (0m to 14m from shore) -> 0.0m to -2.1m
     // Linear-to-smooth progression so a character can walk smoothly down the bank into the water
-    const t1 = clamp(d / 18.0, 0, 1);
-    const depth1 = 1.6 * (0.65 * t1 + 0.35 * t1 * t1);
+    const t1 = clamp(d / 14.0, 0, 1);
+    const depth1 = 2.1 * (0.65 * t1 + 0.35 * t1 * t1);
 
-    // Zone 2: Near-shore shelf (18m to 75m) -> adds up to 4.9m (total -6.5m)
-    const depth2 = 4.9 * smoothstep(18.0, 75.0, d);
+    // Zone 2: Near-shore shelf (14m to 65m) -> adds up to 6.7m (total -8.8m)
+    const depth2 = 6.7 * smoothstep(14.0, 65.0, d);
 
-    // Zone 3: Intermediate channel slope (75m to 240m) -> adds up to 11.0m (total -17.5m)
-    const depth3 = 11.0 * smoothstep(75.0, 240.0, d);
+    // Zone 3: Intermediate channel slope (65m to 220m) -> adds up to 10.4m (total -19.2m)
+    const depth3 = 10.4 * smoothstep(65.0, 220.0, d);
 
-    // Zone 4: Main shipping channel / thalweg (240m to 650m) -> adds up to 9.0m (total -26.5m)
-    const depth4 = 9.0 * smoothstep(240.0, 650.0, d);
+    // Zone 4: Main shipping channel / thalweg (220m to 620m) -> adds up to 7.6m (total -26.8m)
+    const depth4 = 7.6 * smoothstep(220.0, 620.0, d);
 
     // Deterministic sub-aquatic geomorphology (submerged sandwaves, ridges & thalweg troughs)
     // Attenuated to 0 near the shoreline (d < 8m) so the shoreline seam stays strictly at Y = 0.0m
-    const reliefAmp = smoothstep(8.0, 95.0, d);
+    const reliefAmp = smoothstep(8.0, 85.0, d);
     const duneWave1 = Math.sin(x * 0.0042 + z * 0.0031) * Math.cos(x * 0.0027 - z * 0.0048) * 1.45;
     const duneWave2 = Math.sin(x * 0.0135 - z * 0.0112) * 0.65;
     const relief = (duneWave1 + duneWave2) * reliefAmp;
