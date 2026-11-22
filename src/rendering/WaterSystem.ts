@@ -246,6 +246,7 @@ function createMaterial(
     color: '#06131c',
     side: DoubleSide,
     transparent: true,
+    depthWrite: true,
   });
   const shore = attribute('shore', 'float');
   const silt = attribute('muddy', 'float');
@@ -362,10 +363,9 @@ function createMaterial(
   const finalColor = mix(topViewColor, underwaterCeiling, uUnderwaterView);
 
   material.colorNode = finalColor;
-  // Translucent only at very shallow bank edges (0.2m..2.4m) or when looking up from underwater;
-  // deep water stays rich and liquid (0.94..0.98) so the riverbed never turns the river into a flat brown sheet
-  const topOpacity = mix(float(0.64), float(0.97), smoothstep(0.20, 2.4, depthM));
-  material.opacityNode = mix(topOpacity, float(0.78), uUnderwaterView);
+  // Dense liquid body (0.91..0.99) with depthWrite so the river surface is never a hollow transparent sheet
+  const topOpacity = mix(float(0.91), float(0.99), smoothstep(0.15, 1.5, depthM));
+  material.opacityNode = mix(topOpacity, float(0.88), uUnderwaterView);
   material.roughnessNode = mix(mix(float(0.09), float(0.26), silt), float(0.48), distant);
 
   return material;

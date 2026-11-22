@@ -17,7 +17,7 @@ import { knownGalaxyRuntime } from '../world/galaxy/GalaxyRuntime';
 import { Group as SystemResourceGroup } from 'three/webgpu';
 import { universalTargetDiagnostics } from '../ui/UniversalTargetDiagnostics';
 import { ForestBackdrop } from '../world/ForestBackdrop';
-import { CameraHelper, Euler, Group, Mesh, Vector3 } from 'three/webgpu';
+import { CameraHelper, Color, Euler, Group, Mesh, Vector3 } from 'three/webgpu';
 import { WORLD, QUALITY, FEATURES } from '../core/config';
 import type { Collider, Target } from '../core/types';
 import { SaveManager, type Settings } from '../core/SaveManager';
@@ -198,6 +198,7 @@ export class Game {
   private lastAudioMedium: AtmosphericMedium = 'earth-atmosphere';
   private wasUnderwater = false;
   private waterRippleTimer = 0;
+  private readonly underwaterBgColor = new Color('#06202c');
   private hazardAlertTimer = 0;
   galaxyMaterializer?: GalaxyMaterializer;
   get galaxy(): StarSectorProvider | undefined { return this.galaxyMaterializer?.current?.starSectorProvider; }
@@ -1467,23 +1468,39 @@ export class Game {
 
     const riverName = sub.riverType === 'solimoes' ? 'solimoes' : 'negro';
     if (isCameraUnderwater) {
+      // Atmosphere.sky has `fog: false`; hiding it underwater prevents the bright sky dome
+      // from shining through below the top water layer and making the water volume look empty
+      this.atmosphere.sky.visible = false;
+      this.atmosphere.clouds.visible = false;
       const fog = this.rendering.scene.fog as any;
-      if (fog) {
-        if (this.water?.clearDebugMode) {
+      if (this.water?.clearDebugMode) {
+        this.underwaterBgColor.set('#123a4d');
+        this.rendering.scene.background = this.underwaterBgColor;
+        if (fog) {
           fog.color?.set?.('#123a4d');
-          fog.near = 25;
-          fog.far = 360;
-        } else if (riverName === 'solimoes') {
+          fog.near = 18;
+          fog.far = 320;
+        }
+      } else if (riverName === 'solimoes') {
+        this.underwaterBgColor.set('#3a2c1a');
+        this.rendering.scene.background = this.underwaterBgColor;
+        if (fog) {
           fog.color?.set?.('#3a2c1a');
-          fog.near = 0.8;
+          fog.near = 0.2;
+          fog.far = 26;
+        }
+      } else {
+        // Authentic Rio Negro deep aquatic teal-black underwater medium
+        this.underwaterBgColor.set('#06202c');
+        this.rendering.scene.background = this.underwaterBgColor;
+        if (fog) {
+          fog.color?.set?.('#06202c');
+          fog.near = 0.3;
           fog.far = 34;
-        } else {
-          // Authentic Rio Negro deep aquatic teal-black underwater medium
-          fog.color?.set?.('#071f2b');
-          fog.near = 1.0;
-          fog.far = 46;
         }
       }
+    } else if (this.rendering.scene.background === this.underwaterBgColor) {
+      this.rendering.scene.background = null;
     }
 
     const teatro = LANDMARKS.find(l => l.id === 'teatro');

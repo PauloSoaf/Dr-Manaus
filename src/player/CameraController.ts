@@ -142,25 +142,38 @@ export class CameraController {
         this.target.copy(player.position);
         this.target.y += heightOffset;
       } else if (player.state === 'Swimming') {
+        baseDistance = 7.8;
         const surfY = player.submersion.surfaceY;
-        const isSurfaceSwimming = player.position.y >= surfY - 1.45 * player.size;
+        const isDivingDeep = player.position.y < surfY - 2.35 * player.size;
         this.target.copy(player.position);
-        if (isSurfaceSwimming) {
-          // Focus on swimmer's head/shoulders above water so the camera never clips into the water sheet
-          this.target.y = Math.max(player.position.y + 1.48 * player.size, surfY + 0.36 * player.size);
+        if (!isDivingDeep) {
+          // Elevated third-person focus above the water surface so the swimmer is always viewed from above
+          this.target.y = Math.max(player.position.y + 1.65 * player.size, surfY + 0.72 * player.size);
         } else {
-          // Diving underwater: track diver's torso smoothly through the water column
-          this.target.y = player.position.y + 1.05 * player.size;
+          // Diving deep underwater: track diver's upper torso smoothly
+          this.target.y = player.position.y + 1.15 * player.size;
         }
       } else if (player.state !== 'Grounded') {
         this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.hips.rotation).applyAxisAngle(this.up, player.model.rotation.y);
         this.target.copy(player.position).add(this.pivotOffset);
       }
+      const isSurfaceSwimming = !isVehicleOccupied
+        && player.state === 'Swimming'
+        && player.position.y >= player.submersion.surfaceY - 2.35 * player.size;
+      const isDivingSwimming = !isVehicleOccupied
+        && player.state === 'Swimming'
+        && player.position.y < player.submersion.surfaceY - 2.35 * player.size;
+      const effectivePitch = isSurfaceSwimming
+        ? Math.max(this.pitch, 0.42)
+        : isDivingSwimming
+          ? Math.max(this.pitch, 0.24)
+          : this.pitch;
+
       const distance = (baseDistance + Math.min(isVehicleOccupied ? 4.0 : 0.6, player.velocity.length() * (isVehicleOccupied ? 0.02 : 0.001))) * player.size;
-      this.direction.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
+      this.direction.set(Math.sin(this.yaw) * Math.cos(effectivePitch), Math.sin(effectivePitch), Math.cos(this.yaw) * Math.cos(effectivePitch));
       if (this.mode === 'front') {
         // Face the actual character, independently of the movement/camera heading.
-        this.direction.set(-Math.sin(player.model.rotation.y) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(player.model.rotation.y) * Math.cos(this.pitch));
+        this.direction.set(-Math.sin(player.model.rotation.y) * Math.cos(effectivePitch), Math.sin(effectivePitch), -Math.cos(player.model.rotation.y) * Math.cos(effectivePitch));
       }
       if (this.mode === 'shoulder') {
         const side = 1.5 * Math.pow(player.size, .83);
@@ -171,9 +184,8 @@ export class CameraController {
       this.desired.copy(this.target).addScaledVector(this.direction, safeDistance);
       if (!this.inSpace) {
         this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .35, this.desired.y);
-        if (player.state === 'Swimming' && player.position.y >= player.submersion.surfaceY - 1.45 * player.size && this.pitch >= -0.28) {
-          // Keep third-person camera cleanly above the water surface during surface swimming
-          this.desired.y = Math.max(this.desired.y, player.submersion.surfaceY + 0.48);
+        if (isSurfaceSwimming) {
+          this.desired.y = Math.max(this.desired.y, player.submersion.surfaceY + 3.1 * player.size);
         }
       }
       if (switched || !this.following) this.globalPosition.copy(this.desired);
@@ -185,6 +197,21 @@ export class CameraController {
         this.pivotOffset.subVectors(this.globalPosition, this.target);
         const hit = PhysicsWorld.raycast(this.target, this.collisionDirection.copy(this.pivotOffset).normalize(), colliders, this.pivotOffset.length(), .35);
         if (hit) this.globalPosition.copy(this.target).addScaledVector(this.pivotOffset.normalize(), Math.max(.1, hit.distance - .6));
+      }
+      // Hard guarantee: during surface swimming (or when flying/walking above water), never let
+      // orbit lag or mouse pitch push the camera inside/below the water surface
+      if (!this.inSpace && isSurfaceSwimming) {
+        const minSwimCamY = player.submersion.surfaceY + 3.1 * player.size;
+        this.desired.y = Math.max(this.desired.y, minSwimCamY);
+        this.globalPosition.y = Math.max(this.globalPosition.y, minSwimCamY);
+      } else if (
+        !this.inSpace
+        && player.submersion.inWater
+        && player.position.y >= player.submersion.surfaceY - 0.5 * player.size
+      ) {
+        const minAboveWaterCamY = player.submersion.surfaceY + 1.45 * player.size;
+        this.desired.y = Math.max(this.desired.y, minAboveWaterCamY);
+        this.globalPosition.y = Math.max(this.globalPosition.y, minAboveWaterCamY);
       }
       if (this.mode === 'first' || this.mode === 'lookBack') {
         this.globalPosition.copy(player.position); this.globalPosition.y += 1.94 * player.size;

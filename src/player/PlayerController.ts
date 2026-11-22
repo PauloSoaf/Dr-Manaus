@@ -74,6 +74,7 @@ export class PlayerController {
   private readonly impactPoint = new Vector3();
   private pendingImpact: ImpactResult | null = null;
   private slamTimer = 0;
+  private flightTakeoffGraceS = 0;
   private desiredSpeed = 0;
   private bodyGravityMps2 = surfaceGravityMps2(EARTH);
 
@@ -280,15 +281,32 @@ export class PlayerController {
     const isShift = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
     const isB = this.input.held('KeyB');
     if (!isB) this.megaNeedsBoostRelease = false;
+    if (this.flightTakeoffGraceS > 0) {
+      this.flightTakeoffGraceS = Math.max(0, this.flightTakeoffGraceS - dt);
+    }
     if (this.input.consume('KeyF')) {
       this.toggleFlight();
     }
-    const flying = this.isFlying;
+    const wasSwimming = this.state === 'Swimming';
 
     // Sample shared Manaus bathymetry & water volume authority
     this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
     const swimThresholdDepth = 1.15 * this.size;
     const inDeepWater = this.waterVolumeActive && this.submersion.inWater && this.submersion.totalWaterDepthM >= swimThresholdDepth;
+
+    // If the player flies down onto the river surface (and isn't within the takeoff grace window or holding Space),
+    // automatically splash down into Swimming at the water surface instead of flying through the water into a void
+    if (
+      this.isFlying
+      && inDeepWater
+      && this.flightTakeoffGraceS <= 0
+      && this.slamTimer <= 0
+      && this.position.y <= this.submersion.surfaceY + 0.05
+      && !this.input.held('Space')
+    ) {
+      this.state = 'Swimming';
+    }
+    const flying = this.isFlying;
     const isSwimming = !flying && inDeepWater && this.position.y <= this.submersion.surfaceY + 0.05;
     const isWading = !flying && this.waterVolumeActive && this.submersion.inWater && !inDeepWater && this.submersion.feetSubmerged;
 
@@ -364,9 +382,18 @@ export class PlayerController {
     } else if (isSwimming) {
       this.state = 'Swimming';
       this.jumps = 0;
-      const floatFeetY = this.submersion.surfaceY - 1.25 * this.size;
+      const floatFeetY = this.submersion.surfaceY - 1.18 * this.size;
       const wantsDive = this.input.held('ControlLeft') || this.input.held('ControlRight') || this.input.held('KeyC') || this.input.held('KeyZ');
       const wantsAscend = this.input.held('Space');
+
+      // On initial water entry from fall or flight, absorb downward splash momentum at the surface
+      // so the character stays swimming on top of the water instead of plunging meters underwater
+      if (!wasSwimming && !wantsDive) {
+        this.velocity.y = Math.max(this.velocity.y * 0.12, -1.8 * sizeSpeed);
+        if (this.position.y < floatFeetY - 0.35 * this.size) {
+          this.position.y = floatFeetY - 0.25 * this.size;
+        }
+      }
 
       if (wantsDive) {
         // Active downward diving toward the excavated 3D riverbed (no surface spring fighting the dive)
@@ -375,25 +402,23 @@ export class PlayerController {
       } else if (wantsAscend) {
         if (this.position.y < floatFeetY - 0.08 * this.size) {
           // Active upward swimming from depth back to the water surface
-          const ascendSpeed = (sprinting ? 9.5 : 6.8) * sizeSpeed;
-          this.velocity.y = MathUtils.lerp(this.velocity.y, ascendSpeed, 1 - Math.exp(-dt * 6.5));
+          const ascendSpeed = (sprinting ? 9.5 : 7.2) * sizeSpeed;
+          this.velocity.y = MathUtils.lerp(this.velocity.y, ascendSpeed, 1 - Math.exp(-dt * 7.0));
         } else {
-          // At the water surface: stabilize at float height (or hop if near bank)
+          // At the water surface: stabilize at float height
           const surfaceError = floatFeetY - this.position.y;
-          this.velocity.y = MathUtils.lerp(this.velocity.y, surfaceError * 6.0, 1 - Math.exp(-dt * 8));
+          this.velocity.y = MathUtils.lerp(this.velocity.y, surfaceError * 7.0, 1 - Math.exp(-dt * 8.5));
         }
       } else {
         // Neutral vertical input in water column
-        if (this.position.y >= floatFeetY - 0.55 * this.size) {
-          // Near water surface: smooth buoyancy equilibrium keeps head above water
-          const surfaceError = floatFeetY - this.position.y;
-          this.velocity.y = MathUtils.lerp(this.velocity.y, surfaceError * 6.5, 1 - Math.exp(-dt * 7.5));
-        } else if (this.position.y <= this.submersion.riverbedY + 0.12 * this.size) {
-          // Resting on the 3D riverbed: stable benthic contact without bobbing away
+        if (this.position.y <= this.submersion.riverbedY + 0.16 * this.size) {
+          // Resting on the 3D riverbed after a dive: stable benthic contact without bobbing away
           this.velocity.y = Math.max(0, this.velocity.y * Math.exp(-dt * 10));
         } else {
-          // Mid-water column: hydrodynamic damping with gentle natural upward buoyancy drift
-          this.velocity.y = MathUtils.lerp(this.velocity.y, 0.45 * sizeSpeed, 1 - Math.exp(-dt * 4.5));
+          // Responsive surface buoyancy keeps head/shoulders cleanly above water
+          const surfaceError = floatFeetY - this.position.y;
+          const targetBuoyancyVel = MathUtils.clamp(surfaceError * 6.5, -4.0 * sizeSpeed, 8.2 * sizeSpeed);
+          this.velocity.y = MathUtils.lerp(this.velocity.y, targetBuoyancyVel, 1 - Math.exp(-dt * 7.5));
         }
       }
     } else {
@@ -534,6 +559,7 @@ export class PlayerController {
   toggleFlight(): void {
     if (this.state === 'Grounded' || this.state === 'Falling' || this.state === 'Swimming') {
       this.state = 'Hover';
+      this.flightTakeoffGraceS = 0.65;
       this.velocity.y = 5;
       this.position.y += 0.18;
     } else {
