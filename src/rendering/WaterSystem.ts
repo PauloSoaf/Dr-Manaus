@@ -1,17 +1,18 @@
 import {
-  BufferGeometry, Color, Float32BufferAttribute, Group, Mesh, MeshStandardNodeMaterial,
+  BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshStandardNodeMaterial,
   PlaneGeometry, ShapeUtils, Vector2, IcosahedronGeometry, TorusGeometry,
   MeshBasicMaterial, InstancedMesh, Object3D, Vector3,
 } from 'three/webgpu';
 import {
   attribute, cameraPosition, color, float, mix, normalWorld, positionLocal, positionWorld,
-  sin, cos, smoothstep, time, dot, vec2, vec3,
+  sin, cos, smoothstep, time, dot, uniform, vec2, vec3,
 } from 'three/tsl';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import { localManausPresentationMode } from '../world/spatial/ManausSurfacePresentation';
 import {
   sampleManausWater, WaterSurfaceSample, WaterBuoyancyService, MANAUS_RIVER_WAVES
 } from '../world/water/ManausHydrology';
+import { manausBathymetry } from '../world/water/ManausBathymetry';
 
 const surfaceService = new SurfaceFrameService('earth');
 
@@ -93,7 +94,7 @@ class ShoreField {
   }
 }
 
-interface Surface { position: number[]; normal: number[]; shore: number[]; muddy: number[]; triangles: number }
+interface Surface { position: number[]; normal: number[]; shore: number[]; muddy: number[]; depth: number[]; triangles: number }
 
 /**
  * Longest-edge bisection down to a target that follows the distance to the bank. The surface is
@@ -144,6 +145,10 @@ function subdivide(out: Surface, field: ShoreField, stack: number[], silt: numbe
     }
     out.shore.push(da / SHORE_BAND, db / SHORE_BAND, dc / SHORE_BAND);
     out.muddy.push(silt, silt, silt);
+    const depthA = Math.max(0.12, RIVER_Y - manausBathymetry.sampleRiverbedHeight(ax, az));
+    const depthB = Math.max(0.12, RIVER_Y - manausBathymetry.sampleRiverbedHeight(bx, bz));
+    const depthC = Math.max(0.12, RIVER_Y - manausBathymetry.sampleRiverbedHeight(cx, cz));
+    out.depth.push(depthA, depthB, depthC);
     out.triangles++;
   }
 }
@@ -156,6 +161,7 @@ function toPoints(ring: number[]): Vector2[] {
 }
 
 function buildSurface(file: WaterFile): BufferGeometry | null {
+  manausBathymetry.registerWaterFile(file);
   const field = new ShoreField();
   for (const polygon of file.polygons) for (const ring of polygon.rings) {
     const count = ring.length / 2;
@@ -164,7 +170,7 @@ function buildSurface(file: WaterFile): BufferGeometry | null {
       field.add(ring[i * 2], ring[i * 2 + 1], ring[j * 2], ring[j * 2 + 1]);
     }
   }
-  const out: Surface = { position: [], normal: [], shore: [], muddy: [], triangles: 0 };
+  const out: Surface = { position: [], normal: [], shore: [], muddy: [], depth: [], triangles: 0 };
   const stack: number[] = [];
   for (const polygon of file.polygons) {
     if (!polygon.rings.length) continue;
@@ -188,13 +194,14 @@ function buildSurface(file: WaterFile): BufferGeometry | null {
   geometry.setAttribute('normal', new Float32BufferAttribute(out.normal, 3));
   geometry.setAttribute('shore', new Float32BufferAttribute(out.shore, 1));
   geometry.setAttribute('muddy', new Float32BufferAttribute(out.muddy, 1));
+  geometry.setAttribute('depth', new Float32BufferAttribute(out.depth, 1));
   geometry.computeBoundingSphere();
   return geometry;
 }
 
 /**
- * The 90 km plane the game shipped with, carrying the same two attributes so one material serves
- * both surfaces. Its muddy seam is the old hardcoded diagonal, which is all there is without data.
+ * The 90 km plane the game shipped with, carrying the same attributes so one material serves
+ * both surfaces.
  */
 function fallbackSurface(): BufferGeometry {
   const geometry = new PlaneGeometry(FALLBACK_SIZE, FALLBACK_SIZE, 120, 120);
@@ -203,11 +210,16 @@ function fallbackSurface(): BufferGeometry {
   const position = geometry.getAttribute('position');
   const shore = new Float32Array(position.count).fill(1);
   const muddy = new Float32Array(position.count);
+  const depth = new Float32Array(position.count);
   for (let i = 0; i < position.count; i++) {
-    muddy[i] = clamp((position.getX(i) - position.getZ(i) * .21 - 8700) / 700, 0, 1);
+    const vx = position.getX(i), vz = position.getZ(i);
+    muddy[i] = clamp((vx - vz * .21 - 8700) / 700, 0, 1);
+    const bedY = manausBathymetry.sampleRiverbedHeight(vx, vz);
+    depth[i] = Math.max(0.12, RIVER_Y - bedY);
   }
   geometry.setAttribute('shore', new Float32BufferAttribute(shore, 1));
   geometry.setAttribute('muddy', new Float32BufferAttribute(muddy, 1));
+  geometry.setAttribute('depth', new Float32BufferAttribute(depth, 1));
   return geometry;
 }
 
@@ -218,14 +230,22 @@ function triangleCount(geometry: BufferGeometry): number {
 
 /**
  * Authentic Amazonian River TSL WebGPU/WebGL2 Material:
- * - 4-Harmonic Gentle River Drift & Capillary Ripples (calm, glassy surface tension)
- * - True Rio Negro "Água Preta" Optical Absorption (deep humic dark tea/coffee with amber-copper shallow edge)
- * - True Rio Solimões Confluence Suspended Sediments (ochre/cafe-au-lait)
- * - Atmospheric Schlick-Fresnel Neutral Reflection (no unnatural green tint)
+ * - Fed by true geometric riverbed depth attribute (`depth`) from ManausBathymetry
+ * - DoubleSide + shallow water translucency so the 3D excavated riverbed is visible through shallow water
+ *   and the overhead water surface remains visible when diving underwater
+ * - True Rio Negro "Água Preta" Beer-Lambert optical absorption & Solimões sediment scattering
  */
-function createMaterial(): MeshStandardNodeMaterial {
-  const material = new MeshStandardNodeMaterial({ roughness: .18, metalness: .12, color: '#080605' });
-  const shore = attribute('shore', 'float'), silt = attribute('muddy', 'float');
+function createMaterial(uTurbidityScale: ReturnType<typeof uniform<'float'>>): MeshStandardNodeMaterial {
+  const material = new MeshStandardNodeMaterial({
+    roughness: .18,
+    metalness: .12,
+    color: '#080605',
+    side: DoubleSide,
+    transparent: true,
+  });
+  const shore = attribute('shore', 'float');
+  const silt = attribute('muddy', 'float');
+  const geomDepth = attribute('depth', 'float');
 
   const p = positionLocal;
   const distant = smoothstep(250, 5000, cameraPosition.distance(positionWorld));
@@ -259,17 +279,16 @@ function createMaterial(): MeshStandardNodeMaterial {
   const cosTheta = normalWorld.dot(viewDir).abs();
   const fresnel = float(1).sub(cosTheta).pow(5);
 
-  // Physical Beer-Lambert Optical Depth Attenuation:
-  // Estimated water column thickness from shoreline gradient: 0.3m at shore to 40m in deep fairway
-  const depthM = shore.mul(38.0).add(0.3);
+  // Physical Beer-Lambert Optical Depth Attenuation driven by real geometric riverbed depth:
+  const depthM = geomDepth.mul(uTurbidityScale);
 
   // Red/amber wavelengths penetrate shallow blackwater, blue/green are absorbed rapidly by humic tannins:
-  const transR = depthM.mul(-0.06).exp();
+  const transR = depthM.mul(-0.14).exp();
 
   // Translucent amber tea at shallow depths, graduating into obsidian abyss:
-  const negroBed = color('#472b14'); // Riverbed gravel/sand visible through shallow tea water
+  const negroBed = color('#573619'); // Riverbed sand/gravel visible through shallow tea water
   const negroExtinct = color('#060504'); // Deep absorption abyss
-  const negroTranslucent = mix(negroExtinct, negroBed, transR.mul(0.85));
+  const negroTranslucent = mix(negroExtinct, negroBed, transR.mul(0.90));
   const negroWater = mix(negroTranslucent, negroExtinct, float(1).sub(transR));
 
   // Atmospheric sky reflection for authentic liquid sheen:
@@ -280,7 +299,7 @@ function createMaterial(): MeshStandardNodeMaterial {
   const solimoesDeep = color('#584832'); // Muddy clay brown
   const solimoesShallow = color('#806c4e'); // Silty lighter margin
   const solimoesClayReflect = color('#b09c7a'); // Warm silty reflection
-  const solimoesWater = mix(solimoesDeep, solimoesShallow, float(1).sub(shore));
+  const solimoesWater = mix(solimoesDeep, solimoesShallow, transR);
   const solimoesFinal = mix(solimoesWater, solimoesClayReflect, fresnel.mul(0.45));
 
   // Confluence mixing zone
@@ -298,6 +317,8 @@ function createMaterial(): MeshStandardNodeMaterial {
   const finalColor = mix(riverColor, foamColor, shoreFoam);
 
   material.colorNode = finalColor;
+  // Physical translucency: shallow margins (0.15m..4.2m) reveal the actual 3D riverbed mesh beneath
+  material.opacityNode = mix(float(0.34), float(0.96), smoothstep(0.15, 4.2, depthM));
   material.roughnessNode = mix(mix(float(0.12), float(0.38), silt), float(0.68), distant);
 
   return material;
@@ -472,6 +493,10 @@ export class WaterVFX {
     }
   }
 
+  setCameraUnderwater(underwater: boolean): void {
+    this.rippleMesh.visible = !underwater;
+  }
+
   dispose(): void {
     this.dropletMesh.geometry.dispose();
     (this.dropletMesh.material as MeshBasicMaterial).dispose();
@@ -483,13 +508,16 @@ export class WaterVFX {
 
 export class WaterSystem {
   source?: WaterFile;
-  readonly material = createMaterial();
+  readonly uTurbidityScale = uniform(1.0);
+  readonly material = createMaterial(this.uTurbidityScale);
   surfaceY = FALLBACK_Y;
   real = false;
   triangles = 0;
   polygonCount = 0;
-  averageDepthM = 32.0;
+  averageDepthM = 24.5;
   loadError: string | null = null;
+  clearDebugMode = false;
+  cameraUnderwater = false;
   private readonly mesh: Mesh;
 
   readonly buoyancy = new WaterBuoyancyService();
@@ -503,6 +531,8 @@ export class WaterSystem {
     bounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null;
     averageDepthM: number;
     surfaceY: number;
+    clearDebugMode: boolean;
+    cameraUnderwater: boolean;
     lastError: string | null;
   } {
     return {
@@ -513,6 +543,8 @@ export class WaterSystem {
       bounds: this.source?.bounds ?? null,
       averageDepthM: this.averageDepthM,
       surfaceY: this.surfaceY,
+      clearDebugMode: this.clearDebugMode,
+      cameraUnderwater: this.cameraUnderwater,
       lastError: this.loadError,
     };
   }
@@ -524,6 +556,17 @@ export class WaterSystem {
     this.triangles = triangleCount(this.mesh.geometry);
     root.add(this.mesh);
     this.vfx = new WaterVFX(root);
+    manausBathymetry.setBaseSurfaceY(RIVER_Y);
+  }
+
+  public setClearDebugMode(enabled: boolean): void {
+    this.clearDebugMode = enabled;
+    this.uTurbidityScale.value = enabled ? 0.08 : 1.0;
+  }
+
+  public setCameraUnderwater(underwater: boolean): void {
+    this.cameraUnderwater = underwater;
+    this.vfx.setCameraUnderwater(underwater);
   }
 
   public createSplash(x: number, z: number, intensity = 1.0, upwardSpeed = 7.0): void {
@@ -535,7 +578,12 @@ export class WaterSystem {
   }
 
   public sampleHeight(x: number, z: number, timeSec: number, out?: WaterSurfaceSample): WaterSurfaceSample {
-    return sampleManausWater(x, z, timeSec, this.surfaceY, out);
+    const shoreDist = Math.max(0, manausBathymetry.sampleSignedShoreDistance(x, z));
+    return sampleManausWater(x, z, timeSec, this.surfaceY, out, shoreDist);
+  }
+
+  public sampleDepth(x: number, z: number, timeSec: number): number {
+    return manausBathymetry.sampleWaterDepth(x, z, timeSec);
   }
 
   public update(dt: number, timeSec: number): void {
@@ -571,6 +619,7 @@ export class WaterSystem {
       this.real = true;
       this.source = file;
       this.loadError = null;
+      manausBathymetry.setBaseSurfaceY(this.surfaceY);
     } catch (err) {
       this.real = false;
       this.loadError = err instanceof Error ? err.message : String(err);
