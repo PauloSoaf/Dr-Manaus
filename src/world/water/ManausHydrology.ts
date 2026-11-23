@@ -1,4 +1,4 @@
-import { Vector3, Quaternion, Object3D } from 'three';
+import { Vector3, Quaternion, Object3D, Box3 } from 'three';
 import {
   WATER_WAVE_PROFILES,
   sampleGerstnerSpectrum,
@@ -104,6 +104,56 @@ export class WaterBuoyancyService {
     normal: new Vector3(0, 1, 0)
   };
 
+  /**
+   * Registers a floating body with automatic Box3 hull point extraction if offsets are omitted.
+   * Matches references/threejs-water-free/src/physics/buoyancy.js API.
+   */
+  public add(
+    object: Object3D,
+    options: {
+      points?: Vector3[];
+      hullOffsets?: Vector3[];
+      offset?: number;
+      verticalOffset?: number;
+      damping?: number;
+      alignment?: number;
+      surge?: boolean;
+    } = {}
+  ): BuoyantBody {
+    let offsets = options.points || options.hullOffsets;
+    if (!offsets) {
+      const box = new Box3().setFromObject(object);
+      if (box.isEmpty()) {
+        offsets = [
+          new Vector3(-1.8, 0, -2.8),
+          new Vector3(1.8, 0, -2.8),
+          new Vector3(-1.8, 0, 2.8),
+          new Vector3(1.8, 0, 2.8)
+        ];
+      } else {
+        const min = box.min, max = box.max;
+        const cy = 0;
+        offsets = [
+          new Vector3(min.x, cy, min.z),
+          new Vector3(max.x, cy, min.z),
+          new Vector3(min.x, cy, max.z),
+          new Vector3(max.x, cy, max.z),
+        ].map(pt => object.worldToLocal(pt.clone()));
+      }
+    }
+
+    const body: BuoyantBody = {
+      object,
+      hullOffsets: offsets,
+      verticalOffset: options.offset ?? options.verticalOffset ?? 0,
+      damping: options.damping ?? 5.0,
+      alignment: options.alignment ?? 0.85,
+      surge: options.surge ?? false,
+    };
+    this.bodies.push(body);
+    return body;
+  }
+
   public register(
     object: Object3D,
     options: {
@@ -114,28 +164,18 @@ export class WaterBuoyancyService {
       surge?: boolean;
     } = {}
   ): void {
-    const offsets = options.hullOffsets || [
-      new Vector3(-2, 0, -3),
-      new Vector3(2, 0, -3),
-      new Vector3(-2, 0, 3),
-      new Vector3(2, 0, 3)
-    ];
-
-    this.bodies.push({
-      object,
-      hullOffsets: offsets,
-      verticalOffset: options.verticalOffset ?? 0,
-      damping: options.damping ?? 5.0,
-      alignment: options.alignment ?? 0.85,
-      surge: options.surge ?? false,
-    });
+    this.add(object, options);
   }
 
-  public unregister(object: Object3D): void {
+  public remove(object: Object3D): void {
     const idx = this.bodies.findIndex(b => b.object === object);
     if (idx !== -1) {
       this.bodies.splice(idx, 1);
     }
+  }
+
+  public unregister(object: Object3D): void {
+    this.remove(object);
   }
 
   public update(dt: number, timeSec: number, baseSurfaceY: number = 0.06): void {

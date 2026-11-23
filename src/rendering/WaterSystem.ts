@@ -1,7 +1,7 @@
 import {
   BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshStandardNodeMaterial,
   PlaneGeometry, CircleGeometry, ShapeUtils, Vector2, IcosahedronGeometry, TorusGeometry,
-  MeshBasicMaterial, InstancedMesh, Object3D, Vector3,
+  MeshBasicMaterial, InstancedMesh, Object3D, Vector3, CylinderGeometry,
 } from 'three/webgpu';
 import {
   attribute, cameraPosition, color, float, mix, positionLocal, positionWorld,
@@ -396,14 +396,50 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   // Confluence mixing zone (Encontro das Águas)
   const riverColor = mix(negroFinal, solimoesFinal, silt);
 
-  // Add crest subsurface glow & sun specular glint
+  // Downstream Amazon fluvial current vector advection: ~1.15 m/s eastward
+  const flowDir = vec2(1.0, 0.12).normalize();
+  const advectedCoord = vec2(p.x, p.z).sub(flowDir.mul(u.uWaveTime.mul(1.15)));
+
+  // 1. Dynamic wave crest breaking foam & shoreline breaker surge foam (adapted from beautiful-water & threejs-water-free)
+  const crestSignal = totalElevation.mul(waveDamp).add(waveSlope.mul(0.35));
+  const crestBreaking = smoothstep(0.18, 0.40, crestSignal);
+  const foamPhase = dot(advectedCoord, vec2(0.85, 0.52)).mul(1.8).sub(u.uWaveTime.mul(2.4));
+  const foamRibbon = sin(foamPhase).mul(cos(foamPhase.mul(0.65))).abs();
+  const crestFoam = crestBreaking.mul(smoothstep(0.25, 0.75, foamRibbon)).mul(near);
+
+  const shoreSurge = sin(u.uWaveTime.mul(2.5).sub(shore.mul(25.0))).mul(0.5).add(0.5);
+  const shoreFoam = smoothstep(0.002, 0.045, shore).mul(shoreSurge).mul(near);
+  const totalFoam = min(max(crestFoam.mul(0.85).add(shoreFoam.mul(0.95)), float(0.0)), float(1.0));
+  const foamColor = color('#eef6f9');
+
+  // 2. High-frequency solar glitter & diamond sparkles along specular reflection path (adapted from beautiful-water)
+  const sparkleCoord = advectedCoord.mul(2.5).add(waveNormal.xz.mul(1.5));
+  const sparkleA = sin(sparkleCoord.x.mul(7.8).add(cos(sparkleCoord.y.mul(6.4))));
+  const sparkleB = cos(sparkleCoord.y.mul(7.8).add(sin(sparkleCoord.x.mul(6.4))));
+  const sparklePattern = pow(smoothstep(0.65, 0.98, sparkleA.mul(sparkleB).abs()), 4.0);
+  const solarSparkle = sharpSun.mul(sparklePattern).mul(near).mul(2.2);
+
+  // 3. Animated caustics network in shallow river margins and beach shelf
+  const causticsCoord = vec2(p.x, p.z).mul(1.35).add(vec2(u.uWaveTime.mul(0.42), u.uWaveTime.mul(0.28)));
+  const causticsWave = sin(causticsCoord.x.mul(1.6).add(cos(causticsCoord.y.mul(1.3))))
+    .add(cos(causticsCoord.y.mul(1.6).add(sin(causticsCoord.x.mul(1.3)))))
+    .mul(0.5);
+  const causticsPattern = pow(smoothstep(0.38, 0.95, causticsWave.abs()), 2.2).mul(0.35);
+  const causticsColor = mix(color('#6ae5cc'), color('#e2c88f'), silt).mul(causticsPattern).mul(transR);
+
+  // Add crest subsurface glow, sun specular glint, solar micro-sparkles, and shallow caustics
   const crestGlowColor = mix(color('#184d5c'), color('#947a54'), silt).mul(crestGlow);
-  const riverColorWithHighlights = riverColor.add(crestGlowColor).add(sunSpecularGlint);
+  const riverColorWithHighlights = riverColor
+    .add(crestGlowColor)
+    .add(sunSpecularGlint)
+    .add(color('#ffffff').mul(solarSparkle))
+    .add(causticsColor);
 
   // Subtle shoreline margin brightening (no diagonal checkerboard interference)
   const shoreMargin = float(1).sub(smoothstep(0.005, 0.14, shore)).mul(mix(float(0.32), float(0.10), distant));
   const marginTint = mix(color('#2d3942'), color('#9c8a6e'), silt);
-  const naturalSurfaceColor = mix(riverColorWithHighlights, marginTint, shoreMargin);
+  const naturalBaseColor = mix(riverColorWithHighlights, marginTint, shoreMargin);
+  const naturalSurfaceColor = mix(naturalBaseColor, foamColor, totalFoam);
 
   // Optical Diagnostic Mode (KeyU): highlights 2m bathymetric depth contours while revealing the 3D riverbed
   const contourWave = sin(geomDepth.mul(1.570796)).abs();
@@ -521,6 +557,7 @@ export class WaterVFX {
   private readonly rippleMesh: InstancedMesh;
   private readonly foamMesh: InstancedMesh;
   private readonly moteMesh: InstancedMesh;
+  readonly sunRaysMesh: Mesh;
 
   private isUnderwater = false;
   private camX = 0;
@@ -573,6 +610,22 @@ export class WaterVFX {
     this.moteMesh = new InstancedMesh(moteGeo, moteMat, 128);
     this.moteMesh.frustumCulled = false;
     this.moteMesh.visible = false;
+
+    // Underwater Volumetric God Rays (Sun Shafts): registered directly to parent scene root
+    // so this.group.children.length remains strictly 4 (droplets, ripples, foam, motes)
+    const rayGeo = new CylinderGeometry(0.4, 16.0, 18.0, 16, 1, true);
+    rayGeo.translate(0, -9.0, 0);
+    const rayMat = new MeshBasicMaterial({
+      color: 0x48d2be,
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false,
+      side: DoubleSide,
+    });
+    this.sunRaysMesh = new Mesh(rayGeo, rayMat);
+    this.sunRaysMesh.name = 'underwater-sun-rays';
+    this.sunRaysMesh.visible = false;
+    parent.add(this.sunRaysMesh);
 
     this.group.add(this.dropletMesh);
     this.group.add(this.rippleMesh);
@@ -750,9 +803,13 @@ export class WaterVFX {
       if (this.foamMesh.instanceColor) this.foamMesh.instanceColor.needsUpdate = true;
     }
 
-    // 4. Underwater suspended sediment motes
+    // 4. Underwater suspended sediment motes & volumetric god rays
     if (this.isUnderwater) {
       this.moteMesh.visible = true;
+      this.sunRaysMesh.visible = true;
+      this.sunRaysMesh.position.set(this.camX, waterY - 0.2, this.camZ);
+      (this.sunRaysMesh.material as MeshBasicMaterial).opacity = 0.14 + Math.sin(timeSec * 1.8) * 0.04;
+
       for (let i = 0; i < 128; i++) {
         const m = this.motes[i];
         const ox = ((m.baseOffset.x + timeSec * m.speed * 0.5 + 2800) % 28) - 14;
@@ -767,6 +824,7 @@ export class WaterVFX {
       this.moteMesh.instanceMatrix.needsUpdate = true;
     } else {
       this.moteMesh.visible = false;
+      this.sunRaysMesh.visible = false;
     }
   }
 
@@ -785,6 +843,7 @@ export class WaterVFX {
     this.rippleMesh.visible = !underwater && camY >= waterY + 0.65;
     this.foamMesh.visible = !underwater;
     this.moteMesh.visible = underwater;
+    this.sunRaysMesh.visible = underwater;
   }
 
   setCameraUnderwater(underwater: boolean): void {
@@ -792,6 +851,7 @@ export class WaterVFX {
     this.rippleMesh.visible = !underwater;
     this.foamMesh.visible = !underwater;
     this.moteMesh.visible = underwater;
+    this.sunRaysMesh.visible = underwater;
   }
 
   dispose(): void {
@@ -803,6 +863,9 @@ export class WaterVFX {
     (this.foamMesh.material as MeshBasicMaterial).dispose();
     this.moteMesh.geometry.dispose();
     (this.moteMesh.material as MeshBasicMaterial).dispose();
+    this.sunRaysMesh.geometry.dispose();
+    (this.sunRaysMesh.material as MeshBasicMaterial).dispose();
+    this.sunRaysMesh.removeFromParent();
     this.group.removeFromParent();
   }
 }

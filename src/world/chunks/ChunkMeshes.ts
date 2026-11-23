@@ -55,7 +55,7 @@ export class ChunkMeshes {
   private readonly facade = new MeshStandardMaterial({ map: this.atlas.color, emissiveMap: this.atlas.light,
     emissive: 0xffffff, emissiveIntensity: .045, roughness: .86, metalness: .015 });
   private readonly roofMat = new MeshStandardMaterial({ color: 0xffffff, roughness: .95 });
-  private readonly pavement = new MeshStandardMaterial({ color: 0xc0b7a3, roughness: 1 });
+  private readonly pavement = new MeshStandardMaterial({ color: 0x4a4d52, roughness: .92 });
   private readonly bark = new MeshStandardMaterial({ color: 0x766348, roughness: 1 });
   private readonly leaves = new MeshStandardMaterial({ color: 0xffffff, roughness: .95 });
   private readonly oceanGeometry: PlaneGeometry;

@@ -22,7 +22,7 @@
 import { Vector3, Quaternion, Color, Object3D } from 'three';
 import {
   attribute, cameraPosition, color, float, mix, normalWorld, positionLocal, positionWorld,
-  sin, cos, smoothstep, time, dot, vec2, vec3, uniform, pow, max, reflect,
+  sin, cos, smoothstep, time, dot, vec2, vec3, uniform, pow, max, reflect, clamp,
 } from 'three/tsl';
 import { MeshStandardNodeMaterial, Node } from 'three/webgpu';
 
@@ -399,6 +399,23 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const NdotH = max(waveNormal.dot(halfDir), float(0.0));
   const sunSpecular = pow(NdotH, 64.0).mul(3.5);
   finalColorNode = finalColorNode.add(reflectCol.mul(sunSpecular).mul(near.mul(0.8).add(0.2)));
+
+  // Dynamic wave-crest breaking foam & solar micro-sparkles (adapted from beautiful-water & threejs-water-free)
+  const crestSignal = totalElevation.add(waveSlope.mul(0.35));
+  const crestBreaking = smoothstep(0.18, 0.40, crestSignal);
+  const foamPhase = dot(vec2(p.x, p.z), vec2(0.85, 0.52)).mul(1.8).sub(time.mul(2.4));
+  const foamRibbon = sin(foamPhase).mul(cos(foamPhase.mul(0.65))).abs();
+  const crestFoam = crestBreaking.mul(smoothstep(0.25, 0.75, foamRibbon)).mul(near);
+  const foamColor = color('#eef6f9');
+
+  const sparkleCoord = vec2(p.x, p.z).mul(2.5).add(waveNormal.xz.mul(1.5));
+  const sparkleA = sin(sparkleCoord.x.mul(7.8).add(cos(sparkleCoord.y.mul(6.4))));
+  const sparkleB = cos(sparkleCoord.y.mul(7.8).add(sin(sparkleCoord.x.mul(6.4))));
+  const sparklePattern = pow(smoothstep(0.65, 0.98, sparkleA.mul(sparkleB).abs()), 4.0);
+  const solarSparkle = sunSpecular.mul(sparklePattern).mul(near).mul(2.0);
+
+  finalColorNode = finalColorNode.add(reflectCol.mul(solarSparkle));
+  finalColorNode = mix(finalColorNode, foamColor, crestFoam.mul(0.75));
 
   // If fluid is incandescent magma, add emissive term
   if (props.emissiveColor && props.emissiveIntensity) {

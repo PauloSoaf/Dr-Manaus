@@ -59,21 +59,22 @@ function sampleTerrainBiomeColor(px: number, pz: number): [number, number, numbe
   const distPontaSq = dxPonta * dxPonta + dzPonta * dzPonta;
   const isPontaNegra = distPontaSq < 6760000; // ~2.6km radius around Praia da Ponta Negra
 
-  // Signed shore distance: d >= 0 is land, d < 0 is water
+  // Signed shore distance: d > 0 in water, d < 0 on land (inland distance is -shoreDist)
   const shoreDist = manausBathymetry.sampleSignedShoreDistance(px, pz);
+  const inlandDist = -shoreDist;
 
   // Sandy beach zone:
   // - Ponta Negra has an expansive golden beach extending up to 135m inland from the shoreline
   // - Other natural riverbanks have an authentic 22m sandy beach margin
   const beachWidth = isPontaNegra ? 135.0 : 22.0;
-  const isBeach = shoreDist >= -2.0 && shoreDist <= beachWidth;
+  const isBeach = inlandDist >= -1.0 && inlandDist <= beachWidth;
 
   // Grain jitter for procedural variation
   const grain = 0.94 + (((Math.imul(Math.round(px) * 73856093 ^ Math.round(pz) * 19349663, 2654435761) >>> 8) % 1000) / 1000) * 0.12;
 
   if (isBeach) {
     // Praia: Golden river beach sand (e.g. Praia da Ponta Negra)
-    const tBeach = Math.min(1, Math.max(0, shoreDist / beachWidth));
+    const tBeach = Math.min(1, Math.max(0, inlandDist / beachWidth));
     const sandR = (0.64 + tBeach * 0.04) * grain;
     const sandG = (0.54 + tBeach * 0.03) * grain;
     const sandB = (0.34 + tBeach * 0.02) * grain;
