@@ -337,10 +337,10 @@ export class PlanetMap3DRenderer {
           data[idx + 2] = Math.round(scratch[2] * 255);
           data[idx + 3] = 255;
         } else {
-          // Deep ocean blue
-          data[idx] = 12;
-          data[idx + 1] = 40;
-          data[idx + 2] = 80;
+          // Deep oceanic cobalt/sapphire blue
+          data[idx] = 14;
+          data[idx + 1] = 61;
+          data[idx + 2] = 132;
           data[idx + 3] = 255;
         }
       }

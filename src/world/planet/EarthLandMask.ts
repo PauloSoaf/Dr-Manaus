@@ -156,8 +156,8 @@ export function classifyEarthSurface(latRad: number, lonRad: number): EarthSurfa
 
 /** Ocean blue, land green, urban gray/olive, and the ice that genuinely sits at the poles. */
 export const SURFACE_COLOURS = {
-  ocean: [0.047, 0.157, 0.314] as const,
-  shallow: [0.102, 0.290, 0.451] as const,
+  ocean: [0.055, 0.235, 0.520] as const,
+  shallow: [0.080, 0.450, 0.680] as const,
   land: [0.196, 0.345, 0.169] as const,
   arid: [0.451, 0.404, 0.255] as const,
   ice: [0.878, 0.898, 0.910] as const,

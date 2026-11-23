@@ -66,14 +66,14 @@ export const FLUID_PRESETS: Record<LiquidSolventType, FluidPhysicalProperties> =
   'terrestrial-ocean': {
     densityKgM3: 1025,
     viscosityRelative: 1.05,
-    deepColor: '#011833',        // Deep abyssal oceanic sapphire blue
-    shallowColor: '#0a88aa',     // Coastal turquoise/azure shallow waters
-    specularReflectColor: '#e0f4ff', // Crisp bright white-blue sun reflections
-    roughness: 0.12,             // Glossy ocean surface
-    metalness: 0.52,
-    fresnelPower: 5.0,
+    deepColor: '#0a3d78',        // Luminous deep cobalt/sapphire ocean blue (distinct from Rio Negro blackwater)
+    shallowColor: '#00b4d8',     // Radiant coastal azure and tropical turquoise cyan
+    specularReflectColor: '#eef8ff', // Crisp bright white-blue sun reflections
+    roughness: 0.10,             // Glossy ocean surface
+    metalness: 0.45,
+    fresnelPower: 4.8,
     waveDamping: 1.0,
-    turbidityBeerLambertAlpha: 0.035
+    turbidityBeerLambertAlpha: 0.025
   },
   'clear-swimming-pool': {
     densityKgM3: 997,
@@ -389,15 +389,27 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const shallowCol = color(props.shallowColor);
   const reflectCol = color(props.specularReflectColor);
 
-  // Depth-based Beer-Lambert light attenuation
+  // Depth-based Beer-Lambert light attenuation & dynamic ocean wave-slope scattering
   const shoreAttr = attribute('shore', 'float');
-  const waterColor = mix(deepCol, shallowCol, float(1).sub(shoreAttr));
-  let finalColorNode = mix(waterColor, reflectCol, fresnel.mul(0.75)).add(reflectCol.mul(crestGlow).mul(0.4));
+  const oceanWaveFacet = solvent === 'terrestrial-ocean'
+    ? mix(deepCol, shallowCol, waveSlope.mul(0.60).add(totalElevation.mul(0.18)).clamp(0.0, 1.0))
+    : deepCol;
+  const waterColor = mix(oceanWaveFacet, shallowCol, float(1).sub(shoreAttr));
+
+  // Fresnel sky reflection: vibrant tropical azure sky for ocean surfaces
+  const skyReflection = solvent === 'terrestrial-ocean'
+    ? color('#5fa8d3')
+    : reflectCol;
+  let finalColorNode = mix(waterColor, skyReflection, fresnel.mul(0.68));
+
+  // Translucent Subsurface Scattering on wave crests (radiant tropical turquoise emerald)
+  const sssColor = solvent === 'terrestrial-ocean' ? color('#16e2bd') : reflectCol;
+  finalColorNode = finalColorNode.add(sssColor.mul(crestGlow).mul(0.55));
 
   // Sun specular glint (adapted from beautiful-water microfacet optics)
   const halfDir = viewDir.add(sunDir).normalize();
   const NdotH = max(waveNormal.dot(halfDir), float(0.0));
-  const sunSpecular = pow(NdotH, 64.0).mul(3.5);
+  const sunSpecular = pow(NdotH, 72.0).mul(3.6);
   finalColorNode = finalColorNode.add(reflectCol.mul(sunSpecular).mul(near.mul(0.8).add(0.2)));
 
   // Dynamic wave-crest breaking foam & solar micro-sparkles (adapted from beautiful-water & threejs-water-free)
@@ -406,7 +418,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const foamPhase = dot(vec2(p.x, p.z), vec2(0.85, 0.52)).mul(1.8).sub(time.mul(2.4));
   const foamRibbon = sin(foamPhase).mul(cos(foamPhase.mul(0.65))).abs();
   const crestFoam = crestBreaking.mul(smoothstep(0.25, 0.75, foamRibbon)).mul(near);
-  const foamColor = color('#eef6f9');
+  const foamColor = color('#f4faff');
 
   const sparkleCoord = vec2(p.x, p.z).mul(2.5).add(waveNormal.xz.mul(1.5));
   const sparkleA = sin(sparkleCoord.x.mul(7.8).add(cos(sparkleCoord.y.mul(6.4))));
@@ -415,7 +427,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const solarSparkle = sunSpecular.mul(sparklePattern).mul(near).mul(2.0);
 
   finalColorNode = finalColorNode.add(reflectCol.mul(solarSparkle));
-  finalColorNode = mix(finalColorNode, foamColor, crestFoam.mul(0.75));
+  finalColorNode = mix(finalColorNode, foamColor, crestFoam.mul(0.85));
 
   // If fluid is incandescent magma, add emissive term
   if (props.emissiveColor && props.emissiveIntensity) {

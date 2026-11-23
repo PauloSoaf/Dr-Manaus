@@ -310,11 +310,11 @@ export function createProceduralPlanetSurface(
           // Liquid ocean with physical optical absorption (Beer-Lambert) and hydrothermal bathymetry
           const depthNoise = valueNoise3D(d[0] * 5, d[1] * 5, d[2] * 5, baseSeed + 45);
           const coastalShelf = valueNoise3D(d[0] * 12, d[1] * 12, d[2] * 12, baseSeed + 88);
-          // Absorption: deep water scatters deep indigo (#02122b); shallow reefs scatter turquoise (#186b8c)
-          const ABYSS = [0.015, 0.07, 0.17];
-          const DEEP = [0.06, 0.22, 0.48];
-          const SHELF = [0.12, 0.42, 0.68];
-          const REEF = [0.18, 0.58, 0.74];
+          // Absorption: deep water scatters radiant cobalt sapphire; shallow reefs scatter turquoise
+          const ABYSS = [0.045, 0.180, 0.420];
+          const DEEP = [0.075, 0.310, 0.590];
+          const SHELF = [0.110, 0.490, 0.740];
+          const REEF = [0.150, 0.680, 0.820];
 
           if (depthNoise < 0.4) {
             const s = depthNoise / 0.4;
