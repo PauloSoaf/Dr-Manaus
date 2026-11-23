@@ -29,6 +29,7 @@ import { MeshStandardNodeMaterial, Node } from 'three/webgpu';
 export type LiquidSolventType = 
   | 'terrestrial-freshwater' // Rio Negro / Solimões / Amazon Basin
   | 'terrestrial-ocean'      // Earth Atlantic / Pacific / Arctic
+  | 'clear-swimming-pool'    // Crystalline swimming pool with lap ripples and caustics
   | 'cryo-methane'           // Titan / Cryogenic moons (hydrocarbons at 90-110 K)
   | 'cryo-ammonia'           // Subsurface brine basins
   | 'molten-magma'           // Volcanic worlds (lava lakes at 1300-1800 K)
@@ -65,14 +66,26 @@ export const FLUID_PRESETS: Record<LiquidSolventType, FluidPhysicalProperties> =
   'terrestrial-ocean': {
     densityKgM3: 1025,
     viscosityRelative: 1.05,
-    deepColor: '#03172e',        // Deep abyssal oceanic blue
-    shallowColor: '#12547a',     // Coastal shallow shelf
-    specularReflectColor: '#8ec4e8',
-    roughness: 0.18,
+    deepColor: '#011833',        // Deep abyssal oceanic sapphire blue
+    shallowColor: '#0a88aa',     // Coastal turquoise/azure shallow waters
+    specularReflectColor: '#e0f4ff', // Crisp bright white-blue sun reflections
+    roughness: 0.12,             // Glossy ocean surface
     metalness: 0.52,
-    fresnelPower: 4.8,
+    fresnelPower: 5.0,
     waveDamping: 1.0,
-    turbidityBeerLambertAlpha: 0.08
+    turbidityBeerLambertAlpha: 0.035
+  },
+  'clear-swimming-pool': {
+    densityKgM3: 997,
+    viscosityRelative: 1.0,
+    deepColor: '#005f73',        // Transparent rich pool blue
+    shallowColor: '#0aeeb5',     // Sparkling crystalline aquamarine/cyan
+    specularReflectColor: '#ffffff', // Crisp diamond sun reflection
+    roughness: 0.06,             // Extremely smooth glossy finish
+    metalness: 0.35,
+    fresnelPower: 5.2,
+    waveDamping: 1.6,
+    turbidityBeerLambertAlpha: 0.012 // Ultra-low turbidity: caustics and floor tiles clearly visible
   },
   'cryo-methane': {
     densityKgM3: 450,            // Liquid methane is much lighter than water (~450 kg/m3)
@@ -139,6 +152,8 @@ export type WaterWaveProfileId =
   | 'RIO_NEGRO_WINDY'
   | 'SOLIMOES_CURRENT'
   | 'TERRESTRIAL_OCEAN'
+  | 'SWIMMING_POOL'
+  | 'CUP_WATER'
   | 'CRYOGENIC_SEA'
   | 'CRYO_AMMONIA_SEA'
   | 'DENSE_BRINE_SEA'
@@ -168,10 +183,20 @@ export const WATER_WAVE_PROFILES: Readonly<Record<WaterWaveProfileId, readonly G
     { direction: [-0.84, -0.54], amplitude: 0.04, wavelength: 5.0, speed: 2.75, steepness: 0.26 },
   ],
   TERRESTRIAL_OCEAN: [
-    { direction: [0.89, 0.45], amplitude: 0.55, wavelength: 68.0, speed: 1.35, steepness: 0.45 },
-    { direction: [-0.42, 0.91], amplitude: 0.28, wavelength: 34.0, speed: 1.70, steepness: 0.40 },
-    { direction: [0.60, -0.80], amplitude: 0.14, wavelength: 16.0, speed: 2.30, steepness: 0.35 },
-    { direction: [-0.85, -0.52], amplitude: 0.07, wavelength: 7.5, speed: 3.10, steepness: 0.30 },
+    { direction: [0.89, 0.45], amplitude: 1.85, wavelength: 160.0, speed: 1.25, steepness: 0.52 },
+    { direction: [-0.42, 0.91], amplitude: 0.95, wavelength: 75.0, speed: 1.60, steepness: 0.46 },
+    { direction: [0.60, -0.80], amplitude: 0.42, wavelength: 32.0, speed: 2.20, steepness: 0.38 },
+    { direction: [-0.85, -0.52], amplitude: 0.18, wavelength: 12.0, speed: 3.10, steepness: 0.30 },
+  ],
+  SWIMMING_POOL: [
+    { direction: [0.707, 0.707], amplitude: 0.035, wavelength: 3.2, speed: 1.8, steepness: 0.25 },
+    { direction: [-0.60, 0.80], amplitude: 0.020, wavelength: 1.8, speed: 2.2, steepness: 0.22 },
+    { direction: [0.85, -0.52], amplitude: 0.012, wavelength: 0.9, speed: 2.9, steepness: 0.18 },
+  ],
+  CUP_WATER: [
+    { direction: [1.0, 0.0], amplitude: 0.004, wavelength: 0.12, speed: 2.4, steepness: 0.20 },
+    { direction: [0.0, 1.0], amplitude: 0.0025, wavelength: 0.07, speed: 3.1, steepness: 0.18 },
+    { direction: [0.707, -0.707], amplitude: 0.0015, wavelength: 0.035, speed: 4.2, steepness: 0.15 },
   ],
   // Spectra below were previously inlined in getWaveSpectrumForSolvent (magma, methane) or silently
   // fell back to the freshwater spectrum (ammonia, brine). They now live with the other profiles.
@@ -224,6 +249,8 @@ export function getWaveSpectrumForSolvent(type: LiquidSolventType): GerstnerWave
       return clone(WATER_WAVE_PROFILES.DENSE_BRINE_SEA);
     case 'terrestrial-ocean':
       return clone(WATER_WAVE_PROFILES.TERRESTRIAL_OCEAN);
+    case 'clear-swimming-pool':
+      return clone(WATER_WAVE_PROFILES.SWIMMING_POOL);
     case 'terrestrial-freshwater':
     default:
       return clone(WATER_WAVE_PROFILES.RIO_NEGRO_WINDY);
@@ -366,6 +393,12 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const shoreAttr = attribute('shore', 'float');
   const waterColor = mix(deepCol, shallowCol, float(1).sub(shoreAttr));
   let finalColorNode = mix(waterColor, reflectCol, fresnel.mul(0.75)).add(reflectCol.mul(crestGlow).mul(0.4));
+
+  // Sun specular glint (adapted from beautiful-water microfacet optics)
+  const halfDir = viewDir.add(sunDir).normalize();
+  const NdotH = max(waveNormal.dot(halfDir), float(0.0));
+  const sunSpecular = pow(NdotH, 64.0).mul(3.5);
+  finalColorNode = finalColorNode.add(reflectCol.mul(sunSpecular).mul(near.mul(0.8).add(0.2)));
 
   // If fluid is incandescent magma, add emissive term
   if (props.emissiveColor && props.emissiveIntensity) {

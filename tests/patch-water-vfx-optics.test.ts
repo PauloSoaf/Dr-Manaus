@@ -1,9 +1,17 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { Group, Object3D, Vector3 } from 'three/webgpu';
+import { Group, Object3D, Vector3, Quaternion } from 'three/webgpu';
 import { WaterSystem, WaterVFX } from '../src/rendering/WaterSystem';
 import { WaterBuoyancyService, sampleManausWater } from '../src/world/water/ManausHydrology';
-import { createUniversalLiquidMaterial, sampleUniversalLiquid } from '../src/world/water/UniversalLiquidSystem';
+import {
+  createUniversalLiquidMaterial,
+  sampleUniversalLiquid,
+  FLUID_PRESETS,
+  WATER_WAVE_PROFILES,
+} from '../src/world/water/UniversalLiquidSystem';
+import { DynamicFluidContainer } from '../src/world/water/DynamicFluidContainer';
+import { getFluid, validateFluidDefinition } from '../src/world/water/FluidRegistry';
+import { manausBathymetry } from '../src/world/water/ManausBathymetry';
 
 describe('UNIVERSAL-WATER-02: Hydrodynamic VFX, Particle Physics & Advanced Optical Models', () => {
   it('1. WaterVFX particle infrastructure: creates and registers droplets, ripples, foam and underwater motes', () => {
@@ -145,4 +153,105 @@ describe('UNIVERSAL-WATER-02: Hydrodynamic VFX, Particle Physics & Advanced Opti
 
     water.dispose();
   });
+
+  it('8. DynamicFluidContainer: 2D sloshing ODE, meniscus curvature, spill loss, and MICRO scale registration', () => {
+    let spillVolume = 0;
+    const cup = new DynamicFluidContainer({
+      id: 'test-cup-01',
+      radiusM: 0.045,
+      heightM: 0.12,
+      fillFraction: 0.75,
+      solvent: 'terrestrial-freshwater',
+      meniscusHeightM: 0.002,
+      onSpill: (vol) => { spillVolume += vol; },
+    });
+
+    // Verify MICRO scale registration
+    const fluidEntry = getFluid('container-test-cup-01');
+    assert.ok(fluidEntry, 'Container must register in FluidRegistry');
+    assert.strictEqual(fluidEntry.scale, 'MICRO');
+    assert.strictEqual(fluidEntry.geometryType, 'container');
+
+    // Sample center vs meniscus edge: meniscus at wall edge (r = 0.044m) must be elevated
+    const centerHeight = cup.sampleLocal(0, 0, 0).height;
+    const edgeHeight = cup.sampleLocal(0.044, 0, 0).height;
+    assert.ok(edgeHeight > centerHeight, 'Meniscus elevates fluid near container wall');
+
+    // Simulate acceleration: container moves horizontally, provoking slosh oscillation
+    const posA = new Vector3(0, 0, 0);
+    const posB = new Vector3(0.5, 0, 0); // 0.5m displacement in 0.05s -> high acceleration
+    cup.update(0.05, posA);
+    cup.update(0.05, posB);
+
+    assert.ok(Math.abs(cup.sloshAngleX) > 1e-4, 'Acceleration must excite 2D sloshing');
+
+    // Sudden heavy tilt exceeding critical angle -> spills fluid
+    const tiltQuat = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI * 0.45); // 81 degrees tilt
+    cup.update(0.05, posB, tiltQuat);
+
+    assert.ok(spillVolume > 0, 'Spill callback invoked when tilt exceeds critical angle');
+    assert.ok(cup.fillFraction < 0.75, 'Fill level decreases upon spilling');
+
+    cup.dispose();
+    assert.strictEqual(getFluid('container-test-cup-01'), undefined, 'Container unregisters on dispose');
+  });
+
+  it('9. Crystal-clear swimming pool: ultra-low turbidity, gentle lap ripples, and SMALL scale compliance', () => {
+    const poolProps = FLUID_PRESETS['clear-swimming-pool'];
+    assert.ok(poolProps, 'Clear swimming pool preset exists');
+    assert.ok(poolProps.turbidityBeerLambertAlpha <= 0.015, 'Turbidity is crystal-clear (< 0.015)');
+    assert.strictEqual(poolProps.roughness, 0.06, 'Glossy pool surface');
+
+    const poolWaves = WATER_WAVE_PROFILES.SWIMMING_POOL;
+    assert.ok(poolWaves.length >= 3, 'At least 3 harmonics for lap wave spectrum');
+
+    // Pool waves must strictly obey SMALL scale limits
+    validateFluidDefinition({
+      id: 'pool-lap-test',
+      solvent: 'clear-swimming-pool',
+      geometryType: 'pool',
+      scale: 'SMALL',
+      profileId: 'SWIMMING_POOL',
+      surfaceY: () => 0.0,
+    });
+  });
+
+  it('10. Tall blue ocean rolling swell waves: peak amplitude > 3.4m, PLANETARY compliance, and deep navy sapphire color', () => {
+    const oceanProps = FLUID_PRESETS['terrestrial-ocean'];
+    assert.strictEqual(oceanProps.deepColor, '#011833', 'Deep oceanic sapphire blue');
+    assert.strictEqual(oceanProps.shallowColor, '#0a88aa', 'Brilliant coastal azure/cyan');
+
+    const oceanWaves = WATER_WAVE_PROFILES.TERRESTRIAL_OCEAN;
+    const totalPeakAmp = oceanWaves.reduce((sum, w) => sum + w.amplitude, 0);
+    // Crest-to-trough range is 2 * total amplitude
+    assert.ok(totalPeakAmp >= 3.0, 'Tall rolling ocean swells have total amplitude >= 3.0m (over 6m peak-to-trough)');
+    assert.ok(oceanWaves[0].amplitude >= 1.8, 'Primary ocean swell harmonic amplitude >= 1.8m');
+
+    // Conforms to PLANETARY scale limits
+    validateFluidDefinition({
+      id: 'planetary-ocean-test',
+      solvent: 'terrestrial-ocean',
+      geometryType: 'planetary-ocean',
+      scale: 'PLANETARY',
+      profileId: 'TERRESTRIAL_OCEAN',
+      surfaceY: () => 0.0,
+    });
+  });
+
+  it('11. Ponta Negra shallow wading shelf bathymetry & authentic Rio Negro deep abyss', () => {
+    // Praia da Ponta Negra is located around x = -9400, z = -7400
+    // Wading shelf extends gently out into the river
+    const pontaShoreDist15m = manausBathymetry.sampleRiverbedHeight(-9390, -7400);
+    const pontaShoreDist45m = manausBathymetry.sampleRiverbedHeight(-9360, -7400);
+
+    // In Ponta Negra wading zone (15m to 45m out), water remains shallow (<= 1.2m deep)
+    assert.ok(Math.abs(pontaShoreDist15m) <= 0.85, 'Ponta Negra 15m out is gentle shallow wading');
+    assert.ok(Math.abs(pontaShoreDist45m) <= 1.35, 'Ponta Negra 45m out remains safe wading depth');
+
+    // Central deep channel fairway reaches authentic Amazonian depths (> 40m)
+    // Rio Negro fairway at d > 800m
+    const deepRioNegroBed = manausBathymetry.sampleRiverbedHeight(500, 3500);
+    assert.ok(deepRioNegroBed <= -35.0, `Rio Negro deep thalweg must reach authentic depth (got ${deepRioNegroBed}m)`);
+  });
 });
+

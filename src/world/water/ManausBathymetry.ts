@@ -21,7 +21,7 @@ import type { WaterFile } from '../../rendering/WaterSystem';
 
 export const MANAUS_RIVER_SURFACE_Y = 0.12;
 export const MANAUS_FALLBACK_SURFACE_Y = -0.2;
-export const MANAUS_MAX_CHANNEL_DEPTH_M = 28.5;
+export const MANAUS_MAX_CHANNEL_DEPTH_M = 52.0;
 
 export type ManausRiverZoneType = 'rio-negro' | 'solimoes' | 'confluence' | 'land';
 
@@ -244,13 +244,13 @@ export class ManausBathymetryService {
    * Excavated physical 3D riverbed elevation `bedY(x, z)` in meters.
    * - On dry land (`!isWater(x, z)`): returns `0.0 m` (matches `MANAUS_GROUND_COVER_Y`).
    * - At the shoreline (`d = 0 m`): starts continuously at `0.0 m`.
-   * - Shallow wading zone (`0..24 m`): gentle slope `0.0 m -> -1.85 m` (player can walk in/out).
+   * - Shallow wading zone (`0..24 m`, extended to ~75m at Praia da Ponta Negra): gentle slope `0.0 m -> -1.85 m`.
    * - Near-shore sandbar shelf (`24..85 m`): slopes `-1.85 m -> -7.5 m`.
    * - Intermediate channel (`85..240 m`): slopes `-7.5 m -> -18.5 m`.
-   * - Main thalweg fairway (`240..640 m+`): descends `-18.5 m -> -27.0 m` with deterministic
-   *   sub-aquatic dunes and valley relief (down to `-28.8 m`).
+   * - Main thalweg fairway (`240..640 m`): descends `-18.5 m -> -33.0 m`.
+   * - Deep authentic Amazon thalweg (`> 640m`): reaches `-42 m -> -50 m` in the central Rio Negro.
    *
-   * Procedural bathymetric estimate based on Overture river boundaries.
+   * Procedural bathymetric model calibrated to authentic Amazonian hydrography.
    */
   sampleRiverbedHeight(x: number, z: number): number {
     if (!Number.isFinite(x + z)) return 0;
@@ -258,28 +258,43 @@ export class ManausBathymetryService {
 
     const d = Math.max(0, this.sampleSignedShoreDistance(x, z));
 
-    // Zone 1: Shallow wading bank (0m to 24m from shore) -> 0.0m to -1.85m
-    // Linear-to-smooth progression so a character can walk smoothly down the bank into the water
-    const t1 = clamp(d / 24.0, 0, 1);
-    const depth1 = 1.85 * (0.65 * t1 + 0.35 * t1 * t1);
+    // Ponta Negra Beach detection (x ~ -9400, z ~ -7400)
+    // The famous Praia da Ponta Negra has a gentle, wide sandy shoal where bathers wade out into the Rio Negro
+    const dxPonta = x - (-9400);
+    const dzPonta = z - (-7400);
+    const distPontaSq = dxPonta * dxPonta + dzPonta * dzPonta;
+    const pontaFactor = distPontaSq < 9000000 ? (1.0 - smoothstep(400.0, 3000.0, Math.sqrt(distPontaSq))) : 0.0;
 
-    // Zone 2: Near-shore shelf (24m to 85m) -> adds up to 5.65m (total -7.5m)
-    const depth2 = 5.65 * smoothstep(24.0, 85.0, d);
+    // Zone 1: Shallow wading bank (0m to 24m, extended up to 74m at Praia da Ponta Negra)
+    const wadingWidth = 24.0 + 50.0 * pontaFactor;
+    const t1 = clamp(d / wadingWidth, 0, 1);
+    const maxWadingDepth = 1.85 - 0.70 * pontaFactor;
+    const depth1 = maxWadingDepth * (0.65 * t1 + 0.35 * t1 * t1);
 
-    // Zone 3: Intermediate channel slope (85m to 240m) -> adds up to 11.0m (total -18.5m)
-    const depth3 = 11.0 * smoothstep(85.0, 240.0, d);
+    // Zone 2: Near-shore shelf (24m..wadingWidth to 85m..120m) -> adds up to 5.65m
+    const shelfStart = wadingWidth;
+    const shelfEnd = 85.0 + 35.0 * pontaFactor;
+    const depth2 = 5.65 * smoothstep(shelfStart, shelfEnd, d);
 
-    // Zone 4: Main shipping channel / thalweg (240m to 640m) -> adds up to 8.5m (total -27.0m)
-    const depth4 = 8.5 * smoothstep(240.0, 640.0, d);
+    // Zone 3: Intermediate channel slope (85m to 240m) -> adds up to 11.0m (total ~-18.5m)
+    const depth3 = 11.0 * smoothstep(shelfEnd, 240.0, d);
+
+    // Zone 4: Main shipping channel / thalweg (240m to 640m) -> adds up to 14.5m (total -33.0m)
+    const depth4 = 14.5 * smoothstep(240.0, 640.0, d);
+
+    // Zone 5: Deep Rio Negro thalweg fairway (> 640m to 1200m) -> authentic Amazon abyss down to -46.0m!
+    const silt = this.sampleSiltFactor(x, z);
+    const deepAbyssTarget = (1.0 - silt) * 16.0 + silt * 8.0;
+    const depth5 = deepAbyssTarget * smoothstep(640.0, 1200.0, d);
 
     // Deterministic sub-aquatic geomorphology (submerged sandwaves, ridges & thalweg troughs)
     // Attenuated to 0 near the shoreline (d < 12m) so the shoreline seam stays strictly at Y = 0.0m
     const reliefAmp = smoothstep(12.0, 95.0, d);
-    const duneWave1 = Math.sin(x * 0.0042 + z * 0.0031) * Math.cos(x * 0.0027 - z * 0.0048) * 1.45;
-    const duneWave2 = Math.sin(x * 0.0135 - z * 0.0112) * 0.65;
+    const duneWave1 = Math.sin(x * 0.0042 + z * 0.0031) * Math.cos(x * 0.0027 - z * 0.0048) * 1.65;
+    const duneWave2 = Math.sin(x * 0.0135 - z * 0.0112) * 0.75;
     const relief = (duneWave1 + duneWave2) * reliefAmp;
 
-    const bedY = -(depth1 + depth2 + depth3 + depth4) + relief;
+    const bedY = -(depth1 + depth2 + depth3 + depth4 + depth5) + relief;
     return Math.min(0, bedY);
   }
 

@@ -360,13 +360,17 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const lightTerm = NdotV.mul(sqrt(alphaSq.add(oneMinusAlphaSq.mul(NdotL).mul(NdotL))));
   const Vis = float(0.5).div(max(viewTerm.add(lightTerm), float(0.0001)));
   const rawSpecular = D.mul(Vis).mul(sunFresnel).mul(NdotL);
-  const sunSpecular = pow(rawSpecular.div(float(1.0).add(rawSpecular)), 1.25);
-  const sunSpecularGlint = color('#fff5e4').mul(sunSpecular).mul(near.mul(0.85).add(0.15));
+  // Dual-lobe PBR solar highlight: broad forward-scatter sheen + brilliant GGX specular glint (adapted from beautiful-water)
+  const broadSun = pow(max(dot(waveNormal, halfDir), float(0.0)), 36.0).mul(0.75);
+  const sharpSun = pow(rawSpecular.div(float(1.0).add(rawSpecular)), 1.15).mul(4.8);
+  const totalSunGlint = sharpSun.add(broadSun).mul(NdotL);
+  const sunSpecularGlint = color('#fff4d6').mul(totalSunGlint).mul(near.mul(0.85).add(0.15));
 
   // Physical Beer-Lambert Optical Depth Attenuation driven by real geometric riverbed depth:
+  // Extinction is rapid in Amazonian waters: bottom is only visible immediately adjacent to the banks (< 0.65m)
   const depthM = geomDepth.mul(u.uTurbidityScale);
-  const transR = exp(depthM.mul(-0.09)); // Red light penetrance into warm amber tea
-  const transSolimoes = exp(depthM.mul(-0.18)); // Silt backscattering
+  const transR = exp(depthM.mul(-0.75)); // Red penetrance drops quickly into opaque blackwater
+  const transSolimoes = exp(depthM.mul(-0.55)); // Silt backscattering obscures bottom quickly
 
   // Dynamic sky reflection gradient from reflection direction
   const reflDir = reflect(viewDir.negate(), waveNormal);
@@ -374,7 +378,7 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const skyHorizon = color('#4d6b82');
   const reflectedSky = mix(skyHorizon, skyZenith, smoothstep(0.0, 0.75, max(reflDir.y, float(0.0))));
 
-  // Rio Negro: Dark humic blackwater with warm amber tea in shallow (< 2.5m) margins and soft sky Fresnel
+  // Rio Negro: Dark humic blackwater with warm amber tea in shallow (< 0.65m) margins and dynamic sky Fresnel
   const negroShallowTea = color('#3d2816');
   const negroDeep = color('#040b10');
   const negroCrest = color('#0a1d28');
@@ -418,10 +422,12 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const finalColor = mix(topViewColor, underwaterCeiling, u.uUnderwaterView);
 
   material.colorNode = finalColor;
-  // Shallow margins (0.15m..3.2m) reveal the sloped 3D riverbed; KeyU optical debug mode drops opacity to 0.24
-  const naturalOpacity = mix(float(0.46), float(0.95), smoothstep(0.15, 3.2, depthM));
+  // Amazonian authentic opacity: Rio Negro & Solimões are naturally dark/silty;
+  // riverbed is only visible in very shallow water immediately at the bank (< 0.65m);
+  // beyond 0.85m depth, opacity saturates at 0.995 (completely opaque dark mirror surface)
+  const naturalOpacity = mix(float(0.50), float(0.995), smoothstep(0.08, 0.75, depthM));
   const surfaceOpacity = mix(naturalOpacity, float(0.24), u.uOpticalDebugMode);
-  material.opacityNode = mix(surfaceOpacity, float(0.84), u.uUnderwaterView);
+  material.opacityNode = mix(surfaceOpacity, float(0.86), u.uUnderwaterView);
   material.roughnessNode = mix(mix(float(0.14), float(0.32), silt), float(0.58), distant);
 
   return material;

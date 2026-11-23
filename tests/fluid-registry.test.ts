@@ -37,6 +37,7 @@ describe('UNIVERSAL-WATER-01: shared fluid contract', () => {
   it('1. One numeric definition per spectrum: solvent spectra resolve to the named profiles', () => {
     assert.deepEqual(getWaveSpectrumForSolvent('terrestrial-freshwater'), WATER_WAVE_PROFILES.RIO_NEGRO_WINDY);
     assert.deepEqual(getWaveSpectrumForSolvent('terrestrial-ocean'), WATER_WAVE_PROFILES.TERRESTRIAL_OCEAN);
+    assert.deepEqual(getWaveSpectrumForSolvent('clear-swimming-pool'), WATER_WAVE_PROFILES.SWIMMING_POOL);
     assert.deepEqual(getWaveSpectrumForSolvent('cryo-methane'), WATER_WAVE_PROFILES.CRYOGENIC_SEA);
     assert.deepEqual(getWaveSpectrumForSolvent('molten-magma'), WATER_WAVE_PROFILES.LAVA_LAKE);
     // Audit finding: ammonia and brine used to silently fall back to the freshwater spectrum.
