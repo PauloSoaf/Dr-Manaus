@@ -4,6 +4,7 @@ import {
 } from '../spatial/ManausFrameAdapter';
 import osmRoads from './osm-roads.json';
 import { LAND_MASK, type LandMaskPayload } from './landmask';
+import { isLandAt } from '../planet/EarthLandMask';
 // Bundled rather than fetched: `isLand` runs inside the chunk worker and must answer synchronously.
 import landmask from '../../../public/geodata/real-city/landmask.json';
 LAND_MASK.load(landmask as LandMaskPayload);
@@ -85,10 +86,20 @@ export function shoreZ(x: number): number {
 }
 export function riverWidth(x: number): number { return 2900 + Math.max(0, x + 5000) * 0.25; }
 export function isLand(x: number, z: number): boolean {
-  // The baked river mask is the truth wherever it reaches; the generalized shoreline covers the rest.
+  // 1. The baked sub-meter river mask is the ground truth wherever it reaches
   if (LAND_MASK.covers(x, z)) return !LAND_MASK.isWater(x, z);
-  const shore = shoreZ(x);
-  return z <= shore || z >= shore + riverWidth(x);
+
+  // 2. High-resolution fluvial corridor around greater Manaus (preserves local river channels and tributaries)
+  if (Math.abs(x) <= 45000 && Math.abs(z) <= 35000) {
+    const shore = shoreZ(x);
+    return z <= shore || z >= shore + riverWidth(x);
+  }
+
+  // 3. Global planetary Earth surface: query the authoritative Natural Earth global land/ocean mask
+  const geo = worldToLatLon(x, z);
+  const latRad = geo.lat * (Math.PI / 180);
+  const lonRad = geo.lon * (Math.PI / 180);
+  return isLandAt(latRad, lonRad);
 }
 /** The baked mask has precedence throughout the footprint, including coverage edges. */
 export function isLandFootprint(x:number,z:number,radiusM:number):boolean {

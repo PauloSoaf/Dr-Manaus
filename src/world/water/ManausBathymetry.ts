@@ -208,6 +208,11 @@ export class ManausBathymetryService {
     if (!Number.isFinite(x + z)) return -1000;
     const inWater = this.isWater(x, z);
 
+    // Far-field planetary surface outside greater Manaus corridor: open ocean vs inland continent
+    if (Math.abs(x) > 45000 || Math.abs(z) > 35000) {
+      return inWater ? 10000 : -10000;
+    }
+
     // 1. Generalized analytical channel distance (always available, covers macro channel up to 1500m+)
     const northBankZ = shoreZ(x);
     const southBankZ = northBankZ + riverWidth(x);

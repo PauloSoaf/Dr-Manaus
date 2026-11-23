@@ -1,12 +1,13 @@
 import {
   BoxGeometry, BufferGeometry, CanvasTexture, Color, CylinderGeometry, Float32BufferAttribute,
-  Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, Quaternion,
+  Group, IcosahedronGeometry, InstancedMesh, Matrix4, MeshStandardMaterial, PlaneGeometry, Quaternion,
   SRGBColorSpace, Vector3, type Material,
 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
 import { manausTileSceneMatrix } from '../spatial/ManausSurfacePresentation';
 import { BUILDING_STRIDE, TREE_STRIDE, type ChunkPayload } from './Chunk';
+import { createUniversalLiquidMaterial } from '../water/UniversalLiquidSystem';
 
 function facadeAtlas(): { color: CanvasTexture; light: CanvasTexture } {
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
@@ -57,11 +58,29 @@ export class ChunkMeshes {
   private readonly pavement = new MeshStandardMaterial({ color: 0xc0b7a3, roughness: 1 });
   private readonly bark = new MeshStandardMaterial({ color: 0x766348, roughness: 1 });
   private readonly leaves = new MeshStandardMaterial({ color: 0xffffff, roughness: .95 });
+  private readonly oceanGeometry: PlaneGeometry;
+  private readonly oceanMaterial: Material;
+  private readonly forestGroundGeometry: PlaneGeometry;
+  private readonly forestGroundMaterial: MeshStandardMaterial;
   private readonly matrix = new Matrix4();
   private readonly position = new Vector3();
   private readonly scale = new Vector3();
   private readonly rotation = new Quaternion();
   private readonly color = new Color();
+
+  constructor() {
+    this.oceanGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 4, 4);
+    this.oceanGeometry.rotateX(-Math.PI / 2);
+    this.oceanGeometry.translate(WORLD.chunkSize * 0.5, 0.0, WORLD.chunkSize * 0.5);
+    const shoreArr = new Float32Array(this.oceanGeometry.getAttribute('position').count).fill(1.0);
+    this.oceanGeometry.setAttribute('shore', new Float32BufferAttribute(shoreArr, 1));
+    this.oceanMaterial = createUniversalLiquidMaterial('terrestrial-ocean');
+
+    this.forestGroundGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 1, 1);
+    this.forestGroundGeometry.rotateX(-Math.PI / 2);
+    this.forestGroundGeometry.translate(WORLD.chunkSize * 0.5, 0.0, WORLD.chunkSize * 0.5);
+    this.forestGroundMaterial = new MeshStandardMaterial({ color: 0x20541e, roughness: 1.0 });
+  }
 
   create(payload: ChunkPayload): { group: Group; colliders: Collider[]; bytes: number } {
     const group = new Group(); group.name = `chunk:${payload.key}`;
@@ -131,6 +150,18 @@ export class ChunkMeshes {
       group.userData.canopyStart = canopyStart;
       group.userData.canopySpan = canopySpan;
     }
+    const isLocalManaus = Math.abs(originX) <= 26000 && Math.abs(originZ) <= 26000;
+    if (!payload.land && !isLocalManaus) {
+      const ocean = make(this.oceanGeometry, this.oceanMaterial, 1, 'ocean-surface');
+      this.matrix.identity();
+      ocean.setMatrixAt(0, this.matrix);
+      if (ocean.instanceMatrix) ocean.instanceMatrix.needsUpdate = true;
+    } else if (payload.land && !isLocalManaus && count === 0) {
+      const ground = make(this.forestGroundGeometry, this.forestGroundMaterial, 1, 'forest-ground');
+      this.matrix.identity();
+      ground.setMatrixAt(0, this.matrix);
+      if (ground.instanceMatrix) ground.instanceMatrix.needsUpdate = true;
+    }
     group.traverse(object => { if (object instanceof InstancedMesh) { object.computeBoundingSphere(); object.computeBoundingBox(); } });
     return { group, colliders, bytes };
   }
@@ -197,5 +228,11 @@ export class ChunkMeshes {
   dispose(): void {
     this.box.dispose(); this.roof.dispose(); this.trunk.dispose(); this.crown.dispose(); this.atlas.color.dispose(); this.atlas.light.dispose();
     this.facade.dispose(); this.roofMat.dispose(); this.pavement.dispose(); this.bark.dispose(); this.leaves.dispose();
+    this.oceanGeometry.dispose();
+    if ('dispose' in this.oceanMaterial && typeof (this.oceanMaterial as any).dispose === 'function') {
+      (this.oceanMaterial as any).dispose();
+    }
+    this.forestGroundGeometry.dispose();
+    this.forestGroundMaterial.dispose();
   }
 }

@@ -40,18 +40,23 @@ export function generateChunk(cx: number, cz: number): ChunkPayload {
   const originX = cx * WORLD.chunkSize, originZ = cz * WORLD.chunkSize;
   const buildings: number[] = [], trees: number[] = [];
   const unit = WORLD.chunkSize / 128;
-  const density = urbanDensity(originX + WORLD.chunkSize * .5, originZ + WORLD.chunkSize * .5);
-  let land = false;
+  const centerX = originX + WORLD.chunkSize * .5;
+  const centerZ = originZ + WORLD.chunkSize * .5;
+  const density = urbanDensity(centerX, centerZ);
+  const chunkIsLand = isLand(centerX, centerZ);
+  let land = chunkIsLand;
   // City reservations exclude wilderness by design; forest must not use the building filter.
-  if (!isUrban(originX + WORLD.chunkSize*.5, originZ + WORLD.chunkSize*.5)) {
-    const spacing=16;
-    for(let z=8;z<WORLD.chunkSize;z+=spacing)for(let x=8;x<WORLD.chunkSize;x+=spacing){
-      const px=originX+x+(random()-.5)*8,pz=originZ+z+(random()-.5)*8;
-      const height=16+random()*12,crown=8+random()*4;
-      if(isUrban(px,pz)||!vegetationAllowed(px,pz,crown))continue;
-      land=true;trees.push(px,pz,height,crown,0);
+  if (!isUrban(centerX, centerZ)) {
+    if (chunkIsLand) {
+      const spacing = 16;
+      for (let z = 8; z < WORLD.chunkSize; z += spacing) for (let x = 8; x < WORLD.chunkSize; x += spacing) {
+        const px = originX + x + (random() - .5) * 8, pz = originZ + z + (random() - .5) * 8;
+        const height = 16 + random() * 12, crown = 8 + random() * 4;
+        if (isUrban(px, pz) || !vegetationAllowed(px, pz, crown)) continue;
+        trees.push(px, pz, height, crown, 0);
+      }
     }
-    return {key:chunkKey(cx,cz),cx,cz,land,buildings:new Float32Array(),trees:new Float32Array(trees)};
+    return { key: chunkKey(cx, cz), cx, cz, land, buildings: new Float32Array(), trees: new Float32Array(trees) };
   }
   for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) {
     const x = originX + (25 + col * 26 + (random() - .5) * 5) * unit;
