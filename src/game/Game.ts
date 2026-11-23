@@ -1468,6 +1468,9 @@ export class Game {
       if (this.waterRippleTimer > 0.42) {
         this.waterRippleTimer = 0;
         this.water?.createRipple(this.player.position.x, this.player.position.z, 0.3, 1.5, 1.3);
+        if (speedNow > 1.8) {
+          this.water?.createWake(this.player.position.x, this.player.position.z, this.player.velocity.x, this.player.velocity.z, speedNow, 1.4);
+        }
       }
     }
     this.wasUnderwater = isPlayerInWater;

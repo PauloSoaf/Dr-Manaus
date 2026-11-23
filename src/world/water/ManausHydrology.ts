@@ -88,6 +88,7 @@ export interface BuoyantBody {
   verticalOffset: number;
   damping: number;
   alignment: number;
+  surge?: boolean;
 }
 
 /**
@@ -110,6 +111,7 @@ export class WaterBuoyancyService {
       verticalOffset?: number;
       damping?: number;
       alignment?: number;
+      surge?: boolean;
     } = {}
   ): void {
     const offsets = options.hullOffsets || [
@@ -124,7 +126,8 @@ export class WaterBuoyancyService {
       hullOffsets: offsets,
       verticalOffset: options.verticalOffset ?? 0,
       damping: options.damping ?? 5.0,
-      alignment: options.alignment ?? 0.85
+      alignment: options.alignment ?? 0.85,
+      surge: options.surge ?? false,
     });
   }
 
@@ -145,12 +148,16 @@ export class WaterBuoyancyService {
       const count = item.hullOffsets.length;
 
       let avgHeight = 0;
+      let avgDispX = 0;
+      let avgDispZ = 0;
       _scratchNormal.set(0, 0, 0);
 
       for (let p = 0; p < count; p++) {
         _scratchPos.copy(item.hullOffsets[p]).applyQuaternion(obj.quaternion).add(obj.position);
         sampleManausWater(_scratchPos.x, _scratchPos.z, timeSec, baseSurfaceY, this.tempSample);
         avgHeight += this.tempSample.height;
+        avgDispX += this.tempSample.displacementX;
+        avgDispZ += this.tempSample.displacementZ;
         _scratchNormal.add(this.tempSample.normal);
       }
 
@@ -161,6 +168,14 @@ export class WaterBuoyancyService {
       const targetY = avgHeight + item.verticalOffset;
       const lerpFactor = Math.min(1.0, dt * item.damping);
       obj.position.y += (targetY - obj.position.y) * lerpFactor;
+
+      // Hydrodynamic horizontal wave orbital surge
+      if (item.surge) {
+        avgDispX /= count;
+        avgDispZ /= count;
+        obj.position.x += avgDispX * lerpFactor * 0.15;
+        obj.position.z += avgDispZ * lerpFactor * 0.15;
+      }
 
       // Smooth rotational alignment with water surface normal
       if (item.alignment > 0) {

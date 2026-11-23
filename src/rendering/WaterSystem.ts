@@ -1,11 +1,11 @@
 import {
   BufferGeometry, Color, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshStandardNodeMaterial,
-  PlaneGeometry, ShapeUtils, Vector2, IcosahedronGeometry, TorusGeometry,
+  PlaneGeometry, CircleGeometry, ShapeUtils, Vector2, IcosahedronGeometry, TorusGeometry,
   MeshBasicMaterial, InstancedMesh, Object3D, Vector3,
 } from 'three/webgpu';
 import {
   attribute, cameraPosition, color, float, mix, positionLocal, positionWorld,
-  sin, cos, smoothstep, dot, uniform, vec2, vec3,
+  sin, cos, smoothstep, dot, uniform, vec2, vec3, pow, exp, sqrt, max, min, reflect,
 } from 'three/tsl';
 import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
 import { localManausPresentationMode } from '../world/spatial/ManausSurfacePresentation';
@@ -331,39 +331,75 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const waveNormal = vec3(dHx.mul(waveDamp).negate(), float(1.0), dHz.mul(waveDamp).negate()).normalize();
   material.normalNode = waveNormal;
 
-  // Coherent Schlick-Fresnel Specular Reflectance
+  // Physical Schlick-Fresnel Reflectance (F0 = 0.025 for water)
   const viewDir = cameraPosition.sub(wp).normalize();
   const cosTheta = waveNormal.dot(viewDir).abs();
-  const fresnel = float(1).sub(cosTheta).pow(4.5);
+  const fresnel = float(0.025).add(pow(float(1.0).sub(cosTheta), 5.0).mul(0.975));
   const waveSlope = smoothstep(-0.06, 0.12, dHx.add(dHz).mul(waveDamp));
+
+  // Wave crest subsurface transmission & back-lighting rim (adapted from beautiful-water)
+  const sunDir = vec3(0.42, 0.82, 0.38).normalize();
+  const backLighting = pow(max(dot(viewDir.negate(), sunDir), float(0.0)), 2.4);
+  const crestTransmission = smoothstep(0.10, 0.75, totalElevation.mul(waveDamp).add(waveSlope.mul(0.35)));
+  const crestRim = pow(float(1.0).sub(cosTheta), 1.5);
+  const crestGlow = crestTransmission.mul(crestRim).mul(float(0.25).add(backLighting.mul(0.75)));
+
+  // PBR GGX Microfacet Sun Specular Highlight with Smith correlated masking
+  const halfDir = viewDir.add(sunDir).normalize();
+  const NdotH = max(waveNormal.dot(halfDir), float(0.0));
+  const NdotV = max(waveNormal.dot(viewDir), float(0.001));
+  const NdotL = max(waveNormal.dot(sunDir), float(0.001));
+  const VdotH = max(viewDir.dot(halfDir), float(0.0));
+  const sunFresnel = float(0.025).add(pow(float(1.0).sub(VdotH), 5.0).mul(0.975));
+  const alphaRoughness = float(0.075);
+  const alphaSq = alphaRoughness.mul(alphaRoughness);
+  const denom = NdotH.mul(NdotH).mul(alphaSq.sub(1.0)).add(1.0);
+  const D = alphaSq.div(max(denom.mul(denom).mul(Math.PI), float(0.0001)));
+  const oneMinusAlphaSq = float(1.0).sub(alphaSq);
+  const viewTerm = NdotL.mul(sqrt(alphaSq.add(oneMinusAlphaSq.mul(NdotV).mul(NdotV))));
+  const lightTerm = NdotV.mul(sqrt(alphaSq.add(oneMinusAlphaSq.mul(NdotL).mul(NdotL))));
+  const Vis = float(0.5).div(max(viewTerm.add(lightTerm), float(0.0001)));
+  const rawSpecular = D.mul(Vis).mul(sunFresnel).mul(NdotL);
+  const sunSpecular = pow(rawSpecular.div(float(1.0).add(rawSpecular)), 1.25);
+  const sunSpecularGlint = color('#fff5e4').mul(sunSpecular).mul(near.mul(0.85).add(0.15));
 
   // Physical Beer-Lambert Optical Depth Attenuation driven by real geometric riverbed depth:
   const depthM = geomDepth.mul(u.uTurbidityScale);
-  const transR = depthM.mul(-0.18).exp();
+  const transR = exp(depthM.mul(-0.09)); // Red light penetrance into warm amber tea
+  const transSolimoes = exp(depthM.mul(-0.18)); // Silt backscattering
+
+  // Dynamic sky reflection gradient from reflection direction
+  const reflDir = reflect(viewDir.negate(), waveNormal);
+  const skyZenith = color('#143552');
+  const skyHorizon = color('#4d6b82');
+  const reflectedSky = mix(skyHorizon, skyZenith, smoothstep(0.0, 0.75, max(reflDir.y, float(0.0))));
 
   // Rio Negro: Dark humic blackwater with warm amber tea in shallow (< 2.5m) margins and soft sky Fresnel
-  const negroShallowTea = color('#2a1d11');
-  const negroDeep = color('#050e14');
-  const negroCrest = color('#0d222e');
-  const negroSkyReflect = color('#465e73');
-  const negroBody = mix(negroDeep, negroCrest, waveSlope.mul(0.55));
-  const negroWater = mix(negroBody, negroShallowTea, transR.mul(0.68));
-  const negroFinal = mix(negroWater, negroSkyReflect, fresnel.mul(0.66));
+  const negroShallowTea = color('#3d2816');
+  const negroDeep = color('#040b10');
+  const negroCrest = color('#0a1d28');
+  const negroBody = mix(negroDeep, negroCrest, waveSlope.mul(0.45));
+  const negroWater = mix(negroBody, negroShallowTea, transR.mul(0.72));
+  const negroFinal = mix(negroWater, reflectedSky, fresnel.mul(0.70));
 
   // Rio Solimões: Alluvial suspended clay ochre with natural wave shading
-  const solimoesDeep = color('#54432e');
-  const solimoesShallow = color('#786346');
-  const solimoesReflect = color('#a89476');
-  const solimoesBody = mix(solimoesDeep, solimoesShallow, transR.mul(0.65).add(waveSlope.mul(0.25)));
-  const solimoesFinal = mix(solimoesBody, solimoesReflect, fresnel.mul(0.45));
+  const solimoesDeep = color('#4d3d2a');
+  const solimoesShallow = color('#7d6849');
+  const solimoesReflect = color('#b8a586');
+  const solimoesBody = mix(solimoesDeep, solimoesShallow, transSolimoes.mul(0.65).add(waveSlope.mul(0.22)));
+  const solimoesFinal = mix(solimoesBody, reflectedSky.mul(color('#d4c6b0')), fresnel.mul(0.48));
 
   // Confluence mixing zone (Encontro das Águas)
   const riverColor = mix(negroFinal, solimoesFinal, silt);
 
+  // Add crest subsurface glow & sun specular glint
+  const crestGlowColor = mix(color('#184d5c'), color('#947a54'), silt).mul(crestGlow);
+  const riverColorWithHighlights = riverColor.add(crestGlowColor).add(sunSpecularGlint);
+
   // Subtle shoreline margin brightening (no diagonal checkerboard interference)
   const shoreMargin = float(1).sub(smoothstep(0.005, 0.14, shore)).mul(mix(float(0.32), float(0.10), distant));
   const marginTint = mix(color('#2d3942'), color('#9c8a6e'), silt);
-  const naturalSurfaceColor = mix(riverColor, marginTint, shoreMargin);
+  const naturalSurfaceColor = mix(riverColorWithHighlights, marginTint, shoreMargin);
 
   // Optical Diagnostic Mode (KeyU): highlights 2m bathymetric depth contours while revealing the 3D riverbed
   const contourWave = sin(geomDepth.mul(1.570796)).abs();
@@ -407,10 +443,29 @@ interface SurfaceRipple {
   duration: number;
 }
 
+interface SurfaceFoam {
+  position: Vector3;
+  velocity: Vector3;
+  scale: number;
+  maxScale: number;
+  life: number;
+  duration: number;
+}
+
+interface UnderwaterMote {
+  baseOffset: Vector3;
+  phase: number;
+  scale: number;
+  speed: number;
+}
+
 /**
- * Water impact particle engine:
- * - Vertical water spray & droplet bursts on water impacts
- * - Subtle concentric surface ripple rings (strictly hidden when camera is near/below water level)
+ * Water impact and hydrodynamic particle engine (adapted from beautiful-water & threejs-water-free):
+ * - Ballistic water spray & droplet bursts with gravity, drag and water re-entry foam
+ * - Concentric expanding surface ripple rings (strictly hidden when camera is near/below water level)
+ * - Hydrodynamic surface foam that drifts with river currents and dissipates over time
+ * - Lateral V-shaped bow wave wakes for vessels and swimming heroes
+ * - Volumetric suspended sediment motes drifting in underwater camera volume
  */
 export class WaterVFX {
   readonly group = new Group();
@@ -435,8 +490,36 @@ export class WaterVFX {
   }));
   private rippleCursor = 0;
 
+  private readonly foam: SurfaceFoam[] = Array.from({ length: 64 }, () => ({
+    position: new Vector3(),
+    velocity: new Vector3(),
+    scale: 0.2,
+    maxScale: 0.7,
+    life: 0,
+    duration: 2.5,
+  }));
+  private foamCursor = 0;
+
+  private readonly motes: UnderwaterMote[] = Array.from({ length: 128 }, (_, i) => ({
+    baseOffset: new Vector3(
+      ((i * 17) % 28) - 14,
+      ((i * 13) % 12) - 6,
+      ((i * 23) % 28) - 14,
+    ),
+    phase: (i * 0.47) % (Math.PI * 2),
+    scale: 0.03 + (i % 5) * 0.012,
+    speed: 0.4 + (i % 7) * 0.15,
+  }));
+
   private readonly dropletMesh: InstancedMesh;
   private readonly rippleMesh: InstancedMesh;
+  private readonly foamMesh: InstancedMesh;
+  private readonly moteMesh: InstancedMesh;
+
+  private isUnderwater = false;
+  private camX = 0;
+  private camY = 0;
+  private camZ = 0;
 
   constructor(parent: Group) {
     this.group.name = 'water-impact-vfx';
@@ -463,16 +546,44 @@ export class WaterVFX {
     this.rippleMesh = new InstancedMesh(ringGeo, ringMat, 32);
     this.rippleMesh.frustumCulled = false;
 
+    const foamGeo = new CircleGeometry(0.5, 12);
+    foamGeo.rotateX(-Math.PI / 2);
+    const foamMat = new MeshBasicMaterial({
+      color: 0xdff0f8,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+    });
+    this.foamMesh = new InstancedMesh(foamGeo, foamMat, 64);
+    this.foamMesh.frustumCulled = false;
+
+    const moteGeo = new IcosahedronGeometry(0.045, 0);
+    const moteMat = new MeshBasicMaterial({
+      color: 0x6e9fb3,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
+    });
+    this.moteMesh = new InstancedMesh(moteGeo, moteMat, 128);
+    this.moteMesh.frustumCulled = false;
+    this.moteMesh.visible = false;
+
     this.group.add(this.dropletMesh);
     this.group.add(this.rippleMesh);
+    this.group.add(this.foamMesh);
+    this.group.add(this.moteMesh);
 
     this.dummy.position.set(0, -99999, 0);
     this.dummy.scale.set(0, 0, 0);
     this.dummy.updateMatrix();
     for (let i = 0; i < 128; i++) this.dropletMesh.setMatrixAt(i, this.dummy.matrix);
     for (let i = 0; i < 32; i++) this.rippleMesh.setMatrixAt(i, this.dummy.matrix);
+    for (let i = 0; i < 64; i++) this.foamMesh.setMatrixAt(i, this.dummy.matrix);
+    for (let i = 0; i < 128; i++) this.moteMesh.setMatrixAt(i, this.dummy.matrix);
     this.dropletMesh.instanceMatrix.needsUpdate = true;
     this.rippleMesh.instanceMatrix.needsUpdate = true;
+    this.foamMesh.instanceMatrix.needsUpdate = true;
+    this.moteMesh.instanceMatrix.needsUpdate = true;
   }
 
   createSplash(x: number, z: number, waterY: number = RIVER_Y, intensity = 1.0, upwardSpeed = 7.0): void {
@@ -485,12 +596,13 @@ export class WaterVFX {
       d.velocity.set(
         Math.cos(angle) * spread,
         upwardSpeed * (0.55 + Math.random() * 0.75),
-        Math.sin(angle) * spread
+        Math.sin(angle) * spread,
       );
       d.scale = (0.10 + Math.random() * 0.16) * Math.min(2.0, intensity);
       d.life = d.duration = 0.65 + Math.random() * 0.5;
     }
     this.createRipple(x, z, waterY, 0.35, Math.min(1.8, 1.15 * intensity), 1.35);
+    this.createFoam(x, z, waterY, Math.min(6, Math.floor(4 * intensity)), 0.6 * intensity, 0, 0);
   }
 
   createRipple(x: number, z: number, waterY: number = RIVER_Y, startRadius = 0.3, maxRadius = 1.6, duration = 1.35): void {
@@ -501,17 +613,57 @@ export class WaterVFX {
     r.life = r.duration = duration;
   }
 
-  update(dt: number, waterY: number = RIVER_Y): void {
+  createFoam(x: number, z: number, waterY: number = RIVER_Y, count = 4, radius = 0.5, velX = 0, velZ = 0): void {
+    const n = Math.min(8, Math.max(1, count));
+    for (let i = 0; i < n; i++) {
+      const f = this.foam[this.foamCursor++ % 64];
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * radius;
+      f.position.set(x + Math.cos(angle) * dist, waterY + 0.005, z + Math.sin(angle) * dist);
+      f.velocity.set(velX + (Math.random() - 0.5) * 0.2, 0, velZ + (Math.random() - 0.5) * 0.2);
+      f.scale = 0.15 + Math.random() * 0.2;
+      f.maxScale = f.scale * (1.4 + Math.random() * 0.6);
+      f.life = f.duration = 1.8 + Math.random() * 1.4;
+    }
+  }
+
+  createWake(x: number, z: number, dirX: number, dirZ: number, speed: number, width = 2.0, waterY: number = RIVER_Y): void {
+    const normLen = Math.hypot(dirX, dirZ) || 1.0;
+    const nx = dirX / normLen;
+    const nz = dirZ / normLen;
+    const px = -nz;
+    const pz = nx;
+    const halfW = width * 0.5;
+
+    // Left and right flank wake ripples
+    this.createRipple(x + px * halfW, z + pz * halfW, waterY, 0.4, 1.8 + speed * 0.1, 1.2);
+    this.createRipple(x - px * halfW, z - pz * halfW, waterY, 0.4, 1.8 + speed * 0.1, 1.2);
+
+    // Lateral foam patches trailing behind
+    if (speed > 2.0) {
+      this.createFoam(x + px * halfW, z + pz * halfW, waterY, 2, 0.4, -nx * 0.4, -nz * 0.4);
+      this.createFoam(x - px * halfW, z - pz * halfW, waterY, 2, 0.4, -nx * 0.4, -nz * 0.4);
+    }
+  }
+
+  update(dt: number, waterY: number = RIVER_Y, timeSec = 0): void {
+    // 1. Droplets ballistic simulation (gravity + air drag)
     let updatedDroplets = false;
     for (let i = 0; i < 128; i++) {
       const d = this.droplets[i];
       if (d.life > 0) {
         d.life = Math.max(0, d.life - dt);
-        d.velocity.y -= 18.0 * dt;
+        d.velocity.y -= 19.6 * dt; // Realistic Earth water droplet gravity
+        const drag = Math.max(0, 1 - 0.55 * dt);
+        d.velocity.x *= drag;
+        d.velocity.z *= drag;
         d.position.addScaledVector(d.velocity, dt);
 
         if (d.position.y < waterY && d.velocity.y < 0) {
           d.life = 0;
+          if (Math.abs(d.velocity.y) > 2.5) {
+            this.createFoam(d.position.x, d.position.z, waterY, 1, 0.25, 0, 0);
+          }
         }
 
         if (d.life > 0) {
@@ -529,6 +681,7 @@ export class WaterVFX {
     }
     if (updatedDroplets) this.dropletMesh.instanceMatrix.needsUpdate = true;
 
+    // 2. Expanding capillary ripples
     let updatedRipples = false;
     for (let i = 0; i < 32; i++) {
       const r = this.ripples[i];
@@ -558,21 +711,81 @@ export class WaterVFX {
       this.rippleMesh.instanceMatrix.needsUpdate = true;
       if (this.rippleMesh.instanceColor) this.rippleMesh.instanceColor.needsUpdate = true;
     }
+
+    // 3. Surface hydrodynamic foam patches
+    let updatedFoam = false;
+    for (let i = 0; i < 64; i++) {
+      const f = this.foam[i];
+      if (f.life > 0) {
+        f.life = Math.max(0, f.life - dt);
+        f.position.x += f.velocity.x * dt;
+        f.position.z += f.velocity.z * dt;
+        const progress = 1.0 - (f.life / f.duration);
+        const curScale = f.scale + (f.maxScale - f.scale) * Math.sqrt(progress);
+
+        this.dummy.position.copy(f.position);
+        this.dummy.scale.set(curScale, 1, curScale);
+        this.dummy.updateMatrix();
+        this.foamMesh.setMatrixAt(i, this.dummy.matrix);
+
+        const fade = (f.life / f.duration);
+        this.color.setRGB(0.85 * fade, 0.94 * fade, 0.98 * fade);
+        this.foamMesh.setColorAt(i, this.color);
+        updatedFoam = true;
+      } else {
+        this.dummy.position.set(0, -99999, 0);
+        this.dummy.scale.setScalar(0);
+        this.dummy.updateMatrix();
+        this.foamMesh.setMatrixAt(i, this.dummy.matrix);
+      }
+    }
+    if (updatedFoam) {
+      this.foamMesh.instanceMatrix.needsUpdate = true;
+      if (this.foamMesh.instanceColor) this.foamMesh.instanceColor.needsUpdate = true;
+    }
+
+    // 4. Underwater suspended sediment motes
+    if (this.isUnderwater) {
+      this.moteMesh.visible = true;
+      for (let i = 0; i < 128; i++) {
+        const m = this.motes[i];
+        const ox = ((m.baseOffset.x + timeSec * m.speed * 0.5 + 2800) % 28) - 14;
+        const oy = Math.min(waterY - 0.08, this.camY + (((m.baseOffset.y + Math.sin(timeSec * 0.7 + m.phase) * 0.5 + 1200) % 12) - 6));
+        const oz = ((m.baseOffset.z + Math.cos(timeSec * 0.6 + m.phase) * 0.5 + 2800) % 28) - 14;
+
+        this.dummy.position.set(this.camX + ox, oy, this.camZ + oz);
+        this.dummy.scale.setScalar(m.scale);
+        this.dummy.updateMatrix();
+        this.moteMesh.setMatrixAt(i, this.dummy.matrix);
+      }
+      this.moteMesh.instanceMatrix.needsUpdate = true;
+    } else {
+      this.moteMesh.visible = false;
+    }
   }
 
   updateUnderwaterMedium(
     underwater: boolean,
-    _camX: number,
+    camX: number,
     camY: number,
-    _camZ: number,
+    camZ: number,
     waterY: number,
   ): void {
+    this.isUnderwater = underwater;
+    this.camX = camX;
+    this.camY = camY;
+    this.camZ = camZ;
     // Strictly hide surface ripple rings whenever camera is near or below water level
     this.rippleMesh.visible = !underwater && camY >= waterY + 0.65;
+    this.foamMesh.visible = !underwater;
+    this.moteMesh.visible = underwater;
   }
 
   setCameraUnderwater(underwater: boolean): void {
+    this.isUnderwater = underwater;
     this.rippleMesh.visible = !underwater;
+    this.foamMesh.visible = !underwater;
+    this.moteMesh.visible = underwater;
   }
 
   dispose(): void {
@@ -580,6 +793,10 @@ export class WaterVFX {
     (this.dropletMesh.material as MeshBasicMaterial).dispose();
     this.rippleMesh.geometry.dispose();
     (this.rippleMesh.material as MeshBasicMaterial).dispose();
+    this.foamMesh.geometry.dispose();
+    (this.foamMesh.material as MeshBasicMaterial).dispose();
+    this.moteMesh.geometry.dispose();
+    (this.moteMesh.material as MeshBasicMaterial).dispose();
     this.group.removeFromParent();
   }
 }
@@ -762,6 +979,14 @@ export class WaterSystem {
     this.vfx.createRipple(x, z, this.surfaceY, startRadius, maxRadius, duration);
   }
 
+  public createFoam(x: number, z: number, count = 4, radius = 0.5, velX = 0, velZ = 0): void {
+    this.vfx.createFoam(x, z, this.surfaceY, count, radius, velX, velZ);
+  }
+
+  public createWake(x: number, z: number, dirX: number, dirZ: number, speed: number, width = 2.0): void {
+    this.vfx.createWake(x, z, dirX, dirZ, speed, width, this.surfaceY);
+  }
+
   public sampleHeight(x: number, z: number, timeSec = this.elapsedTimeSec, out?: WaterSurfaceSample, cameraDistanceM = 0): WaterSurfaceSample {
     return sampleFluid(this.fluidId, x, z, timeSec, out, cameraDistanceM);
   }
@@ -774,7 +999,7 @@ export class WaterSystem {
     this.elapsedTimeSec = timeSec;
     this.uWaveTime.value = timeSec;
     this.buoyancy.update(dt, timeSec, this.surfaceY);
-    this.vfx.update(dt, this.surfaceY);
+    this.vfx.update(dt, this.surfaceY, timeSec);
   }
 
   async initialize(): Promise<void> {

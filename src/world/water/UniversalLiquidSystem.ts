@@ -22,7 +22,7 @@
 import { Vector3, Quaternion, Color, Object3D } from 'three';
 import {
   attribute, cameraPosition, color, float, mix, normalWorld, positionLocal, positionWorld,
-  sin, cos, smoothstep, time, dot, vec2, vec3, uniform
+  sin, cos, smoothstep, time, dot, vec2, vec3, uniform, pow, max, reflect,
 } from 'three/tsl';
 import { MeshStandardNodeMaterial, Node } from 'three/webgpu';
 
@@ -318,29 +318,45 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
 
   const waves = getWaveSpectrumForSolvent(solvent);
   let totalElevation: any = float(0);
+  let dHx: any = float(0);
+  let dHz: any = float(0);
 
   // Unroll Gerstner harmonic wave nodes in TSL
   for (let i = 0; i < waves.length; i++) {
     const w = waves[i];
     const k = (2.0 * Math.PI) / w.wavelength;
     const c = Math.sqrt(9.80665 / k);
+    const amp = i >= 2 ? float(w.amplitude).mul(near) : float(w.amplitude);
     const phase = dot(vec2(p.x, p.z), vec2(w.direction[0], w.direction[1]))
       .mul(k)
       .sub(time.mul(w.speed * c));
 
-    const waveNode = sin(phase).mul(w.amplitude);
-    // Attenuate higher harmonic ripples with distance to maintain 60 FPS
-    const contribution = i >= 2 ? waveNode.mul(near) : waveNode;
-    totalElevation = (totalElevation as any).add(contribution);
+    const sinP = sin(phase);
+    const cosP = cos(phase);
+    totalElevation = (totalElevation as any).add(sinP.mul(amp));
+    const wa = amp.mul(k);
+    dHx = (dHx as any).add(float(w.direction[0]).mul(wa).mul(cosP));
+    dHz = (dHz as any).add(float(w.direction[1]).mul(wa).mul(cosP));
   }
 
   // Vertex displacement node
   material.positionNode = positionLocal.add(vec3(0, totalElevation, 0));
 
+  // Analytical Gerstner wave normal
+  const waveNormal = vec3(dHx.negate(), float(1.0), dHz.negate()).normalize();
+  material.normalNode = waveNormal;
+
   // Schlick-Fresnel Specular Reflectance
   const viewDir = cameraPosition.sub(positionWorld).normalize();
-  const cosTheta = normalWorld.dot(viewDir).abs();
+  const cosTheta = waveNormal.dot(viewDir).abs();
   const fresnel = float(1).sub(cosTheta).pow(props.fresnelPower);
+
+  // Wave crest subsurface back-lighting rim (adapted from beautiful-water)
+  const waveSlope = smoothstep(-0.06, 0.12, dHx.add(dHz));
+  const sunDir = vec3(0.42, 0.82, 0.38).normalize();
+  const backLighting = pow(max(dot(viewDir.negate(), sunDir), float(0.0)), 2.4);
+  const crestTransmission = smoothstep(0.12, 0.72, totalElevation.add(waveSlope.mul(0.35)));
+  const crestGlow = crestTransmission.mul(pow(float(1.0).sub(cosTheta), 1.4)).mul(float(0.2).add(backLighting.mul(0.8)));
 
   const deepCol = color(props.deepColor);
   const shallowCol = color(props.shallowColor);
@@ -349,7 +365,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   // Depth-based Beer-Lambert light attenuation
   const shoreAttr = attribute('shore', 'float');
   const waterColor = mix(deepCol, shallowCol, float(1).sub(shoreAttr));
-  let finalColorNode = mix(waterColor, reflectCol, fresnel.mul(0.75));
+  let finalColorNode = mix(waterColor, reflectCol, fresnel.mul(0.75)).add(reflectCol.mul(crestGlow).mul(0.4));
 
   // If fluid is incandescent magma, add emissive term
   if (props.emissiveColor && props.emissiveIntensity) {
