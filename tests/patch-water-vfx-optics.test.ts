@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { Group, Object3D, Vector3, Quaternion } from 'three/webgpu';
+import { Group, Object3D, Vector3, Quaternion, Mesh } from 'three/webgpu';
 import { WaterSystem, WaterVFX } from '../src/rendering/WaterSystem';
 import { WaterBuoyancyService, sampleManausWater } from '../src/world/water/ManausHydrology';
 import {
@@ -12,6 +12,7 @@ import {
 import { DynamicFluidContainer } from '../src/world/water/DynamicFluidContainer';
 import { getFluid, validateFluidDefinition } from '../src/world/water/FluidRegistry';
 import { manausBathymetry } from '../src/world/water/ManausBathymetry';
+import { createTerrain } from '../src/world/geodata/terrain';
 
 describe('UNIVERSAL-WATER-02: Hydrodynamic VFX, Particle Physics & Advanced Optical Models', () => {
   it('1. WaterVFX particle infrastructure: creates and registers droplets, ripples, foam and underwater motes', () => {
@@ -252,6 +253,46 @@ describe('UNIVERSAL-WATER-02: Hydrodynamic VFX, Particle Physics & Advanced Opti
     // Rio Negro fairway at d > 800m
     const deepRioNegroBed = manausBathymetry.sampleRiverbedHeight(500, 3500);
     assert.ok(deepRioNegroBed <= -35.0, `Rio Negro deep thalweg must reach authentic depth (got ${deepRioNegroBed}m)`);
+  });
+
+  it('12. Tri-biome ground coloration: distinct colors for forest green, city gray, and golden beach sand', () => {
+    const root = new Group();
+    const terrain = createTerrain(root);
+    const groundCover = terrain.getObjectByName('ground-cover') as Mesh;
+    assert.ok(groundCover, 'ground-cover must exist');
+
+    const colAttr = groundCover.geometry.getAttribute('color');
+    const posAttr = groundCover.geometry.getAttribute('position');
+    assert.ok(colAttr && colAttr.count > 0, 'ground-cover must have vertex colors');
+
+    let foundForestGreen = false;
+    let foundCityGray = false;
+    let foundBeachSand = false;
+
+    for (let i = 0; i < posAttr.count; i += 23) {
+      const r = colAttr.getX(i);
+      const g = colAttr.getY(i);
+      const b = colAttr.getZ(i);
+
+      // Check for forest green: lush green where g dominates significantly
+      if (g > 0.14 && g > r * 2.0 && g > b * 2.0) {
+        foundForestGreen = true;
+      }
+
+      // Check for city gray: balanced neutral tones in urban Manaus
+      if (Math.abs(r - g) < 0.02 && Math.abs(g - b) < 0.02 && r > 0.09 && r < 0.16) {
+        foundCityGray = true;
+      }
+
+      // Check for beach sand: warm golden sand along shores or Ponta Negra
+      if (r > 0.50 && g > 0.40 && b > 0.25 && r > g && g > b) {
+        foundBeachSand = true;
+      }
+    }
+
+    assert.ok(foundForestGreen, 'Must find rich green ground in rainforest');
+    assert.ok(foundCityGray, 'Must find neutral gray ground in urban Manaus');
+    assert.ok(foundBeachSand, 'Must find golden sand ground at Ponta Negra and river beaches');
   });
 });
 

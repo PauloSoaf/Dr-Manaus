@@ -1,7 +1,7 @@
 import { BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Mesh, MeshStandardMaterial, Path, Shape, ShapeGeometry, Vector3 } from 'three/webgpu';
 import { localManausPresentationMode, MANAUS_GROUND_COVER_Y } from '../spatial/ManausSurfacePresentation';
 import { urbanDensity } from '../chunks/BuildingGenerator';
-import { LANDMARKS, OSM_ROADS, isLand } from './geodata';
+import { LANDMARKS, OSM_ROADS, isLand, isUrban } from './geodata';
 import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
 import { manausBathymetry } from '../water/ManausBathymetry';
 
@@ -52,34 +52,79 @@ function horizonBackdrop(material: MeshStandardMaterial, y: number, outerReach: 
   return mesh;
 }
 
+function sampleTerrainBiomeColor(px: number, pz: number): [number, number, number] {
+  // 1. Detection of Beach / Praia (Praia da Ponta Negra and river sandy shorelines)
+  const dxPonta = px - (-9400);
+  const dzPonta = pz - (-7400);
+  const distPontaSq = dxPonta * dxPonta + dzPonta * dzPonta;
+  const isPontaNegra = distPontaSq < 6760000; // ~2.6km radius around Praia da Ponta Negra
+
+  // Signed shore distance: d >= 0 is land, d < 0 is water
+  const shoreDist = manausBathymetry.sampleSignedShoreDistance(px, pz);
+
+  // Sandy beach zone:
+  // - Ponta Negra has an expansive golden beach extending up to 135m inland from the shoreline
+  // - Other natural riverbanks have an authentic 22m sandy beach margin
+  const beachWidth = isPontaNegra ? 135.0 : 22.0;
+  const isBeach = shoreDist >= -2.0 && shoreDist <= beachWidth;
+
+  // Grain jitter for procedural variation
+  const grain = 0.94 + (((Math.imul(Math.round(px) * 73856093 ^ Math.round(pz) * 19349663, 2654435761) >>> 8) % 1000) / 1000) * 0.12;
+
+  if (isBeach) {
+    // Praia: Golden river beach sand (e.g. Praia da Ponta Negra)
+    const tBeach = Math.min(1, Math.max(0, shoreDist / beachWidth));
+    const sandR = (0.64 + tBeach * 0.04) * grain;
+    const sandG = (0.54 + tBeach * 0.03) * grain;
+    const sandB = (0.34 + tBeach * 0.02) * grain;
+    return [sandR, sandG, sandB];
+  }
+
+  // 2. City vs Forest (Mato)
+  const density = urbanDensity(px, pz);
+  const urban = isUrban(px, pz);
+  const urbanFactor = Math.min(1, Math.max(0, Math.max(density * 1.35, urban ? 0.75 : 0)));
+
+  // Cidade: Clean urban asphalt & concrete gray
+  const cityR = 0.115 * grain;
+  const cityG = 0.120 * grain;
+  const cityB = 0.125 * grain;
+
+  // Mato: Vibrant, deep Amazonian rainforest green
+  const forestR = 0.042 * grain;
+  const forestG = 0.175 * grain;
+  const forestB = 0.038 * grain;
+
+  const r = forestR * (1 - urbanFactor) + cityR * urbanFactor;
+  const g = forestG * (1 - urbanFactor) + cityG * urbanFactor;
+  const b = forestB * (1 - urbanFactor) + cityB * urbanFactor;
+  return [r, g, b];
+}
+
 /**
- * Builds both the flat urban/forest `ground-cover` mesh (strictly at Y = MANAUS_GROUND_COVER_Y = 0)
+ * Builds both the flat urban/forest/beach `ground-cover` mesh (strictly at Y = MANAUS_GROUND_COVER_Y = 0)
  * and the 3D excavated `manaus-riverbed` mesh (sloping continuously from Y = 0.0m at the shoreline
- * down to Y = -28.5m in the main Rio Negro and Solimões channels).
+ * down to deep thalwegs in the Rio Negro and Solimões channels).
  *
- * Because `ground-cover` takes all sub-quads where all 4 corners + center are land, and
- * `manaus-riverbed` takes all remaining sub-quads (evaluating `sampleRiverbedHeight(px, pz)` which
- * is 0.0m at land corners and < 0.0m at water corners), the two meshes share exact Y = 0.0m vertices
- * along the entire coastline with zero holes, zero overlap, and zero flat planes cutting the water.
+ * Distinct biomes:
+ * - Cidade: Chão cinza asfalto/concreto urbano característico.
+ * - Mato: Chão verde vivo de selva tropical amazônica.
+ * - Praia: Chão de areia dourada na Praia da Ponta Negra e orla fluvial.
  */
 function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
   const CELL = 512, REACH = 26000;
   const landPos: number[] = [], landNorm: number[] = [], landCol: number[] = [];
   const bedPos: number[] = [], bedNorm: number[] = [], bedCol: number[] = [];
 
-  const forest: readonly [number, number, number] = [.156, .268, .137];
-  const scrub: readonly [number, number, number] = [.243, .316, .180];
-  const city: readonly [number, number, number] = [.331, .336, .322];
-
-  // Riverbed sediment palette: submerged dark amber sand -> intermediate alluvial silt -> deep benthic bedrock/mud
-  const shallowSand: readonly [number, number, number] = [0.28, 0.23, 0.17];
-  const midSilt: readonly [number, number, number] = [0.16, 0.14, 0.12];
-  const deepBenthic: readonly [number, number, number] = [0.07, 0.08, 0.10];
+  // Riverbed sediment palette: submerged amber beach sand -> intermediate alluvial silt -> deep benthic bedrock/mud
+  const shallowSand: readonly [number, number, number] = [0.60, 0.50, 0.32];
+  const midSilt: readonly [number, number, number] = [0.15, 0.13, 0.11];
+  const deepBenthic: readonly [number, number, number] = [0.05, 0.06, 0.07];
   const solimoesClay: readonly [number, number, number] = [0.34, 0.27, 0.19];
 
   const curved = localManausPresentationMode() === 'curved';
 
-  function emitLandQuad(x0: number, z0: number, x1: number, z1: number, r: number, g: number, b: number) {
+  function emitLandQuad(x0: number, z0: number, x1: number, z1: number) {
     for (const [px, pz] of [[x0, z0], [x1, z0], [x1, z1], [x0, z0], [x1, z1], [x0, z1]] as const) {
       if (curved) {
         const pt = surfaceService.legacyPointToRenderLocal(px, MANAUS_GROUND_COVER_Y, pz);
@@ -90,6 +135,7 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
         landPos.push(px, MANAUS_GROUND_COVER_Y, pz);
         landNorm.push(0, 1, 0);
       }
+      const [r, g, b] = sampleTerrainBiomeColor(px, pz);
       landCol.push(r, g, b);
     }
   }
@@ -112,16 +158,16 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
     const grain = 0.90 + (((Math.imul(Math.round(px) * 73856093 ^ Math.round(pz) * 19349663, 2654435761) >>> 8) % 1000) / 1000) * 0.20;
 
     let r: number, g: number, b: number;
-    if (depth < 3.0) {
-      const f = depth / 3.0;
-      r = shallowSand[0] + (midSilt[0] - shallowSand[0]) * f;
-      g = shallowSand[1] + (midSilt[1] - shallowSand[1]) * f;
-      b = shallowSand[2] + (midSilt[2] - shallowSand[2]) * f;
+    if (depth < 1.5) {
+      const f = depth / 1.5;
+      r = shallowSand[0] * (1 - f) + midSilt[0] * f;
+      g = shallowSand[1] * (1 - f) + midSilt[1] * f;
+      b = shallowSand[2] * (1 - f) + midSilt[2] * f;
     } else {
-      const f = Math.min(1, (depth - 3.0) / 18.0);
-      r = midSilt[0] + (deepBenthic[0] - midSilt[0]) * f;
-      g = midSilt[1] + (deepBenthic[1] - midSilt[1]) * f;
-      b = midSilt[2] + (deepBenthic[2] - midSilt[2]) * f;
+      const f = Math.min(1, (depth - 1.5) / 16.0);
+      r = midSilt[0] * (1 - f) + deepBenthic[0] * f;
+      g = midSilt[1] * (1 - f) + deepBenthic[1] * f;
+      b = midSilt[2] * (1 - f) + deepBenthic[2] * f;
     }
     // Blend Solimões ochre clay on the eastern river branch
     r = (r * (1 - silt * 0.35) + solimoesClay[0] * (silt * 0.35)) * grain;
@@ -146,13 +192,13 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
    * (any land sample) always refine down to SHORE_QUAD_M so land/water seams stay at Y = 0.
    */
   const BED_TOLERANCE_M = 0.12, BED_MIN_QUAD_M = 8, SHORE_QUAD_M = 16;
-  function emitBedAdaptive(x0: number, z0: number, size: number, lr: number, lg: number, lb: number) {
+  function emitBedAdaptive(x0: number, z0: number, size: number) {
     const x1 = x0 + size, z1 = z0 + size, mx = x0 + size / 2, mz = z0 + size / 2;
     const l00 = isLand(x0, z0), l10 = isLand(x1, z0), l11 = isLand(x1, z1), l01 = isLand(x0, z1), lcc = isLand(mx, mz);
-    if (l00 && l10 && l11 && l01 && lcc) { emitLandQuad(x0, z0, x1, z1, lr, lg, lb); return; }
+    if (l00 && l10 && l11 && l01 && lcc) { emitLandQuad(x0, z0, x1, z1); return; }
     const anyLand = l00 || l10 || l11 || l01 || lcc;
     if (anyLand) {
-      if (size > SHORE_QUAD_M) { splitBed(x0, z0, size, lr, lg, lb); return; }
+      if (size > SHORE_QUAD_M) { splitBed(x0, z0, size); return; }
       emitRiverbedQuad(x0, z0, x1, z1);
       return;
     }
@@ -169,14 +215,14 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
       ];
       let worst = 0;
       for (const [px, pz, expected] of probes) worst = Math.max(worst, Math.abs(h(px, pz) - expected));
-      if (worst > BED_TOLERANCE_M) { splitBed(x0, z0, size, lr, lg, lb); return; }
+      if (worst > BED_TOLERANCE_M) { splitBed(x0, z0, size); return; }
     }
     emitRiverbedQuad(x0, z0, x1, z1);
   }
-  function splitBed(x0: number, z0: number, size: number, lr: number, lg: number, lb: number) {
+  function splitBed(x0: number, z0: number, size: number) {
     const half = size / 2;
-    emitBedAdaptive(x0, z0, half, lr, lg, lb); emitBedAdaptive(x0 + half, z0, half, lr, lg, lb);
-    emitBedAdaptive(x0, z0 + half, half, lr, lg, lb); emitBedAdaptive(x0 + half, z0 + half, half, lr, lg, lb);
+    emitBedAdaptive(x0, z0, half); emitBedAdaptive(x0 + half, z0, half);
+    emitBedAdaptive(x0, z0 + half, half); emitBedAdaptive(x0 + half, z0 + half, half);
   }
 
   for (let z = -REACH; z < REACH; z += CELL) {
@@ -189,16 +235,6 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
       const c01 = isLand(x, z + CELL);
       const cc = isLand(cx, cz);
 
-      const density = urbanDensity(cx, cz);
-      const t = Math.min(1, density * 1.35);
-      const base = t < 0.5 ? forest : scrub, target = t < 0.5 ? scrub : city;
-      const f = t < 0.5 ? t * 2 : (t - 0.5) * 2;
-      const jitter = ((Math.imul(Math.round(cx / CELL) * 73856093 ^ Math.round(cz / CELL) * 19349663, 2654435761) >>> 8) % 1000) / 1000;
-      const shade = 0.96 + jitter * 0.08;
-      const r = (base[0] + (target[0] - base[0]) * f) * shade;
-      const g = (base[1] + (target[1] - base[1]) * f) * shade;
-      const b = (base[2] + (target[2] - base[2]) * f) * shade;
-
       // Also check midpoint edges so a narrow 128m creek crossing a 512m cell is never missed
       const cm0 = isLand(cx, z);
       const cm1 = isLand(x + CELL, cz);
@@ -207,12 +243,12 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
 
       // 1. Pure inland cell: single 512m quad in ground-cover
       if (c00 && c10 && c11 && c01 && cc && cm0 && cm1 && cm2 && cm3) {
-        emitLandQuad(x, z, x + CELL, z + CELL, r, g, b);
+        emitLandQuad(x, z, x + CELL, z + CELL);
         continue;
       }
 
       // 2. Pure far-field deep water cell (> 16km from center): 128m riverbed quads
-      const isNearCorridor = Math.abs(cx) <= 16384 && cz >= -6144 && cz <= 12288;
+      const isNearCorridor = Math.abs(cx) <= 16384 && cz >= -8704 && cz <= 12288;
       if (!c00 && !c10 && !c11 && !c01 && !cc && !cm0 && !cm1 && !cm2 && !cm3 && !isNearCorridor) {
         const FAR_SUB = 128;
         for (let sz = z; sz < z + CELL; sz += FAR_SUB) {
@@ -227,7 +263,7 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
       // block is refined adaptively against the real bathymetry field (see emitBedAdaptive), so the
       // rendered bed cannot drift away from the collision field by more than BED_TOLERANCE_M.
       const SUB = 64;
-      const isCentralShoreCorridor = Math.abs(cx) <= 8192 && cz >= -2048 && cz <= 6144;
+      const isCentralShoreCorridor = Math.abs(cx) <= 12288 && cz >= -8704 && cz <= 8192;
       for (let sz = z; sz < z + CELL; sz += SUB) {
         for (let sx = x; sx < x + CELL; sx += SUB) {
           const s00 = isLand(sx, sz);
@@ -237,9 +273,9 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
           const scc = isLand(sx + SUB * 0.5, sz + SUB * 0.5);
 
           if (s00 && s10 && s11 && s01 && scc) {
-            emitLandQuad(sx, sz, sx + SUB, sz + SUB, r, g, b);
+            emitLandQuad(sx, sz, sx + SUB, sz + SUB);
           } else if (isCentralShoreCorridor) {
-            emitBedAdaptive(sx, sz, SUB, r, g, b);
+            emitBedAdaptive(sx, sz, SUB);
           } else {
             emitRiverbedQuad(sx, sz, sx + SUB, sz + SUB);
           }
@@ -274,8 +310,8 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
 /** A handful of terrain/road batches covering the horizon, never detailed city objects. */
 export function createTerrain(root: Group): Group {
   const terrain = new Group(); terrain.name = 'Generalized Manaus land and OSM arteries';
-  const green = new MeshStandardMaterial({ color: '#465c3b', roughness: 1, side: DoubleSide });
-  const urban = new MeshStandardMaterial({ color: '#565753', roughness: 1, side: DoubleSide });
+  const green = new MeshStandardMaterial({ color: '#234a1b', roughness: 1, side: DoubleSide });
+  const urban = new MeshStandardMaterial({ color: '#3c3e41', roughness: 1, side: DoubleSide });
 
   // Outer horizon backdrop at authored -0.6m with an inner cutout for [-26000, 26000]
   // so it never blocks the excavated 3D riverbed while preserving the -0.6m horizon contract.
