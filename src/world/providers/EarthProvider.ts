@@ -5,7 +5,7 @@ import { PlanetQuadtree } from '../planet/PlanetQuadtree';
 import { DEFAULT_SSE } from '../planet/ScreenSpaceError';
 import { type PlanetTileAddress, tileCentreGeodetic, tileExtentM } from '../planet/PlanetTileAddress';
 import type { EcefPosition } from '../spatial/ECEF';
-import { ecefDistance, geodeticToEcef } from '../spatial/ECEF';
+import { ecefDistance, ecefToGeodetic, geodeticToEcef } from '../spatial/ECEF';
 import {
   EARTH_FIXED_FRAME_ID, MANAUS_FRAME_ID, legacyLocalToGeodetic,
 } from '../spatial/ManausFrameAdapter';
@@ -142,18 +142,37 @@ export class EarthProvider implements WorldProvider {
 
   covers(context: SpatialContext): boolean {
     this.playerFrameId = context.frame.id;
-    if (context.altitudeM !== undefined && Number.isFinite(context.altitudeM)) {
-      this.altitudeM = context.altitudeM;
-    } else {
-      let local = context.player.position;
-      if (context.frame.id !== MANAUS_FRAME_ID) {
-        local = this.frames.convertPosition(context.frame.id, MANAUS_FRAME_ID, local);
+    const isManausFrame = context.frame.id === MANAUS_FRAME_ID || (context.frame.id !== undefined && context.frame.id.includes('manaus'));
+
+    let latDeg = 0;
+    let lonDeg = 0;
+    let heightM = context.altitudeM ?? 0;
+
+    if (context.frame.id === MANAUS_FRAME_ID) {
+      const geodetic = legacyLocalToGeodetic(context.player.position[0], context.player.position[1], context.player.position[2]);
+      latDeg = radToDeg(geodetic.latRad);
+      lonDeg = radToDeg(geodetic.lonRad);
+      if (context.altitudeM === undefined || !Number.isFinite(context.altitudeM)) {
+        heightM = geodetic.heightM;
       }
-      const geodetic = legacyLocalToGeodetic(local[0], local[1], local[2]);
-      this.altitudeM = geodetic.heightM;
+    } else if (this.frames.has(context.frame.id) && this.frames.has(EARTH_FIXED_FRAME_ID)) {
+      const ecef = this.frames.convertPosition(context.frame.id, EARTH_FIXED_FRAME_ID, context.player.position);
+      const geodetic = ecefToGeodetic({ xM: ecef[0], yM: ecef[1], zM: ecef[2] });
+      latDeg = radToDeg(geodetic.latRad);
+      lonDeg = radToDeg(geodetic.lonRad);
+      if (context.altitudeM === undefined || !Number.isFinite(context.altitudeM)) {
+        heightM = geodetic.heightM;
+      }
     }
+    this.altitudeM = heightM;
+
+    const inManausCoverage = isManausFrame || (
+      latDeg >= MANAUS_COVERAGE.minLatDeg && latDeg <= MANAUS_COVERAGE.maxLatDeg &&
+      lonDeg >= MANAUS_COVERAGE.minLonDeg && lonDeg <= MANAUS_COVERAGE.maxLonDeg
+    );
+
     const above = this.altitudeM - this.options.minAltitudeM;
-    this.opacity = this.options.minAltitudeM > 0
+    this.opacity = inManausCoverage && this.options.minAltitudeM > 0
       ? Math.min(1, Math.max(0, above / this.options.fadeM))
       : 1;
     if (this.streamingMode === 'off') {

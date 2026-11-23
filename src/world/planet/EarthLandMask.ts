@@ -1,5 +1,7 @@
 import payload from '../geodata/earth-landmask.json';
 import { RAD_TO_DEG } from '../spatial/units';
+import { LAND_MASK } from '../geodata/landmask';
+import { geoToLegacyLocal } from '../spatial/ManausFrameAdapter';
 
 /**
  * Where the land is, globally.
@@ -119,9 +121,23 @@ export function classifyEarthSurface(latRad: number, lonRad: number): EarthSurfa
   const latDeg = latRad * RAD_TO_DEG;
   const lonDeg = (((lonRad * RAD_TO_DEG + 180) % 360 + 360) % 360) - 180;
 
-  // 1. Manaus urban coverage zone (-3.40 to -2.86 lat, -60.30 to -59.76 lon)
+  // 1. Manaus coverage zone (-3.40 to -2.86 lat, -60.30 to -59.76 lon)
   if (latDeg >= -3.40 && latDeg <= -2.86 && lonDeg >= -60.30 && lonDeg <= -59.76) {
-    return EarthSurfaceClass.Urban;
+    const { x, z } = geoToLegacyLocal(latDeg, lonDeg);
+    if (LAND_MASK.ready && LAND_MASK.covers(x, z)) {
+      if (LAND_MASK.isWater(x, z)) {
+        return EarthSurfaceClass.ShallowWater;
+      }
+      const manausUrban = z < 4500 && x > -12800 && x < 19500 && z > -17100;
+      if (manausUrban) return EarthSurfaceClass.Urban;
+      return EarthSurfaceClass.Land;
+    }
+    // High-resolution fallback when baked mask has not been populated:
+    if (latDeg < -3.142 && latDeg > -3.22) return EarthSurfaceClass.ShallowWater;
+    if (latDeg >= -3.142 && latDeg <= -3.00 && lonDeg >= -60.10 && lonDeg <= -59.90) {
+      return EarthSurfaceClass.Urban;
+    }
+    return EarthSurfaceClass.Land;
   }
 
   const land = isLandAt(latRad, lonRad);
@@ -154,14 +170,45 @@ export function classifyEarthSurface(latRad: number, lonRad: number): EarthSurfa
   return EarthSurfaceClass.Ocean;
 }
 
+export type EarthBiome = 'ocean' | 'coastal-water' | 'rainforest' | 'desert' | 'ice' | 'woodland' | 'urban';
+
+/**
+ * Classifies the terrestrial biome at any geodetic coordinate (latRad, lonRad).
+ * Distinguishes Amazon rainforest, Sahara desert, polar ice, temperate woodland, urban, and ocean.
+ */
+export function classifyEarthBiome(latRad: number, lonRad: number): EarthBiome {
+  const surfaceClass = classifyEarthSurface(latRad, lonRad);
+  if (surfaceClass === EarthSurfaceClass.Ice) return 'ice';
+  if (surfaceClass === EarthSurfaceClass.Ocean) return 'ocean';
+  if (surfaceClass === EarthSurfaceClass.ShallowWater) return 'coastal-water';
+  if (surfaceClass === EarthSurfaceClass.Urban) return 'urban';
+
+  const latDeg = latRad * RAD_TO_DEG;
+  const lonDeg = (((lonRad * RAD_TO_DEG + 180) % 360 + 360) % 360) - 180;
+
+  // Deserts & Arid
+  if (latDeg >= 12 && latDeg <= 34 && lonDeg >= -18 && lonDeg <= 58) return 'desert'; // Sahara & Arabia
+  if (latDeg <= -18 && latDeg >= -34 && lonDeg >= 114 && lonDeg <= 148) return 'desert'; // Australian Outback
+  if (latDeg <= -18 && latDeg >= -28 && lonDeg >= -72 && lonDeg <= -67) return 'desert'; // Atacama
+  if (latDeg <= -18 && latDeg >= -30 && lonDeg >= 12 && lonDeg <= 28) return 'desert'; // Kalahari
+
+  // Tropical Rainforests
+  if (latDeg >= -18 && latDeg <= 10 && lonDeg >= -82 && lonDeg <= -44) return 'rainforest'; // Amazon Basin
+  if (latDeg >= -8 && latDeg <= 8 && lonDeg >= 9 && lonDeg <= 32) return 'rainforest'; // Congo Basin
+  if (latDeg >= -11 && latDeg <= 12 && lonDeg >= 95 && lonDeg <= 152) return 'rainforest'; // SE Asia & Sundaland
+
+  // Temperate woodland/grassland everywhere else
+  return 'woodland';
+}
+
 /** Ocean blue, land green, urban gray/olive, and the ice that genuinely sits at the poles. */
 export const SURFACE_COLOURS = {
-  ocean: [0.055, 0.235, 0.520] as const,
+  ocean: [0.035, 0.180, 0.420] as const,
   shallow: [0.080, 0.450, 0.680] as const,
-  land: [0.196, 0.345, 0.169] as const,
-  arid: [0.451, 0.404, 0.255] as const,
-  ice: [0.878, 0.898, 0.910] as const,
-  urban: [0.320, 0.340, 0.300] as const,
+  land: [0.125, 0.320, 0.115] as const,
+  arid: [0.620, 0.520, 0.340] as const,
+  ice: [0.910, 0.935, 0.960] as const,
+  urban: [0.220, 0.230, 0.240] as const,
 } as const;
 
 /**
@@ -198,7 +245,13 @@ export function surfaceColour(latRad: number, lonRad: number, out: [number, numb
     return out;
   }
 
-  // Land (with arid variation in horse latitudes)
+  // Land (with arid variation in horse latitudes or desert biomes)
+  const biome = classifyEarthBiome(latRad, lonRad);
+  if (biome === 'desert') {
+    for (let i = 0; i < 3; i++) out[i] = palette.arid[i];
+    return out;
+  }
+
   const latDeg = Math.abs(latRad * RAD_TO_DEG);
   const arid = latDeg > 15 && latDeg < 35 ? 1 - Math.abs(latDeg - 25) / 10 : 0;
   for (let i = 0; i < 3; i++) {

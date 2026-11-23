@@ -47,6 +47,9 @@ function roofGeometry(): BufferGeometry {
 
 /** GPU resources are shared by all chunks; eviction disposes only instance buffers. */
 export class ChunkMeshes {
+  /** Controls whether local flat Manaus terrain sheet owns [-26km, 26km]. Set to false when outside Manaus. */
+  static isLocalManausActive = true;
+
   private readonly box = new BoxGeometry(1, 1, 1);
   private readonly roof = roofGeometry();
   private readonly trunk = new CylinderGeometry(.65, 1, 1, 5);
@@ -62,6 +65,10 @@ export class ChunkMeshes {
   private readonly oceanMaterial: Material;
   private readonly forestGroundGeometry: PlaneGeometry;
   private readonly forestGroundMaterial: MeshStandardMaterial;
+  private readonly desertGroundMaterial: MeshStandardMaterial;
+  private readonly iceGroundMaterial: MeshStandardMaterial;
+  private readonly woodlandGroundMaterial: MeshStandardMaterial;
+  private readonly urbanGroundMaterial: MeshStandardMaterial;
   private readonly matrix = new Matrix4();
   private readonly position = new Vector3();
   private readonly scale = new Vector3();
@@ -80,6 +87,10 @@ export class ChunkMeshes {
     this.forestGroundGeometry.rotateX(-Math.PI / 2);
     this.forestGroundGeometry.translate(WORLD.chunkSize * 0.5, 0.0, WORLD.chunkSize * 0.5);
     this.forestGroundMaterial = new MeshStandardMaterial({ color: 0x20541e, roughness: 1.0 });
+    this.desertGroundMaterial = new MeshStandardMaterial({ color: 0xd4a373, roughness: 0.95 });
+    this.iceGroundMaterial = new MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.85 });
+    this.woodlandGroundMaterial = new MeshStandardMaterial({ color: 0x385e2b, roughness: 1.0 });
+    this.urbanGroundMaterial = new MeshStandardMaterial({ color: 0x3c3e41, roughness: 1.0 });
   }
 
   create(payload: ChunkPayload): { group: Group; colliders: Collider[]; bytes: number } {
@@ -150,14 +161,20 @@ export class ChunkMeshes {
       group.userData.canopyStart = canopyStart;
       group.userData.canopySpan = canopySpan;
     }
-    const isLocalManaus = Math.abs(originX) <= 26000 && Math.abs(originZ) <= 26000;
+    const isLocalManaus = ChunkMeshes.isLocalManausActive && Math.abs(originX) <= 26000 && Math.abs(originZ) <= 26000;
     if (!payload.land && !isLocalManaus) {
       const ocean = make(this.oceanGeometry, this.oceanMaterial, 1, 'ocean-surface');
       this.matrix.identity();
       ocean.setMatrixAt(0, this.matrix);
       if (ocean.instanceMatrix) ocean.instanceMatrix.needsUpdate = true;
     } else if (payload.land && !isLocalManaus) {
-      const ground = make(this.forestGroundGeometry, this.forestGroundMaterial, 1, 'forest-ground');
+      const biome = payload.biome;
+      const groundMat = biome === 'desert' ? this.desertGroundMaterial
+        : biome === 'ice' ? this.iceGroundMaterial
+        : biome === 'woodland' ? this.woodlandGroundMaterial
+        : biome === 'urban' ? this.urbanGroundMaterial
+        : this.forestGroundMaterial;
+      const ground = make(this.forestGroundGeometry, groundMat, 1, 'forest-ground');
       this.matrix.identity();
       ground.setMatrixAt(0, this.matrix);
       if (ground.instanceMatrix) ground.instanceMatrix.needsUpdate = true;
@@ -234,5 +251,9 @@ export class ChunkMeshes {
     }
     this.forestGroundGeometry.dispose();
     this.forestGroundMaterial.dispose();
+    this.desertGroundMaterial.dispose();
+    this.iceGroundMaterial.dispose();
+    this.woodlandGroundMaterial.dispose();
+    this.urbanGroundMaterial.dispose();
   }
 }

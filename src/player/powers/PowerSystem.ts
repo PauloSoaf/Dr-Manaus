@@ -283,7 +283,7 @@ export class PowerSystem {
         } else if (flying && speed > 20 && name === 'kick') {
           moveId = 'flyingKick';
         } else if (name === 'kick') {
-          moveId = ['kick', 'kickSide'][this.kickIndex++ % 2];
+          moveId = ['kick', 'kickSide', 'kickRoundhouse'][this.kickIndex++ % 3];
         } else {
           moveId = ['punch', 'punchCross', 'punchUpper'][this.punchIndex++ % 3];
         }
@@ -450,7 +450,7 @@ export class PowerSystem {
 
     const isKinetic = this.activeCombatMoveId === 'kineticStrike' || impactSpeed >= 800;
     const isMeteor = this.activeCombatMoveId === 'meteorPunch';
-    const baseDamage = isKinetic ? 5000000 : isMeteor ? 3000000 : (kind === 'kick' ? 1200000 : 800000);
+    const baseDamage = isKinetic ? 1200000 : isMeteor ? 850000 : (kind === 'kick' ? 380000 : 300000);
     const damageAmount = baseDamage * size * speedFactor;
     const blastRadius = (isKinetic ? 6.5 : isMeteor ? 5.0 : (kind === 'kick' ? 2.8 : 2.0)) * size * speedRadiusFactor;
 
@@ -670,7 +670,7 @@ export class PowerSystem {
 
   private shockwave(): void {
     this.cooldowns.shockwave = 2.4;
-    const radius = 60 + (this.player.size - 1) * 5;
+    const radius = 48 + (this.player.size - 1) * 4;
     this.player.powerPose('shockwave', 0.8);
     this.effects.wave(this.player.position, radius, 0x79ffcd, 1.15);
     this.effects.wave(this.player.position, radius * 0.75, 0xf4d296, 0.8);

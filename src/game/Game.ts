@@ -45,6 +45,8 @@ import { MANAUS_ANCHOR_ECEF } from '../world/spatial/ManausFrameAdapter';
 import { SOLAR_BODY_PROFILES } from '../world/celestial/CelestialBodyProfile';
 import { QualityManager } from '../rendering/QualityManager';
 import { WorldStreamer } from '../world/streaming/WorldStreamer';
+import { ChunkMeshes } from '../world/chunks/ChunkMeshes';
+import { BuildingGeneratorContext } from '../world/chunks/BuildingGenerator';
 import { HLODManager } from '../world/lod/HLODManager';
 import { RealCityLayer } from '../world/realcity/RealCityLayer';
 import { LandmarkManager } from '../world/landmarks/LandmarkManager';
@@ -1022,6 +1024,8 @@ export class Game {
     this.camera.inSpace = !local;
     this.camera.prepareLook();
     const manaus = this.manausSimulationActive;
+    ChunkMeshes.isLocalManausActive = manaus;
+    BuildingGeneratorContext.activeOrigin.isManaus = manaus;
     if (manaus) this.destruction.beginFrame();
     // Non-Earth local ENU frames are planetary presentation domains too. Earth refines this
     // below with its coverage-aware visual handoff.

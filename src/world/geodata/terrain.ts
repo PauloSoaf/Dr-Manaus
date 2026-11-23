@@ -81,14 +81,14 @@ function sampleTerrainBiomeColor(px: number, pz: number): [number, number, numbe
   }
 
   // 2. City vs Forest (Mato)
+  const isCity = isUrban(px, pz);
   const density = urbanDensity(px, pz);
-  const urban = isUrban(px, pz);
-  const urbanFactor = Math.min(1, Math.max(0, Math.max(density * 1.35, urban ? 0.75 : 0)));
+  const urbanFactor = isCity ? Math.min(1, Math.max(0.65, density * 1.25)) : 0.0;
 
   // Cidade: Clean urban asphalt & concrete gray
-  const cityR = 0.115 * grain;
-  const cityG = 0.120 * grain;
-  const cityB = 0.125 * grain;
+  const cityR = 0.160 * grain;
+  const cityG = 0.165 * grain;
+  const cityB = 0.170 * grain;
 
   // Mato: Vibrant, deep Amazonian rainforest green (matching forest backdrop and canopy)
   const forestR = 0.055 * grain;

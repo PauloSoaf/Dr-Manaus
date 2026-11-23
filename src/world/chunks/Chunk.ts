@@ -13,6 +13,7 @@ export const TREE_STRIDE = 5;
 export interface ChunkPayload {
   key: string; cx: number; cz: number;
   buildings: Float32Array; trees: Float32Array; land: boolean;
+  biome?: string;
 }
 export interface Chunk {
   key: string; cx: number; cz: number; state: ChunkState; priority: number;

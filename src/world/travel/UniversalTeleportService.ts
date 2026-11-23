@@ -23,6 +23,7 @@ import {
   MARS_RADIUS_EQUATORIAL_M,
 } from '../spatial/AnalyticalSurfaceIntersection';
 import { pickCelestialBodyFromRay } from './CelestialAngularPicker';
+import { BuildingGeneratorContext } from '../chunks/BuildingGenerator';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import { referenceFrame } from '../spatial/ReferenceFrame';
 import { enuBasis } from '../spatial/ENU';
@@ -481,6 +482,11 @@ export class UniversalTeleportService {
     const safe = PhysicsWorld.safeLanding(destination, colliders, 0.34 * playerSize, 2.1 * playerSize);
 
     // Atomic commit
+    BuildingGeneratorContext.activeOrigin = {
+      latDeg: -3.1303,
+      lonDeg: -60.0234,
+      isManaus: true,
+    };
     this.context.travelDomain.reset();
     this.context.universe.setPlayerPose(MANAUS_FRAME_ID, [safe.x, safe.y, safe.z]);
     this.context.player.teleport(safe);
@@ -513,6 +519,11 @@ export class UniversalTeleportService {
           }
 
           // Earth outside Manaus: generate local ENU surface frame
+          BuildingGeneratorContext.activeOrigin = {
+            latDeg: target.latDeg,
+            lonDeg: target.lonDeg,
+            isManaus: false,
+          };
           const frameId = this.ensureDynamicSurfaceFrame('earth', target.latDeg, target.lonDeg);
 
           // Atomic commit for arbitrary Earth coordinates
