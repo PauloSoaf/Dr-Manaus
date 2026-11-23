@@ -168,8 +168,9 @@ export class Atmosphere {
     this.sky.visible = !this.planetaryView && hasDome;
     this.cloudMaterial.color.copy(this.time === 'Night' ? CLOUD_NIGHT : rain ? CLOUD_RAIN : CLOUD_DAY);
     // Thin air means the horizon stops being a wall, so the city survives being looked at from orbit.
-    const climb = Math.min(1, Math.max(0, (this.altitude - 900) / 25100));
-    const lift = 1 + climb * climb * (3 - 2 * climb) * 14;
+    const flightAlt = Math.max(0, this.altitude - 80);
+    const climb = Math.min(1, flightAlt / 16000);
+    const lift = 1 + climb * climb * (3 - 2 * climb) * 16;
     const orbitLift = this.planetaryView ? 1 + this.spaceBlend * 50 : 1;
     const fog = this.scene.fog as Fog;
     if (this.planetaryPalette) {
@@ -177,10 +178,16 @@ export class Atmosphere {
       fog.near += (this.planetaryPalette.fogNear * lift * orbitLift - fog.near) * blend;
       fog.far += (this.planetaryPalette.fogFar * lift * orbitLift - fog.far) * blend;
     } else {
-      this.transition.copy(this.horizon.value).multiplyScalar(1 - this.spaceBlend * .85);
+      // Blend fog color towards clear atmospheric blue as flight altitude increases,
+      // avoiding warm horizontal dust tint from occluding the green rainforest and gray city below.
+      const aerialFactor = Math.min(1, Math.max(0, (this.altitude - 120) / 2400));
+      this.transition.copy(this.horizon.value).lerp(SKY_BLUE, aerialFactor * 0.60).multiplyScalar(1 - this.spaceBlend * .85);
       fog.color.lerp(this.transition, blend);
-      fog.near += ((rain ? 300 : 2800) * lift * orbitLift - fog.near) * blend;
-      fog.far += ((rain ? 6500 : 27000) * lift * orbitLift - fog.far) * blend;
+
+      const baseNear = (rain ? 300 : 3400) + flightAlt * 2.5;
+      const baseFar = (rain ? 6500 : 32000) + flightAlt * 8.0;
+      fog.near += (baseNear * lift * orbitLift - fog.near) * blend;
+      fog.far += (baseFar * lift * orbitLift - fog.far) * blend;
     }
   }
 }

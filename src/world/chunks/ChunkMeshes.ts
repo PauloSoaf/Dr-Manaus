@@ -156,7 +156,7 @@ export class ChunkMeshes {
       this.matrix.identity();
       ocean.setMatrixAt(0, this.matrix);
       if (ocean.instanceMatrix) ocean.instanceMatrix.needsUpdate = true;
-    } else if (payload.land && !isLocalManaus && count === 0) {
+    } else if (payload.land && !isLocalManaus) {
       const ground = make(this.forestGroundGeometry, this.forestGroundMaterial, 1, 'forest-ground');
       this.matrix.identity();
       ground.setMatrixAt(0, this.matrix);

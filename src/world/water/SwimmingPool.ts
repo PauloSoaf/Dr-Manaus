@@ -253,3 +253,4 @@ export class SwimmingPool {
     this.group.removeFromParent();
   }
 }
+

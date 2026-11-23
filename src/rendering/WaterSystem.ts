@@ -360,8 +360,8 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const lightTerm = NdotV.mul(sqrt(alphaSq.add(oneMinusAlphaSq.mul(NdotL).mul(NdotL))));
   const Vis = float(0.5).div(max(viewTerm.add(lightTerm), float(0.0001)));
   const rawSpecular = D.mul(Vis).mul(sunFresnel).mul(NdotL);
-  // Dual-lobe PBR solar highlight: broad forward-scatter sheen + brilliant GGX specular glint (adapted from beautiful-water)
-  const broadSun = pow(max(dot(waveNormal, halfDir), float(0.0)), 36.0).mul(0.75);
+  // Dual-lobe PBR solar highlight: refined forward-scatter sheen + brilliant GGX specular glint
+  const broadSun = pow(max(dot(waveNormal, halfDir), float(0.0)), 80.0).mul(0.30);
   const sharpSun = pow(rawSpecular.div(float(1.0).add(rawSpecular)), 1.15).mul(4.8);
   const totalSunGlint = sharpSun.add(broadSun).mul(NdotL);
   const sunSpecularGlint = color('#fff4d6').mul(totalSunGlint).mul(near.mul(0.85).add(0.15));

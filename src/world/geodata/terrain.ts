@@ -53,7 +53,7 @@ function horizonBackdrop(material: MeshStandardMaterial, y: number, outerReach: 
 }
 
 function sampleTerrainBiomeColor(px: number, pz: number): [number, number, number] {
-  // 1. Detection of Beach / Praia (Praia da Ponta Negra and river sandy shorelines)
+  // 1. Detection of Beach / Praia (Praia da Ponta Negra)
   const dxPonta = px - (-9400);
   const dzPonta = pz - (-7400);
   const distPontaSq = dxPonta * dxPonta + dzPonta * dzPonta;
@@ -65,16 +65,15 @@ function sampleTerrainBiomeColor(px: number, pz: number): [number, number, numbe
 
   // Sandy beach zone:
   // - Ponta Negra has an expansive golden beach extending up to 135m inland from the shoreline
-  // - Other natural riverbanks have an authentic 22m sandy beach margin
-  const beachWidth = isPontaNegra ? 135.0 : 22.0;
-  const isBeach = inlandDist >= -1.0 && inlandDist <= beachWidth;
+  // - Natural jungle riverbanks and forest streams do NOT have desert sand: they are lush green rainforest!
+  const isBeach = isPontaNegra && inlandDist >= -1.0 && inlandDist <= 135.0;
 
   // Grain jitter for procedural variation
   const grain = 0.94 + (((Math.imul(Math.round(px) * 73856093 ^ Math.round(pz) * 19349663, 2654435761) >>> 8) % 1000) / 1000) * 0.12;
 
   if (isBeach) {
     // Praia: Golden river beach sand (e.g. Praia da Ponta Negra)
-    const tBeach = Math.min(1, Math.max(0, inlandDist / beachWidth));
+    const tBeach = Math.min(1, Math.max(0, inlandDist / 135.0));
     const sandR = (0.64 + tBeach * 0.04) * grain;
     const sandG = (0.54 + tBeach * 0.03) * grain;
     const sandB = (0.34 + tBeach * 0.02) * grain;
@@ -91,10 +90,10 @@ function sampleTerrainBiomeColor(px: number, pz: number): [number, number, numbe
   const cityG = 0.120 * grain;
   const cityB = 0.125 * grain;
 
-  // Mato: Vibrant, deep Amazonian rainforest green
-  const forestR = 0.042 * grain;
-  const forestG = 0.175 * grain;
-  const forestB = 0.038 * grain;
+  // Mato: Vibrant, deep Amazonian rainforest green (matching forest backdrop and canopy)
+  const forestR = 0.055 * grain;
+  const forestG = 0.225 * grain;
+  const forestB = 0.050 * grain;
 
   const r = forestR * (1 - urbanFactor) + cityR * urbanFactor;
   const g = forestG * (1 - urbanFactor) + cityG * urbanFactor;
@@ -155,15 +154,35 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
     }
 
     const depth = Math.max(0, -py);
+    // If this vertex is on dry land or at the exact waterline boundary (depth <= 0.05m),
+    // use the terrain biome color so dry land never displays as artificial beige sand!
+    const inWater = manausBathymetry.isWater(px, pz) && depth > 0.05;
+    if (!inWater) {
+      const [r, g, b] = sampleTerrainBiomeColor(px, pz);
+      bedCol.push(r, g, b);
+      return;
+    }
+
     const silt = manausBathymetry.sampleSiltFactor(px, pz);
     const grain = 0.90 + (((Math.imul(Math.round(px) * 73856093 ^ Math.round(pz) * 19349663, 2654435761) >>> 8) % 1000) / 1000) * 0.20;
+
+    // Golden sand is unique to Praia da Ponta Negra; natural Amazon riverbeds are dark organic silt & benthic mud
+    const dxPonta = px - (-9400);
+    const dzPonta = pz - (-7400);
+    const isPontaNegraBed = (dxPonta * dxPonta + dzPonta * dzPonta) < 6760000;
 
     let r: number, g: number, b: number;
     if (depth < 1.5) {
       const f = depth / 1.5;
-      r = shallowSand[0] * (1 - f) + midSilt[0] * f;
-      g = shallowSand[1] * (1 - f) + midSilt[1] * f;
-      b = shallowSand[2] * (1 - f) + midSilt[2] * f;
+      if (isPontaNegraBed) {
+        r = shallowSand[0] * (1 - f) + midSilt[0] * f;
+        g = shallowSand[1] * (1 - f) + midSilt[1] * f;
+        b = shallowSand[2] * (1 - f) + midSilt[2] * f;
+      } else {
+        r = midSilt[0] * (1 - f * 0.5) + deepBenthic[0] * (f * 0.5);
+        g = midSilt[1] * (1 - f * 0.5) + deepBenthic[1] * (f * 0.5);
+        b = midSilt[2] * (1 - f * 0.5) + deepBenthic[2] * (f * 0.5);
+      }
     } else {
       const f = Math.min(1, (depth - 1.5) / 16.0);
       r = midSilt[0] * (1 - f) + deepBenthic[0] * f;
@@ -260,9 +279,6 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
         continue;
       }
 
-      // 3. Coastal boundary or near-corridor river cell: 64m blocks. Inside the central corridor each
-      // block is refined adaptively against the real bathymetry field (see emitBedAdaptive), so the
-      // rendered bed cannot drift away from the collision field by more than BED_TOLERANCE_M.
       const SUB = 64;
       const isCentralShoreCorridor = Math.abs(cx) <= 12288 && cz >= -8704 && cz <= 8192;
       for (let sz = z; sz < z + CELL; sz += SUB) {
@@ -278,7 +294,12 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
           } else if (isCentralShoreCorridor) {
             emitBedAdaptive(sx, sz, SUB);
           } else {
-            emitRiverbedQuad(sx, sz, sx + SUB, sz + SUB);
+            const landCount = (s00 ? 1 : 0) + (s10 ? 1 : 0) + (s11 ? 1 : 0) + (s01 ? 1 : 0) + (scc ? 1 : 0);
+            if (landCount >= 3) {
+              emitLandQuad(sx, sz, sx + SUB, sz + SUB);
+            } else {
+              emitRiverbedQuad(sx, sz, sx + SUB, sz + SUB);
+            }
           }
         }
       }
