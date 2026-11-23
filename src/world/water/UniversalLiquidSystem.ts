@@ -138,7 +138,11 @@ export type WaterWaveProfileId =
   | 'RIO_NEGRO_CALM'
   | 'RIO_NEGRO_WINDY'
   | 'SOLIMOES_CURRENT'
-  | 'TERRESTRIAL_OCEAN';
+  | 'TERRESTRIAL_OCEAN'
+  | 'CRYOGENIC_SEA'
+  | 'CRYO_AMMONIA_SEA'
+  | 'DENSE_BRINE_SEA'
+  | 'LAVA_LAKE';
 
 /**
  * Shared parameterized Gerstner wave profiles used identically by CPU physics/buoyancy
@@ -169,6 +173,31 @@ export const WATER_WAVE_PROFILES: Readonly<Record<WaterWaveProfileId, readonly G
     { direction: [0.60, -0.80], amplitude: 0.14, wavelength: 16.0, speed: 2.30, steepness: 0.35 },
     { direction: [-0.85, -0.52], amplitude: 0.07, wavelength: 7.5, speed: 3.10, steepness: 0.30 },
   ],
+  // Spectra below were previously inlined in getWaveSpectrumForSolvent (magma, methane) or silently
+  // fell back to the freshwater spectrum (ammonia, brine). They now live with the other profiles.
+  CRYOGENIC_SEA: [
+    { direction: [0.85, 0.52], amplitude: 0.18, wavelength: 18.0, speed: 1.65, steepness: 0.60 },
+    { direction: [-0.45, 0.89], amplitude: 0.12, wavelength: 9.5, speed: 2.10, steepness: 0.55 },
+    { direction: [0.65, -0.76], amplitude: 0.06, wavelength: 4.2, speed: 3.10, steepness: 0.50 },
+    { direction: [-0.92, -0.39], amplitude: 0.03, wavelength: 2.1, speed: 4.20, steepness: 0.45 },
+  ],
+  CRYO_AMMONIA_SEA: [
+    { direction: [0.90, 0.43], amplitude: 0.12, wavelength: 30.0, speed: 0.90, steepness: 0.30 },
+    { direction: [-0.40, 0.92], amplitude: 0.07, wavelength: 16.0, speed: 1.15, steepness: 0.28 },
+    { direction: [0.58, -0.81], amplitude: 0.035, wavelength: 8.0, speed: 1.55, steepness: 0.24 },
+    { direction: [-0.86, -0.51], amplitude: 0.018, wavelength: 3.8, speed: 2.05, steepness: 0.20 },
+  ],
+  DENSE_BRINE_SEA: [
+    { direction: [0.88, 0.47], amplitude: 0.30, wavelength: 58.0, speed: 1.05, steepness: 0.36 },
+    { direction: [-0.44, 0.90], amplitude: 0.16, wavelength: 29.0, speed: 1.30, steepness: 0.33 },
+    { direction: [0.62, -0.78], amplitude: 0.08, wavelength: 13.0, speed: 1.75, steepness: 0.28 },
+    { direction: [-0.84, -0.54], amplitude: 0.04, wavelength: 6.0, speed: 2.35, steepness: 0.24 },
+  ],
+  LAVA_LAKE: [
+    { direction: [0.707, 0.707], amplitude: 0.60, wavelength: 120.0, speed: 0.45, steepness: 0.20 },
+    { direction: [-0.60, 0.80], amplitude: 0.30, wavelength: 65.0, speed: 0.60, steepness: 0.15 },
+    { direction: [0.90, -0.43], amplitude: 0.10, wavelength: 25.0, speed: 0.90, steepness: 0.10 },
+  ],
 };
 
 export function getWaveSpectrumForProfile(profileId: WaterWaveProfileId): GerstnerWaveHarmonic[] {
@@ -177,38 +206,27 @@ export function getWaveSpectrumForProfile(profileId: WaterWaveProfileId): Gerstn
 }
 
 /**
- * Procedural harmonic wave spectrum for planetary surfaces.
+ * Solvent -> wave spectrum. Water presets resolve to the shared named profiles
+ * (`WATER_WAVE_PROFILES`) so there is exactly one numeric definition of each water spectrum;
+ * the other solvents keep their own spectra here.
  */
 export function getWaveSpectrumForSolvent(type: LiquidSolventType): GerstnerWaveHarmonic[] {
+  const clone = (list: readonly GerstnerWaveHarmonic[]): GerstnerWaveHarmonic[] =>
+    list.map(w => ({ ...w, direction: [w.direction[0], w.direction[1]] as [number, number] }));
   switch (type) {
     case 'molten-magma':
-      return [
-        { direction: [0.707, 0.707], amplitude: 0.60, wavelength: 120.0, speed: 0.45, steepness: 0.20 },
-        { direction: [-0.60, 0.80], amplitude: 0.30, wavelength: 65.0, speed: 0.60, steepness: 0.15 },
-        { direction: [0.90, -0.43], amplitude: 0.10, wavelength: 25.0, speed: 0.90, steepness: 0.10 }
-      ];
+      return clone(WATER_WAVE_PROFILES.LAVA_LAKE);
     case 'cryo-methane':
-      return [
-        { direction: [0.85, 0.52], amplitude: 0.18, wavelength: 18.0, speed: 1.65, steepness: 0.60 },
-        { direction: [-0.45, 0.89], amplitude: 0.12, wavelength: 9.5, speed: 2.10, steepness: 0.55 },
-        { direction: [0.65, -0.76], amplitude: 0.06, wavelength: 4.2, speed: 3.10, steepness: 0.50 },
-        { direction: [-0.92, -0.39], amplitude: 0.03, wavelength: 2.1, speed: 4.20, steepness: 0.45 }
-      ];
+      return clone(WATER_WAVE_PROFILES.CRYOGENIC_SEA);
+    case 'cryo-ammonia':
+      return clone(WATER_WAVE_PROFILES.CRYO_AMMONIA_SEA);
+    case 'dense-exotic-brine':
+      return clone(WATER_WAVE_PROFILES.DENSE_BRINE_SEA);
     case 'terrestrial-ocean':
-      return [
-        { direction: [0.89, 0.45], amplitude: 0.55, wavelength: 68.0, speed: 1.35, steepness: 0.45 },
-        { direction: [-0.42, 0.91], amplitude: 0.28, wavelength: 34.0, speed: 1.70, steepness: 0.40 },
-        { direction: [0.60, -0.80], amplitude: 0.14, wavelength: 16.0, speed: 2.30, steepness: 0.35 },
-        { direction: [-0.85, -0.52], amplitude: 0.07, wavelength: 7.5, speed: 3.10, steepness: 0.30 }
-      ];
+      return clone(WATER_WAVE_PROFILES.TERRESTRIAL_OCEAN);
     case 'terrestrial-freshwater':
     default:
-      return [
-        { direction: [0.92, 0.38], amplitude: 0.28, wavelength: 42.0, speed: 1.15, steepness: 0.45 },
-        { direction: [-0.35, 0.94], amplitude: 0.16, wavelength: 22.0, speed: 1.45, steepness: 0.40 },
-        { direction: [0.55, -0.83], amplitude: 0.09, wavelength: 11.5, speed: 1.95, steepness: 0.35 },
-        { direction: [-0.88, -0.47], amplitude: 0.05, wavelength: 5.2, speed: 2.60, steepness: 0.30 }
-      ];
+      return clone(WATER_WAVE_PROFILES.RIO_NEGRO_WINDY);
   }
 }
 
@@ -219,15 +237,57 @@ export interface LiquidSampleResult {
   normal: Vector3;
 }
 
+/**
+ * THE Gerstner evaluator. CPU consumers (Manaus physics, buoyancy, universal sampling, the fluid
+ * registry) all call this one function, and the GPU shader unrolls the identical equation with the
+ * same per-harmonic constants (see WaterSystem `createMaterial`).
+ *
+ * `shoreDamp` scales displacement/normal near banks; `highHarmonicFilter` is the distance filter
+ * applied to harmonics with index >= 2 (matches the shader's `near` factor).
+ */
+export function sampleGerstnerSpectrum(
+  waves: readonly GerstnerWaveHarmonic[],
+  x: number,
+  z: number,
+  timeSec: number,
+  baseElevationM: number,
+  out: LiquidSampleResult,
+  shoreDamp = 1,
+  highHarmonicFilter = 1,
+): LiquidSampleResult {
+  const count = waves.length;
+  let dx = 0, dy = 0, dz = 0, waSumX = 0, waSumZ = 0;
+  for (let i = 0; i < count; i++) {
+    const w = waves[i];
+    const amp = w.amplitude * (i >= 2 ? highHarmonicFilter : 1);
+    const k = (2.0 * Math.PI) / w.wavelength;
+    const c = Math.sqrt(9.80665 / k);
+    const len = Math.hypot(w.direction[0], w.direction[1]) || 1.0;
+    const dirX = w.direction[0] / len;
+    const dirZ = w.direction[1] / len;
+    const theta = k * (dirX * x + dirZ * z) - w.speed * c * timeSec;
+    const cosTheta = Math.cos(theta);
+    const q = amp > 1e-8 ? w.steepness / (k * amp * count) : 0;
+    dx += q * amp * dirX * cosTheta;
+    dy += amp * Math.sin(theta);
+    dz += q * amp * dirZ * cosTheta;
+    const wa = k * amp;
+    waSumX += dirX * wa * cosTheta;
+    waSumZ += dirZ * wa * cosTheta;
+  }
+  out.displacementX = dx * shoreDamp;
+  out.displacementZ = dz * shoreDamp;
+  out.height = baseElevationM + dy * shoreDamp;
+  out.normal.set(-waSumX * shoreDamp, 1.0, -waSumZ * shoreDamp).normalize();
+  return out;
+}
+
 const _scratchPos = new Vector3();
 const _scratchNormal = new Vector3();
 const _scratchTargetQ = new Quaternion();
 const _up = new Vector3(0, 1, 0);
 
-/**
- * Universal fluid surface sampling algorithm.
- * Evaluates Gerstner wave displacement and normal vectors analytically.
- */
+/** Convenience sampler for a solvent's default spectrum (delegates to `sampleGerstnerSpectrum`). */
 export function sampleUniversalLiquid(
   x: number,
   z: number,
@@ -236,53 +296,9 @@ export function sampleUniversalLiquid(
   solventType: LiquidSolventType = 'terrestrial-freshwater',
   out?: LiquidSampleResult
 ): LiquidSampleResult {
-  const result = out || {
-    height: baseElevationM,
-    displacementX: 0,
-    displacementZ: 0,
-    normal: new Vector3(0, 1, 0)
-  };
-
-  const waves = getWaveSpectrumForSolvent(solventType);
-  const count = waves.length;
-
-  let dx = 0;
-  let dy = 0;
-  let dz = 0;
-  let waSumX = 0;
-  let waSumZ = 0;
-
-  for (let i = 0; i < count; i++) {
-    const w = waves[i];
-    const k = (2.0 * Math.PI) / w.wavelength;
-    const c = Math.sqrt(9.80665 / k);
-    const len = Math.hypot(w.direction[0], w.direction[1]) || 1.0;
-    const dirX = w.direction[0] / len;
-    const dirZ = w.direction[1] / len;
-    const dotCoord = dirX * x + dirZ * z;
-    const theta = k * dotCoord - w.speed * c * timeSec;
-
-    const cosTheta = Math.cos(theta);
-    const sinTheta = Math.sin(theta);
-    const q = w.steepness / (k * w.amplitude * count);
-
-    dx += q * w.amplitude * dirX * cosTheta;
-    dy += w.amplitude * sinTheta;
-    dz += q * w.amplitude * dirZ * cosTheta;
-
-    const wa = k * w.amplitude;
-    waSumX += dirX * wa * cosTheta;
-    waSumZ += dirZ * wa * cosTheta;
-  }
-
-  result.displacementX = dx;
-  result.displacementZ = dz;
-  result.height = baseElevationM + dy;
-  result.normal.set(-waSumX, 1.0, -waSumZ).normalize();
-
-  return result;
+  const result = out || { height: baseElevationM, displacementX: 0, displacementZ: 0, normal: new Vector3(0, 1, 0) };
+  return sampleGerstnerSpectrum(getWaveSpectrumForSolvent(solventType), x, z, timeSec, baseElevationM, result);
 }
-
 /**
  * Generates an optimized TSL Node Material for any planetary fluid body.
  * Runs in WebGPU and WebGL2 without requiring CPU geometry recalculation.

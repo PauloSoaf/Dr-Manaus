@@ -15,6 +15,7 @@ import {
   shoreWaveDamping, nearWaveDistanceFilter, type WaterWaveProfileId,
 } from '../world/water/ManausHydrology';
 import { manausBathymetry } from '../world/water/ManausBathymetry';
+import { registerFluid, unregisterFluid, sampleFluid, type FluidHandle } from '../world/water/FluidRegistry';
 
 const surfaceService = new SurfaceFrameService('earth');
 
@@ -602,6 +603,14 @@ export class WaterSystem {
   cameraUnderwater = false;
   waveProfile: WaterWaveProfileId = getActiveManausWaveProfile();
   readonly mesh: Mesh;
+  readonly fluidId: string;
+  readonly fluid: FluidHandle;
+  private static fluidCounter = 0;
+  /** The first live instance owns the canonical id; later ones (tests, hot reload) get a suffix. */
+  private static nextFluidId(): string {
+    const n = WaterSystem.fluidCounter++;
+    return n === 0 ? 'earth-manaus-rivers' : `earth-manaus-rivers#${n}`;
+  }
 
   readonly buoyancy = new WaterBuoyancyService();
   readonly vfx: WaterVFX;
@@ -645,6 +654,18 @@ export class WaterSystem {
     this.vfx = new WaterVFX(root);
     manausBathymetry.setBaseSurfaceY(RIVER_Y);
     this.setWaveProfile(this.waveProfile);
+    // Sole public contract for this surface: buoyancy, swimming and diagnostics read it through the registry.
+    this.fluidId = WaterSystem.nextFluidId();
+    this.fluid = registerFluid({
+      id: this.fluidId,
+      solvent: 'terrestrial-freshwater',
+      geometryType: 'river',
+      scale: 'LOCAL',
+      bodyId: 'earth',
+      waves: () => MANAUS_RIVER_WAVES,
+      surfaceY: () => this.surfaceY,
+      shoreDistance: (x, z) => manausBathymetry.sampleSignedShoreDistance(x, z),
+    });
   }
 
   /**
@@ -742,8 +763,7 @@ export class WaterSystem {
   }
 
   public sampleHeight(x: number, z: number, timeSec = this.elapsedTimeSec, out?: WaterSurfaceSample, cameraDistanceM = 0): WaterSurfaceSample {
-    const shoreDist = Math.max(0, manausBathymetry.sampleSignedShoreDistance(x, z));
-    return sampleManausWater(x, z, timeSec, this.surfaceY, out, shoreDist, cameraDistanceM);
+    return sampleFluid(this.fluidId, x, z, timeSec, out, cameraDistanceM);
   }
 
   public sampleDepth(x: number, z: number, timeSec = this.elapsedTimeSec): number {
@@ -792,6 +812,18 @@ export class WaterSystem {
       console.warn(`[WaterSystem] Load exception: ${this.loadError} - fallback plane active`);
     }
   }
+
+  /** Releases GPU resources and the registry entry. Safe to call twice. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    unregisterFluid(this.fluidId);
+    this.vfx.dispose();
+    this.mesh.removeFromParent();
+    this.mesh.geometry.dispose();
+    this.material.dispose();
+  }
+  private disposed = false;
 
   setNight(night: boolean) { this.material.emissive = new Color(night ? '#03080d' : '#000000'); }
 }

@@ -1,9 +1,12 @@
 import { Vector3, Quaternion, Object3D } from 'three';
 import {
   WATER_WAVE_PROFILES,
+  sampleGerstnerSpectrum,
   type GerstnerWaveHarmonic,
   type WaterWaveProfileId,
 } from './UniversalLiquidSystem';
+
+import { shoreWaveDamping, nearWaveDistanceFilter } from './FluidRegistry';
 
 export type GerstnerWaveDefinition = GerstnerWaveHarmonic;
 export { WATER_WAVE_PROFILES, type WaterWaveProfileId };
@@ -47,34 +50,7 @@ export interface WaterSurfaceSample {
   normal: Vector3;
 }
 
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
-}
-
-function smoothstep(edge0: number, edge1: number, x: number): number {
-  const t = clamp01((x - edge0) / (edge1 - edge0));
-  return t * t * (3 - 2 * t);
-}
-
-/**
- * Exact shoreline wave damping function shared between CPU `sampleManausWater` and GPU TSL `waveDamp`:
- * `smoothstep(0.008, 0.18, shoreDistanceM / MANAUS_SHORE_BAND_M)`.
- */
-export function shoreWaveDamping(shoreDistanceM?: number): number {
-  if (shoreDistanceM === undefined) return 1.0;
-  if (shoreDistanceM <= 0) return 0.0;
-  const shoreNorm = clamp01(shoreDistanceM / MANAUS_SHORE_BAND_M);
-  return smoothstep(0.008, 0.18, shoreNorm);
-}
-
-/**
- * Exact distance-based attenuation of high-frequency harmonics (i >= 2) shared between CPU and GPU TSL:
- * `1 - smoothstep(300, 6000, cameraDistanceM)`.
- */
-export function nearWaveDistanceFilter(cameraDistanceM = 0): number {
-  if (!Number.isFinite(cameraDistanceM) || cameraDistanceM <= 0) return 1.0;
-  return 1.0 - smoothstep(300, 6000, cameraDistanceM);
-}
+export { shoreWaveDamping, nearWaveDistanceFilter };
 
 /**
  * Reusable scratch variables to guarantee ZERO allocation inside the animation loop.
@@ -99,62 +75,13 @@ export function sampleManausWater(
   cameraDistanceM: number = 0,
   profileOverride?: WaterWaveProfileId,
 ): WaterSurfaceSample {
-  const result = out || {
-    height: baseSurfaceY,
-    displacementX: 0,
-    displacementZ: 0,
-    normal: new Vector3(0, 1, 0)
-  };
-
-  let dx = 0;
-  let dy = 0;
-  let dz = 0;
-
-  const damp = shoreWaveDamping(shoreDistanceM);
-  const near = nearWaveDistanceFilter(cameraDistanceM);
-
-  // Tangent and Binormal derivatives to compute true surface normal
-  let waSumX = 0;
-  let waSumZ = 0;
-
+  const result = out || { height: baseSurfaceY, displacementX: 0, displacementZ: 0, normal: new Vector3(0, 1, 0) };
   const waves = profileOverride ? (WATER_WAVE_PROFILES[profileOverride] ?? MANAUS_RIVER_WAVES) : MANAUS_RIVER_WAVES;
-  const count = waves.length;
-  for (let i = 0; i < count; i++) {
-    const w = waves[i];
-    const atten = i >= 2 ? near : 1.0;
-    const amp = w.amplitude * atten;
-    const k = (2.0 * Math.PI) / w.wavelength;
-    const c = Math.sqrt(9.80665 / k);
-    const len = Math.hypot(w.direction[0], w.direction[1]) || 1.0;
-    const dirX = w.direction[0] / len;
-    const dirZ = w.direction[1] / len;
-    const dot = dirX * x + dirZ * z;
-    const theta = k * dot - w.speed * c * timeSec;
-
-    const cosTheta = Math.cos(theta);
-    const sinTheta = Math.sin(theta);
-    const q = amp > 1e-8 ? w.steepness / (k * amp * count) : 0;
-
-    dx += q * amp * dirX * cosTheta;
-    dy += amp * sinTheta;
-    dz += q * amp * dirZ * cosTheta;
-
-    // Normal derivatives: N = (-dH/dx, 1, -dH/dz)
-    const wa = k * amp;
-    waSumX += dirX * wa * cosTheta;
-    waSumZ += dirZ * wa * cosTheta;
-  }
-
-  result.displacementX = dx * damp;
-  result.displacementZ = dz * damp;
-  result.height = baseSurfaceY + dy * damp;
-
-  // Normal vector: (-waSumX * damp, 1, -waSumZ * damp) normalized
-  result.normal.set(-waSumX * damp, 1.0, -waSumZ * damp).normalize();
-
-  return result;
+  return sampleGerstnerSpectrum(
+    waves, x, z, timeSec, baseSurfaceY, result,
+    shoreWaveDamping(shoreDistanceM), nearWaveDistanceFilter(cameraDistanceM),
+  );
 }
-
 export interface BuoyantBody {
   object: Object3D;
   hullOffsets: Vector3[];
