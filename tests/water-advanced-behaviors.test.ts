@@ -5,7 +5,9 @@ import { SwimmingPool } from '../src/world/water/SwimmingPool';
 import { getFluid } from '../src/world/water/FluidRegistry';
 import { WaterBuoyancyService } from '../src/world/water/ManausHydrology';
 import { WaterSystem, WaterVFX } from '../src/rendering/WaterSystem';
-import { createUniversalLiquidMaterial } from '../src/world/water/UniversalLiquidSystem';
+import { createUniversalLiquidMaterial, universalLiquidTime, updateUniversalLiquidTime } from '../src/world/water/UniversalLiquidSystem';
+import { BuildingGeneratorContext } from '../src/world/spatial/ActiveSurfaceOrigin';
+import { manausBathymetry } from '../src/world/water/ManausBathymetry';
 import { ChunkMeshes } from '../src/world/chunks/ChunkMeshes';
 import { createTerrain } from '../src/world/geodata/terrain';
 
@@ -158,6 +160,44 @@ describe('UNIVERSAL-WATER-05: Advanced Water Behaviors from Researched Reference
       assert.ok(colAttr && colAttr.count > 0, 'Vertex colors exist');
     } finally {
       globalThis.document = previousDoc;
+    }
+  });
+
+  it('6. Global oceanic fluid physics and animated wave propagation', () => {
+    // 1. Verify universalLiquidTime updates
+    updateUniversalLiquidTime(12.5);
+    assert.strictEqual(universalLiquidTime.value, 12.5, 'universalLiquidTime updates accurately');
+
+    // 2. Set origin to Pacific Ocean (lat 0, lon -140)
+    BuildingGeneratorContext.activeOrigin = {
+      latDeg: 0,
+      lonDeg: -140,
+      isManaus: false,
+    };
+
+    try {
+      // 3. Verify ocean surface sampling undulates across time
+      const h0 = manausBathymetry.sampleWaterSurface(100, 200, 0.0);
+      const h1 = manausBathymetry.sampleWaterSurface(100, 200, 2.5);
+      assert.ok(Number.isFinite(h0), 'Ocean surface elevation is finite at t=0');
+      assert.ok(Number.isFinite(h1), 'Ocean surface elevation is finite at t=2.5');
+      assert.notStrictEqual(h0, h1, 'Ocean surface elevation undulates dynamically over time');
+
+      // 4. Verify deep seabed and submersion state in the ocean
+      const bedY = manausBathymetry.sampleRiverbedHeight(100, 200);
+      assert.ok(bedY <= -200, 'Ocean floor is deep seabed (<= -200m)');
+
+      const sub = manausBathymetry.evaluateSubmersion(new Vector3(100, 0, 200), 1.8);
+      assert.strictEqual(sub.inWater, true, 'Marked as in water in global ocean');
+      assert.ok(sub.totalWaterDepthM > 100, 'Total water depth is massive ocean abyss');
+      assert.strictEqual(sub.feetSubmerged, true, 'Feet submerged at sea level');
+    } finally {
+      // Reset origin to Manaus
+      BuildingGeneratorContext.activeOrigin = {
+        latDeg: -3.1190278,
+        lonDeg: -60.0216667,
+        isManaus: true,
+      };
     }
   });
 });

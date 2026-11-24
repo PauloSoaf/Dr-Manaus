@@ -51,6 +51,7 @@ import { HLODManager } from '../world/lod/HLODManager';
 import { RealCityLayer } from '../world/realcity/RealCityLayer';
 import { LandmarkManager } from '../world/landmarks/LandmarkManager';
 import { createTerrain, setTerrainOpacity } from '../world/geodata/terrain';
+import { updateUniversalLiquidTime } from '../world/water/UniversalLiquidSystem';
 import { GeoDebug } from '../world/geodata/GeoDebug';
 import { LargoDistrict } from '../world/landmarks/largo';
 import { createAirport } from '../world/realcity/airport';
@@ -1044,6 +1045,8 @@ export class Game {
       }
     }
     if (manaus || isLocalEarth) this.destruction.beginFrame();
+    const timeSecNow = this.lastTime * 0.001;
+    updateUniversalLiquidTime(timeSecNow);
     // Non-Earth local ENU frames are planetary presentation domains too. Earth refines this
     // below with its coverage-aware visual handoff.
     this.presentationDomain = manaus ? 'local' : local ? 'planetary' : 'orbital';
@@ -1496,7 +1499,7 @@ export class Game {
     }
 
     const sub = this.player.submersion;
-    const isPlayerInWater = Boolean(manaus && this.water && sub.inWater && sub.feetSubmerged);
+    const isPlayerInWater = Boolean((manaus || isLocalEarth) && sub.inWater && sub.feetSubmerged);
     if (!this.wasUnderwater && isPlayerInWater) {
       const impactSpeed = Math.abs(this.player.velocity.y);
       const intensity = Math.min(3.5, Math.max(1.0, impactSpeed / 5.0));
@@ -1518,10 +1521,9 @@ export class Game {
     const camWorldX = this.camera.globalPosition.x;
     const camWorldY = this.camera.globalPosition.y;
     const camWorldZ = this.camera.globalPosition.z;
-    const timeSecNow = this.lastTime * 0.001;
     const camWaterY = manausBathymetry.sampleWaterSurface(camWorldX, camWorldZ, timeSecNow);
     const camOverWater = manausBathymetry.isWater(camWorldX, camWorldZ) || sub.inWater;
-    const isCameraUnderwater = Boolean(manaus && this.water && camOverWater && camWorldY < camWaterY + 0.04);
+    const isCameraUnderwater = Boolean((manaus || isLocalEarth) && camOverWater && camWorldY < camWaterY + 0.04);
     this.water?.setCameraUnderwater(
       isCameraUnderwater,
       camWorldX,
@@ -1536,7 +1538,16 @@ export class Game {
       this.atmosphere.sky.visible = false;
       this.atmosphere.clouds.visible = false;
       const fog = this.rendering.scene.fog as any;
-      if (this.water?.clearDebugMode) {
+      if (!manaus && isLocalEarth) {
+        // Deep oceanic blue underwater medium
+        this.underwaterBgColor.set('#041a30');
+        this.rendering.scene.background = this.underwaterBgColor;
+        if (fog) {
+          fog.color?.set?.('#041a30');
+          fog.near = 1.0;
+          fog.far = 140;
+        }
+      } else if (this.water?.clearDebugMode) {
         this.underwaterBgColor.set('#123a4d');
         this.rendering.scene.background = this.underwaterBgColor;
         if (fog) {

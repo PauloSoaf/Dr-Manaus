@@ -17,7 +17,16 @@ import { Vector3 } from 'three/webgpu';
 import { isLand, riverWidth, shoreZ } from '../geodata/geodata';
 import { LAND_MASK } from '../geodata/landmask';
 import { sampleManausWater, type WaterSurfaceSample } from './ManausHydrology';
+import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
+import { sampleUniversalLiquid, type LiquidSampleResult } from './UniversalLiquidSystem';
 import type { WaterFile } from '../../rendering/WaterSystem';
+
+const _scratchLiquidSample: LiquidSampleResult = {
+  height: 0.05,
+  displacementX: 0,
+  displacementZ: 0,
+  normal: new Vector3(0, 1, 0),
+};
 
 export const MANAUS_RIVER_SURFACE_Y = 0.12;
 export const MANAUS_FALLBACK_SURFACE_Y = -0.2;
@@ -209,7 +218,7 @@ export class ManausBathymetryService {
     const inWater = this.isWater(x, z);
 
     // Far-field planetary surface outside greater Manaus corridor: open ocean vs inland continent
-    if (Math.abs(x) > 45000 || Math.abs(z) > 35000) {
+    if (!BuildingGeneratorContext.activeOrigin.isManaus || Math.abs(x) > 45000 || Math.abs(z) > 35000) {
       return inWater ? 10000 : -10000;
     }
 
@@ -260,6 +269,9 @@ export class ManausBathymetryService {
   sampleRiverbedHeight(x: number, z: number): number {
     if (!Number.isFinite(x + z)) return 0;
     if (!this.isWater(x, z)) return 0;
+    if (!BuildingGeneratorContext.activeOrigin.isManaus) {
+      return -250.0;
+    }
 
     const d = Math.max(0, this.sampleSignedShoreDistance(x, z));
 
@@ -309,6 +321,12 @@ export class ManausBathymetryService {
    */
   sampleWaterSurface(x: number, z: number, timeSec = 0): number {
     if (!Number.isFinite(x + z)) return this.baseSurfaceY;
+    if (!BuildingGeneratorContext.activeOrigin.isManaus) {
+      if (this.isWater(x, z)) {
+        return sampleUniversalLiquid(x, z, timeSec, 0.05, 'terrestrial-ocean', _scratchLiquidSample).height;
+      }
+      return 0;
+    }
     const shoreDist = Math.max(0, this.sampleSignedShoreDistance(x, z));
     return sampleManausWater(x, z, timeSec, this.baseSurfaceY, _scratchSurfaceSample, shoreDist).height;
   }

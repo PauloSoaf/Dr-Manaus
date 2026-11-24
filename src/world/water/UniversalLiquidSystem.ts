@@ -35,6 +35,16 @@ export type LiquidSolventType =
   | 'molten-magma'           // Volcanic worlds (lava lakes at 1300-1800 K)
   | 'dense-exotic-brine';    // Hyper-saline ocean worlds
 
+/**
+ * Authoritative GPU simulation clock for all UniversalLiquidMaterials across Earth and celestial bodies.
+ * Updated every frame so Gerstner harmonic waves, breaking foam, and sparkles continuously undulate.
+ */
+export const universalLiquidTime = uniform(0.0);
+
+export function updateUniversalLiquidTime(timeSec: number): void {
+  universalLiquidTime.value = timeSec;
+}
+
 export interface FluidPhysicalProperties {
   densityKgM3: number;
   viscosityRelative: number;
@@ -360,7 +370,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
     const amp = i >= 2 ? float(w.amplitude).mul(near) : float(w.amplitude);
     const phase = dot(vec2(wp.x, wp.z), vec2(w.direction[0], w.direction[1]))
       .mul(k)
-      .sub(time.mul(w.speed * c));
+      .sub(universalLiquidTime.mul(w.speed * c));
 
     const sinP = sin(phase);
     const cosP = cos(phase);
@@ -419,7 +429,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   // Dynamic wave-crest breaking foam: 2D isotropic turbulence eliminates 1D parallel stripes
   const crestSignal = totalElevation.add(waveSlope.mul(0.35));
   const crestBreaking = smoothstep(0.18, 0.40, crestSignal);
-  const foamUv = vec2(wp.x, wp.z).mul(0.06).add(vec2(time.mul(0.18), time.mul(-0.14)));
+  const foamUv = vec2(wp.x, wp.z).mul(0.06).add(vec2(universalLiquidTime.mul(0.18), universalLiquidTime.mul(-0.14)));
   const foamA = sin(foamUv.x.mul(2.4).add(cos(foamUv.y.mul(1.9))));
   const foamB = cos(foamUv.y.mul(2.4).add(sin(foamUv.x.mul(1.9))));
   const foamPattern = foamA.mul(foamB).abs();

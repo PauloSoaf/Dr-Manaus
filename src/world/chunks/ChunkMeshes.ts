@@ -76,7 +76,7 @@ export class ChunkMeshes {
   private readonly color = new Color();
 
   constructor() {
-    this.oceanGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 8, 8);
+    this.oceanGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 24, 24);
     this.oceanGeometry.rotateX(-Math.PI / 2);
     this.oceanGeometry.translate(WORLD.chunkSize * 0.5, 0.05, WORLD.chunkSize * 0.5);
     const shoreArr = new Float32Array(this.oceanGeometry.getAttribute('position').count).fill(1.0);

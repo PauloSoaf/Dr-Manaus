@@ -429,6 +429,7 @@ export class PlayerController {
         if (this.position.y <= this.submersion.riverbedY + 0.16 * this.size) {
           // Resting on the 3D riverbed after a dive: stable benthic contact without bobbing away
           this.velocity.y = Math.max(0, this.velocity.y * Math.exp(-dt * 10));
+          this.position.y = Math.max(this.position.y, this.submersion.riverbedY + 0.05 * this.size);
         } else {
           // Responsive surface buoyancy keeps head/shoulders cleanly above water
           const surfaceError = floatFeetY - this.position.y;
