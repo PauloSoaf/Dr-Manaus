@@ -423,8 +423,8 @@ export class EarthGlobe {
     const specDot = normalWorld.dot(halfDir).max(0);
     const sunGlint = SUN_GLINT.mul(specDot.pow(56.0).mul(smoothstep(0.0, 0.25, incidence)).mul(isWater).mul(0.42));
 
-    // Beer-Lambert oceanic absorption: deep waters darken exponentially, coastal waters reflect lighter cyan
-    const oceanDeepAbsorption = float(1).sub(smoothstep(0.0, 3.8, surfaceClassAttr)).mul(0.35);
+    // Beer-Lambert oceanic absorption: coastal waters reflect lighter cyan while deep ocean stays radiant cobalt blue
+    const oceanDeepAbsorption = float(1).sub(smoothstep(0.0, 3.8, surfaceClassAttr)).mul(0.08);
     const oceanColor = lit.mul(float(1).sub(oceanDeepAbsorption.mul(isWater)));
 
     material.colorNode = oceanColor.add(halo).add(oceanFresnel).add(sunGlint);

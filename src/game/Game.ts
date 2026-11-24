@@ -2695,6 +2695,17 @@ export class Game {
       this.player.velocity.set(0, 0, 0);
       this.player.state = 'Grounded';
     } else {
+      if (targetBody === 'earth' && this.universe.player.frame !== MANAUS_FRAME_ID) {
+        const geodetic = this.universe.playerGeodetic();
+        if (geodetic) {
+          BuildingGeneratorContext.activeOrigin = {
+            latDeg: geodetic.latRad * (180 / Math.PI),
+            lonDeg: geodetic.lonRad * (180 / Math.PI),
+            isManaus: false,
+          };
+        }
+        ChunkMeshes.isLocalManausActive = false;
+      }
       this.player.teleport(new Vector3(...newLocalPos));
       this.player.velocity.set(...this.universe.localVelocityMps);
       this.player.beginSurfaceApproach();

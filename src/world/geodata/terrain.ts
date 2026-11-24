@@ -74,26 +74,29 @@ function sampleTerrainBiomeColor(px: number, pz: number): [number, number, numbe
   if (isBeach) {
     // Praia: Golden river beach sand (e.g. Praia da Ponta Negra)
     const tBeach = Math.min(1, Math.max(0, inlandDist / 135.0));
-    const sandR = (0.64 + tBeach * 0.04) * grain;
-    const sandG = (0.54 + tBeach * 0.03) * grain;
-    const sandB = (0.34 + tBeach * 0.02) * grain;
+    const sandR = (0.72 + tBeach * 0.04) * grain;
+    const sandG = (0.60 + tBeach * 0.03) * grain;
+    const sandB = (0.38 + tBeach * 0.02) * grain;
     return [sandR, sandG, sandB];
   }
 
   // 2. City vs Forest (Mato)
   const isCity = isUrban(px, pz);
   const density = urbanDensity(px, pz);
-  const urbanFactor = isCity ? Math.min(1, Math.max(0.65, density * 1.25)) : 0.0;
+  // Only areas with genuine urban building density are classified as city ground!
+  // Forest/jungle fringe (density < 0.15) stays 100% vibrant rainforest green!
+  const rawUrban = isCity ? Math.max(0, Math.min(1, (density - 0.15) / 0.35)) : 0.0;
+  const urbanFactor = rawUrban * rawUrban * (3 - 2 * rawUrban);
 
-  // Cidade: Clean urban asphalt & concrete gray
-  const cityR = 0.160 * grain;
-  const cityG = 0.165 * grain;
-  const cityB = 0.170 * grain;
+  // Cidade: Clean, distinct urban asphalt & concrete slate gray
+  const cityR = 0.100 * grain;
+  const cityG = 0.108 * grain;
+  const cityB = 0.118 * grain;
 
-  // Mato: Vibrant, deep Amazonian rainforest green (matching forest backdrop and canopy)
-  const forestR = 0.055 * grain;
-  const forestG = 0.225 * grain;
-  const forestB = 0.050 * grain;
+  // Mato: Vibrant, deep, lush Amazonian rainforest green (tropical emerald foliage)
+  const forestR = 0.038 * grain;
+  const forestG = 0.245 * grain;
+  const forestB = 0.045 * grain;
 
   const r = forestR * (1 - urbanFactor) + cityR * urbanFactor;
   const g = forestG * (1 - urbanFactor) + cityG * urbanFactor;
@@ -332,8 +335,8 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
 /** A handful of terrain/road batches covering the horizon, never detailed city objects. */
 export function createTerrain(root: Group): Group {
   const terrain = new Group(); terrain.name = 'Generalized Manaus land and OSM arteries';
-  const green = new MeshStandardMaterial({ color: '#234a1b', roughness: 1, side: DoubleSide });
-  const urban = new MeshStandardMaterial({ color: '#3c3e41', roughness: 1, side: DoubleSide });
+  const green = new MeshStandardMaterial({ color: '#1b4317', roughness: 1, side: DoubleSide });
+  const urban = new MeshStandardMaterial({ color: '#2b2d30', roughness: 1, side: DoubleSide });
 
   // Outer horizon backdrop at authored -0.6m with an inner cutout for [-26000, 26000]
   // so it never blocks the excavated 3D riverbed while preserving the -0.6m horizon contract.

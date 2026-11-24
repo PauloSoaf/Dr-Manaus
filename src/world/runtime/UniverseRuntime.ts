@@ -614,11 +614,6 @@ export class UniverseRuntime {
    * Returns the new local coordinates so the PlayerController can be teleported there.
    */
   handoffTo(bodyId: string): Vec3 {
-    const targetFrame = bodyId === 'earth' ? MANAUS_FRAME_ID : `${bodyId}/local-enu`;
-    if (this.playerPose.frame === targetFrame) {
-      this.syncNavigationAddress();
-      return cloneVec3(this.playerPose.position);
-    }
     const body = this.activeSystem.bodies.find(candidate => candidate.id === bodyId);
     const model = body && bodyProfile(body).canLand
       ? body.id === 'earth' ? EARTH : planetBodyFromCelestial(body) : undefined;
@@ -626,22 +621,38 @@ export class UniverseRuntime {
       return cloneVec3(this.playerPose.position);
     }
 
-    // Read the outgoing state before replacing a previously used landing frame. A direction
-    // transform rotates velocity but does not account for the body's orbital translation.
-    const systemVelocity = this.systemVelocityMps();
     const sourceFrame = this.playerPose.frame;
     const fixedFrameId = `${bodyId}/fixed`;
-    const previousTarget = this.frames.has(targetFrame) ? this.frames.get(targetFrame) : undefined;
     const addedFixedFrame = !this.frames.has(fixedFrameId);
     if (addedFixedFrame) this.frames.register(referenceFrame({
       id: fixedFrameId, parentId: body.frameId, kind: 'body-fixed', label: `${bodyId} (fixo)`,
     }));
 
+    let isManausLocal = bodyId === 'earth';
+    if (bodyId === 'earth') {
+      const fixed = this.frames.convertPosition(sourceFrame, fixedFrameId, this.playerPose.position);
+      const surface = bodyFixedToGeodetic(model, { xM: fixed[0], yM: fixed[1], zM: fixed[2] });
+      const latDeg = surface.latRad * (180 / Math.PI);
+      const lonDeg = surface.lonRad * (180 / Math.PI);
+      isManausLocal = latDeg >= -3.40 && latDeg <= -2.86 &&
+                      lonDeg >= -60.30 && lonDeg <= -59.76;
+    }
+    const targetFrame = (bodyId === 'earth' && isManausLocal) ? MANAUS_FRAME_ID : `${bodyId}/local-enu`;
+    if (this.playerPose.frame === targetFrame) {
+      this.syncNavigationAddress();
+      return cloneVec3(this.playerPose.position);
+    }
+
+    // Read the outgoing state before replacing a previously used landing frame. A direction
+    // transform rotates velocity but does not account for the body's orbital translation.
+    const systemVelocity = this.systemVelocityMps();
+    const previousTarget = this.frames.has(targetFrame) ? this.frames.get(targetFrame) : undefined;
+
     let nextPose: SpatialPose;
     let nextVelocity: Vec3;
     let nextForward: Vec3;
     try {
-      if (bodyId !== 'earth') {
+      if (targetFrame !== MANAUS_FRAME_ID) {
         const fixed = this.frames.convertPosition(sourceFrame, fixedFrameId, this.playerPose.position);
         const surface = bodyFixedToGeodetic(model, { xM: fixed[0], yM: fixed[1], zM: fixed[2] });
         const anchor = { ...surface, heightM: 0 };

@@ -339,10 +339,10 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
 
   // Wave crest subsurface transmission & back-lighting rim (adapted from beautiful-water)
   const sunDir = vec3(0.42, 0.82, 0.38).normalize();
-  const backLighting = pow(max(dot(viewDir.negate(), sunDir), float(0.0)), 2.4);
-  const crestTransmission = smoothstep(0.10, 0.75, totalElevation.mul(waveDamp).add(waveSlope.mul(0.35)));
-  const crestRim = pow(float(1.0).sub(cosTheta), 1.5);
-  const crestGlow = crestTransmission.mul(crestRim).mul(float(0.25).add(backLighting.mul(0.75)));
+  const backLighting = pow(max(dot(viewDir.negate(), sunDir), float(0.0)), 3.2);
+  const crestTransmission = smoothstep(0.12, 0.80, totalElevation.mul(waveDamp).add(waveSlope.mul(0.35)));
+  const crestRim = pow(float(1.0).sub(cosTheta), 2.2);
+  const crestGlow = crestTransmission.mul(crestRim).mul(float(0.10).add(backLighting.mul(0.40)));
 
   // PBR GGX Microfacet Sun Specular Highlight with Smith correlated masking
   const halfDir = viewDir.add(sunDir).normalize();
@@ -351,7 +351,7 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const NdotL = max(waveNormal.dot(sunDir), float(0.001));
   const VdotH = max(viewDir.dot(halfDir), float(0.0));
   const sunFresnel = float(0.025).add(pow(float(1.0).sub(VdotH), 5.0).mul(0.975));
-  const alphaRoughness = float(0.075);
+  const alphaRoughness = float(0.06);
   const alphaSq = alphaRoughness.mul(alphaRoughness);
   const denom = NdotH.mul(NdotH).mul(alphaSq.sub(1.0)).add(1.0);
   const D = alphaSq.div(max(denom.mul(denom).mul(Math.PI), float(0.0001)));
@@ -361,10 +361,10 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const Vis = float(0.5).div(max(viewTerm.add(lightTerm), float(0.0001)));
   const rawSpecular = D.mul(Vis).mul(sunFresnel).mul(NdotL);
   // Dual-lobe PBR solar highlight: refined forward-scatter sheen + brilliant GGX specular glint
-  const broadSun = pow(max(dot(waveNormal, halfDir), float(0.0)), 80.0).mul(0.30);
-  const sharpSun = pow(rawSpecular.div(float(1.0).add(rawSpecular)), 1.15).mul(4.8);
+  const broadSun = pow(max(dot(waveNormal, halfDir), float(0.0)), 256.0).mul(0.08);
+  const sharpSun = pow(rawSpecular.div(float(1.0).add(rawSpecular)), 1.35).mul(4.0);
   const totalSunGlint = sharpSun.add(broadSun).mul(NdotL);
-  const sunSpecularGlint = color('#fff4d6').mul(totalSunGlint).mul(near.mul(0.85).add(0.15));
+  const sunSpecularGlint = color('#ffffff').mul(totalSunGlint).mul(near.mul(0.92).add(0.08));
 
   // Physical Beer-Lambert Optical Depth Attenuation driven by real geometric riverbed depth:
   // Extinction is rapid in Amazonian waters: bottom is only visible immediately adjacent to the banks (< 0.65m)
@@ -391,7 +391,7 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const solimoesShallow = color('#7d6849');
   const solimoesReflect = color('#b8a586');
   const solimoesBody = mix(solimoesDeep, solimoesShallow, transSolimoes.mul(0.65).add(waveSlope.mul(0.22)));
-  const solimoesFinal = mix(solimoesBody, reflectedSky.mul(color('#d4c6b0')), fresnel.mul(0.48));
+  const solimoesFinal = mix(solimoesBody, reflectedSky.mul(color('#baa788')), fresnel.mul(0.42));
 
   // Confluence mixing zone (Encontro das Águas)
   const riverColor = mix(negroFinal, solimoesFinal, silt);
@@ -400,12 +400,14 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const flowDir = vec2(1.0, 0.12).normalize();
   const advectedCoord = vec2(p.x, p.z).sub(flowDir.mul(u.uWaveTime.mul(1.15)));
 
-  // 1. Dynamic wave crest breaking foam & shoreline breaker surge foam (adapted from beautiful-water & threejs-water-free)
+  // 1. Dynamic wave crest breaking foam: 2D isotropic cellular turbulence eliminates 1D parallel stripes
   const crestSignal = totalElevation.mul(waveDamp).add(waveSlope.mul(0.35));
   const crestBreaking = smoothstep(0.18, 0.40, crestSignal);
-  const foamPhase = dot(advectedCoord, vec2(0.85, 0.52)).mul(1.8).sub(u.uWaveTime.mul(2.4));
-  const foamRibbon = sin(foamPhase).mul(cos(foamPhase.mul(0.65))).abs();
-  const crestFoam = crestBreaking.mul(smoothstep(0.25, 0.75, foamRibbon)).mul(near);
+  const foamUv = advectedCoord.mul(0.08);
+  const foamA = sin(foamUv.x.mul(2.4).add(cos(foamUv.y.mul(1.9))));
+  const foamB = cos(foamUv.y.mul(2.4).add(sin(foamUv.x.mul(1.9))));
+  const foamPattern = foamA.mul(foamB).abs();
+  const crestFoam = crestBreaking.mul(smoothstep(0.18, 0.65, foamPattern)).mul(near);
 
   const shoreSurge = sin(u.uWaveTime.mul(2.5).sub(shore.mul(25.0))).mul(0.5).add(0.5);
   const shoreFoam = smoothstep(0.002, 0.045, shore).mul(shoreSurge).mul(near);
@@ -428,7 +430,7 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const causticsColor = mix(color('#6ae5cc'), color('#e2c88f'), silt).mul(causticsPattern).mul(transR);
 
   // Add crest subsurface glow, sun specular glint, solar micro-sparkles, and shallow caustics
-  const crestGlowColor = mix(color('#184d5c'), color('#947a54'), silt).mul(crestGlow);
+  const crestGlowColor = mix(color('#0e2f38'), color('#483d28'), silt).mul(crestGlow);
   const riverColorWithHighlights = riverColor
     .add(crestGlowColor)
     .add(sunSpecularGlint)
@@ -437,7 +439,7 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
 
   // Subtle shoreline margin brightening (no diagonal checkerboard interference)
   const shoreMargin = float(1).sub(smoothstep(0.005, 0.14, shore)).mul(mix(float(0.32), float(0.10), distant));
-  const marginTint = mix(color('#2d3942'), color('#9c8a6e'), silt);
+  const marginTint = mix(color('#1c262d'), color('#584b39'), silt);
   const naturalBaseColor = mix(riverColorWithHighlights, marginTint, shoreMargin);
   const naturalSurfaceColor = mix(naturalBaseColor, foamColor, totalFoam);
 

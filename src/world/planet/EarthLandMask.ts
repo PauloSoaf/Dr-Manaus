@@ -2,6 +2,7 @@ import payload from '../geodata/earth-landmask.json';
 import { RAD_TO_DEG } from '../spatial/units';
 import { LAND_MASK } from '../geodata/landmask';
 import { geoToLegacyLocal } from '../spatial/ManausFrameAdapter';
+import { urbanDensity } from '../geodata/geodata';
 
 /**
  * Where the land is, globally.
@@ -128,7 +129,7 @@ export function classifyEarthSurface(latRad: number, lonRad: number): EarthSurfa
       if (LAND_MASK.isWater(x, z)) {
         return EarthSurfaceClass.ShallowWater;
       }
-      const manausUrban = z < 4500 && x > -12800 && x < 19500 && z > -17100;
+      const manausUrban = z < 3500 && x > -9500 && x < 14500 && z > -13000 && urbanDensity(x, z) >= 0.22;
       if (manausUrban) return EarthSurfaceClass.Urban;
       return EarthSurfaceClass.Land;
     }
@@ -203,12 +204,12 @@ export function classifyEarthBiome(latRad: number, lonRad: number): EarthBiome {
 
 /** Ocean blue, land green, urban gray/olive, and the ice that genuinely sits at the poles. */
 export const SURFACE_COLOURS = {
-  ocean: [0.035, 0.180, 0.420] as const,
-  shallow: [0.080, 0.450, 0.680] as const,
-  land: [0.125, 0.320, 0.115] as const,
+  ocean: [0.065, 0.320, 0.720] as const,
+  shallow: [0.120, 0.620, 0.880] as const,
+  land: [0.065, 0.280, 0.075] as const,
   arid: [0.620, 0.520, 0.340] as const,
   ice: [0.910, 0.935, 0.960] as const,
-  urban: [0.220, 0.230, 0.240] as const,
+  urban: [0.140, 0.145, 0.155] as const,
 } as const;
 
 /**

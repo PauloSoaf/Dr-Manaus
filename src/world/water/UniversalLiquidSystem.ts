@@ -68,12 +68,12 @@ export const FLUID_PRESETS: Record<LiquidSolventType, FluidPhysicalProperties> =
     viscosityRelative: 1.05,
     deepColor: '#0a3d78',        // Luminous deep cobalt/sapphire ocean blue (distinct from Rio Negro blackwater)
     shallowColor: '#00b4d8',     // Radiant coastal azure and tropical turquoise cyan
-    specularReflectColor: '#eef8ff', // Crisp bright white-blue sun reflections
-    roughness: 0.10,             // Glossy ocean surface
-    metalness: 0.45,
+    specularReflectColor: '#ffffff', // Crisp bright diamond sun reflections
+    roughness: 0.08,             // Glossy ocean surface
+    metalness: 0.40,
     fresnelPower: 4.8,
     waveDamping: 1.0,
-    turbidityBeerLambertAlpha: 0.025
+    turbidityBeerLambertAlpha: 0.018
   },
   'clear-swimming-pool': {
     densityKgM3: 997,
@@ -335,11 +335,14 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const material = new MeshStandardNodeMaterial({
     roughness: props.roughness,
     metalness: props.metalness,
-    color: props.deepColor
+    color: props.deepColor,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
   });
 
-  const p = positionLocal;
-  const distToCam = cameraPosition.distance(positionWorld);
+  const wp = positionWorld;
+  const distToCam = cameraPosition.distance(wp);
   const distant = smoothstep(300, 8000, distToCam);
   const near = float(1).sub(distant);
 
@@ -348,13 +351,14 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   let dHx: any = float(0);
   let dHz: any = float(0);
 
-  // Unroll Gerstner harmonic wave nodes in TSL
+  // Unroll Gerstner harmonic wave nodes in TSL using continuous world coordinates
+  // so wave phase and peaks never restart or produce block seams at chunk edges
   for (let i = 0; i < waves.length; i++) {
     const w = waves[i];
     const k = (2.0 * Math.PI) / w.wavelength;
     const c = Math.sqrt(9.80665 / k);
     const amp = i >= 2 ? float(w.amplitude).mul(near) : float(w.amplitude);
-    const phase = dot(vec2(p.x, p.z), vec2(w.direction[0], w.direction[1]))
+    const phase = dot(vec2(wp.x, wp.z), vec2(w.direction[0], w.direction[1]))
       .mul(k)
       .sub(time.mul(w.speed * c));
 
@@ -398,7 +402,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
 
   // Fresnel sky reflection: vibrant tropical azure sky for ocean surfaces
   const skyReflection = solvent === 'terrestrial-ocean'
-    ? color('#5fa8d3')
+    ? color('#6bb6e8')
     : reflectCol;
   let finalColorNode = mix(waterColor, skyReflection, fresnel.mul(0.68));
 
@@ -409,18 +413,20 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   // Sun specular glint (adapted from beautiful-water microfacet optics)
   const halfDir = viewDir.add(sunDir).normalize();
   const NdotH = max(waveNormal.dot(halfDir), float(0.0));
-  const sunSpecular = pow(NdotH, 72.0).mul(3.6);
-  finalColorNode = finalColorNode.add(reflectCol.mul(sunSpecular).mul(near.mul(0.8).add(0.2)));
+  const sunSpecular = pow(NdotH, 96.0).mul(3.8);
+  finalColorNode = finalColorNode.add(reflectCol.mul(sunSpecular).mul(near.mul(0.85).add(0.15)));
 
-  // Dynamic wave-crest breaking foam & solar micro-sparkles (adapted from beautiful-water & threejs-water-free)
+  // Dynamic wave-crest breaking foam: 2D isotropic turbulence eliminates 1D parallel stripes
   const crestSignal = totalElevation.add(waveSlope.mul(0.35));
   const crestBreaking = smoothstep(0.18, 0.40, crestSignal);
-  const foamPhase = dot(vec2(p.x, p.z), vec2(0.85, 0.52)).mul(1.8).sub(time.mul(2.4));
-  const foamRibbon = sin(foamPhase).mul(cos(foamPhase.mul(0.65))).abs();
-  const crestFoam = crestBreaking.mul(smoothstep(0.25, 0.75, foamRibbon)).mul(near);
-  const foamColor = color('#f4faff');
+  const foamUv = vec2(wp.x, wp.z).mul(0.06).add(vec2(time.mul(0.18), time.mul(-0.14)));
+  const foamA = sin(foamUv.x.mul(2.4).add(cos(foamUv.y.mul(1.9))));
+  const foamB = cos(foamUv.y.mul(2.4).add(sin(foamUv.x.mul(1.9))));
+  const foamPattern = foamA.mul(foamB).abs();
+  const crestFoam = crestBreaking.mul(smoothstep(0.15, 0.60, foamPattern)).mul(near);
+  const foamColor = color('#f8fcff');
 
-  const sparkleCoord = vec2(p.x, p.z).mul(2.5).add(waveNormal.xz.mul(1.5));
+  const sparkleCoord = vec2(wp.x, wp.z).mul(0.65).add(waveNormal.xz.mul(1.5));
   const sparkleA = sin(sparkleCoord.x.mul(7.8).add(cos(sparkleCoord.y.mul(6.4))));
   const sparkleB = cos(sparkleCoord.y.mul(7.8).add(sin(sparkleCoord.x.mul(6.4))));
   const sparklePattern = pow(smoothstep(0.65, 0.98, sparkleA.mul(sparkleB).abs()), 4.0);

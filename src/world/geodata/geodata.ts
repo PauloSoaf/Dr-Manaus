@@ -50,6 +50,14 @@ function place(id: string, name: string, shortName: string, lat: number, lon: nu
  */
 export const IRANDUBA_CENTER = latLonToWorld(-3.1608, -60.0990);
 
+/** A broad density envelope preserves the green fringe of metropolitan Manaus. */
+export function urbanDensity(x: number, z: number): number {
+  const main = 1 - Math.hypot((x - 1200) / 14200, (z + 7400) / 16500);
+  const west = 1 - Math.hypot((x + 10200) / 5200, (z + 5800) / 9000);
+  const iranduba = 1 - Math.hypot((x - IRANDUBA_CENTER.x) / 3200, (z - IRANDUBA_CENTER.z) / 2700);
+  return Math.min(1, Math.max(0, Math.max(main, west, iranduba * .74) * 2.2));
+}
+
 /** Approximate survey positions; a meter scale local projection, not a navigation map. */
 export const LANDMARKS: Landmark[] = [
   place('teatro', 'Teatro Amazonas', 'Teatro Amazonas', -3.1302764, -60.0232792, 92, 42, 'A cúpula do coração de Manaus. Arquitetura estilizada, criada para este mundo.'),

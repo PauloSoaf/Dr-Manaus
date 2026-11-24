@@ -275,14 +275,32 @@ export function sweepSegmentSphere(
 
 /**
  * Continuous proximity speed cap based on distance to the celestial envelope.
- * Smoothly scales from local landing speeds (~20 km/s) up to planetary (16c),
- * intra-system (256c), and cosmic scales without discrete cliff jumps.
+ * Implements Megaton Rainfall style planetary approach:
+ * - Remains fast through upper space / stratosphere (> 2,000m)
+ * - Decelerates smoothly between 2,000m and 150m down to standard local cruising flight (120 m/s)
+ * - Eliminates sudden teleport hitches and avoids loading stalls
  */
 export function proximitySpeedCapMps(distM: number): number {
-  if (distM <= 0) return 20_000;
+  if (distM <= 150) return 120; // Megaton Rainfall surface arrival speed (normal flight cruise)
+  if (distM < 2_000) {
+    // 150m -> 2,000m: smooth atmospheric deceleration down to 120 m/s
+    const t = (distM - 150) / 1850;
+    return 120 + Math.pow(t, 1.4) * (1200 - 120);
+  }
+  if (distM < 20_000) {
+    // 2,000m -> 20,000m: 1,200 m/s -> 8,000 m/s (fast cruise across troposphere / stratosphere)
+    const t = (distM - 2000) / 18000;
+    return 1200 + Math.pow(t, 1.2) * (8000 - 1200);
+  }
+  if (distM < 100_000) {
+    // 20,000m -> 100,000m: 8,000 m/s -> 50,000 m/s (mesosphere/exosphere)
+    const t = (distM - 20000) / 80000;
+    return 8000 + t * (50000 - 8000);
+  }
   if (distM < 1_000_000) {
-    // 0 -> 1,000 km: 20 km/s -> 120 km/s
-    return 20_000 + (distM / 1_000_000) * 100_000;
+    // 100,000m -> 1,000,000m: 50,000 m/s -> 120,000 m/s
+    const t = (distM - 100000) / 900000;
+    return 50000 + t * (120000 - 50000);
   }
   if (distM < 100_000_000) {
     // 1,000 km -> 100,000 km: 120 km/s -> 50,000 km/s (~0.167c)
@@ -418,7 +436,7 @@ export class CosmicCruiseController {
     let decelGatedBodyId: string | undefined;
     let requiredDecelMps2 = 0;
 
-    const arrivalSpeed = 20_000;
+    const arrivalSpeed = 120; // Megaton Rainfall surface arrival speed (normal flight cruise)
     const safetyBufferRatio = 1.25; // 25% safety reserve over stopping distance
     const effectiveSpoolS = WARP_SPOOL_S * safetyBufferRatio; // 1.5s anticipatory braking horizon
 

@@ -1,5 +1,5 @@
 import { WORLD } from '../../core/config';
-import { buildingAllowed, IRANDUBA_CENTER, isLand, isUrban, vegetationAllowed, worldToLatLon } from '../geodata/geodata';
+import { buildingAllowed, IRANDUBA_CENTER, isLand, isUrban, urbanDensity, vegetationAllowed, worldToLatLon } from '../geodata/geodata';
 import { chunkKey, type ChunkPayload } from './Chunk';
 import { classifyEarthBiome, isLandAt } from '../planet/EarthLandMask';
 import { enuBasis, enuToGeodetic, type EnuBasis } from '../spatial/ENU';
@@ -44,13 +44,7 @@ export function chunkSeed(cx: number, cz: number): number {
   return Math.imul(cx + 13717, 73856093) ^ Math.imul(cz - 9271, 19349663);
 }
 
-/** A broad density envelope preserves the green fringe of metropolitan Manaus. */
-export function urbanDensity(x: number, z: number): number {
-  const main = 1 - Math.hypot((x - 1200) / 14200, (z + 7400) / 16500);
-  const west = 1 - Math.hypot((x + 10200) / 5200, (z + 5800) / 9000);
-  const iranduba = 1 - Math.hypot((x - IRANDUBA_CENTER.x) / 3200, (z - IRANDUBA_CENTER.z) / 2700);
-  return Math.min(1, Math.max(0, Math.max(main, west, iranduba * .74) * 2.2));
-}
+export { urbanDensity } from '../geodata/geodata';
 
 const PALETTE = [
   [0.91, 0.76, 0.59], [0.82, 0.52, 0.39], [0.97, 0.86, 0.66],
@@ -96,11 +90,12 @@ export function generateChunk(cx: number, cz: number): ChunkPayload {
     return { key: chunkKey(cx, cz), cx, cz, land: false, biome: 'ocean', buildings: new Float32Array(), trees: new Float32Array() };
   }
 
-  const inCity = isManaus && isUrban(centerX, centerZ);
+  const density = isManaus ? urbanDensity(centerX, centerZ) : 0;
+  const inCity = isManaus && isUrban(centerX, centerZ) && density >= 0.18;
   // City reservations exclude wilderness by design; forest must not use the building filter.
   if (!inCity) {
     if (land && biome !== 'desert' && biome !== 'ice') {
-      const isRainforest = biome === 'rainforest';
+      const isRainforest = biome === 'rainforest' || isManaus;
       const spacing = isRainforest ? 16 : 24;
       for (let z = 8; z < WORLD.chunkSize; z += spacing) for (let x = 8; x < WORLD.chunkSize; x += spacing) {
         const px = originX + x + (random() - .5) * 8, pz = originZ + z + (random() - .5) * 8;
@@ -110,9 +105,9 @@ export function generateChunk(cx: number, cz: number): ChunkPayload {
         trees.push(px, pz, height, crown, 0);
       }
     }
-    return { key: chunkKey(cx, cz), cx, cz, land, biome, buildings: new Float32Array(), trees: new Float32Array(trees) };
+    const chunkBiome = (isManaus && biome !== 'desert' && biome !== 'ice') ? 'rainforest' : biome;
+    return { key: chunkKey(cx, cz), cx, cz, land, biome: chunkBiome, buildings: new Float32Array(), trees: new Float32Array(trees) };
   }
-  const density = isManaus ? urbanDensity(centerX, centerZ) : 0;
   for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) {
     const x = originX + (25 + col * 26 + (random() - .5) * 5) * unit;
     const z = originZ + (25 + row * 26 + (random() - .5) * 5) * unit;

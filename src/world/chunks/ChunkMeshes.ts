@@ -78,19 +78,19 @@ export class ChunkMeshes {
   constructor() {
     this.oceanGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 8, 8);
     this.oceanGeometry.rotateX(-Math.PI / 2);
-    this.oceanGeometry.translate(WORLD.chunkSize * 0.5, 0.0, WORLD.chunkSize * 0.5);
+    this.oceanGeometry.translate(WORLD.chunkSize * 0.5, 0.05, WORLD.chunkSize * 0.5);
     const shoreArr = new Float32Array(this.oceanGeometry.getAttribute('position').count).fill(1.0);
     this.oceanGeometry.setAttribute('shore', new Float32BufferAttribute(shoreArr, 1));
     this.oceanMaterial = createUniversalLiquidMaterial('terrestrial-ocean');
 
     this.forestGroundGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 1, 1);
     this.forestGroundGeometry.rotateX(-Math.PI / 2);
-    this.forestGroundGeometry.translate(WORLD.chunkSize * 0.5, 0.0, WORLD.chunkSize * 0.5);
-    this.forestGroundMaterial = new MeshStandardMaterial({ color: 0x20541e, roughness: 1.0 });
-    this.desertGroundMaterial = new MeshStandardMaterial({ color: 0xd4a373, roughness: 0.95 });
-    this.iceGroundMaterial = new MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.85 });
-    this.woodlandGroundMaterial = new MeshStandardMaterial({ color: 0x385e2b, roughness: 1.0 });
-    this.urbanGroundMaterial = new MeshStandardMaterial({ color: 0x3c3e41, roughness: 1.0 });
+    this.forestGroundGeometry.translate(WORLD.chunkSize * 0.5, 0.02, WORLD.chunkSize * 0.5);
+    this.forestGroundMaterial = new MeshStandardMaterial({ color: 0x1d5218, roughness: 1.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    this.desertGroundMaterial = new MeshStandardMaterial({ color: 0xd4a373, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    this.iceGroundMaterial = new MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    this.woodlandGroundMaterial = new MeshStandardMaterial({ color: 0x2e6122, roughness: 1.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    this.urbanGroundMaterial = new MeshStandardMaterial({ color: 0x2c2e33, roughness: 1.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   }
 
   create(payload: ChunkPayload): { group: Group; colliders: Collider[]; bytes: number } {

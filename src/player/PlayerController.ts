@@ -280,16 +280,16 @@ export class PlayerController {
     if (this.damageFlash > 0) {
       this.damageFlash = Math.max(0, this.damageFlash - dt * 2.0);
     }
-    if (this.input.consume('KeyV')) this.tapArm();
-    const isShift = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
-    const isB = this.input.held('KeyB');
-    if (!isB) this.megaNeedsBoostRelease = false;
     if (this.flightTakeoffGraceS > 0) {
       this.flightTakeoffGraceS = Math.max(0, this.flightTakeoffGraceS - dt);
     }
     if (this.input.consume('KeyF')) {
       this.toggleFlight();
     }
+    if (this.input.consume('KeyV')) this.tapArm();
+    const isShift = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+    const isB = this.input.held('KeyB');
+    if (!isB) this.megaNeedsBoostRelease = false;
     const wasSwimming = this.state === 'Swimming';
     this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
 
@@ -306,6 +306,10 @@ export class PlayerController {
       && !this.input.held('Space')
     ) {
       this.state = 'Swimming';
+      this.armedTier = 'none';
+      this.megaNeedsBoostRelease = true;
+      this.speedMode = 'ground';
+      this.velocity.set(0, 0, 0);
     }
     const flying = this.isFlying;
 
@@ -608,14 +612,22 @@ export class PlayerController {
 
   toggleFlight(): void {
     if (this.state === 'Grounded' || this.state === 'Falling' || this.state === 'Swimming') {
+      const wasInWater = this.state === 'Swimming';
       this.state = 'Hover';
       this.flightTakeoffGraceS = 0.65;
-      this.velocity.y = 5;
-      this.position.y += 0.18;
+      if (wasInWater) {
+        this.armedTier = 'none';
+        this.speedMode = 'normal';
+      }
+      this.velocity.set(0, 5, 0);
+      this.position.y += wasInWater ? 0.35 : 0.18;
     } else {
       const sub = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
       if (this.waterVolumeActive && sub.inWater && sub.totalWaterDepthM >= 1.15 * this.size && this.position.y <= sub.surfaceY + 0.05) {
         this.state = 'Swimming';
+        this.armedTier = 'none';
+        this.speedMode = 'ground';
+        this.velocity.set(0, 0, 0);
       } else {
         this.state = 'Falling';
       }
@@ -735,6 +747,8 @@ export class PlayerController {
   teleport(position: Vector3): void {
     this.position.copy(position);
     this.velocity.set(0, 0, 0);
+    this.armedTier = 'none';
+    this.speedMode = 'normal';
     this.model.position.copy(position);
     this.submersion = manausBathymetry.evaluateSubmersion(position, 1.8 * this.size, this.armClockS);
     if (this.waterVolumeActive && this.submersion.inWater && position.y <= this.submersion.surfaceY + 0.5) {
@@ -760,6 +774,9 @@ export class PlayerController {
     if (Number.isFinite(floor)) this.position.y = Math.max(this.position.y, floor + 0.05);
     this.state = 'Falling';
     this.grounded = false;
+    this.armedTier = 'none';
+    this.speedMode = 'normal';
+    this.velocity.clampLength(0, FLIGHT.speeds.normal);
     this.model.position.copy(this.position);
   }
 
