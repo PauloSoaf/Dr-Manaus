@@ -171,8 +171,9 @@ export class EarthProvider implements WorldProvider {
       lonDeg >= MANAUS_COVERAGE.minLonDeg && lonDeg <= MANAUS_COVERAGE.maxLonDeg
     );
 
+    const isLocalView = inManausCoverage || (context.frame.id !== EARTH_FIXED_FRAME_ID && this.altitudeM < 15000);
     const above = this.altitudeM - this.options.minAltitudeM;
-    this.opacity = inManausCoverage && this.options.minAltitudeM > 0
+    this.opacity = isLocalView && this.options.minAltitudeM > 0
       ? Math.min(1, Math.max(0, above / this.options.fadeM))
       : 1;
     if (this.streamingMode === 'off') {

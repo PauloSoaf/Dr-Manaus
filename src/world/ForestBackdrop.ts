@@ -3,7 +3,7 @@ import {isLandFootprint,isUrban} from './geodata/geodata';
 
 /** Distant forest crowns; detailed, destructible trees take over inside the near ring. */
 export class ForestBackdrop {
-  private readonly mesh=new InstancedMesh(new IcosahedronGeometry(1,0),new MeshStandardMaterial({color:0x294b29,roughness:1}),6400);
+  readonly mesh=new InstancedMesh(new IcosahedronGeometry(1,0),new MeshStandardMaterial({color:0x294b29,roughness:1}),6400);
   private readonly dummy=new Object3D();private x=Infinity;private z=Infinity;
   constructor(root:Group){this.mesh.name='distant-rainforest';this.mesh.count=0;this.mesh.frustumCulled=false;root.add(this.mesh);}
   update(position:Vector3):void{

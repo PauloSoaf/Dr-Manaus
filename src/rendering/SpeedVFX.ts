@@ -4,7 +4,7 @@ import { float, max, mix, positionGeometry, smoothstep, uniform, uv, vec3, vec4 
 export type SpeedState = 'normal' | 'fast' | 'super' | 'mega' | 'interplanetary';
 
 /** Where each state sits on the 0..1 intensity ramp the shader reads. */
-const LEVEL: Record<SpeedState, number> = { normal: 0, fast: .22, super: .62, mega: 1, interplanetary: 0 };
+const LEVEL: Record<SpeedState, number> = { normal: 0, fast: 0, super: .55, mega: 1, interplanetary: 0 };
 
 /**
  * Edge-only speed effect.

@@ -110,6 +110,10 @@ export class LandmarkManager {
     this.refreshColliders();
   }
 
+  setVisible(visible: boolean): void {
+    for (const node of this.nodes) node.anchor.visible = visible;
+  }
+
   update(player: Vector3, dt: number): void {
     this.lastPlayer.copy(player);
     this.timer -= dt; if (this.timer > 0) return; this.timer = .2;

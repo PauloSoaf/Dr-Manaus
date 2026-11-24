@@ -5,6 +5,8 @@ import {
 import osmRoads from './osm-roads.json';
 import { LAND_MASK, type LandMaskPayload } from './landmask';
 import { isLandAt } from '../planet/EarthLandMask';
+import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
+import { enuToGeodetic } from '../spatial/ENU';
 // Bundled rather than fetched: `isLand` runs inside the chunk worker and must answer synchronously.
 import landmask from '../../../public/geodata/real-city/landmask.json';
 LAND_MASK.load(landmask as LandMaskPayload);
@@ -94,6 +96,13 @@ export function shoreZ(x: number): number {
 }
 export function riverWidth(x: number): number { return 2900 + Math.max(0, x + 5000) * 0.25; }
 export function isLand(x: number, z: number): boolean {
+  // If outside Manaus local origin, query authoritative global landmask via ENU basis
+  if (!BuildingGeneratorContext.activeOrigin.isManaus) {
+    const basis = BuildingGeneratorContext.getBasis();
+    const geodetic = enuToGeodetic(basis, [x, -z, 0]);
+    return isLandAt(geodetic.latRad, geodetic.lonRad);
+  }
+
   // 1. The baked sub-meter river mask is the ground truth wherever it reaches
   if (LAND_MASK.covers(x, z)) return !LAND_MASK.isWater(x, z);
 
@@ -122,6 +131,7 @@ export function isLandFootprint(x:number,z:number,radiusM:number):boolean {
   return true;
 }
 export function isUrban(x: number, z: number): boolean {
+  if (!BuildingGeneratorContext.activeOrigin.isManaus) return false;
   const manaus = z < shoreZ(x) - 25 && x > -12800 && x < 19500 && z > -17100;
   const oppositeShore = shoreZ(x) + riverWidth(x);
   const ix = (x - IRANDUBA_CENTER.x) / 3100;

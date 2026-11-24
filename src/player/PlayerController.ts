@@ -615,10 +615,8 @@ export class PlayerController {
       const wasInWater = this.state === 'Swimming';
       this.state = 'Hover';
       this.flightTakeoffGraceS = 0.65;
-      if (wasInWater) {
-        this.armedTier = 'none';
-        this.speedMode = 'normal';
-      }
+      this.armedTier = 'none';
+      this.speedMode = 'normal';
       this.velocity.set(0, 5, 0);
       this.position.y += wasInWater ? 0.35 : 0.18;
     } else {

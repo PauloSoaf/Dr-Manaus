@@ -83,20 +83,19 @@ function sampleTerrainBiomeColor(px: number, pz: number): [number, number, numbe
   // 2. City vs Forest (Mato)
   const isCity = isUrban(px, pz);
   const density = urbanDensity(px, pz);
-  // Only areas with genuine urban building density are classified as city ground!
-  // Forest/jungle fringe (density < 0.15) stays 100% vibrant rainforest green!
-  const rawUrban = isCity ? Math.max(0, Math.min(1, (density - 0.15) / 0.35)) : 0.0;
-  const urbanFactor = rawUrban * rawUrban * (3 - 2 * rawUrban);
+  // Inside urban footprint, ground is definitively city asphalt & concrete slate gray.
+  // Blends smoothly toward forest green only at the outer wilderness boundary (density < 0.15).
+  const urbanFactor = isCity ? Math.max(0.85, Math.min(1.0, density * 1.5)) : 0.0;
 
-  // Cidade: Clean, distinct urban asphalt & concrete slate gray
-  const cityR = 0.100 * grain;
-  const cityG = 0.108 * grain;
-  const cityB = 0.118 * grain;
+  // Cidade: Clean, neutral asphalt & concrete slate gray (cancels green/warm ambient tint)
+  const cityR = 0.145 * grain;
+  const cityG = 0.145 * grain;
+  const cityB = 0.152 * grain;
 
   // Mato: Vibrant, deep, lush Amazonian rainforest green (tropical emerald foliage)
-  const forestR = 0.038 * grain;
-  const forestG = 0.245 * grain;
-  const forestB = 0.045 * grain;
+  const forestR = 0.035 * grain;
+  const forestG = 0.235 * grain;
+  const forestB = 0.042 * grain;
 
   const r = forestR * (1 - urbanFactor) + cityR * urbanFactor;
   const g = forestG * (1 - urbanFactor) + cityG * urbanFactor;

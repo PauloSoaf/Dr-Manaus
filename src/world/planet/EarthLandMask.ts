@@ -192,6 +192,8 @@ export function classifyEarthBiome(latRad: number, lonRad: number): EarthBiome {
   if (latDeg <= -18 && latDeg >= -34 && lonDeg >= 114 && lonDeg <= 148) return 'desert'; // Australian Outback
   if (latDeg <= -18 && latDeg >= -28 && lonDeg >= -72 && lonDeg <= -67) return 'desert'; // Atacama
   if (latDeg <= -18 && latDeg >= -30 && lonDeg >= 12 && lonDeg <= 28) return 'desert'; // Kalahari
+  if (latDeg >= 24 && latDeg <= 38 && lonDeg >= -120 && lonDeg <= -102) return 'desert'; // Mojave & Sonoran
+  if (latDeg >= 36 && latDeg <= 46 && lonDeg >= 75 && lonDeg <= 110) return 'desert'; // Gobi & Taklamakan
 
   // Tropical Rainforests
   if (latDeg >= -18 && latDeg <= 10 && lonDeg >= -82 && lonDeg <= -44) return 'rainforest'; // Amazon Basin
@@ -206,10 +208,10 @@ export function classifyEarthBiome(latRad: number, lonRad: number): EarthBiome {
 export const SURFACE_COLOURS = {
   ocean: [0.065, 0.320, 0.720] as const,
   shallow: [0.120, 0.620, 0.880] as const,
-  land: [0.065, 0.280, 0.075] as const,
+  land: [0.075, 0.220, 0.080] as const,
   arid: [0.620, 0.520, 0.340] as const,
   ice: [0.910, 0.935, 0.960] as const,
-  urban: [0.140, 0.145, 0.155] as const,
+  urban: [0.150, 0.150, 0.160] as const,
 } as const;
 
 /**

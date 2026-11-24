@@ -204,6 +204,7 @@ export class Game {
   };
   private lastAudioMedium: AtmosphericMedium = 'earth-atmosphere';
   private wasUnderwater = false;
+  private wasManaus = true;
   private waterRippleTimer = 0;
   private readonly underwaterBgColor = new Color('#06202c');
   readonly diagnosticIsolation = new WaterDiagnosticIsolationController();
@@ -1024,13 +1025,36 @@ export class Game {
     this.camera.inSpace = !local;
     this.camera.prepareLook();
     const manaus = this.manausSimulationActive;
+    const isEarthDominant = this.universe.telemetry.dominantBody === 'earth';
+    const isLocalEarth = isEarthDominant && local;
+    if (this.wasManaus !== manaus) {
+      this.streamer.clear();
+      this.wasManaus = manaus;
+    }
     ChunkMeshes.isLocalManausActive = manaus;
     BuildingGeneratorContext.activeOrigin.isManaus = manaus;
-    if (manaus) this.destruction.beginFrame();
+    if (!manaus && isLocalEarth) {
+      const geodetic = this.universe.playerGeodetic();
+      if (geodetic) {
+        BuildingGeneratorContext.activeOrigin = {
+          latDeg: geodetic.latRad * (180 / Math.PI),
+          lonDeg: geodetic.lonRad * (180 / Math.PI),
+          isManaus: false,
+        };
+      }
+    }
+    if (manaus || isLocalEarth) this.destruction.beginFrame();
     // Non-Earth local ENU frames are planetary presentation domains too. Earth refines this
     // below with its coverage-aware visual handoff.
     this.presentationDomain = manaus ? 'local' : local ? 'planetary' : 'orbital';
-    this.localRoot.visible = manaus;
+    this.localRoot.visible = manaus || isLocalEarth;
+    this.flatTerrain.visible = manaus;
+    this.realCity.group.visible = manaus;
+    this.largo.group.visible = manaus;
+    this.landmarks.setVisible(manaus);
+    this.water.mesh.visible = manaus;
+    this.water.vfx.group.visible = manaus;
+    this.forest.mesh.visible = manaus;
 
     // Uncurve position for RealCity legacy logic
     let legacyPos = this.player.position;
@@ -1046,6 +1070,8 @@ export class Game {
     if (manaus) {
       this.gatherColliders();
       if (FEATURES.curvedManaus) this.curveColliders();
+    } else if (isLocalEarth) {
+      this.gatherColliders();
     } else {
       this.colliders.length = 0;
       this.curvedColliders.length = 0;
@@ -1154,8 +1180,8 @@ export class Game {
       if (isEarth) this.presentationDomain = state.presentationDomain;
       // The flat backdrop handles its own crossfade based on localWeight, while the rest of
       // the local root (city, trees) remains visible as long as the ground is not fully overridden.
-      setTerrainOpacity(this.flatTerrain, state.effectiveLocalWeight);
-      const cityVisible = manaus && (state.effectiveLocalWeight > 0 || state.localGroundVisible);
+      setTerrainOpacity(this.flatTerrain, manaus ? state.effectiveLocalWeight : 0);
+      const cityVisible = (manaus || isLocalEarth) && (state.effectiveLocalWeight > 0 || state.localGroundVisible);
       this.localWorldRoot.visible = cityVisible;
 
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
@@ -1186,14 +1212,23 @@ export class Game {
       const updatedLegacyPos = FEATURES.curvedManaus
         ? this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z)
         : this.player.position;
-      this.streamer.update(updatedLegacyPos, this.player.velocity, dt); this.lap('streamer'); this.hlod.update(updatedLegacyPos, this.streamer.activeKeys); this.lap('hlod');
+      this.streamer.update(updatedLegacyPos, this.player.velocity, dt);
+      this.lap('streamer');
+      this.hlod.update(updatedLegacyPos, this.streamer.activeKeys);
+      this.lap('hlod');
+    } else if (isLocalEarth) {
+      this.streamer.update(this.player.position, this.player.velocity, dt);
+      this.lap('streamer');
     }
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
+    if (manaus || isLocalEarth) {
+      this.destruction.update(dt, this.player.position, this.player.velocity, this.player.state === 'Grounded');
+      this.lap('destruction');
+    }
     if (manaus) {
       const updatedLegacyPos = FEATURES.curvedManaus
         ? this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z)
         : this.player.position;
-      this.destruction.update(dt, this.player.position, this.player.velocity, this.player.state === 'Grounded'); this.lap('destruction');
       this.traffic?.update(worldDt, updatedLegacyPos); this.lap('traffic');
       this.vessels.update(worldDt, performance.now() * 0.001, updatedLegacyPos.x, updatedLegacyPos.z);
       this.vehicle?.update(worldDt, this.input, updatedLegacyPos, this.colliders);

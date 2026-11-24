@@ -330,6 +330,14 @@ export class WorldStreamer {
     }
     this.debugDirty = false;
   }
+  clear(): void {
+    for (const chunk of this.records.values()) if (chunk.group) this.meshes.disposeChunk(chunk.group);
+    this.records.clear();
+    this.active.clear();
+    this.wanted.clear();
+    this.pinned.clear();
+    this.colliderList.length = 0;
+  }
   setDetailRadius(radius: number): void { this.detailRadius = Math.max(WORLD.chunkSize, radius); this.cadence = 1; }
   setNight(enabled: boolean): void { this.meshes.setNight(enabled); }
   setDebug(bounds: boolean, lod: boolean): void { this.drawBounds = bounds || lod; this.debugRoot.visible = this.drawBounds; this.debugDirty = true; }

@@ -2,33 +2,10 @@ import { WORLD } from '../../core/config';
 import { buildingAllowed, IRANDUBA_CENTER, isLand, isUrban, urbanDensity, vegetationAllowed, worldToLatLon } from '../geodata/geodata';
 import { chunkKey, type ChunkPayload } from './Chunk';
 import { classifyEarthBiome, isLandAt } from '../planet/EarthLandMask';
-import { enuBasis, enuToGeodetic, type EnuBasis } from '../spatial/ENU';
-import { degToRad } from '../spatial/units';
+import { enuToGeodetic } from '../spatial/ENU';
+import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 
-export class BuildingGeneratorContext {
-  static activeOrigin = {
-    latDeg: -3.1303,
-    lonDeg: -60.0234,
-    isManaus: true,
-  };
-  private static cachedBasis: EnuBasis | null = null;
-  private static cachedLat = -999;
-  private static cachedLon = -999;
-
-  static getBasis(): EnuBasis {
-    const { latDeg, lonDeg } = BuildingGeneratorContext.activeOrigin;
-    if (!BuildingGeneratorContext.cachedBasis || latDeg !== BuildingGeneratorContext.cachedLat || lonDeg !== BuildingGeneratorContext.cachedLon) {
-      BuildingGeneratorContext.cachedLat = latDeg;
-      BuildingGeneratorContext.cachedLon = lonDeg;
-      BuildingGeneratorContext.cachedBasis = enuBasis({
-        latRad: degToRad(latDeg),
-        lonRad: degToRad(lonDeg),
-        heightM: 0,
-      });
-    }
-    return BuildingGeneratorContext.cachedBasis;
-  }
-}
+export { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 
 export function seededRandom(seed: number): () => number {
   let state = seed >>> 0;

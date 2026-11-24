@@ -86,11 +86,11 @@ export class ChunkMeshes {
     this.forestGroundGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 1, 1);
     this.forestGroundGeometry.rotateX(-Math.PI / 2);
     this.forestGroundGeometry.translate(WORLD.chunkSize * 0.5, 0.02, WORLD.chunkSize * 0.5);
-    this.forestGroundMaterial = new MeshStandardMaterial({ color: 0x1d5218, roughness: 1.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    this.forestGroundMaterial = new MeshStandardMaterial({ color: 0x1d4718, roughness: 1.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     this.desertGroundMaterial = new MeshStandardMaterial({ color: 0xd4a373, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
     this.iceGroundMaterial = new MeshStandardMaterial({ color: 0xf1f5f9, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-    this.woodlandGroundMaterial = new MeshStandardMaterial({ color: 0x2e6122, roughness: 1.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
-    this.urbanGroundMaterial = new MeshStandardMaterial({ color: 0x2c2e33, roughness: 1.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    this.woodlandGroundMaterial = new MeshStandardMaterial({ color: 0x48523b, roughness: 1.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    this.urbanGroundMaterial = new MeshStandardMaterial({ color: 0x2e3035, roughness: 1.0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   }
 
   create(payload: ChunkPayload): { group: Group; colliders: Collider[]; bytes: number } {
