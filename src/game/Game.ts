@@ -1470,8 +1470,8 @@ export class Game {
     const isBlackHoleNearby = dominantBodyId === 'sgra' || dominantBodyId === 'sagittarius-a-star';
     const blackHoleProx = isBlackHoleNearby ? Math.min(1, Math.max(0, 1 - (altitudeNow / 1e11))) : 0;
 
-    this.player.waterVolumeActive = manaus;
-    if (manaus && this.water && this.input.consume('KeyU')) {
+    this.player.waterVolumeActive = manaus || isLocalEarth;
+    if ((manaus || isLocalEarth) && this.water && this.input.consume('KeyU')) {
       const nextDebug = !this.water.clearDebugMode;
       this.water.setClearDebugMode(nextDebug);
       this.hud.notify(
