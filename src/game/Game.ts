@@ -1026,14 +1026,20 @@ export class Game {
     this.camera.inSpace = !local;
     this.camera.prepareLook();
     const manaus = this.manausSimulationActive;
-    const isEarthDominant = this.universe.telemetry.dominantBody === 'earth';
+    const activeDominantBodyId = this.universe.telemetry.dominantBody;
+    const isEarthDominant = activeDominantBodyId === 'earth';
+    const isThalassaDominant = activeDominantBodyId === 'thalassa';
     const isLocalEarth = isEarthDominant && local;
+    const isLocalThalassa = isThalassaDominant && local;
+    const isPlanetarySurface = isLocalEarth || isLocalThalassa;
     if (this.wasManaus !== manaus) {
       this.streamer.clear();
       this.wasManaus = manaus;
     }
     ChunkMeshes.isLocalManausActive = manaus;
+    ChunkMeshes.activeSolvent = isLocalThalassa ? 'megawave-ocean' : 'terrestrial-ocean';
     BuildingGeneratorContext.activeOrigin.isManaus = manaus;
+    BuildingGeneratorContext.activeOrigin.bodyId = activeDominantBodyId;
     if (!manaus && isLocalEarth) {
       const geodetic = this.universe.playerGeodetic();
       if (geodetic) {
@@ -1041,16 +1047,24 @@ export class Game {
           latDeg: geodetic.latRad * (180 / Math.PI),
           lonDeg: geodetic.lonRad * (180 / Math.PI),
           isManaus: false,
+          bodyId: 'earth',
         };
       }
+    } else if (isLocalThalassa) {
+      BuildingGeneratorContext.activeOrigin = {
+        latDeg: 0,
+        lonDeg: 0,
+        isManaus: false,
+        bodyId: 'thalassa',
+      };
     }
-    if (manaus || isLocalEarth) this.destruction.beginFrame();
+    if (manaus || isPlanetarySurface) this.destruction.beginFrame();
     const timeSecNow = this.lastTime * 0.001;
     updateUniversalLiquidTime(timeSecNow);
     // Non-Earth local ENU frames are planetary presentation domains too. Earth refines this
     // below with its coverage-aware visual handoff.
     this.presentationDomain = manaus ? 'local' : local ? 'planetary' : 'orbital';
-    this.localRoot.visible = manaus || isLocalEarth;
+    this.localRoot.visible = manaus || isPlanetarySurface;
     this.flatTerrain.visible = manaus;
     this.realCity.group.visible = manaus;
     this.largo.group.visible = manaus;
@@ -1073,7 +1087,7 @@ export class Game {
     if (manaus) {
       this.gatherColliders();
       if (FEATURES.curvedManaus) this.curveColliders();
-    } else if (isLocalEarth) {
+    } else if (isPlanetarySurface) {
       this.gatherColliders();
     } else {
       this.colliders.length = 0;
@@ -1219,12 +1233,12 @@ export class Game {
       this.lap('streamer');
       this.hlod.update(updatedLegacyPos, this.streamer.activeKeys);
       this.lap('hlod');
-    } else if (isLocalEarth) {
+    } else if (isPlanetarySurface) {
       this.streamer.update(this.player.position, this.player.velocity, dt);
       this.lap('streamer');
     }
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
-    if (manaus || isLocalEarth) {
+    if (manaus || isPlanetarySurface) {
       this.destruction.update(dt, this.player.position, this.player.velocity, this.player.state === 'Grounded');
       this.lap('destruction');
     }
@@ -1470,8 +1484,8 @@ export class Game {
     const isBlackHoleNearby = dominantBodyId === 'sgra' || dominantBodyId === 'sagittarius-a-star';
     const blackHoleProx = isBlackHoleNearby ? Math.min(1, Math.max(0, 1 - (altitudeNow / 1e11))) : 0;
 
-    this.player.waterVolumeActive = manaus || isLocalEarth;
-    if ((manaus || isLocalEarth) && this.water && this.input.consume('KeyU')) {
+    this.player.waterVolumeActive = manaus || isPlanetarySurface;
+    if ((manaus || isPlanetarySurface) && this.water && this.input.consume('KeyU')) {
       const nextDebug = !this.water.clearDebugMode;
       this.water.setClearDebugMode(nextDebug);
       this.hud.notify(

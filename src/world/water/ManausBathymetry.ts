@@ -182,6 +182,7 @@ export class ManausBathymetryService {
    */
   isWater(x: number, z: number): boolean {
     if (!Number.isFinite(x + z)) return false;
+    if (BuildingGeneratorContext.activeOrigin.bodyId === 'thalassa') return true;
     return !isLand(x, z);
   }
 
@@ -269,6 +270,9 @@ export class ManausBathymetryService {
   sampleRiverbedHeight(x: number, z: number): number {
     if (!Number.isFinite(x + z)) return 0;
     if (!this.isWater(x, z)) return 0;
+    if (BuildingGeneratorContext.activeOrigin.bodyId === 'thalassa') {
+      return -4000.0;
+    }
     if (!BuildingGeneratorContext.activeOrigin.isManaus) {
       return -250.0;
     }
@@ -321,6 +325,9 @@ export class ManausBathymetryService {
    */
   sampleWaterSurface(x: number, z: number, timeSec = 0): number {
     if (!Number.isFinite(x + z)) return this.baseSurfaceY;
+    if (BuildingGeneratorContext.activeOrigin.bodyId === 'thalassa') {
+      return sampleUniversalLiquid(x, z, timeSec, 0.0, 'megawave-ocean', _scratchLiquidSample).height;
+    }
     if (!BuildingGeneratorContext.activeOrigin.isManaus) {
       if (this.isWater(x, z)) {
         return sampleUniversalLiquid(x, z, timeSec, 0.05, 'terrestrial-ocean', _scratchLiquidSample).height;

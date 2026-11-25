@@ -184,6 +184,7 @@ export function createProceduralPlanetSurface(
         return Math.max(-maxRelief, Math.min(maxRelief, h));
       }
       case 'oceanic-rocky': {
+        if (body.id === 'thalassa') return 0;
         const continents = fbm3D(d, 6, 1.8, baseSeed);
         const seaLevelThreshold = 0.46;
         if (continents < seaLevelThreshold) {
@@ -306,7 +307,7 @@ export function createProceduralPlanetSurface(
       }
 
       case 'oceanic-rocky': {
-        if (h === 0) {
+        if (body.id === 'thalassa' || h === 0) {
           // Liquid ocean with physical optical absorption (Beer-Lambert) and hydrothermal bathymetry
           const depthNoise = valueNoise3D(d[0] * 5, d[1] * 5, d[2] * 5, baseSeed + 45);
           const coastalShelf = valueNoise3D(d[0] * 12, d[1] * 12, d[2] * 12, baseSeed + 88);

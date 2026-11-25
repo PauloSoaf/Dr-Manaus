@@ -62,6 +62,17 @@ export class UniversalTargetCatalog {
       address: { ...SOLAR_TARGET_ADDRESS, bodyId: 'titan-astral-leviathan-01' },
     });
 
+    // Ocean Planet Thalassa with 500m megawaves
+    this.add({
+      kind: 'body',
+      displayName: 'Thalassa · Planeta Oceânico (Mega-Ondas 500m)',
+      objectId: 'thalassa',
+      galaxyId: 'milky_way',
+      systemId: 'sol',
+      bodyId: 'thalassa',
+      address: { ...SOLAR_TARGET_ADDRESS, bodyId: 'thalassa' },
+    });
+
     // Curated James Webb Space Telescope Deep Field Nebulae
     for (let i = 0; i < CURATED_JWST_NEBULAE.length; i++) {
       const neb = CURATED_JWST_NEBULAE[i];

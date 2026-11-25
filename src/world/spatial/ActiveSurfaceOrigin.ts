@@ -2,10 +2,16 @@ import { enuBasis, type EnuBasis } from './ENU';
 import { degToRad } from './units';
 
 export class BuildingGeneratorContext {
-  static activeOrigin = {
+  static activeOrigin: {
+    latDeg: number;
+    lonDeg: number;
+    isManaus: boolean;
+    bodyId?: string;
+  } = {
     latDeg: -3.1303,
     lonDeg: -60.0234,
     isManaus: true,
+    bodyId: 'earth',
   };
   private static cachedBasis: EnuBasis | null = null;
   private static cachedLat = -999;

@@ -7,9 +7,13 @@ import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
 import { manausTileSceneMatrix } from '../spatial/ManausSurfacePresentation';
 import { BUILDING_STRIDE, TREE_STRIDE, type ChunkPayload } from './Chunk';
-import { createUniversalLiquidMaterial } from '../water/UniversalLiquidSystem';
+import { createUniversalLiquidMaterial, type LiquidSolventType } from '../water/UniversalLiquidSystem';
+import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 
 function facadeAtlas(): { color: CanvasTexture; light: CanvasTexture } {
+  if (typeof document === 'undefined') {
+    return { color: null as any, light: null as any };
+  }
   const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 256;
   const emission = document.createElement('canvas'); emission.width = 256; emission.height = 256;
   const ctx = canvas.getContext('2d')!;
@@ -49,6 +53,7 @@ function roofGeometry(): BufferGeometry {
 export class ChunkMeshes {
   /** Controls whether local flat Manaus terrain sheet owns [-26km, 26km]. Set to false when outside Manaus. */
   static isLocalManausActive = true;
+  static activeSolvent: LiquidSolventType = 'terrestrial-ocean';
 
   private readonly box = new BoxGeometry(1, 1, 1);
   private readonly roof = roofGeometry();
@@ -63,6 +68,8 @@ export class ChunkMeshes {
   private readonly leaves = new MeshStandardMaterial({ color: 0xffffff, roughness: .95 });
   private readonly oceanGeometry: PlaneGeometry;
   private readonly oceanMaterial: Material;
+  private readonly megawaveOceanGeometry: PlaneGeometry;
+  private readonly megawaveOceanMaterial: Material;
   private readonly forestGroundGeometry: PlaneGeometry;
   private readonly forestGroundMaterial: MeshStandardMaterial;
   private readonly desertGroundMaterial: MeshStandardMaterial;
@@ -82,6 +89,13 @@ export class ChunkMeshes {
     const shoreArr = new Float32Array(this.oceanGeometry.getAttribute('position').count).fill(1.0);
     this.oceanGeometry.setAttribute('shore', new Float32BufferAttribute(shoreArr, 1));
     this.oceanMaterial = createUniversalLiquidMaterial('terrestrial-ocean');
+
+    this.megawaveOceanGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 32, 32);
+    this.megawaveOceanGeometry.rotateX(-Math.PI / 2);
+    this.megawaveOceanGeometry.translate(WORLD.chunkSize * 0.5, 0.05, WORLD.chunkSize * 0.5);
+    const megaShoreArr = new Float32Array(this.megawaveOceanGeometry.getAttribute('position').count).fill(1.0);
+    this.megawaveOceanGeometry.setAttribute('shore', new Float32BufferAttribute(megaShoreArr, 1));
+    this.megawaveOceanMaterial = createUniversalLiquidMaterial('megawave-ocean');
 
     this.forestGroundGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 1, 1);
     this.forestGroundGeometry.rotateX(-Math.PI / 2);
@@ -163,7 +177,10 @@ export class ChunkMeshes {
     }
     const isLocalManaus = ChunkMeshes.isLocalManausActive && Math.abs(originX) <= 26000 && Math.abs(originZ) <= 26000;
     if (!payload.land && !isLocalManaus) {
-      const ocean = make(this.oceanGeometry, this.oceanMaterial, 1, 'ocean-surface');
+      const isMegawave = ChunkMeshes.activeSolvent === 'megawave-ocean' || BuildingGeneratorContext.activeOrigin.bodyId === 'thalassa';
+      const geom = isMegawave ? this.megawaveOceanGeometry : this.oceanGeometry;
+      const mat = isMegawave ? this.megawaveOceanMaterial : this.oceanMaterial;
+      const ocean = make(geom, mat, 1, 'ocean-surface');
       this.matrix.identity();
       ocean.setMatrixAt(0, this.matrix);
       if (ocean.instanceMatrix) ocean.instanceMatrix.needsUpdate = true;

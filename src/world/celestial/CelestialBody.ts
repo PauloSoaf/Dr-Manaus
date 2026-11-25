@@ -177,9 +177,22 @@ export const SOLAR_SYSTEM_BODIES: readonly CelestialBody[] = [
     satelliteOrbit(583511, .002, .1, 76.8, 132.2, 143.6, 13.463237, [77.311, 15.175])),
   satellite('triton', 'Tritão', 'neptune', 1352.6, 1352.6, 1428.49546,
     satelliteOrbit(354800, 0, 157.3, 178.1, 0, 63, 5.876994, [299.8, 43.1])),
+  {
+    id: 'thalassa',
+    name: 'Thalassa · Planeta Oceânico',
+    parentId: 'sun',
+    equatorialRadiusM: 6_200_000,
+    polarRadiusM: 6_200_000,
+    massKg: 5.5e24,
+    rotationPeriodS: 75_400,
+    axialTiltRad: 0.08,
+    frameId: 'solar-system/thalassa-fixed',
+  },
 ];
 
 export const GRAVITATIONAL_CONSTANT = 6.674_30e-11;
+
+export const THALASSA_OCEAN_WORLD: CelestialBody = SOLAR_SYSTEM_BODIES.find(b => b.id === 'thalassa')!;
 
 export const TITAN_LEVIATHAN_BODY: CelestialBody = {
   id: 'titan-astral-leviathan-01',
@@ -195,6 +208,7 @@ export const TITAN_LEVIATHAN_BODY: CelestialBody = {
 
 export function bodyById(id: string): CelestialBody | undefined {
   if (id === TITAN_LEVIATHAN_BODY.id) return TITAN_LEVIATHAN_BODY;
+  if (id === THALASSA_OCEAN_WORLD.id) return THALASSA_OCEAN_WORLD;
   return SOLAR_SYSTEM_BODIES.find(body => body.id === id);
 }
 

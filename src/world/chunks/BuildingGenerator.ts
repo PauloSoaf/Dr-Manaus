@@ -41,6 +41,10 @@ export function generateChunk(cx: number, cz: number): ChunkPayload {
   const unit = WORLD.chunkSize / 128;
   const centerX = originX + WORLD.chunkSize * .5;
   const centerZ = originZ + WORLD.chunkSize * .5;
+  const isThalassa = BuildingGeneratorContext.activeOrigin.bodyId === 'thalassa';
+  if (isThalassa) {
+    return { key: chunkKey(cx, cz), cx, cz, land: false, biome: 'ocean', buildings: new Float32Array(), trees: new Float32Array() };
+  }
   const isManaus = BuildingGeneratorContext.activeOrigin.isManaus;
   let latRad: number;
   let lonRad: number;

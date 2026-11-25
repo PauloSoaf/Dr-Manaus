@@ -538,6 +538,21 @@ export class UniversalMapPanel {
           </div>
           <div id="coord-status" style="font-size: 10px; color: #94a3b8; margin-top: 0.25rem;"></div>
         </div>
+        <section class="thalassa-teleport-card" style="margin-top: 1rem; background: linear-gradient(135deg, rgba(8, 47, 73, 0.95) 0%, rgba(3, 105, 161, 0.85) 100%); padding: 0.85rem; border-radius: 8px; border: 1px solid #38bdf8; box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.35rem;">
+            <div style="display: flex; align-items: center; gap: 0.4rem;">
+              <span style="font-size: 15px;">🌊</span>
+              <b style="color: #f0f9ff; font-size: 11px; letter-spacing: 0.04em;">THALASSA · PLANETA OCEÂNICO</b>
+            </div>
+            <span style="background: #0284c7; color: #fff; font-size: 9px; padding: 2px 6px; border-radius: 4px; font-weight: 700;">ONDAS 500M</span>
+          </div>
+          <p style="margin: 0 0 0.65rem 0; font-size: 10px; color: #bae6fd; line-height: 1.45;">
+            Planeta procedural 100% água com mega-ondas colossais de 500 metros em órbita circumpolar contínua.
+          </p>
+          <button id="btn-teleport-thalassa" style="width: 100%; padding: 0.5rem; background: #0284c7; color: #ffffff; border: 1px solid #7dd3fc; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 0.4rem; transition: all 0.2s ease;">
+            <span>⚡</span> TELETRANSPORTAR PARA O PLANETA OCEÂNICO
+          </button>
+        </section>
         <div class="map-destinations" style="margin-top: 1.5rem;">
           <span class="eyebrow">PONTOS DE INTERESSE</span>
           <div id="landmark-list"></div>
@@ -557,6 +572,12 @@ export class UniversalMapPanel {
     });
 
     const btnTranslocate = this.root.querySelector('#btn-translocate') as HTMLButtonElement;
+    const btnThalassa = this.root.querySelector('#btn-teleport-thalassa') as HTMLButtonElement;
+    if (btnThalassa) {
+      btnThalassa.onclick = () => {
+        this.onTravel('drm:v1://?kind=surface&gal=milky_way&sys=sol&body=thalassa&lat=0&lon=0&alt=250');
+      };
+    }
     this.root.querySelectorAll<HTMLElement>('[data-u2-test]').forEach(button=>{button.onclick=()=>this.onTravel('u2-test-'+button.dataset.u2Test);});
     this.root.querySelectorAll<HTMLElement>('[data-u1-test]').forEach(button=>{
       button.onclick=()=>this.onTravel('u1-test-'+button.dataset.u1Test);
