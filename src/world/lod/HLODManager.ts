@@ -24,7 +24,7 @@ function distantColor(x: number, z: number, random: () => number): number {
  */
 export class HLODManager {
   private readonly surfaceService = new SurfaceFrameService('earth');
-  private readonly group = new Group();
+  readonly group = new Group();
   private readonly geometry = new BoxGeometry(1, 1, 1);
   private readonly canopyGeometry = new IcosahedronGeometry(1, 0);
   private readonly canopyMaterial = new MeshStandardMaterial({ color: 0x57744c, roughness: 1 });
@@ -102,6 +102,22 @@ export class HLODManager {
     if (this.realTiles.has(`${tx},${tz}`)) return true;
     if (tx >= this.minTx && tx <= this.maxTx && tz >= this.minTz && tz <= this.maxTz && isUrban(x, z)) return true;
     return false;
+  }
+
+  setVisible(visible: boolean): void { this.group.visible = visible; }
+
+  clear(): void {
+    this.proxies.clear();
+    this.aggregates.length = 0;
+    this.horizons.length = 0;
+    this.colliderList.length = 0;
+    this.medium.count = 0;
+    this.aggregate.count = 0;
+    this.horizon.count = 0;
+    this.canopy.count = 0;
+    this.previous.set(Infinity, Infinity, Infinity);
+    this.distantPosition.set(Infinity, Infinity, Infinity);
+    this.dirty = true;
   }
 
   get nodeCount(): number { return this.medium.count + this.aggregate.count + this.horizon.count + this.canopy.count; }

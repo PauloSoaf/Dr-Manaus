@@ -60,6 +60,23 @@ export class GenerationPool {
     });
   }
 
+  /**
+   * Purges pending queued jobs (e.g. during region teleportation).
+   * In-flight worker slots will finish or timeout, but will be discarded by WorldStreamer.
+   */
+  clearQueue(filter?: (context: ChunkGenerationContext) => boolean): void {
+    const error = new Error('Job cancelled due to region change.');
+    const remaining: Job[] = [];
+    for (const job of this.queue) {
+      if (!filter || filter(job.context)) {
+        job.reject(error);
+      } else {
+        remaining.push(job);
+      }
+    }
+    this.queue = remaining;
+  }
+
   private dispatch(): void {
     if (this.stopped) return;
     if (!this.slots.length) {

@@ -14,6 +14,8 @@ export interface ChunkPayload {
   key: string; cx: number; cz: number;
   buildings: Float32Array; trees: Float32Array; land: boolean;
   biome?: string;
+  regionId?: string;
+  generationVersion?: number;
 }
 export interface Chunk {
   key: string; cx: number; cz: number; state: ChunkState; priority: number;
@@ -34,6 +36,12 @@ export interface ChunkGenerationContext {
   seed: number;
 }
 
+export function createRegionId(bodyId: string, isManaus: boolean, latDeg: number, lonDeg: number): string {
+  if (isManaus) return 'earth:manaus';
+  if (bodyId === 'thalassa') return 'thalassa:megawave-ocean';
+  return `${bodyId}:${latDeg.toFixed(2)}:${lonDeg.toFixed(2)}`;
+}
+
 export function defaultChunkGenerationContext(): ChunkGenerationContext {
   return {
     bodyId: 'earth',
@@ -41,7 +49,7 @@ export function defaultChunkGenerationContext(): ChunkGenerationContext {
     latDeg: -3.1303,
     lonDeg: -60.0234,
     surfaceType: 'terrestrial',
-    regionId: 'manaus-city',
+    regionId: 'earth:manaus',
     generationVersion: 1,
     isManaus: true,
     seed: 1337,

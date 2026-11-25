@@ -47,6 +47,7 @@ import { QualityManager } from '../rendering/QualityManager';
 import { WorldStreamer } from '../world/streaming/WorldStreamer';
 import { ChunkMeshes } from '../world/chunks/ChunkMeshes';
 import { BuildingGeneratorContext } from '../world/chunks/BuildingGenerator';
+import { createRegionId } from '../world/chunks/Chunk';
 import { HLODManager } from '../world/lod/HLODManager';
 import { RealCityLayer } from '../world/realcity/RealCityLayer';
 import { LandmarkManager } from '../world/landmarks/LandmarkManager';
@@ -239,6 +240,10 @@ export class Game {
       burstVfx: pos => (this.powers as any)?.effects?.burst(pos as any, 0x91ffe1, this.player.size, 48),
       targetCatalog: this.universalTargetCatalog,
       targetResolver: this.universalTargetResolver,
+      onRegionChange: region => {
+        this.streamer.setRegion(region);
+        this.hlod.clear();
+      },
     });
   }
   get universalTravel(): UniversalTravelController {
@@ -715,7 +720,14 @@ export class Game {
     this.population = new PopulationManager(this.worldRoot, () => this.audio?.play('crowd-gasp'));
     this.missions = new MissionManager(this.worldRoot, this.save, message => this.hud?.notify(message));
     this.destruction = new DestructionSystem(this.worldRoot, this.destructible);
-    this.player.beforeMove = (position, velocity, dt) => { if (!this.manausSimulationActive) return []; this.destruction.plough(position, velocity, dt, true); this.gatherColliders(); if (FEATURES.curvedManaus) this.curveColliders(); return FEATURES.curvedManaus ? this.curvedColliders : this.colliders; };
+    this.player.beforeMove = (position, velocity, dt) => {
+      const local = !this.universalTravelController?.active && this.travelDomain.localPhysicsActive;
+      if (!this.manausSimulationActive && !local) return [];
+      if (this.manausSimulationActive) this.destruction.plough(position, velocity, dt, true);
+      this.gatherColliders();
+      if (FEATURES.curvedManaus && this.manausSimulationActive) this.curveColliders();
+      return FEATURES.curvedManaus && this.manausSimulationActive ? this.curvedColliders : this.colliders;
+    };
     this.powers = new PowerSystem(this.actorRoot, this.player, this.rendering.camera, this.input, {
       canDeformSurface: () => this.manausSimulationActive || (this.travelDomain.localPhysicsActive && !!this.universe.telemetry.dominantBody),
       targets: () => this.getAllTargets(),
@@ -1036,31 +1048,45 @@ export class Game {
     const isLocalEarth = isEarthDominant && local;
     const isLocalThalassa = isThalassaDominant && local;
     const isPlanetarySurface = isLocalEarth || isLocalThalassa;
-    if (this.wasManaus !== manaus) {
-      this.streamer.clear();
-      this.wasManaus = manaus;
-    }
-    ChunkMeshes.isLocalManausActive = manaus;
-    ChunkMeshes.activeSolvent = isLocalThalassa ? 'megawave-ocean' : 'terrestrial-ocean';
-    BuildingGeneratorContext.activeOrigin.isManaus = manaus;
-    BuildingGeneratorContext.activeOrigin.bodyId = activeDominantBodyId;
-    if (!manaus && isLocalEarth) {
+    // Authoritative region determination
+    let currentLatDeg = -3.1303;
+    let currentLonDeg = -60.0234;
+    let currentSurfaceType: 'terrestrial' | 'ocean' | 'megawave-ocean' | 'barren' = 'terrestrial';
+
+    if (manaus) {
+      currentLatDeg = -3.1303;
+      currentLonDeg = -60.0234;
+      currentSurfaceType = 'terrestrial';
+    } else if (isLocalThalassa) {
+      currentLatDeg = 0;
+      currentLonDeg = 0;
+      currentSurfaceType = 'megawave-ocean';
+    } else if (isLocalEarth) {
       const geodetic = this.universe.playerGeodetic();
       if (geodetic) {
-        BuildingGeneratorContext.activeOrigin = {
-          latDeg: geodetic.latRad * (180 / Math.PI),
-          lonDeg: geodetic.lonRad * (180 / Math.PI),
-          isManaus: false,
-          bodyId: 'earth',
-        };
+        currentLatDeg = geodetic.latRad * (180 / Math.PI);
+        currentLonDeg = geodetic.lonRad * (180 / Math.PI);
+      } else {
+        currentLatDeg = BuildingGeneratorContext.activeOrigin.latDeg;
+        currentLonDeg = BuildingGeneratorContext.activeOrigin.lonDeg;
       }
-    } else if (isLocalThalassa) {
-      BuildingGeneratorContext.activeOrigin = {
-        latDeg: 0,
-        lonDeg: 0,
-        isManaus: false,
-        bodyId: 'thalassa',
-      };
+      currentSurfaceType = 'ocean';
+    } else {
+      currentLatDeg = 0;
+      currentLonDeg = 0;
+      currentSurfaceType = activeDominantBodyId === 'thalassa' ? 'megawave-ocean' : 'barren';
+    }
+
+    const regionChanged = this.streamer.setRegion({
+      bodyId: activeDominantBodyId,
+      latDeg: currentLatDeg,
+      lonDeg: currentLonDeg,
+      isManaus: manaus,
+      surfaceType: currentSurfaceType,
+    });
+    if (regionChanged) {
+      this.hlod.clear();
+      this.wasManaus = manaus;
     }
     if (manaus || isPlanetarySurface) this.destruction.beginFrame();
     const timeSecNow = this.lastTime * 0.001;
@@ -1076,6 +1102,7 @@ export class Game {
     this.water.mesh.visible = manaus;
     this.water.vfx.group.visible = manaus;
     this.forest.mesh.visible = manaus;
+    this.hlod.setVisible(manaus);
 
     // Uncurve position for RealCity legacy logic
     let legacyPos = this.player.position;
@@ -1753,7 +1780,15 @@ export class Game {
   /** Rebuilt in place every frame: spreads and filters would allocate three arrays per tick. */
   private gatherColliders() {
     const list = this.colliders; list.length = 0;
-    if (!this.manausSimulationActive) return;
+    if (!this.manausSimulationActive) {
+      const activeDominantBodyId = this.universe.telemetry.dominantBody;
+      const local = !this.universalTravelController?.active && this.travelDomain.localPhysicsActive;
+      const isPlanetarySurface = (activeDominantBodyId === 'earth' || activeDominantBodyId === 'thalassa') && local;
+      if (isPlanetarySurface) {
+        for (const collider of this.streamer.colliders) list.push(collider);
+      }
+      return;
+    }
     for (const collider of this.streamer.colliders) if (!this.realCity.replacesCollider(collider)) list.push(collider);
     for (const collider of this.realCity.colliders) list.push(collider);
     for (const collider of this.hlod.colliders) if (!this.realCity.replacesCollider(collider)) list.push(collider);
@@ -2777,13 +2812,41 @@ export class Game {
       if (targetBody === 'earth' && this.universe.player.frame !== MANAUS_FRAME_ID) {
         const geodetic = this.universe.playerGeodetic();
         if (geodetic) {
+          const lat = geodetic.latRad * (180 / Math.PI);
+          const lon = geodetic.lonRad * (180 / Math.PI);
           BuildingGeneratorContext.activeOrigin = {
-            latDeg: geodetic.latRad * (180 / Math.PI),
-            lonDeg: geodetic.lonRad * (180 / Math.PI),
+            latDeg: lat,
+            lonDeg: lon,
             isManaus: false,
+            bodyId: 'earth',
           };
+          this.streamer.setRegion({
+            bodyId: 'earth',
+            latDeg: lat,
+            lonDeg: lon,
+            isManaus: false,
+            surfaceType: 'terrestrial',
+          });
+          this.hlod.clear();
         }
         ChunkMeshes.isLocalManausActive = false;
+      } else if (targetBody === 'thalassa') {
+        BuildingGeneratorContext.activeOrigin = {
+          latDeg: 0,
+          lonDeg: 0,
+          isManaus: false,
+          bodyId: 'thalassa',
+        };
+        this.streamer.setRegion({
+          bodyId: 'thalassa',
+          latDeg: 0,
+          lonDeg: 0,
+          isManaus: false,
+          surfaceType: 'megawave-ocean',
+        });
+        this.hlod.clear();
+        ChunkMeshes.isLocalManausActive = false;
+        ChunkMeshes.activeSolvent = 'megawave-ocean';
       }
       this.player.teleport(new Vector3(...newLocalPos));
       this.player.velocity.set(...this.universe.localVelocityMps);

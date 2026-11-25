@@ -260,7 +260,7 @@ export class ChunkMeshes {
   }
   setNight(enabled: boolean): void { this.facade.emissiveIntensity = enabled ? .8 : .045; }
   dispose(): void {
-    this.box.dispose(); this.roof.dispose(); this.trunk.dispose(); this.crown.dispose(); this.atlas.color.dispose(); this.atlas.light.dispose();
+    this.box.dispose(); this.roof.dispose(); this.trunk.dispose(); this.crown.dispose(); this.atlas.color?.dispose(); this.atlas.light?.dispose();
     this.facade.dispose(); this.roofMat.dispose(); this.pavement.dispose(); this.bark.dispose(); this.leaves.dispose();
     this.oceanGeometry.dispose();
     if ('dispose' in this.oceanMaterial && typeof (this.oceanMaterial as any).dispose === 'function') {

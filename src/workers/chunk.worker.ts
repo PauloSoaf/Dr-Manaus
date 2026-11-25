@@ -12,7 +12,7 @@ scope.onmessage = ({ data }) => {
     type: 'generated',
     id: data.id,
     payload,
-    generationVersion: data.context?.generationVersion,
-    regionId: data.context?.regionId,
+    generationVersion: payload.generationVersion ?? data.context?.generationVersion,
+    regionId: payload.regionId ?? data.context?.regionId,
   }, [payload.buildings.buffer, payload.trees.buffer]);
 };

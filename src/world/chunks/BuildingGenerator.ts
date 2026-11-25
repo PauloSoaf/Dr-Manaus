@@ -1,6 +1,6 @@
 import { WORLD } from '../../core/config';
 import { buildingAllowed, IRANDUBA_CENTER, isLand, isUrban, urbanDensity, vegetationAllowed, worldToLatLon } from '../geodata/geodata';
-import { chunkKey, type ChunkPayload, type ChunkGenerationContext, defaultChunkGenerationContext } from './Chunk';
+import { chunkKey, type ChunkPayload, type ChunkGenerationContext, defaultChunkGenerationContext, createRegionId } from './Chunk';
 import { classifyEarthBiome, isLandAt } from '../planet/EarthLandMask';
 import { enuBasis, enuToGeodetic } from '../spatial/ENU';
 import { degToRad } from '../spatial/units';
@@ -43,7 +43,12 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
     latDeg: BuildingGeneratorContext.activeOrigin.latDeg,
     lonDeg: BuildingGeneratorContext.activeOrigin.lonDeg,
     surfaceType: BuildingGeneratorContext.activeOrigin.bodyId === 'thalassa' ? 'megawave-ocean' : 'terrestrial',
-    regionId: BuildingGeneratorContext.activeOrigin.isManaus ? 'manaus-city' : `${BuildingGeneratorContext.activeOrigin.bodyId ?? 'earth'}:${BuildingGeneratorContext.activeOrigin.latDeg.toFixed(2)}:${BuildingGeneratorContext.activeOrigin.lonDeg.toFixed(2)}`,
+    regionId: createRegionId(
+      BuildingGeneratorContext.activeOrigin.bodyId ?? 'earth',
+      BuildingGeneratorContext.activeOrigin.isManaus,
+      BuildingGeneratorContext.activeOrigin.latDeg,
+      BuildingGeneratorContext.activeOrigin.lonDeg
+    ),
     generationVersion: 1,
     isManaus: BuildingGeneratorContext.activeOrigin.isManaus,
     seed: 1337,
@@ -57,7 +62,12 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
   const centerZ = originZ + WORLD.chunkSize * .5;
   const isThalassa = resolvedContext.bodyId === 'thalassa' || resolvedContext.surfaceType === 'megawave-ocean';
   if (isThalassa) {
-    return { key: chunkKey(cx, cz), cx, cz, land: false, biome: 'ocean', buildings: new Float32Array(), trees: new Float32Array() };
+    return {
+      key: chunkKey(cx, cz), cx, cz, land: false, biome: 'ocean',
+      buildings: new Float32Array(), trees: new Float32Array(),
+      regionId: resolvedContext.regionId,
+      generationVersion: resolvedContext.generationVersion,
+    };
   }
   const isManaus = resolvedContext.isManaus;
   let latRad: number;
@@ -86,7 +96,12 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
 
   // Water chunks: strictly zero trees and zero buildings
   if (!land) {
-    return { key: chunkKey(cx, cz), cx, cz, land: false, biome: 'ocean', buildings: new Float32Array(), trees: new Float32Array() };
+    return {
+      key: chunkKey(cx, cz), cx, cz, land: false, biome: 'ocean',
+      buildings: new Float32Array(), trees: new Float32Array(),
+      regionId: resolvedContext.regionId,
+      generationVersion: resolvedContext.generationVersion,
+    };
   }
 
   const density = isManaus ? urbanDensity(centerX, centerZ) : 0;
@@ -105,7 +120,12 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
       }
     }
     const chunkBiome = (isManaus && biome !== 'desert' && biome !== 'ice') ? 'rainforest' : biome;
-    return { key: chunkKey(cx, cz), cx, cz, land, biome: chunkBiome, buildings: new Float32Array(), trees: new Float32Array(trees) };
+    return {
+      key: chunkKey(cx, cz), cx, cz, land, biome: chunkBiome,
+      buildings: new Float32Array(), trees: new Float32Array(trees),
+      regionId: resolvedContext.regionId,
+      generationVersion: resolvedContext.generationVersion,
+    };
   }
   for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) {
     const x = originX + (25 + col * 26 + (random() - .5) * 5) * unit;
@@ -134,5 +154,10 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
       trees.push(x,z,height,crown,n%3===0?1:0);
     }
   }
-  return { key: chunkKey(cx, cz), cx, cz, land, biome: 'urban', buildings: new Float32Array(buildings), trees: new Float32Array(trees) };
+  return {
+    key: chunkKey(cx, cz), cx, cz, land, biome: 'urban',
+    buildings: new Float32Array(buildings), trees: new Float32Array(trees),
+    regionId: resolvedContext.regionId,
+    generationVersion: resolvedContext.generationVersion,
+  };
 }

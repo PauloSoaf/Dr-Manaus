@@ -1,7 +1,7 @@
 import { Box3, BoxGeometry, EdgesGeometry, Frustum, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4, Vector3 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
-import { ChunkState, chunkKey, defaultChunkGenerationContext, type Chunk, type ChunkGenerationContext } from '../chunks/Chunk';
+import { ChunkState, chunkKey, defaultChunkGenerationContext, createRegionId, type Chunk, type ChunkGenerationContext } from '../chunks/Chunk';
 import { ChunkMeshes } from '../chunks/ChunkMeshes';
 import { planChunks, type ChunkDemand, type PositionLike } from './ChunkPriority';
 import { GenerationPool } from './GenerationPool';
@@ -46,13 +46,57 @@ export class WorldStreamer {
   }
 
   setGenerationContext(context: Partial<ChunkGenerationContext>): void {
+    this.setRegion(context, false);
+  }
+
+  /**
+   * Sets the active geographic region for chunk generation.
+   * If the region ID changes (or forceClear is true), all existing cached chunks
+   * and in-flight queue jobs are atomically purged and generationVersion increments.
+   */
+  setRegion(context: Partial<ChunkGenerationContext>, forceClear = false): boolean {
+    const bodyId = context.bodyId ?? this.activeContext.bodyId;
+    const isManaus = context.isManaus ?? this.activeContext.isManaus;
+    const latDeg = context.latDeg ?? this.activeContext.latDeg;
+    const lonDeg = context.lonDeg ?? this.activeContext.lonDeg;
+    const regionId = context.regionId ?? createRegionId(bodyId, isManaus, latDeg, lonDeg);
+
+    const regionChanged = forceClear || regionId !== this.activeContext.regionId;
+
+    if (regionChanged) {
+      const nextVersion = this.activeContext.generationVersion + 1;
+      this.activeContext = {
+        ...this.activeContext,
+        ...context,
+        bodyId,
+        isManaus,
+        latDeg,
+        lonDeg,
+        regionId,
+        generationVersion: nextVersion,
+      };
+
+      // Atomic cache clear & queue purge
+      this.generators.clearQueue();
+      this.clear();
+
+      // Synchronize static contexts & ChunkMeshes
+      BuildingGeneratorContext.activeOrigin = {
+        latDeg: this.activeContext.latDeg,
+        lonDeg: this.activeContext.lonDeg,
+        isManaus: this.activeContext.isManaus,
+        bodyId: this.activeContext.bodyId,
+      };
+      ChunkMeshes.isLocalManausActive = this.activeContext.isManaus;
+      ChunkMeshes.activeSolvent = this.activeContext.bodyId === 'thalassa' || this.activeContext.surfaceType === 'megawave-ocean'
+        ? 'megawave-ocean'
+        : 'terrestrial-ocean';
+
+      return true;
+    }
+
     this.activeContext = { ...this.activeContext, ...context };
-    BuildingGeneratorContext.activeOrigin = {
-      latDeg: this.activeContext.latDeg,
-      lonDeg: this.activeContext.lonDeg,
-      isManaus: this.activeContext.isManaus,
-      bodyId: this.activeContext.bodyId,
-    };
+    return false;
   }
 
   constructor(private readonly root: Group) {
@@ -244,9 +288,17 @@ export class WorldStreamer {
     const requests = [...this.records.values()].filter(chunk => chunk.state === ChunkState.REQUESTED).sort((a, b) => a.priority - b.priority);
     while (this.inFlight < WORLD.maxRequests && requests.length) {
       const chunk = requests.shift()!; chunk.state = ChunkState.LOADING; this.inFlight++;
+      const requestVersion = this.activeContext.generationVersion;
+      const requestRegion = this.activeContext.regionId;
       void this.generators.generate(chunk.cx, chunk.cz, this.activeContext).then(payload => {
         this.inFlight--;
-        if (this.disposed || !this.records.has(chunk.key)) return;
+        if (this.disposed) return;
+        const payloadVersion = payload.generationVersion ?? requestVersion;
+        const payloadRegion = payload.regionId ?? requestRegion;
+        if (payloadVersion !== this.activeContext.generationVersion || payloadRegion !== this.activeContext.regionId) {
+          return;
+        }
+        if (!this.records.has(chunk.key) || this.records.get(chunk.key) !== chunk) return;
         chunk.payload = payload; chunk.bytes = payload.buildings.byteLength + payload.trees.byteLength;
         chunk.state = this.wanted.has(chunk.key) || this.pinned.has(chunk.key) ? ChunkState.READY : ChunkState.CACHED;
         this.evict();
@@ -399,6 +451,10 @@ export class WorldStreamer {
     this.wanted.clear();
     this.pinned.clear();
     this.colliderList.length = 0;
+    this.focus.set(Infinity, Infinity, Infinity);
+    this.cadence = 1;
+    this.debugDirty = true;
+    this.debugRoot.clear();
   }
   setDetailRadius(radius: number): void { this.detailRadius = Math.max(WORLD.chunkSize, radius); this.cadence = 1; }
   setNight(enabled: boolean): void { this.meshes.setNight(enabled); }

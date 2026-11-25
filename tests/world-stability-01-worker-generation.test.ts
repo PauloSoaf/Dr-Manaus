@@ -114,3 +114,4 @@ test('CICLO 1: Worker & Generation Context Standardization', async (t) => {
     assert.equal(def.generationVersion, 1);
   });
 });
+

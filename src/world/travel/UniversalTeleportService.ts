@@ -70,6 +70,13 @@ export interface UniversalTeleportServiceContext {
   burstVfx?: (pos: { x: number; y: number; z: number }) => void;
   targetCatalog?: UniversalTargetCatalog;
   targetResolver?: UniversalTargetResolver;
+  onRegionChange?: (context: {
+    bodyId: string;
+    latDeg: number;
+    lonDeg: number;
+    isManaus: boolean;
+    surfaceType?: 'terrestrial' | 'ocean' | 'megawave-ocean' | 'barren';
+  }) => void;
 }
 
 export type TeleportResolutionKind =
@@ -523,7 +530,15 @@ export class UniversalTeleportService {
             latDeg: target.latDeg,
             lonDeg: target.lonDeg,
             isManaus: false,
+            bodyId: 'earth',
           };
+          this.context.onRegionChange?.({
+            bodyId: 'earth',
+            latDeg: target.latDeg,
+            lonDeg: target.lonDeg,
+            isManaus: false,
+            surfaceType: 'ocean',
+          });
           const frameId = this.ensureDynamicSurfaceFrame('earth', target.latDeg, target.lonDeg);
 
           // Atomic commit for arbitrary Earth coordinates
@@ -614,6 +629,19 @@ export class UniversalTeleportService {
 
         const radiusM = body.equatorialRadiusM || (bodyId === 'mars' ? MARS_RADIUS_EQUATORIAL_M : 3_000_000);
         const frameId = this.ensureDynamicSurfaceFrame(bodyId, target.latDeg, target.lonDeg, radiusM);
+        BuildingGeneratorContext.activeOrigin = {
+          latDeg: target.latDeg,
+          lonDeg: target.lonDeg,
+          isManaus: false,
+          bodyId,
+        };
+        this.context.onRegionChange?.({
+          bodyId,
+          latDeg: target.latDeg,
+          lonDeg: target.lonDeg,
+          isManaus: false,
+          surfaceType: bodyId === 'thalassa' ? 'megawave-ocean' : 'barren',
+        });
 
         travelDomain.reset();
         const safeAlt = Math.max(1.0, Number.isFinite(target.altitudeM) ? target.altitudeM : 2.0);
