@@ -71,4 +71,6 @@ export interface WorkerResponse {
   generationVersion?: number;
   regionId?: string;
 }
-export function chunkKey(cx: number, cz: number): string { return `${cx},${cz}`; }
+export function chunkKey(cx: number, cz: number, regionId?: string): string {
+  return regionId ? `${regionId}::${cx},${cz}` : `${cx},${cz}`;
+}

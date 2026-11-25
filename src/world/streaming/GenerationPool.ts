@@ -34,7 +34,21 @@ export class GenerationPool {
         worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
           if (slot.job?.id !== data.id) return;
           const job = this.releaseSlot(slot);
-          job?.resolve(data.payload);
+          if (!job) return;
+
+          // Reject / drop stale responses if regionId or generationVersion do not match
+          if (data.regionId && data.regionId !== job.context.regionId) {
+            job.reject(new Error(`Worker region mismatch: expected ${job.context.regionId}, got ${data.regionId}`));
+            this.dispatch();
+            return;
+          }
+          if (data.generationVersion !== undefined && data.generationVersion !== job.context.generationVersion) {
+            job.reject(new Error(`Worker generation version mismatch: expected ${job.context.generationVersion}, got ${data.generationVersion}`));
+            this.dispatch();
+            return;
+          }
+
+          job.resolve(data.payload);
           this.dispatch();
         };
         worker.onerror = () => {

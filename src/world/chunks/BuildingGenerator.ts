@@ -63,7 +63,7 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
   const isThalassa = resolvedContext.bodyId === 'thalassa' || resolvedContext.surfaceType === 'megawave-ocean';
   if (isThalassa) {
     return {
-      key: chunkKey(cx, cz), cx, cz, land: false, biome: 'ocean',
+      key: chunkKey(cx, cz, resolvedContext.regionId), cx, cz, land: false, biome: 'ocean',
       buildings: new Float32Array(), trees: new Float32Array(),
       regionId: resolvedContext.regionId,
       generationVersion: resolvedContext.generationVersion,
@@ -78,7 +78,7 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
     const geo = worldToLatLon(centerX, centerZ);
     latRad = geo.lat * (Math.PI / 180);
     lonRad = geo.lon * (Math.PI / 180);
-    chunkIsLand = isLand(centerX, centerZ);
+    chunkIsLand = isLand(centerX, centerZ, resolvedContext);
   } else {
     const basis = enuBasis({
       latRad: degToRad(resolvedContext.latDeg),
@@ -97,7 +97,7 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
   // Water chunks: strictly zero trees and zero buildings
   if (!land) {
     return {
-      key: chunkKey(cx, cz), cx, cz, land: false, biome: 'ocean',
+      key: chunkKey(cx, cz, resolvedContext.regionId), cx, cz, land: false, biome: 'ocean',
       buildings: new Float32Array(), trees: new Float32Array(),
       regionId: resolvedContext.regionId,
       generationVersion: resolvedContext.generationVersion,
@@ -105,7 +105,7 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
   }
 
   const density = isManaus ? urbanDensity(centerX, centerZ) : 0;
-  const inCity = isManaus && isUrban(centerX, centerZ) && density >= 0.18;
+  const inCity = isManaus && isUrban(centerX, centerZ, resolvedContext) && density >= 0.18;
   // City reservations exclude wilderness by design; forest must not use the building filter.
   if (!inCity) {
     if (land && biome !== 'desert' && biome !== 'ice') {
@@ -115,13 +115,13 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
         const px = originX + x + (random() - .5) * 8, pz = originZ + z + (random() - .5) * 8;
         const height = isRainforest ? 16 + random() * 12 : 10 + random() * 8;
         const crown = isRainforest ? 8 + random() * 4 : 5 + random() * 3;
-        if (isManaus && (isUrban(px, pz) || !vegetationAllowed(px, pz, crown))) continue;
+        if (isManaus && (isUrban(px, pz, resolvedContext) || !vegetationAllowed(px, pz, crown, resolvedContext))) continue;
         trees.push(px, pz, height, crown, 0);
       }
     }
     const chunkBiome = (isManaus && biome !== 'desert' && biome !== 'ice') ? 'rainforest' : biome;
     return {
-      key: chunkKey(cx, cz), cx, cz, land, biome: chunkBiome,
+      key: chunkKey(cx, cz, resolvedContext.regionId), cx, cz, land, biome: chunkBiome,
       buildings: new Float32Array(), trees: new Float32Array(trees),
       regionId: resolvedContext.regionId,
       generationVersion: resolvedContext.generationVersion,
@@ -136,12 +136,12 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
     const height = tall ? 28 + random() * 43 : 5.5 + Math.floor(random() * 4) * 3.4;
     const color = PALETTE[Math.floor(random() * PALETTE.length)];
     const roofHeight = tall || random() > .77 ? .55 : 2.1 + random() * 1.9;
-    if (!isLand(x, z)) continue;
+    if (!isLand(x, z, resolvedContext)) continue;
     land = true;
-    if (!buildingAllowed(x, z, Math.max(width, depth) * .5 + 3)) continue;
+    if (!buildingAllowed(x, z, Math.max(width, depth) * .5 + 3, resolvedContext)) continue;
     if (chance > density * .9) {
       const height=7+random()*8,crown=4+random()*3,kind=random()>.6?1:0;
-      if(vegetationAllowed(x,z,treeFootprintRadius(crown,kind)))trees.push(x,z,height,crown,kind);
+      if(vegetationAllowed(x,z,treeFootprintRadius(crown,kind),resolvedContext))trees.push(x,z,height,crown,kind);
       continue;
     }
     buildings.push(x, z, width, height, depth, ...color, roofHeight);
@@ -150,12 +150,12 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
     const x = originX + (10 + random() * 108) * unit;
     const z = originZ + (n % 2 ? 10 : 118) * unit;
     const height=8+random()*5,crown=3+random()*2;
-    if (vegetationAllowed(x,z,treeFootprintRadius(crown,n%3===0?1:0))) {
+    if (vegetationAllowed(x,z,treeFootprintRadius(crown,n%3===0?1:0),resolvedContext)) {
       trees.push(x,z,height,crown,n%3===0?1:0);
     }
   }
   return {
-    key: chunkKey(cx, cz), cx, cz, land, biome: 'urban',
+    key: chunkKey(cx, cz, resolvedContext.regionId), cx, cz, land, biome: 'urban',
     buildings: new Float32Array(buildings), trees: new Float32Array(trees),
     regionId: resolvedContext.regionId,
     generationVersion: resolvedContext.generationVersion,

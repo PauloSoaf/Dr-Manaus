@@ -222,7 +222,7 @@ export class WorldStreamer {
     const cx = Math.floor(position.x / WORLD.chunkSize), cz = Math.floor(position.z / WORLD.chunkSize);
     const minimum: string[] = [];
     for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++) {
-      const key = chunkKey(cx + x, cz + z); minimum.push(key); this.pinned.add(key);
+      const key = chunkKey(cx + x, cz + z, this.activeContext.regionId); minimum.push(key); this.pinned.add(key);
       this.ensure({ key, cx: cx + x, cz: cz + z, priority: Math.hypot(x, z) - 1000, immediate: true });
     }
     this.focus.copy(position); this.demands = planChunks(position, { x: 0, z: 0 }, this.detailRadius);
@@ -246,9 +246,10 @@ export class WorldStreamer {
   }
 
   private ensure(demand: ChunkDemand): Chunk {
-    let chunk = this.records.get(demand.key);
+    const key = chunkKey(demand.cx, demand.cz, this.activeContext.regionId);
+    let chunk = this.records.get(key);
     if (!chunk) {
-      chunk = { key: demand.key, cx: demand.cx, cz: demand.cz, state: ChunkState.UNLOADED,
+      chunk = { key, cx: demand.cx, cz: demand.cz, state: ChunkState.UNLOADED,
         priority: demand.priority, touched: this.clock, colliders: [], bytes: 0 };
       this.records.set(chunk.key, chunk); chunk.state = ChunkState.REQUESTED;
     }
@@ -259,7 +260,8 @@ export class WorldStreamer {
   private reconcile(): void {
     const nextWanted = new Set(this.pinned);
     for (const demand of this.demands) {
-      if (demand.immediate && nextWanted.size < WORLD.maxActiveChunks) nextWanted.add(demand.key);
+      const key = chunkKey(demand.cx, demand.cz, this.activeContext.regionId);
+      if (demand.immediate && nextWanted.size < WORLD.maxActiveChunks) nextWanted.add(key);
       this.ensure(demand);
     }
     this.wanted = nextWanted;
@@ -276,7 +278,7 @@ export class WorldStreamer {
       const chunk = this.records.get(key);
       if (chunk?.state === ChunkState.CACHED && chunk.payload) chunk.state = ChunkState.READY;
     }
-    const demanded = new Set(this.demands.map(demand => demand.key));
+    const demanded = new Set(this.demands.map(demand => chunkKey(demand.cx, demand.cz, this.activeContext.regionId)));
     for (const chunk of this.records.values()) {
       if (chunk.state === ChunkState.REQUESTED && !demanded.has(chunk.key) && !this.pinned.has(chunk.key)) this.records.delete(chunk.key);
     }
@@ -350,12 +352,15 @@ export class WorldStreamer {
   destroy(colliderId: string): boolean {
     const marker = colliderId.indexOf('/building/') >= 0 ? colliderId.indexOf('/building/') : colliderId.indexOf('/tree/');
     if (marker <= 0 || colliderId.startsWith('hlod:') || this.destroyed.has(colliderId)) return false;
-    const key = colliderId.slice(0, marker), parts = key.split(',').map(Number);
+    const key = colliderId.slice(0, marker);
+    const sep = key.lastIndexOf('::');
+    const coordStr = sep >= 0 ? key.slice(sep + 2) : key;
+    const parts = coordStr.split(',').map(Number);
     if (parts.length !== 2 || !parts.every(Number.isInteger)) return false;
     const chunk = this.records.get(key);
     // A medium proxy may be hit before detailed streaming arrives; its deterministic record owns
     // the same id, so the destruction can be recorded without loading a detailed neighborhood.
-    const payload = chunk?.payload ?? generateChunk(parts[0], parts[1]);
+    const payload = chunk?.payload ?? generateChunk(parts[0], parts[1], this.activeContext);
     const bounds = ChunkMeshes.collider(payload, colliderId);
     if (!bounds) return false;
     this.destroyed.add(colliderId);

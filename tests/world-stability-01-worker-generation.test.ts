@@ -42,7 +42,7 @@ test('CICLO 1: Worker & Generation Context Standardization', async (t) => {
     const manausChunk = generateChunk(0, 0, manausContext, 42);
     assert.equal(manausChunk.cx, 0);
     assert.equal(manausChunk.cz, 0);
-    assert.equal(manausChunk.key, '0,0');
+    assert.equal(manausChunk.key, 'manaus-city::0,0');
     // Manaus city center has land and urban/rainforest features
     assert.equal(manausChunk.land, true);
 

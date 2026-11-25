@@ -1062,14 +1062,10 @@ export class Game {
       currentLonDeg = 0;
       currentSurfaceType = 'megawave-ocean';
     } else if (isLocalEarth) {
-      const geodetic = this.universe.playerGeodetic();
-      if (geodetic) {
-        currentLatDeg = geodetic.latRad * (180 / Math.PI);
-        currentLonDeg = geodetic.lonRad * (180 / Math.PI);
-      } else {
-        currentLatDeg = BuildingGeneratorContext.activeOrigin.latDeg;
-        currentLonDeg = BuildingGeneratorContext.activeOrigin.lonDeg;
-      }
+      // Keep the stable fixed ENU anchor coordinates from BuildingGeneratorContext.activeOrigin,
+      // never polling playerGeodetic() every frame which would cause the geographic anchor to drift
+      currentLatDeg = BuildingGeneratorContext.activeOrigin.latDeg;
+      currentLonDeg = BuildingGeneratorContext.activeOrigin.lonDeg;
       currentSurfaceType = 'ocean';
     } else {
       currentLatDeg = 0;
