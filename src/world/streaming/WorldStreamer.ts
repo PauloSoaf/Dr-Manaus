@@ -187,13 +187,12 @@ export class WorldStreamer {
       if (!chunk || !chunk.group) continue;
 
       if (!chunk.worldBoundingBox) {
-        chunk.worldBoundingBox = new Box3(
-          new Vector3(0, -50, 0),
-          new Vector3(WORLD.chunkSize, 250, WORLD.chunkSize),
-        );
-        chunk.group.updateMatrixWorld(true);
-        chunk.worldBoundingBox.applyMatrix4(chunk.group.matrixWorld);
+        chunk.worldBoundingBox = new Box3();
       }
+      chunk.group.updateMatrixWorld(true);
+      chunk.worldBoundingBox.min.set(0, -50, 0);
+      chunk.worldBoundingBox.max.set(WORLD.chunkSize, 250, WORLD.chunkSize);
+      chunk.worldBoundingBox.applyMatrix4(chunk.group.matrixWorld);
 
       chunk.worldBoundingBox.getCenter(this._scratchCenter);
       const distSq = this._scratchCenter.distanceToSquared(cameraPos);

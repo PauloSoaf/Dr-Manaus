@@ -111,6 +111,8 @@ export class Atmosphere {
     scene.add(this.clouds);
   }
   get clock() { return TIMES[this.time].hour; }
+  get zenithColor(): Color { return this.zenith.value; }
+  get horizonColor(): Color { return this.horizon.value; }
   /** Optional. Feeding flight altitude in thins the haze, the fog and the sky bounce on the way to orbit. */
   setAltitude(metres: number) { this.altitude = Number.isFinite(metres) ? Math.min(Math.max(metres, 0), SPACE.maxAltitude) : 0; }
   update(dt: number, playerLocal: Vector3) {

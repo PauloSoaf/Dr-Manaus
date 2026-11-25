@@ -52,7 +52,7 @@ import { HLODManager } from '../world/lod/HLODManager';
 import { RealCityLayer } from '../world/realcity/RealCityLayer';
 import { LandmarkManager } from '../world/landmarks/LandmarkManager';
 import { createTerrain, setTerrainOpacity } from '../world/geodata/terrain';
-import { updateUniversalLiquidTime } from '../world/water/UniversalLiquidSystem';
+import { updateUniversalLiquidTime, updateUniversalLiquidOrigin, updateUniversalLiquidSky } from '../world/water/UniversalLiquidSystem';
 import { GeoDebug } from '../world/geodata/GeoDebug';
 import { LargoDistrict } from '../world/landmarks/largo';
 import { createAirport } from '../world/realcity/airport';
@@ -1087,6 +1087,10 @@ export class Game {
     if (manaus || isPlanetarySurface) this.destruction.beginFrame();
     const timeSecNow = this.lastTime * 0.001;
     updateUniversalLiquidTime(timeSecNow);
+    updateUniversalLiquidOrigin(this.renderOriginVec);
+    if (this.atmosphere) {
+      updateUniversalLiquidSky(this.atmosphere.zenithColor, this.atmosphere.horizonColor);
+    }
     // Non-Earth local ENU frames are planetary presentation domains too. Earth refines this
     // below with its coverage-aware visual handoff.
     this.presentationDomain = manaus ? 'local' : local ? 'planetary' : 'orbital';
@@ -1225,7 +1229,7 @@ export class Game {
       // The flat backdrop handles its own crossfade based on localWeight, while the rest of
       // the local root (city, trees) remains visible as long as the ground is not fully overridden.
       setTerrainOpacity(this.flatTerrain, manaus ? state.effectiveLocalWeight : 0);
-      const cityVisible = (manaus || isLocalEarth) && (state.effectiveLocalWeight > 0 || state.localGroundVisible);
+      const cityVisible = manaus ? (state.effectiveLocalWeight > 0 || state.localGroundVisible) : isPlanetarySurface;
       this.localWorldRoot.visible = cityVisible;
 
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
@@ -1241,15 +1245,33 @@ export class Game {
       const dominantBodyRadius = dominantBodyDef ? dominantBodyDef.equatorialRadiusM : 6_378_137;
       this.rendering.domains.setRange(this.universe.telemetry.altitudeM + dominantBodyRadius);
     }
+    // Dynamic decoupling: In Manaus with Earth globe, localWorldRoot lives on earth.manausSurfaceAnchor.
+    // Outside Manaus (e.g. oceanic surfaces, Thalassa, Moon, Mars), it is decoupled from Manaus
+    // and parented to rendering.scene, aligned with the active local ENU frame.
+    if (manaus && this.earth) {
+      if (this.localWorldRoot.parent !== this.earth.manausSurfaceAnchor) {
+        this.earth.manausSurfaceAnchor.add(this.localWorldRoot);
+        this.localWorldRoot.position.set(0, 0, 0);
+        this.localWorldRoot.quaternion.identity();
+      }
+    } else {
+      if (this.localWorldRoot.parent !== this.rendering.scene) {
+        this.rendering.scene.add(this.localWorldRoot);
+        this.localWorldRoot.quaternion.identity();
+      }
+    }
+
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
     if (local) {
       const uOrigin = this.universe.renderSpace.currentOrigin.position;
       if (this.renderOriginVec.x !== uOrigin[0] || this.renderOriginVec.y !== uOrigin[1] || this.renderOriginVec.z !== uOrigin[2]) {
         this.renderOriginVec.set(uOrigin[0], uOrigin[1], uOrigin[2]);
-        if (!this.earth) {
+        if (!this.earth || !manaus) {
           this.localRoot.position.copy(this.renderOriginVec).negate();
         }
         this.actorRoot.position.copy(this.renderOriginVec).negate();
+      } else if (!manaus) {
+        this.localRoot.position.copy(this.renderOriginVec).negate();
       }
     }
     if (manaus) {
@@ -2856,7 +2878,7 @@ export class Game {
     };
     const uOrigin = this.universe.renderSpace.currentOrigin.position;
     this.renderOriginVec.set(...uOrigin);
-    if (!this.earth) this.localRoot.position.copy(this.renderOriginVec).negate();
+    if (!this.earth || targetBody !== 'earth' || !this.manausSimulationActive) this.localRoot.position.copy(this.renderOriginVec).negate();
     this.actorRoot.position.copy(this.renderOriginVec).negate();
     this.camera.inSpace = false;
     this.hud.notify(`Aproximação · ${this.universe.activeSystem.bodies.find(body => body.id === targetBody)?.name ?? targetBody}`);

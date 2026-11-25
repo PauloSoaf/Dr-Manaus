@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { WORLD } from '../src/core/config';
-import { BUILDING_STRIDE, TREE_STRIDE } from '../src/world/chunks/Chunk';
+import { BUILDING_STRIDE, TREE_STRIDE, chunkKey } from '../src/world/chunks/Chunk';
 import { generateChunk, urbanDensity } from '../src/world/chunks/BuildingGenerator';
 import { buildingAllowed, isLand, isUrban, LANDMARKS, riverWidth, shoreZ } from '../src/world/geodata/geodata';
 import { planChunks } from '../src/world/streaming/ChunkPriority';
@@ -88,7 +88,8 @@ test('teleport preparation and repeated neighbourhood replacement obey active/ca
       await streamer.prepare(position);
       const cx = Math.floor(x / WORLD.chunkSize), cz = Math.floor(z / WORLD.chunkSize);
       for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
-        assert.ok(streamer.activeKeys.has(`${cx + dx},${cz + dz}`), 'minimum teleport neighbourhood must be active before resolving');
+        const expectedKey = chunkKey(cx + dx, cz + dz, streamer.generationContext.regionId);
+        assert.ok(streamer.activeKeys.has(expectedKey) || streamer.activeKeys.has(`${cx + dx},${cz + dz}`), 'minimum teleport neighbourhood must be active before resolving');
       }
       for (let frame = 0; frame < 8; frame++) {
         streamer.update(position, new Vector3(120, 0, 0), .1);
@@ -119,11 +120,12 @@ test('stale generation completions cannot reactivate the old area after teleport
     await streamer.prepare(destination);
     await new Promise(resolve => setTimeout(resolve, 12));
     streamer.update(destination, new Vector3(), .2);
-    assert.ok(!streamer.activeKeys.has('0,0'));
+    assert.ok(!streamer.activeKeys.has(chunkKey(0, 0, streamer.generationContext.regionId)) && !streamer.activeKeys.has('0,0'));
     assert.ok(streamer.stats.active <= WORLD.maxActiveChunks);
     assert.ok(streamer.stats.cached <= WORLD.maxCachedChunks);
     for (const key of streamer.activeKeys) {
-      const [cx, cz] = key.split(',').map(Number);
+      const coordStr = key.includes('::') ? key.split('::')[1] : key;
+      const [cx, cz] = coordStr.split(',').map(Number);
       assert.ok(Math.hypot(cx * WORLD.chunkSize - destination.x, cz * WORLD.chunkSize - destination.z) < 650);
     }
   } finally { streamer.dispose(); globalThis.document = previousDocument; }

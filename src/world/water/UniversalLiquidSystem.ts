@@ -46,6 +46,29 @@ export function updateUniversalLiquidTime(timeSec: number): void {
   universalLiquidTime.value = timeSec;
 }
 
+/**
+ * Authoritative floating origin render offset for all UniversalLiquidMaterials.
+ * By adding this offset to positionWorld in shader calculations, wave phase,
+ * sparkles, and foam become 100% continuous and invariant under floating origin rebases.
+ */
+export const universalLiquidOrigin = uniform(new Vector3(0, 0, 0));
+
+export function updateUniversalLiquidOrigin(origin: Vector3): void {
+  universalLiquidOrigin.value.copy(origin);
+}
+
+/**
+ * Dynamic environmental sky reflection colors (zenith and horizon).
+ * Matches real atmosphere / space background lighting across day, dusk, night, and orbit.
+ */
+export const universalLiquidSkyZenith = uniform(new Color('#164e8a'));
+export const universalLiquidSkyHorizon = uniform(new Color('#6bb6e8'));
+
+export function updateUniversalLiquidSky(zenith: Color, horizon: Color): void {
+  universalLiquidSkyZenith.value.copy(zenith);
+  universalLiquidSkyHorizon.value.copy(horizon);
+}
+
 export interface FluidPhysicalProperties {
   densityKgM3: number;
   viscosityRelative: number;
@@ -374,6 +397,8 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   });
 
   const wp = positionWorld;
+  // Stable world position invariant under floating origin rebases:
+  const stableWp = positionWorld.add(universalLiquidOrigin);
   const distToCam = cameraPosition.distance(wp);
   const isMegawave = solvent === 'megawave-ocean';
   const isOcean = solvent === 'terrestrial-ocean' || isMegawave;
@@ -385,14 +410,14 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   let dHx: any = float(0);
   let dHz: any = float(0);
 
-  // Unroll Gerstner harmonic wave nodes in TSL using continuous world coordinates
-  // so wave phase and peaks never restart or produce block seams at chunk edges
+  // Unroll Gerstner harmonic wave nodes in TSL using continuous stable coordinates
+  // so wave phase and peaks never restart, jump on rebase, or produce block seams at chunk edges
   for (let i = 0; i < waves.length; i++) {
     const w = waves[i];
     const k = (2.0 * Math.PI) / w.wavelength;
     const c = Math.sqrt(9.80665 / k);
     const amp = i >= 2 ? float(w.amplitude).mul(near) : float(w.amplitude);
-    const phase = dot(vec2(wp.x, wp.z), vec2(w.direction[0], w.direction[1]))
+    const phase = dot(vec2(stableWp.x, stableWp.z), vec2(w.direction[0], w.direction[1]))
       .mul(k)
       .sub(universalLiquidTime.mul(w.speed * c));
 
@@ -404,9 +429,10 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
     dHz = (dHz as any).add(float(w.direction[1]).mul(wa).mul(cosP));
   }
 
-  // Shoreline wave damping: ensures wave amplitude flattens out smoothly at coastlines
+  // Shoreline wave damping: ensures wave amplitude flattens out smoothly at coastlines for rivers/freshwater.
+  // Open ocean has no river shoreline and must never be damped to zero if shore attribute is 0 or absent.
   const shoreAttr = attribute('shore', 'float');
-  const waveDamp = smoothstep(0.008, 0.20, shoreAttr);
+  const waveDamp = isOcean ? float(1.0) : smoothstep(0.008, 0.20, shoreAttr);
 
   // Vertex displacement node
   material.positionNode = positionLocal.add(vec3(0, totalElevation.mul(waveDamp), 0));
@@ -441,11 +467,9 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const sharpSun = pow(rawSpecular.div(float(1.0).add(rawSpecular)), 1.35).mul(4.5);
   const totalSunGlint = sharpSun.add(broadSun).mul(NdotL);
 
-  // Dynamic sky reflection gradient from horizon to zenith
+  // Dynamic sky reflection gradient from horizon to zenith, respecting active environmental illumination
   const reflDir = reflect(viewDir.negate(), waveNormal);
-  const skyZenith = isMegawave ? color('#051d3b') : color('#164e8a');
-  const skyHorizon = isMegawave ? color('#38bdf8') : color('#6bb6e8');
-  const reflectedSky = mix(skyHorizon, skyZenith, smoothstep(0.0, 0.75, max(reflDir.y, float(0.0))));
+  const reflectedSky = mix(universalLiquidSkyHorizon, universalLiquidSkyZenith, smoothstep(0.0, 0.75, max(reflDir.y, float(0.0))));
 
   // Wave crest subsurface transmission & back-lighting rim
   const waveSlope = smoothstep(-0.06, 0.12, dHx.add(dHz));
@@ -463,7 +487,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const oceanWaveFacet = isOcean
     ? mix(deepCol, shallowCol, waveSlope.mul(0.55).add(oceanElevMod).clamp(0.0, 1.0))
     : deepCol;
-  const waterColor = mix(oceanWaveFacet, shallowCol, float(1).sub(shoreAttr));
+  const waterColor = isOcean ? oceanWaveFacet : mix(oceanWaveFacet, shallowCol, float(1).sub(shoreAttr));
 
   let finalColorNode = mix(waterColor, isOcean ? reflectedSky : reflectCol, fresnel.mul(0.70));
 
@@ -471,9 +495,9 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const sssColor = isMegawave ? color('#0df2c9') : (solvent === 'terrestrial-ocean' ? color('#16e2bd') : reflectCol);
   finalColorNode = finalColorNode.add(sssColor.mul(crestGlow).mul(0.60));
 
-  // Diamond solar sparkles along specular reflection path
+  // Diamond solar sparkles along specular reflection path (using stable coordinates)
   const sparkleScale = isMegawave ? 0.2 : 0.65;
-  const sparkleCoord = vec2(wp.x, wp.z).mul(sparkleScale).add(waveNormal.xz.mul(1.5));
+  const sparkleCoord = vec2(stableWp.x, stableWp.z).mul(sparkleScale).add(waveNormal.xz.mul(1.5));
   const sparkleA = sin(sparkleCoord.x.mul(7.8).add(cos(sparkleCoord.y.mul(6.4))));
   const sparkleB = cos(sparkleCoord.y.mul(7.8).add(sin(sparkleCoord.x.mul(6.4))));
   const sparklePattern = pow(smoothstep(0.65, 0.98, sparkleA.mul(sparkleB).abs()), 4.0);
@@ -481,11 +505,11 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
 
   finalColorNode = finalColorNode.add(reflectCol.mul(totalSunGlint.mul(near.mul(0.85).add(0.15)).add(solarSparkle)));
 
-  // Dynamic wave-crest breaking foam: 2D isotropic cellular turbulence eliminates 1D parallel stripes
+  // Dynamic wave-crest breaking foam (using stable coordinates)
   const crestSignal = isMegawave ? totalElevation.mul(0.003).add(waveSlope.mul(0.45)) : totalElevation.mul(0.18).add(waveSlope.mul(0.35));
   const crestBreaking = smoothstep(0.18, 0.42, crestSignal);
   const foamScale = isMegawave ? 0.015 : 0.06;
-  const foamUv = vec2(wp.x, wp.z).mul(foamScale).add(vec2(universalLiquidTime.mul(0.18), universalLiquidTime.mul(-0.14)));
+  const foamUv = vec2(stableWp.x, stableWp.z).mul(foamScale).add(vec2(universalLiquidTime.mul(0.18), universalLiquidTime.mul(-0.14)));
   const foamA = sin(foamUv.x.mul(2.4).add(cos(foamUv.y.mul(1.9))));
   const foamB = cos(foamUv.y.mul(2.4).add(sin(foamUv.x.mul(1.9))));
   const foamPattern = foamA.mul(foamB).abs();

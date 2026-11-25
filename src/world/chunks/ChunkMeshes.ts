@@ -111,7 +111,11 @@ export class ChunkMeshes {
     const group = new Group(); group.name = `chunk:${payload.key}`;
     const originX = payload.cx * WORLD.chunkSize, originZ = payload.cz * WORLD.chunkSize;
     group.matrixAutoUpdate = false;
-    manausTileSceneMatrix(payload.key, originX, originZ, group.matrix);
+    if (ChunkMeshes.isLocalManausActive) {
+      manausTileSceneMatrix(payload.key, originX, originZ, group.matrix);
+    } else {
+      group.matrix.makeTranslation(originX, 0, originZ);
+    }
 
     const buildings = payload.buildings, trees = payload.trees;
     const count = buildings.length / BUILDING_STRIDE, treeCount = trees.length / TREE_STRIDE;
