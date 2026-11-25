@@ -22,6 +22,45 @@ export interface Chunk {
   boundingBox?: Box3;
   worldBoundingBox?: Box3;
 }
-export interface WorkerRequest { type: 'generate'; id: number; cx: number; cz: number }
-export interface WorkerResponse { type: 'generated'; id: number; payload: ChunkPayload }
+export interface ChunkGenerationContext {
+  bodyId: string;
+  frameId: string;
+  latDeg: number;
+  lonDeg: number;
+  surfaceType: 'terrestrial' | 'ocean' | 'gas' | 'photosphere' | 'megawave-ocean' | 'barren';
+  regionId: string;
+  generationVersion: number;
+  isManaus: boolean;
+  seed: number;
+}
+
+export function defaultChunkGenerationContext(): ChunkGenerationContext {
+  return {
+    bodyId: 'earth',
+    frameId: 'solar-system/earth/manaus-surface',
+    latDeg: -3.1303,
+    lonDeg: -60.0234,
+    surfaceType: 'terrestrial',
+    regionId: 'manaus-city',
+    generationVersion: 1,
+    isManaus: true,
+    seed: 1337,
+  };
+}
+
+export interface WorkerRequest {
+  type: 'generate';
+  id: number;
+  cx: number;
+  cz: number;
+  context: ChunkGenerationContext;
+  seed: number;
+}
+export interface WorkerResponse {
+  type: 'generated';
+  id: number;
+  payload: ChunkPayload;
+  generationVersion?: number;
+  regionId?: string;
+}
 export function chunkKey(cx: number, cz: number): string { return `${cx},${cz}`; }

@@ -1,11 +1,12 @@
 import { Box3, BoxGeometry, EdgesGeometry, Frustum, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4, Vector3 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
-import { ChunkState, chunkKey, type Chunk } from '../chunks/Chunk';
+import { ChunkState, chunkKey, defaultChunkGenerationContext, type Chunk, type ChunkGenerationContext } from '../chunks/Chunk';
 import { ChunkMeshes } from '../chunks/ChunkMeshes';
 import { planChunks, type ChunkDemand, type PositionLike } from './ChunkPriority';
 import { GenerationPool } from './GenerationPool';
 import { generateChunk } from '../chunks/BuildingGenerator';
+import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 
 const PREPARE_TIMEOUT_MS = 20_000;
 /** Shared scratch matrix: collapsing a building must not allocate mid-rampage. */
@@ -38,6 +39,21 @@ export class WorldStreamer {
   private readonly destroyed = new Set<string>();
   private readonly destroyedLocations = new Map<string, Collider>();
   private revision = 0;
+  private activeContext: ChunkGenerationContext = defaultChunkGenerationContext();
+
+  get generationContext(): Readonly<ChunkGenerationContext> {
+    return this.activeContext;
+  }
+
+  setGenerationContext(context: Partial<ChunkGenerationContext>): void {
+    this.activeContext = { ...this.activeContext, ...context };
+    BuildingGeneratorContext.activeOrigin = {
+      latDeg: this.activeContext.latDeg,
+      lonDeg: this.activeContext.lonDeg,
+      isManaus: this.activeContext.isManaus,
+      bodyId: this.activeContext.bodyId,
+    };
+  }
 
   constructor(private readonly root: Group) {
     this.debugRoot.name = 'chunk-boundaries'; this.debugRoot.visible = false; root.add(this.debugRoot);
@@ -228,7 +244,7 @@ export class WorldStreamer {
     const requests = [...this.records.values()].filter(chunk => chunk.state === ChunkState.REQUESTED).sort((a, b) => a.priority - b.priority);
     while (this.inFlight < WORLD.maxRequests && requests.length) {
       const chunk = requests.shift()!; chunk.state = ChunkState.LOADING; this.inFlight++;
-      void this.generators.generate(chunk.cx, chunk.cz).then(payload => {
+      void this.generators.generate(chunk.cx, chunk.cz, this.activeContext).then(payload => {
         this.inFlight--;
         if (this.disposed || !this.records.has(chunk.key)) return;
         chunk.payload = payload; chunk.bytes = payload.buildings.byteLength + payload.trees.byteLength;

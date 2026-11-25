@@ -1,8 +1,9 @@
 import { WORLD } from '../../core/config';
 import { buildingAllowed, IRANDUBA_CENTER, isLand, isUrban, urbanDensity, vegetationAllowed, worldToLatLon } from '../geodata/geodata';
-import { chunkKey, type ChunkPayload } from './Chunk';
+import { chunkKey, type ChunkPayload, type ChunkGenerationContext, defaultChunkGenerationContext } from './Chunk';
 import { classifyEarthBiome, isLandAt } from '../planet/EarthLandMask';
-import { enuToGeodetic } from '../spatial/ENU';
+import { enuBasis, enuToGeodetic } from '../spatial/ENU';
+import { degToRad } from '../spatial/units';
 import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 
 export { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
@@ -17,8 +18,9 @@ export function seededRandom(seed: number): () => number {
   };
 }
 
-export function chunkSeed(cx: number, cz: number): number {
-  return Math.imul(cx + 13717, 73856093) ^ Math.imul(cz - 9271, 19349663);
+export function chunkSeed(cx: number, cz: number, contextSeed?: number): number {
+  const base = Math.imul(cx + 13717, 73856093) ^ Math.imul(cz - 9271, 19349663);
+  return contextSeed !== undefined ? (base ^ Math.imul(contextSeed, 0x9e3779b9)) : base;
 }
 
 export { urbanDensity } from '../geodata/geodata';
@@ -33,19 +35,31 @@ export function treeFootprintRadius(crown:number,kind:number):number {
   return kind>.5?1.6+Math.hypot(crown*1.15,.85):crown;
 }
 
-/** Pure deterministic generation; used in workers and for the medium-distance proxy. */
-export function generateChunk(cx: number, cz: number): ChunkPayload {
-  const random = seededRandom(chunkSeed(cx, cz));
+/** Pure deterministic generation; used in workers, main-thread fallback, and for the medium-distance proxy. */
+export function generateChunk(cx: number, cz: number, context?: ChunkGenerationContext, customSeed?: number): ChunkPayload {
+  const resolvedContext: ChunkGenerationContext = context ?? {
+    bodyId: BuildingGeneratorContext.activeOrigin.bodyId ?? 'earth',
+    frameId: BuildingGeneratorContext.activeOrigin.isManaus ? 'solar-system/earth/manaus-surface' : `${BuildingGeneratorContext.activeOrigin.bodyId ?? 'earth'}/local-enu`,
+    latDeg: BuildingGeneratorContext.activeOrigin.latDeg,
+    lonDeg: BuildingGeneratorContext.activeOrigin.lonDeg,
+    surfaceType: BuildingGeneratorContext.activeOrigin.bodyId === 'thalassa' ? 'megawave-ocean' : 'terrestrial',
+    regionId: BuildingGeneratorContext.activeOrigin.isManaus ? 'manaus-city' : `${BuildingGeneratorContext.activeOrigin.bodyId ?? 'earth'}:${BuildingGeneratorContext.activeOrigin.latDeg.toFixed(2)}:${BuildingGeneratorContext.activeOrigin.lonDeg.toFixed(2)}`,
+    generationVersion: 1,
+    isManaus: BuildingGeneratorContext.activeOrigin.isManaus,
+    seed: 1337,
+  };
+  const seed = customSeed ?? chunkSeed(cx, cz, resolvedContext.seed);
+  const random = seededRandom(seed);
   const originX = cx * WORLD.chunkSize, originZ = cz * WORLD.chunkSize;
   const buildings: number[] = [], trees: number[] = [];
   const unit = WORLD.chunkSize / 128;
   const centerX = originX + WORLD.chunkSize * .5;
   const centerZ = originZ + WORLD.chunkSize * .5;
-  const isThalassa = BuildingGeneratorContext.activeOrigin.bodyId === 'thalassa';
+  const isThalassa = resolvedContext.bodyId === 'thalassa' || resolvedContext.surfaceType === 'megawave-ocean';
   if (isThalassa) {
     return { key: chunkKey(cx, cz), cx, cz, land: false, biome: 'ocean', buildings: new Float32Array(), trees: new Float32Array() };
   }
-  const isManaus = BuildingGeneratorContext.activeOrigin.isManaus;
+  const isManaus = resolvedContext.isManaus;
   let latRad: number;
   let lonRad: number;
   let chunkIsLand: boolean;
@@ -56,7 +70,11 @@ export function generateChunk(cx: number, cz: number): ChunkPayload {
     lonRad = geo.lon * (Math.PI / 180);
     chunkIsLand = isLand(centerX, centerZ);
   } else {
-    const basis = BuildingGeneratorContext.getBasis();
+    const basis = enuBasis({
+      latRad: degToRad(resolvedContext.latDeg),
+      lonRad: degToRad(resolvedContext.lonDeg),
+      heightM: 0,
+    });
     const geodetic = enuToGeodetic(basis, [centerX, -centerZ, 0]);
     latRad = geodetic.latRad;
     lonRad = geodetic.lonRad;

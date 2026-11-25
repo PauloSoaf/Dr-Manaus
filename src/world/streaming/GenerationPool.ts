@@ -1,10 +1,12 @@
-import { generateChunk } from '../chunks/BuildingGenerator';
-import type { ChunkPayload, WorkerRequest, WorkerResponse } from '../chunks/Chunk';
+import { chunkSeed, generateChunk } from '../chunks/BuildingGenerator';
+import { defaultChunkGenerationContext, type ChunkGenerationContext, type ChunkPayload, type WorkerRequest, type WorkerResponse } from '../chunks/Chunk';
 
 interface Job {
   id: number;
   cx: number;
   cz: number;
+  context: ChunkGenerationContext;
+  seed: number;
   resolve: (payload: ChunkPayload) => void;
   reject: (error: Error) => void;
 }
@@ -48,10 +50,12 @@ export class GenerationPool {
     }
   }
 
-  generate(cx: number, cz: number): Promise<ChunkPayload> {
+  generate(cx: number, cz: number, context?: ChunkGenerationContext, seed?: number): Promise<ChunkPayload> {
     if (this.stopped) return Promise.reject(new Error('Chunk generation pool is disposed.'));
+    const resolvedContext = context ?? defaultChunkGenerationContext();
+    const resolvedSeed = seed ?? chunkSeed(cx, cz, resolvedContext.seed);
     return new Promise((resolve, reject) => {
-      this.queue.push({ id: ++this.sequence, cx, cz, resolve, reject });
+      this.queue.push({ id: ++this.sequence, cx, cz, context: resolvedContext, seed: resolvedSeed, resolve, reject });
       this.dispatch();
     });
   }
@@ -67,7 +71,14 @@ export class GenerationPool {
       if (slot.job || !this.queue.length) continue;
       const job = this.queue.shift()!;
       slot.job = job;
-      const message: WorkerRequest = { type: 'generate', id: job.id, cx: job.cx, cz: job.cz };
+      const message: WorkerRequest = {
+        type: 'generate',
+        id: job.id,
+        cx: job.cx,
+        cz: job.cz,
+        context: job.context,
+        seed: job.seed,
+      };
 
       slot.timeout = setTimeout(() => {
         if (this.stopped || slot.job?.id !== job.id) return;
@@ -109,7 +120,7 @@ export class GenerationPool {
         return;
       }
       try {
-        job.resolve(generateChunk(job.cx, job.cz));
+        job.resolve(generateChunk(job.cx, job.cz, job.context, job.seed));
       } catch (error) {
         job.reject(error instanceof Error ? error : new Error(String(error)));
       }
