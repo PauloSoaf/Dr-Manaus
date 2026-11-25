@@ -207,18 +207,20 @@ function buildSurface(file: WaterFile): BufferGeometry | null {
  * both surfaces.
  */
 function fallbackSurface(): BufferGeometry {
-  const geometry = new PlaneGeometry(FALLBACK_SIZE, FALLBACK_SIZE, 120, 120);
+  const geometry = new PlaneGeometry(FALLBACK_SIZE, FALLBACK_SIZE, 240, 240);
   geometry.rotateX(-Math.PI / 2);
   geometry.translate(0, FALLBACK_Y, 0);
   const position = geometry.getAttribute('position');
-  const shore = new Float32Array(position.count).fill(1);
+  const shore = new Float32Array(position.count);
   const muddy = new Float32Array(position.count);
   const depth = new Float32Array(position.count);
   for (let i = 0; i < position.count; i++) {
     const vx = position.getX(i), vz = position.getZ(i);
     muddy[i] = clamp((vx - vz * .21 - 8700) / 700, 0, 1);
     const bedY = manausBathymetry.sampleRiverbedHeight(vx, vz);
-    depth[i] = Math.max(0.12, RIVER_Y - bedY);
+    depth[i] = Math.max(0.0, RIVER_Y - bedY);
+    const shoreDist = manausBathymetry.sampleSignedShoreDistance(vx, vz);
+    shore[i] = shoreDist <= 0 ? 0 : Math.min(1.0, Math.max(0.0, shoreDist / SHORE_BAND));
   }
   geometry.setAttribute('shore', new Float32BufferAttribute(shore, 1));
   geometry.setAttribute('muddy', new Float32BufferAttribute(muddy, 1));
@@ -302,9 +304,13 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const distant = smoothstep(300, 6000, distToCam);
   const near = float(1).sub(distant);
 
-  // Exact shoreline wave attenuation shared with CPU `shoreWaveDamping(shoreDistanceM)`:
-  // `smoothstep(0.008, 0.18, shore)`
-  const waveDamp = smoothstep(0.008, 0.18, shore);
+  // Exact shoreline and shallow depth wave attenuation:
+  // - Shore distance damping: smoothstep(0.008, 0.18, shore) attenuates waves to 0 at the bank boundary
+  // - Shallow depth damping: smoothstep(0.04, 1.4, geomDepth) attenuates waves to 0 when water is shallower than 1.4m
+  // Together, waves naturally vanish before reaching the beach sand line, eliminating straight-line wave clipping!
+  const depthDamp = smoothstep(0.04, 1.4, geomDepth);
+  const shoreDamp = smoothstep(0.008, 0.18, shore);
+  const waveDamp = shoreDamp.mul(depthDamp);
 
   // Unroll the 4 shared Gerstner harmonics identically to CPU `sampleManausWater`
   let totalElevation: any = float(0.0);

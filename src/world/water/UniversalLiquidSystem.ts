@@ -404,11 +404,15 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
     dHz = (dHz as any).add(float(w.direction[1]).mul(wa).mul(cosP));
   }
 
+  // Shoreline wave damping: ensures wave amplitude flattens out smoothly at coastlines
+  const shoreAttr = attribute('shore', 'float');
+  const waveDamp = smoothstep(0.008, 0.20, shoreAttr);
+
   // Vertex displacement node
-  material.positionNode = positionLocal.add(vec3(0, totalElevation, 0));
+  material.positionNode = positionLocal.add(vec3(0, totalElevation.mul(waveDamp), 0));
 
   // Analytical Gerstner wave normal
-  const waveNormal = vec3(dHx.negate(), float(1.0), dHz.negate()).normalize();
+  const waveNormal = vec3(dHx.mul(waveDamp).negate(), float(1.0), dHz.mul(waveDamp).negate()).normalize();
   material.normalNode = waveNormal;
 
   // Schlick-Fresnel Specular Reflectance
@@ -455,7 +459,6 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const reflectCol = color(props.specularReflectColor);
 
   // Depth-based Beer-Lambert light attenuation & dynamic ocean wave-slope scattering
-  const shoreAttr = attribute('shore', 'float');
   const oceanElevMod = isMegawave ? totalElevation.mul(0.003) : totalElevation.mul(0.18);
   const oceanWaveFacet = isOcean
     ? mix(deepCol, shallowCol, waveSlope.mul(0.55).add(oceanElevMod).clamp(0.0, 1.0))
