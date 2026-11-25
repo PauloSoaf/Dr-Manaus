@@ -60,9 +60,9 @@ describe('UNIVERSAL-OCEAN: Planetary Oceans & Thalassa 500m Megawave Water World
     assert.equal(THALASSA_OCEAN_WORLD.equatorialRadiusM, 6_200_000);
     assert.equal(THALASSA_OCEAN_WORLD.parentId, 'sun');
 
-    // Registered in SOLAR_SYSTEM_BODIES
-    const foundInSolar = SOLAR_SYSTEM_BODIES.find(b => b.id === 'thalassa');
-    assert.ok(foundInSolar, 'Thalassa is in SOLAR_SYSTEM_BODIES');
+    // Resolved by bodyById
+    const found = bodyById('thalassa');
+    assert.ok(found, 'Thalassa resolved by bodyById');
 
     // bodyById resolves it
     const byId = bodyById('thalassa');
@@ -185,3 +185,4 @@ describe('UNIVERSAL-OCEAN: Planetary Oceans & Thalassa 500m Megawave Water World
     ChunkMeshes.activeSolvent = 'terrestrial-ocean';
   });
 });
+

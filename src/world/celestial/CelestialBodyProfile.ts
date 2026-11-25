@@ -138,9 +138,6 @@ export const SOLAR_BODY_PROFILES: Readonly<Record<string, CelestialBodyProfile>>
   triton: moonProxy('icy-moon', [0.82, 0.75, 0.77], undefined,
     { classification: 'icy-moon', label: 'Lua Gelada Retrógrada', temperatureK: 38, surfaceGravityMps2: 0.78,
       description: 'Lua capturada do Cinturão de Kuiper com órbita retrógrada e gêiseres de nitrogênio.' }),
-    thalassa: solid('synthetic-base', [0.06, 0.42, 0.88], true, false, { minimumVisiblePx: 3.0, pointGlowPx: 7, pointGlowStrength: 0.5, pointBrightness: 1.15, labelPriority: 9 },
-    { classification: 'oceanic-rocky', label: 'Planeta Oceânico (Mega-Ondas 500m)', temperatureK: 285, surfaceGravityMps2: 9.2,
-      atmosphericPressureAtm: 1.2, description: 'Mundo coberto 100% por um oceano global profundo com ondas colossais de 500 metros.' }),
   'titan-astral-leviathan-01': {
     bodyClass: 'rocky',
     hasSolidSurface: false,
@@ -179,9 +176,27 @@ export const PROCEDURAL_STAR_PROFILE: CelestialBodyProfile = {
   },
 };
 
+export const THALASSA_OCEAN_WORLD_PROFILE: CelestialBodyProfile = solid(
+  'synthetic-base',
+  [0.06, 0.42, 0.88],
+  true,
+  false,
+  { minimumVisiblePx: 3.0, pointGlowPx: 7, pointGlowStrength: 0.5, pointBrightness: 1.15, labelPriority: 9 },
+  {
+    classification: 'oceanic-rocky',
+    label: 'Planeta Oceânico (Mega-Ondas 500m)',
+    temperatureK: 285,
+    surfaceGravityMps2: 9.2,
+    atmosphericPressureAtm: 1.2,
+    description: 'Mundo coberto 100% por um oceano global profundo com ondas colossais de 500 metros.',
+  },
+);
+
 export function bodyProfile(body: CelestialBody): CelestialBodyProfile {
   let profile: CelestialBodyProfile;
-  if (SOLAR_BODY_PROFILES[body.id]) {
+  if (body.id === 'thalassa') {
+    profile = THALASSA_OCEAN_WORLD_PROFILE;
+  } else if (SOLAR_BODY_PROFILES[body.id]) {
     profile = SOLAR_BODY_PROFILES[body.id];
   } else if (body.profile) {
     profile = body.profile;

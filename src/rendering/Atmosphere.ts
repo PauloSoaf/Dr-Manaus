@@ -18,7 +18,6 @@ const SKY_BLUE = new Color('#4e8bb2');
 const SKY_DEEP_BLUE = new Color('#1d54a0');
 const SKY_NAVY = new Color('#07204b');
 const SKY_VACUUM = new Color('#010206');
-
 /**
  * Continuous altitude sky progression from 04-EARTH-ALTITUDE-TRANSITION.md:
  * blue sky (0-8 km) -> deep blue (8-25 km) -> navy (25-60 km) -> black vacuum (60-100 km+).
@@ -39,7 +38,6 @@ export function skyColorAtAltitude(altitudeM: number, out = new Color()): Color 
   const t = Math.min(1, (alt - 60_000) / (100_000 - 60_000));
   return out.copy(SKY_NAVY).lerp(SKY_VACUUM, t);
 }
-
 export class Atmosphere {
   time: TimeKind = 'Golden Hour'; weather: WeatherKind = 'clear'; dayCycle = false;
   atmosphereWeight = 1;
@@ -100,7 +98,7 @@ export class Atmosphere {
     Object.assign(this.sun.shadow.camera, { left: -145, right: 145, top: 145, bottom: -145, near: 1, far: 900 });
     this.sun.shadow.bias = -.00025; this.sun.shadow.normalBias = .12;
     scene.add(this.sun, this.sun.target, this.ambient);
-    scene.fog = new Fog('#d2bb98', 2800, 26000);
+    scene.fog = new Fog('#628ea6', 2800, 26000);
     this.clouds = new InstancedMesh(new SphereGeometry(1, 8, 6), this.cloudMaterial, 72);
     for (let i = 0; i < 72; i++) {
       const angle = i * 2.399;
@@ -180,10 +178,10 @@ export class Atmosphere {
     } else {
       // Blend fog color towards clear atmospheric blue as flight altitude increases,
       // avoiding warm horizontal dust tint from occluding the green rainforest and gray city below.
-      const aerialFactor = Math.min(1, Math.max(0, (this.altitude - 120) / 2400));
-      this.transition.copy(this.horizon.value).lerp(SKY_BLUE, aerialFactor * 0.60).multiplyScalar(1 - this.spaceBlend * .85);
+      const aerialFactor = Math.min(1, Math.max(0, (this.altitude - 80) / 1800));
+      const TROPICAL_MIST = new Color('#628ea6');
+      this.transition.copy(TROPICAL_MIST).lerp(SKY_BLUE, aerialFactor * 0.75).multiplyScalar(1 - this.spaceBlend * .85);
       fog.color.lerp(this.transition, blend);
-
       const baseNear = (rain ? 300 : 3400) + flightAlt * 2.5;
       const baseFar = (rain ? 6500 : 32000) + flightAlt * 8.0;
       fog.near += (baseNear * lift * orbitLift - fog.near) * blend;

@@ -29,7 +29,7 @@ export const FLUID_SCALE_LIMITS: Readonly<Record<FluidScale, { maxAmplitudeM: nu
   SMALL: { maxAmplitudeM: 0.05, maxWavelengthM: 4 },
   LOCAL: { maxAmplitudeM: 0.35, maxWavelengthM: 60 },
   REGIONAL: { maxAmplitudeM: 0.8, maxWavelengthM: 120 },
-  PLANETARY: { maxAmplitudeM: 8, maxWavelengthM: 600 },
+  PLANETARY: { maxAmplitudeM: 300, maxWavelengthM: 8000 },
 };
 
 export interface FluidDefinition {

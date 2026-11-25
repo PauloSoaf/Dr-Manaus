@@ -1,9 +1,9 @@
-import { BoxGeometry, EdgesGeometry, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4, Vector3 } from 'three/webgpu';
+import { Box3, BoxGeometry, EdgesGeometry, Frustum, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4, Vector3 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
 import { ChunkState, chunkKey, type Chunk } from '../chunks/Chunk';
 import { ChunkMeshes } from '../chunks/ChunkMeshes';
-import { planChunks, type ChunkDemand } from './ChunkPriority';
+import { planChunks, type ChunkDemand, type PositionLike } from './ChunkPriority';
 import { GenerationPool } from './GenerationPool';
 import { generateChunk } from '../chunks/BuildingGenerator';
 
@@ -97,16 +97,62 @@ export class WorldStreamer {
     return { active: this.active.size, cached, queued, streamMs: this.measuredMs, loadedMB: bytes / 1048576 + .4 };
   }
 
-  update(position: Vector3, velocity: Vector3, dt: number): void {
+  update(position: Vector3, velocity: Vector3, dt: number, cameraLookDirection?: PositionLike): void {
     if (this.disposed) return;
     this.clock += dt; this.cadence += dt;
     const moved = this.focus.distanceToSquared(position) > 32 * 32;
     if (this.cadence > .14 || moved) {
       this.cadence = 0; this.focus.copy(position);
-      this.demands = planChunks(position, velocity, this.detailRadius);
+      this.demands = planChunks(position, velocity, this.detailRadius, cameraLookDirection);
       this.reconcile();
     }
     this.pump();
+  }
+
+  private readonly _scratchCenter = new Vector3();
+
+  /**
+   * GTA / RAGE-style hierarchical chunk frustum culling.
+   * Tests each active chunk's world-transformed bounding box against the camera frustum.
+   * Chunks within safetyRadiusM stay visible to prevent popping under the player.
+   * When chunk.group.visible is false, Three.js skips all InstancedMesh draw calls and matrix evaluations.
+   */
+  cullFrustum(frustum: Frustum, cameraPos: Vector3, safetyRadiusM = 72): { visible: number; culled: number } {
+    let visibleCount = 0;
+    let culledCount = 0;
+    const safetySq = safetyRadiusM * safetyRadiusM;
+
+    for (const key of this.active) {
+      const chunk = this.records.get(key);
+      if (!chunk || !chunk.group) continue;
+
+      if (!chunk.worldBoundingBox) {
+        chunk.worldBoundingBox = new Box3(
+          new Vector3(0, -50, 0),
+          new Vector3(WORLD.chunkSize, 250, WORLD.chunkSize),
+        );
+        chunk.group.updateMatrixWorld(true);
+        chunk.worldBoundingBox.applyMatrix4(chunk.group.matrixWorld);
+      }
+
+      chunk.worldBoundingBox.getCenter(this._scratchCenter);
+      const distSq = this._scratchCenter.distanceToSquared(cameraPos);
+
+      if (distSq <= safetySq) {
+        chunk.group.visible = true;
+        visibleCount++;
+      } else {
+        const inFrustum = frustum.intersectsBox(chunk.worldBoundingBox);
+        chunk.group.visible = inFrustum;
+        if (inFrustum) {
+          visibleCount++;
+        } else {
+          culledCount++;
+        }
+      }
+    }
+
+    return { visible: visibleCount, culled: culledCount };
   }
 
   /** Teleport waits for a 3x3 collision-safe neighbourhood, even before the render loop starts. */

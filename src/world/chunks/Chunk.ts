@@ -1,4 +1,4 @@
-import type { Group } from 'three/webgpu';
+import type { Box3, Group } from 'three/webgpu';
 import type { Collider } from '../../core/types';
 
 export enum ChunkState {
@@ -19,6 +19,8 @@ export interface Chunk {
   key: string; cx: number; cz: number; state: ChunkState; priority: number;
   touched: number; payload?: ChunkPayload; group?: Group; colliders: Collider[];
   bytes: number;
+  boundingBox?: Box3;
+  worldBoundingBox?: Box3;
 }
 export interface WorkerRequest { type: 'generate'; id: number; cx: number; cz: number }
 export interface WorkerResponse { type: 'generated'; id: number; payload: ChunkPayload }

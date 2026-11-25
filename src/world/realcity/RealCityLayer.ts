@@ -2,7 +2,7 @@ import { skylineBuildings } from './skyline';
 import { FEATURES, REAL_CITY, WORLD } from '../../core/config';
 import { isUrban } from '../geodata/geodata';
 import {
-  BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Group, InstancedMesh,
+  Box3, BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Frustum, Group, InstancedMesh,
   Matrix4, Mesh, MeshStandardMaterial, Vector3,
 } from 'three/webgpu';
 import type { Collider } from '../../core/types';
@@ -55,6 +55,7 @@ interface Tile {
   detailRanges: Map<string, number>;
   shellRanges: Map<string, number>;
   touched: number;
+  worldBoundingBox?: Box3;
 }
 
 interface BuildJob {
@@ -524,6 +525,49 @@ export class RealCityLayer {
     this.metrics.tiles = this.tiles.size;
     this.metrics.queued = this.jobs.length + this.loading.size;
   }
+  private readonly _scratchTileCenter = new Vector3();
+
+  /**
+   * GTA / RAGE-style hierarchical real city tile frustum culling.
+   * Toggles tile.group.visible based on camera frustum and immediate safety bubble.
+   * Drops draw calls and matrix computations for all city buildings behind the camera.
+   */
+  cullFrustum(frustum: Frustum, cameraPos: Vector3, safetyRadiusM = 120): { visible: number; culled: number } {
+    let visibleCount = 0;
+    let culledCount = 0;
+    const size = this.manifest?.tileSize ?? 1024;
+    const safetySq = safetyRadiusM * safetyRadiusM;
+
+    for (const tile of this.tiles.values()) {
+      if (!tile.worldBoundingBox) {
+        tile.worldBoundingBox = new Box3(
+          new Vector3(0, -30, 0),
+          new Vector3(size, 320, size),
+        );
+        tile.group.updateMatrixWorld(true);
+        tile.worldBoundingBox.applyMatrix4(tile.group.matrixWorld);
+      }
+
+      tile.worldBoundingBox.getCenter(this._scratchTileCenter);
+      const distSq = this._scratchTileCenter.distanceToSquared(cameraPos);
+
+      if (distSq <= safetySq) {
+        tile.group.visible = true;
+        visibleCount++;
+      } else {
+        const inFrustum = frustum.intersectsBox(tile.worldBoundingBox);
+        tile.group.visible = inFrustum;
+        if (inFrustum) {
+          visibleCount++;
+        } else {
+          culledCount++;
+        }
+      }
+    }
+
+    return { visible: visibleCount, culled: culledCount };
+  }
+
 
   /** Requests the shell ring around the focus point and evicts tiles past the hysteresis band. */
   private plan(radius: number): void {
