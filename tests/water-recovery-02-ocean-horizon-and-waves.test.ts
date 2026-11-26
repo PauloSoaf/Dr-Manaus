@@ -56,12 +56,12 @@ describe('CICLO 2..8: Ocean Horizon Continuity, 3D Gerstner, Culling & Thalassa 
     assert.equal(shoreAttr.getX(0), 1.0);
     assert.equal(shoreAttr.getX(posAttr.count - 1), 1.0);
 
-    // Follow camera position
+    // Follow camera position with grid snapping (Crest clipmap grid snapping within 16m)
     const camPos = new Vector3(12500, 45, -34200);
     horizon.update(camPos, true);
-    assert.equal(mesh.position.x, 12500);
+    assert.ok(Math.abs(mesh.position.x - 12500) <= 16, 'Tracks camera X within grid snap');
     assert.equal(mesh.position.y, 0);
-    assert.equal(mesh.position.z, -34200);
+    assert.ok(Math.abs(mesh.position.z - (-34200)) <= 16, 'Tracks camera Z within grid snap');
     assert.equal(horizon.group.visible, true);
 
     // Turn off when not over ocean

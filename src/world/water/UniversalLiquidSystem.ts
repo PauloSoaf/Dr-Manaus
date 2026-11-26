@@ -22,7 +22,7 @@
 import { Vector3, Quaternion, Color, Object3D } from 'three';
 import {
   attribute, cameraPosition, color, float, mix, normalWorld, positionLocal, positionWorld,
-  sin, cos, smoothstep, time, dot, vec2, vec3, uniform, pow, max, reflect, clamp, sqrt,
+  sin, cos, smoothstep, time, dot, vec2, vec3, uniform, pow, max, reflect, clamp, sqrt, abs,
 } from 'three/tsl';
 import { MeshStandardNodeMaterial, Node } from 'three/webgpu';
 
@@ -436,6 +436,9 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   let dHx: any = float(0);
   let dHz: any = float(0);
   let dHy: any = float(0);
+  let dDx_dx: any = float(0);
+  let dDz_dz: any = float(0);
+  let dDx_dz: any = float(0);
 
   // Unroll Gerstner harmonic wave nodes in TSL using continuous stable coordinates
   // so wave phase, trocoidal displacement and peaks never restart or produce seams at chunk edges
@@ -459,20 +462,36 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
       : float(0);
     const dispAmp = i >= 2 ? qAmp.mul(near) : qAmp;
 
-    totalDispX = (totalDispX as any).add(cosP.mul(float(w.direction[0])).mul(dispAmp));
-    totalDispZ = (totalDispZ as any).add(cosP.mul(float(w.direction[1])).mul(dispAmp));
+    const dirX = float(w.direction[0]);
+    const dirZ = float(w.direction[1]);
+
+    totalDispX = (totalDispX as any).add(cosP.mul(dirX).mul(dispAmp));
+    totalDispZ = (totalDispZ as any).add(cosP.mul(dirZ).mul(dispAmp));
     totalElevation = (totalElevation as any).add(sinP.mul(amp));
 
     const wa = amp.mul(k);
-    dHx = (dHx as any).add(float(w.direction[0]).mul(wa).mul(cosP));
-    dHz = (dHz as any).add(float(w.direction[1]).mul(wa).mul(cosP));
+    dHx = (dHx as any).add(dirX.mul(wa).mul(cosP));
+    dHz = (dHz as any).add(dirZ.mul(wa).mul(cosP));
     dHy = (dHy as any).add(dispAmp.mul(k).mul(sinP));
+
+    // Crest Ocean System Jacobian Derivatives (MIT License, wave-harmonic/crest):
+    // Horizontal compression derivatives to evaluate surface folding, pinching and whitecaps
+    const qkaSin = dispAmp.mul(k).mul(sinP);
+    dDx_dx = (dDx_dx as any).add(dirX.mul(dirX).mul(qkaSin));
+    dDz_dz = (dDz_dz as any).add(dirZ.mul(dirZ).mul(qkaSin));
+    dDx_dz = (dDx_dz as any).add(dirX.mul(dirZ).mul(qkaSin));
   }
 
   // Shoreline wave damping: ensures wave amplitude flattens out smoothly at coastlines for rivers/freshwater.
   // Open ocean has no river shoreline and must never be damped to zero if shore attribute is 0 or absent.
   const shoreAttr = attribute('shore', 'float');
   const waveDamp = isOcean ? float(1.0) : smoothstep(0.008, 0.20, shoreAttr);
+
+  // Crest Jacobian determinant (evaluates wave crest pinching and horizontal compression)
+  const J = float(1.0).sub(dDx_dx.mul(waveDamp))
+    .mul(float(1.0).sub(dDz_dz.mul(waveDamp)))
+    .sub(dDx_dz.mul(waveDamp).mul(dDx_dz.mul(waveDamp)));
+  const wavePinch = max(float(0.0), float(1.0).sub(J));
 
   // Vertex displacement node: full 3D trocoidal displacement (X, Y, Z)
   material.positionNode = positionLocal.add(
@@ -519,45 +538,47 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const reflDir = reflect(viewDir.negate(), waveNormal);
   const reflectedSky = mix(universalLiquidSkyHorizon, universalLiquidSkyZenith, smoothstep(0.0, 0.75, max(reflDir.y, float(0.0))));
 
-  // Wave crest subsurface transmission & back-lighting rim
+  // Wave crest slope & orientation
   const waveSlope = smoothstep(-0.06, 0.12, dHx.add(dHz));
-  const backLighting = pow(max(dot(viewDir.negate(), sunDir), float(0.0)), 2.6);
-  const crestTransSignal = isMegawave ? totalElevation.mul(0.004).add(waveSlope.mul(0.35)) : totalElevation.mul(0.35).add(waveSlope.mul(0.35));
-  const crestTransmission = smoothstep(0.12, 0.75, crestTransSignal);
-  const crestGlow = crestTransmission.mul(pow(float(1.0).sub(cosTheta), 1.6)).mul(float(0.15).add(backLighting.mul(0.65))).mul(sunFactor.mul(0.8).add(0.2));
 
   const deepCol = color(props.deepColor);
   const shallowCol = color(props.shallowColor);
   const reflectCol = color(props.specularReflectColor);
 
-  // Depth-based Beer-Lambert light attenuation & dynamic ocean wave-slope scattering
+  // Crest Diffuse Grazing Scattering (OceanEmission.hlsl from wave-harmonic/crest, MIT License)
+  // At steep view angles (vView -> 1, looking straight down), deep light absorption dominates.
+  // At grazing angles (vView -> 0, looking across the vast horizon), forward scattering shifts to marine teal.
+  const vView = abs(viewDir.y);
+  const diffuseGrazing = isMegawave ? color('#041820') : color('#08384a');
+  const baseScattering = mix(diffuseGrazing, deepCol, vView);
+
+  // Depth-based light attenuation & wave-slope scattering
   const oceanElevMod = isMegawave ? totalElevation.mul(0.003) : totalElevation.mul(0.18);
   const oceanWaveFacet = isOcean
-    ? mix(deepCol, shallowCol, waveSlope.mul(0.55).add(oceanElevMod).clamp(0.0, 1.0))
+    ? mix(baseScattering, shallowCol, waveSlope.mul(0.55).add(oceanElevMod).clamp(0.0, 1.0))
     : deepCol;
   const waterColor = isOcean ? oceanWaveFacet : mix(oceanWaveFacet, shallowCol, float(1).sub(shoreAttr));
 
   // Natural Fresnel reflection blending
   let finalColorNode = mix(waterColor, reflectedSky, fresnel.mul(0.78));
 
-  // Translucent Subsurface Scattering on wave crests
-  const sssColor = isMegawave ? color('#074e5b') : (solvent === 'terrestrial-ocean' ? color('#0e6e73') : reflectCol);
-  finalColorNode = finalColorNode.add(sssColor.mul(crestGlow).mul(0.50));
+  // Crest Subsurface Scattering (SSS) model (OceanEmission.hlsl, MIT License)
+  // Physical light penetration through translucent wave crests toward the camera:
+  const towardsSun = pow(max(dot(sunDir, viewDir.negate()), float(0.0)), 3.8);
+  const sssColor = isMegawave ? color('#0c5b6b') : (solvent === 'terrestrial-ocean' ? color('#128c87') : reflectCol);
+  const sssFactor = wavePinch.mul(0.65).add(waveSlope.mul(0.35)).mul(float(1.0).sub(vView.mul(vView))).mul(near);
+  const sssLight = sssColor.mul(float(0.15).add(towardsSun.mul(0.85))).mul(sssFactor).mul(sunFactor);
+  finalColorNode = finalColorNode.add(sssLight);
 
   // Sun specular glint (smooth GGX, free of high-frequency zebra aliasing)
   finalColorNode = finalColorNode.add(reflectCol.mul(totalSunGlint));
 
-  // Dynamic wave-crest breaking foam (using stable coordinates)
-  const crestSignal = isMegawave ? totalElevation.mul(0.003).add(waveSlope.mul(0.45)) : totalElevation.mul(0.18).add(waveSlope.mul(0.35));
-  const crestBreaking = smoothstep(0.22, 0.48, crestSignal);
-  const foamScale = isMegawave ? 0.015 : 0.06;
-  const foamUv = vec2(stableWp.x, stableWp.z).mul(foamScale).add(vec2(universalLiquidTime.mul(0.18), universalLiquidTime.mul(-0.14)));
-  const foamA = sin(foamUv.x.mul(2.4).add(cos(foamUv.y.mul(1.9))));
-  const foamB = cos(foamUv.y.mul(2.4).add(sin(foamUv.x.mul(1.9))));
-  const foamPattern = foamA.mul(foamB).abs();
-  const crestFoam = crestBreaking.mul(smoothstep(0.20, 0.65, foamPattern)).mul(near);
+  // Crest Jacobian Determinant Foam (OceanFoam.hlsl, MIT License)
+  // Physically spawns whitecap foam strictly where waves horizontally pinch and fold (wavePinch > 0.25).
+  // Zero periodic sine waves, zero moire patterns, zero moving zebra stripes!
+  const crestFoam = smoothstep(0.24, 0.60, wavePinch).mul(near);
   const foamColor = color('#f8fcff');
-  finalColorNode = mix(finalColorNode, foamColor, crestFoam.mul(0.75));
+  finalColorNode = mix(finalColorNode, foamColor, crestFoam.mul(0.82));
 
   // If fluid is incandescent magma, add emissive term
   if (props.emissiveColor && props.emissiveIntensity) {

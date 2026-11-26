@@ -77,9 +77,16 @@ export class OceanHorizonPresentation {
     this.group.visible = active;
     if (!active) return;
 
+    // Crest-style Grid Snapping (MIT License, wave-harmonic/crest):
+    // Snap clipmap center to grid intervals so vertices remain stationary in world space
+    // as the camera moves, preventing vertex crawling / edge swimming artifacts
+    const gridSnap = 16.0;
+    const snappedX = Math.floor(cameraRenderLocalPos.x / gridSnap) * gridSnap;
+    const snappedZ = Math.floor(cameraRenderLocalPos.z / gridSnap) * gridSnap;
+
     // Outer horizon follows camera horizontally at the target fluid surface elevation
-    this.outerMesh.position.set(cameraRenderLocalPos.x, this.currentElevation, cameraRenderLocalPos.z);
-    this.innerCapMesh.position.set(cameraRenderLocalPos.x, this.currentElevation, cameraRenderLocalPos.z);
+    this.outerMesh.position.set(snappedX, this.currentElevation, snappedZ);
+    this.innerCapMesh.position.set(snappedX, this.currentElevation, snappedZ);
 
     // If near chunks are loaded, near chunks own 0..384m; inner cap is disabled to prevent overlap
     this.innerCapMesh.visible = !hasNearChunks;
