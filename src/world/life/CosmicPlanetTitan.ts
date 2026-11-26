@@ -191,6 +191,7 @@ export class CosmicPlanetTitanManager {
 
   private readonly _scratchDir = new Vector3();
   private readonly _scratchPlayerVec = new Vector3();
+  private lastActualDistM = Infinity;
 
   constructor(
     private readonly save?: SaveManager,
@@ -394,7 +395,7 @@ export class CosmicPlanetTitanManager {
   get bossTelemetry(): { name: string; phase: number; health: number; maxHealth: number; shield: number; maxShield: number; enraged: boolean; distanceM: number } | null {
     if (this.titans.length === 0) return null;
     const t = this.titans[0];
-    if (!t.active || t.health <= 0 || !this.root.visible) return null;
+    if (!t.active || t.health <= 0 || !this.root.visible || this.lastActualDistM > 5_000_000) return null;
     return {
       name: t.name,
       phase: t.phase,
@@ -403,7 +404,7 @@ export class CosmicPlanetTitanManager {
       shield: t.shield,
       maxShield: t.maxShield,
       enraged: t.enraged,
-      distanceM: this.root.position.length(),
+      distanceM: this.lastActualDistM,
     };
   }
 
@@ -495,14 +496,6 @@ export class CosmicPlanetTitanManager {
       titan.shield = Math.min(titan.maxShield, titan.shield + 25_000 * dt);
     }
 
-    // Deterministic roar timer based on pseudo-random hash
-    titan.roarTimer -= dt;
-    if (titan.roarTimer <= 0) {
-      titan.roarTimer = 35.0 + deterministicRand(titan.driftAngleRad * 1000 + titan.weakSpotHitCount) * 20.0;
-      this.sound?.('colossus-roar');
-      this.notify?.(`Ressonância cósmica detectada · [${titan.name}] emite rugido sub-espacial.`);
-    }
-
     // Camera / RenderSpace presentation
     let renderX = 0, renderY = 0, renderZ = 0;
     let dist = 0;
@@ -518,6 +511,17 @@ export class CosmicPlanetTitanManager {
       renderY = renderOffset[1];
       renderZ = renderOffset[2];
       dist = Math.hypot(renderX, renderY, renderZ);
+      this.lastActualDistM = dist;
+
+      // Deterministic roar timer based on pseudo-random hash (only emitted within 5,000 km combat engagement range)
+      titan.roarTimer -= dt;
+      if (titan.roarTimer <= 0) {
+        titan.roarTimer = 35.0 + deterministicRand(titan.driftAngleRad * 1000 + titan.weakSpotHitCount) * 20.0;
+        if (dist <= 5_000_000) {
+          this.sound?.('colossus-roar');
+          this.notify?.(`Ressonância cósmica detectada · [${titan.name}] emite rugido sub-espacial.`);
+        }
+      }
 
       // Proxy representation when distant (> 5,000,000 m / 5,000 km or not render-safe)
       if (dist > 5_000_000 || !renderSpace.isRenderSafe(renderOffset)) {

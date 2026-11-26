@@ -1,0 +1,55 @@
+# DR-MANAUS | MATRIZ DE RASTREABILIDADE MASTER
+
+Documento arquitetural persistente de conformidade, rastreabilidade técnica e auditoria contínua entre SPECs, referências, código-fonte, funções, testes e homologação gráfica.
+
+Em conformidade estrita com o documento [MASTER-SPEC-AUDIT-PROTOCOL.md](file:///c:/Projetos/Dr-Manaus/docs/architecture/MASTER-SPEC-AUDIT-PROTOCOL.md).
+
+---
+
+## 1. Regra de Portão de Progressão (Gate Rule)
+
+> [!IMPORTANT]
+> **REGRA ABSOLUTA DE PROGRESSÃO**: É expressamente proibido avançar para a próxima SPEC enquanto a SPEC ativa contiver qualquer requisito pendente, não implementado, reprovado em auditoria adversarial ou com status de severidade P0 ou P1 em aberto.
+
+- **SPEC Atualmente em Foco / Gate Ativo**: **FEATURE 01: Sistema Aquático, Fluvial e Oceânico Universal** (`docs/research/01-water-rendering.md`)
+- **Status do Portão**: `VERIFIED` (Auditoria Adversarial do PATCH-WATER-02 concluída; integrações de Crest Ocean System validadas; 39/39 testes aquáticos aprovados).
+- **Próxima SPEC da Fila**: **FEATURE 02: Topografia Urbana, Elevação e Igarapés de Manaus** (`docs/research/10-urban-elevation-and-topographic-relief.md`).
+
+---
+
+## 2. Matriz de Rastreabilidade
+
+| SPEC | Requisito | Referência Técnica | Arquivo de Implementação | Função / Componente | Teste Automatizado | Evidência de Homologação | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **SPEC-01** (Água) | P0.01: Orientação anti-horária (CCW) de normais geométricas $N_y > 0$ | Three.js WebGPU, BufferGeometry CCW | [OceanHorizonPresentation.ts](file:///c:/Projetos/Dr-Manaus/src/world/water/OceanHorizonPresentation.ts) | `buildOuterHorizonGeometry()`, `buildInnerCapGeometry()` | [water-recovery-03-clipmap-and-benthic.test.ts](file:///c:/Projetos/Dr-Manaus/tests/water-recovery-03-clipmap-and-benthic.test.ts) | 100% dos triângulos com $N_y > 0$, `DoubleSide` habilitado | `VERIFIED` |
+| **SPEC-01** (Água) | P0.02 / P0.03: Clipmap concêntrico sem sobreposição ($R_{inner}=384\text{m}$) | Crest Ocean System (wave-harmonic/crest), CDClipmaps | [OceanHorizonPresentation.ts](file:///c:/Projetos/Dr-Manaus/src/world/water/OceanHorizonPresentation.ts), [ChunkMeshes.ts](file:///c:/Projetos/Dr-Manaus/src/world/chunks/ChunkMeshes.ts) | `update()`, `buildOuterHorizonGeometry()` | [water-recovery-02-ocean-horizon-and-waves.test.ts](file:///c:/Projetos/Dr-Manaus/tests/water-recovery-02-ocean-horizon-and-waves.test.ts) | $R_{inner}=384\text{m}$ alinhado à fronteira de chunks; offset $0.05\text{m}$ removido; curvatura esférica $\Delta y = -d^2/(2R)$ | `VERIFIED` |
+| **SPEC-01** (Água) | Crest Snapping: Alinhamento de malha ao grid para eliminar vertex swimming | Crest Ocean System (MIT License) | [OceanHorizonPresentation.ts](file:///c:/Projetos/Dr-Manaus/src/world/water/OceanHorizonPresentation.ts) | `update()` (gridSnap = 16.0m) | [water-recovery-02-ocean-horizon-and-waves.test.ts](file:///c:/Projetos/Dr-Manaus/tests/water-recovery-02-ocean-horizon-and-waves.test.ts) | Vértices fixos no espaço global durante translação da câmera | `VERIFIED` |
+| **SPEC-01** (Água) | Crest Foam: Espuma de crista via determinante Jacobiano de compressão ($1 - J > 0.24$) | Crest `OceanFoam.hlsl` (MIT License) | [UniversalLiquidSystem.ts](file:///c:/Projetos/Dr-Manaus/src/world/water/UniversalLiquidSystem.ts) | `createUniversalLiquidMaterial()` | [water-advanced-behaviors.test.ts](file:///c:/Projetos/Dr-Manaus/tests/water-advanced-behaviors.test.ts) | Eliminação de listras de zebra periódicas; espuma restrita a cristas em quebra | `VERIFIED` |
+| **SPEC-01** (Água) | Crest SSS & Grazing: Espalhamento subsuperficial e difusão em ângulo rasante | Crest `OceanEmission.hlsl` (MIT License) | [UniversalLiquidSystem.ts](file:///c:/Projetos/Dr-Manaus/src/world/water/UniversalLiquidSystem.ts) | `createUniversalLiquidMaterial()` | [patch-water-vfx-optics.test.ts](file:///c:/Projetos/Dr-Manaus/tests/patch-water-vfx-optics.test.ts) | Transmissão de luz solar através de cristas e tom marinho em ângulos rasantes | `VERIFIED` |
+| **SPEC-01** (Água) | P0.04 / P0.05: Flutuação, amortecimento de leito e desativação de degraus | Newton Fluid Drag, Kinematic Buoyancy | [PlayerController.ts](file:///c:/Projetos/Dr-Manaus/src/player/PlayerController.ts) | `update()`, `updateSwimmingPhysics()` | [patch-water-validation.test.ts](file:///c:/Projetos/Dr-Manaus/tests/patch-water-validation.test.ts) | `stepHeight=0` em natação; sem teletransporte em degraus submersos; amortecimento suave | `VERIFIED` |
+| **SPEC-01** (Água) | P0.06 / P0.09: Ordem de execução runtime e clock GPU/CPU sincronizado | Game Loop Architecture | [Game.ts](file:///c:/Projetos/Dr-Manaus/src/game/Game.ts) | `Game.update()`, `updateUniversalLiquidTime()` | [water-recovery-03-clipmap-and-benthic.test.ts](file:///c:/Projetos/Dr-Manaus/tests/water-recovery-03-clipmap-and-benthic.test.ts) | `water.update(dt, timeSecNow)` executado estritamente antes de `player.update()` | `VERIFIED` |
+| **SPEC-01** (Água) | P0.07 / P1.04: Normal Gerstner analítica exata e amortecimento em água rasa | NVIDIA GPU Gems Cap. 1 | [UniversalLiquidSystem.ts](file:///c:/Projetos/Dr-Manaus/src/world/water/UniversalLiquidSystem.ts), [WaterSystem.ts](file:///c:/Projetos/Dr-Manaus/src/rendering/WaterSystem.ts) | `sampleGerstnerSpectrum()`, `evaluateGpuWaveAt()` | [fluid-registry.test.ts](file:///c:/Projetos/Dr-Manaus/tests/fluid-registry.test.ts), [patch-water-validation.test.ts](file:///c:/Projetos/Dr-Manaus/tests/patch-water-validation.test.ts) | $\vec{N} = \text{normalize}(-dHx, \max(0.1, 1 - dHy), -dHz)$; concordância CPU/GPU $< 10^{-6}$ | `VERIFIED` |
+| **SPEC-01** (Água) | P0.08: Câmera aquática com transição suave e amortecimento exponencial | Camera Rig Blending | [CameraController.ts](file:///c:/Projetos/Dr-Manaus/src/player/CameraController.ts) | `update()`, `swimRigWeight`, `diveRigWeight` | [water-advanced-behaviors.test.ts](file:///c:/Projetos/Dr-Manaus/tests/water-advanced-behaviors.test.ts) | Blending exponencial $\Delta = 1 - e^{-8 \cdot dt}$; sem saltos verticais bruscos | `VERIFIED` |
+| **SPEC-01** (Água) | P0.10: Leito sólido bentônico descolado da superfície líquida (-4000m Thalassa) | Planetary Hypsometry | [PlanetSurface.ts](file:///c:/Projetos/Dr-Manaus/src/world/planet/PlanetSurface.ts), [TerrainDestruction.ts](file:///c:/Projetos/Dr-Manaus/src/world/destruction/TerrainDestruction.ts) | `solidHeightAt()`, `sampleSurfaceHeight()` | [water-recovery-03-clipmap-and-benthic.test.ts](file:///c:/Projetos/Dr-Manaus/tests/water-recovery-03-clipmap-and-benthic.test.ts) | Colisor sólido a $-4000\text{m}$ em Thalassa e $-250\text{m}$ nos oceanos terrestres; sem travamento a $0\text{m}$ | `VERIFIED` |
+| **SPEC-01** (Água) | P0.11: Classificação Terra (Terra vs Oceano via máscara binária global) | Natural Earth Land Mask | [Game.ts](file:///c:/Projetos/Dr-Manaus/src/game/Game.ts), [EarthLandMask.ts](file:///c:/Projetos/Dr-Manaus/src/world/planet/EarthLandMask.ts) | `isLandAt()`, `currentSurfaceType` | [water-recovery-03-clipmap-and-benthic.test.ts](file:///c:/Projetos/Dr-Manaus/tests/water-recovery-03-clipmap-and-benthic.test.ts) | Continentes terrestres geram terreno sólido; bacias oceânicas ativam clipmap oceânico | `VERIFIED` |
+| **SPEC-01** (Água) | P1.02 / P1.03: Presets de cor oceânica (#03162c/#0b4c6b) e VFX oceânicos | Physical Ocean Optics | [UniversalLiquidSystem.ts](file:///c:/Projetos/Dr-Manaus/src/world/water/UniversalLiquidSystem.ts), [Game.ts](file:///c:/Projetos/Dr-Manaus/src/game/Game.ts) | `FLUID_PRESETS`, `createUniversalLiquidMaterial()` | [patch-water-vfx-optics.test.ts](file:///c:/Projetos/Dr-Manaus/tests/patch-water-vfx-optics.test.ts) | Cores naturais sem azul-piscina; reflexo acoplado ao céu atmosférico e espaço; respingos e esteiras ativos no mar | `VERIFIED` |
+| **SPEC-BOSS** (Titãs) | Isolamento de Combate do Leviatã Astral: Barra de vida restrita à zona de encontro ($< 5.000\text{km}$) | Spatial Boss HUD Filtering | [CosmicPlanetTitan.ts](file:///c:/Projetos/Dr-Manaus/src/world/life/CosmicPlanetTitan.ts) | `bossTelemetry()`, `update()` | [cosmic-planet-titan.test.ts](file:///c:/Projetos/Dr-Manaus/tests/cosmic-planet-titan.test.ts) | Barra de vida oculta e rugidos silenciados quando o jogador está na Terra a 1,5 bilhão de km | `VERIFIED` |
+| **SPEC-02** (Relevo) | RF-02-01: Interpolação bilinear contínua de elevação sem degraus | Bilinear Elevation Grid Filtering | [CityTourElevationProvider.ts](file:///c:/Projetos/Dr-Manaus/src/world/elevation/CityTourElevationProvider.ts) | `sampleBilinear()` | Pendente | Em elaboração para Gate 02 | `NOT_STARTED` |
+| **SPEC-02** (Relevo) | RF-02-02: Saias estruturais de fundação em edifícios nos barrancos de igarapé | Skirt Geometry Mesh Generation | [BuildingGenerator.ts](file:///c:/Projetos/Dr-Manaus/src/world/city/BuildingGenerator.ts) | `generateBuildingMesh()` | Pendente | Em elaboração para Gate 02 | `NOT_STARTED` |
+| **SPEC-02** (Relevo) | RF-02-03: Draping de malha viária seguindo perfil topográfico dos igarapés | Polyline Terrain Conformal Projection | [RoadMeshGenerator.ts](file:///c:/Projetos/Dr-Manaus/src/world/city/RoadMeshGenerator.ts) | `buildRoadGeometry()` | Pendente | Em elaboração para Gate 02 | `NOT_STARTED` |
+| **SPEC-03** (Geospatial) | RF-03-01: Streaming assíncrono de Overture Maps / OSM com cache LRU | Overture Maps Parquet/GeoJSON | [WorldStreamer.ts](file:///c:/Projetos/Dr-Manaus/src/world/streaming/WorldStreamer.ts) | `WorldStreamer.update()` | [streaming.test.ts](file:///c:/Projetos/Dr-Manaus/tests/streaming.test.ts) | Chunks carregados sob demanda em raio configurável | `VERIFIED` |
+| **SPEC-04** (Clima) | RF-04-01: Ciclo dinâmico dia/noite e chuva volumétrica com névoa | Physical Atmospheric Scattering | [AtmosphereSystem.ts](file:///c:/Projetos/Dr-Manaus/src/world/sky/AtmosphereSystem.ts), [WeatherSystem.ts](file:///c:/Projetos/Dr-Manaus/src/world/weather/WeatherSystem.ts) | `AtmosphereSystem.update()` | [atmosphere.test.ts](file:///c:/Projetos/Dr-Manaus/tests/atmosphere.test.ts) | Transição suave de iluminação e precipitação | `VERIFIED` |
+
+---
+
+## 3. Registro Histórico de Decisões e Correções
+
+- **2026-11-26 (Sessão Atual)**:
+  - Resolução dos 15 itens da auditoria adversarial do `PATCH-WATER-02-HOTFIX` (P0.01 a P0.11, P1.01 a P1.04).
+  - Incorporação dos algoritmos centrais do **Crest Ocean System** (MIT, wave-harmonic/crest):
+    1. Grid Snapping com modulação de $16\text{m}$.
+    2. Espuma por determinante Jacobiano $1 - J > 0.24$.
+    3. Espalhamento Subsuperficial (SSS) e difusão por ângulo rasante.
+  - Correção cirúrgica de concordância analítica da normal Gerstner entre CPU (`sampleGerstnerSpectrum`), GPU (`WaterSystem.material`, `UniversalLiquidSystem.material`) e oráculo de teste.
+  - Correção do filtro de distância e rosnado do **Leviatã Astral**, eliminando a barra de chefe intrusiva quando o jogador se encontra na Terra / Manaus a 1,5 bilhão de km do titã.
+  - Aprovação de 100% dos testes da suíte aquática (39/39).

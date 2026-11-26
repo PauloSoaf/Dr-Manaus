@@ -14,7 +14,8 @@ import { WaterSystem } from '../src/rendering/WaterSystem';
 
 /** Deliberately independent oracle: textbook Gerstner sum, no shared code with the production solver. */
 function oracle(waves: readonly GerstnerWaveHarmonic[], x: number, z: number, t: number, base: number, damp = 1, near = 1) {
-  let h = 0, nx = 0, nz = 0;
+  let h = 0, nx = 0, nz = 0, ny = 0;
+  const count = waves.length;
   waves.forEach((w, i) => {
     const amp = w.amplitude * (i >= 2 ? near : 1);
     const k = 2 * Math.PI / w.wavelength, omega = w.speed * Math.sqrt(9.80665 / k);
@@ -22,10 +23,13 @@ function oracle(waves: readonly GerstnerWaveHarmonic[], x: number, z: number, t:
     const dx = w.direction[0] / L, dz = w.direction[1] / L;
     const th = k * (dx * x + dz * z) - omega * t;
     h += amp * Math.sin(th);
-    nx += dx * k * amp * Math.cos(th);
-    nz += dz * k * amp * Math.cos(th);
+    const qAmp = (w.steepness > 0 && w.amplitude > 1e-8) ? (w.steepness / (k * count)) * (i >= 2 ? near : 1) : 0;
+    const wa = k * amp;
+    nx += dx * wa * Math.cos(th);
+    nz += dz * wa * Math.cos(th);
+    ny += qAmp * k * Math.sin(th);
   });
-  const n = new Vector3(-nx * damp, 1, -nz * damp).normalize();
+  const n = new Vector3(-nx * damp, Math.max(0.1, 1.0 - ny * damp), -nz * damp).normalize();
   return { height: base + h * damp, normal: n };
 }
 

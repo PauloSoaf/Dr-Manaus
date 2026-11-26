@@ -238,6 +238,7 @@ interface GpuWaveHarmonicUniforms {
   readonly k: ReturnType<typeof uniform<'float'>>;
   readonly omega: ReturnType<typeof uniform<'float'>>;
   readonly amp: ReturnType<typeof uniform<'float'>>;
+  readonly steepness: ReturnType<typeof uniform<'float'>>;
 }
 
 interface WaterShaderUniforms {
@@ -267,6 +268,7 @@ function createWaveUniforms(): WaterShaderUniforms {
       k: uniform(k),
       omega: uniform(omega),
       amp: uniform(w.amplitude),
+      steepness: uniform(w.steepness ?? 0.0),
     };
   };
   return {
@@ -316,6 +318,7 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   let totalElevation: any = float(0.0);
   let dHx: any = float(0.0);
   let dHz: any = float(0.0);
+  let dHy: any = float(0.0);
 
   for (let i = 0; i < 4; i++) {
     const h = u.harmonics[i];
@@ -329,12 +332,18 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
     const wa = h.k.mul(amp);
     dHx = dHx.add(h.dir.x.mul(wa).mul(cosP));
     dHz = dHz.add(h.dir.y.mul(wa).mul(cosP));
+    const qAmp = h.steepness.div(h.k.mul(float(4.0)));
+    dHy = dHy.add(qAmp.mul(atten).mul(h.k).mul(sinP));
   }
 
   material.positionNode = positionLocal.add(vec3(0, totalElevation.mul(waveDamp), 0));
 
-  // Analytical surface normal from Gerstner wave derivatives: N = normalize(-dHx * waveDamp, 1, -dHz * waveDamp)
-  const waveNormal = vec3(dHx.mul(waveDamp).negate(), float(1.0), dHz.mul(waveDamp).negate()).normalize();
+  // Analytical surface normal from Gerstner wave derivatives: N = normalize(-dHx * waveDamp, max(0.1, 1 - dHy * waveDamp), -dHz * waveDamp)
+  const waveNormal = vec3(
+    dHx.mul(waveDamp).negate(),
+    max(float(0.1), float(1.0).sub(dHy.mul(waveDamp))),
+    dHz.mul(waveDamp).negate()
+  ).normalize();
   material.normalNode = waveNormal;
 
   // Physical Schlick-Fresnel Reflectance (F0 = 0.025 for water)
@@ -970,6 +979,7 @@ export class WaterSystem {
       uH.k.value = k;
       uH.omega.value = omega;
       uH.amp.value = w.amplitude;
+      uH.steepness.value = w.steepness;
     }
   }
 
@@ -993,6 +1003,7 @@ export class WaterSystem {
     let totalElevation = 0;
     let dHx = 0;
     let dHz = 0;
+    let dHy = 0;
     for (let i = 0; i < 4; i++) {
       const h = this.shaderUniforms.harmonics[i];
       const atten = i >= 2 ? near : 1.0;
@@ -1001,14 +1012,17 @@ export class WaterSystem {
       const omega = h.omega.value;
       const dirX = h.dir.value.x;
       const dirZ = h.dir.value.y;
+      const steepness = h.steepness.value;
       const phase = (dirX * x + dirZ * z) * k - timeSec * omega;
       totalElevation += Math.sin(phase) * amp;
       const wa = k * amp;
       dHx += dirX * wa * Math.cos(phase);
       dHz += dirZ * wa * Math.cos(phase);
+      const qAmp = (steepness > 0 && h.amp.value > 1e-8) ? (steepness / (k * 4)) * atten : 0;
+      dHy += qAmp * k * Math.sin(phase);
     }
     const height = this.surfaceY + totalElevation * damp;
-    const normal = new Vector3(-dHx * damp, 1.0, -dHz * damp).normalize();
+    const normal = new Vector3(-dHx * damp, Math.max(0.1, 1.0 - dHy * damp), -dHz * damp).normalize();
     return { height, normal };
   }
 

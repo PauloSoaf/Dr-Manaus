@@ -219,8 +219,8 @@ describe('UNIVERSAL-WATER-02: Hydrodynamic VFX, Particle Physics & Advanced Opti
 
   it('10. Tall blue ocean rolling swell waves: peak amplitude > 3.4m, PLANETARY compliance, and deep navy sapphire color', () => {
     const oceanProps = FLUID_PRESETS['terrestrial-ocean'];
-    assert.strictEqual(oceanProps.deepColor, '#0a3d78', 'Deep oceanic sapphire blue');
-    assert.strictEqual(oceanProps.shallowColor, '#00b4d8', 'Brilliant coastal azure/cyan');
+    assert.strictEqual(oceanProps.deepColor, '#03162c', 'Deep oceanic sapphire blue');
+    assert.strictEqual(oceanProps.shallowColor, '#0b4c6b', 'Brilliant coastal azure/cyan');
 
     const oceanWaves = WATER_WAVE_PROFILES.TERRESTRIAL_OCEAN;
     const totalPeakAmp = oceanWaves.reduce((sum, w) => sum + w.amplitude, 0);

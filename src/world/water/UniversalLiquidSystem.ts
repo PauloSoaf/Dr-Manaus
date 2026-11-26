@@ -372,14 +372,14 @@ export function sampleGerstnerSpectrum(
     const theta = k * (dirX * x + dirZ * z) - w.speed * c * timeSec;
     const cosTheta = Math.cos(theta);
     const sinTheta = Math.sin(theta);
-    const q = amp > 1e-8 ? w.steepness / (k * amp * count) : 0;
-    dx += q * amp * dirX * cosTheta;
+    const qAmp = (w.steepness > 0 && w.amplitude > 1e-8) ? (w.steepness / (k * count)) * (i >= 2 ? highHarmonicFilter : 1) : 0;
+    dx += qAmp * dirX * cosTheta;
     dy += amp * sinTheta;
-    dz += q * amp * dirZ * cosTheta;
+    dz += qAmp * dirZ * cosTheta;
     const wa = k * amp;
     waSumX += dirX * wa * cosTheta;
     waSumZ += dirZ * wa * cosTheta;
-    nySum += q * wa * sinTheta;
+    nySum += qAmp * k * sinTheta;
   }
   out.displacementX = dx * waveDamp;
   out.displacementZ = dz * waveDamp;
