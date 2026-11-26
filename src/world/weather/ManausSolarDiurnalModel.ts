@@ -37,6 +37,13 @@ export interface SolarPositionSample {
   sunDiskScale: number;
 }
 
+export interface MoonPositionSample {
+  direction: Vector3;
+  phaseFraction: number;
+  elevationRad: number;
+  elevationDeg: number;
+}
+
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 180 / Math.PI;
 
@@ -45,9 +52,9 @@ const RAD2DEG = 180 / Math.PI;
  * Declination ranges approximately between -23.44° (Dec solstice) and +23.44° (Jun solstice).
  */
 export function calculateSolarDeclinationRad(dayOfYear: number): number {
-  const n = Math.max(1, Math.min(365, dayOfYear));
+  const safeDay = Number.isFinite(dayOfYear) ? Math.max(1, Math.min(365, dayOfYear)) : 80;
   // Cooper's equation for solar declination
-  const angleRad = ((360 / 365) * (284 + n)) * DEG2RAD;
+  const angleRad = ((360 / 365) * (284 + safeDay)) * DEG2RAD;
   return 23.45 * DEG2RAD * Math.sin(angleRad);
 }
 
@@ -60,6 +67,9 @@ export function sampleManausSunPosition(
   dayOfYear: number = 80, // Default near autumnal equinox
   out?: SolarPositionSample
 ): SolarPositionSample {
+  const safeHour = Number.isFinite(localHour) ? ((localHour % 24) + 24) % 24 : 12.0;
+  const safeDay = Number.isFinite(dayOfYear) ? Math.max(1, Math.min(365, dayOfYear)) : 80;
+
   const result: SolarPositionSample = out || {
     elevationRad: 0,
     elevationDeg: 0,
@@ -72,11 +82,11 @@ export function sampleManausSunPosition(
   };
 
   const latRad = MANAUS_COORDINATES.latitudeRad;
-  const declinationRad = calculateSolarDeclinationRad(dayOfYear);
+  const declinationRad = calculateSolarDeclinationRad(safeDay);
 
   // Hour angle H: 0 at solar noon (12:00), 15 degrees per hour
   // H < 0 in morning, H > 0 in afternoon
-  const hourAngleRad = (localHour - 12.0) * 15.0 * DEG2RAD;
+  const hourAngleRad = (safeHour - 12.0) * 15.0 * DEG2RAD;
 
   // Solar elevation: sin(alpha) = sin(phi)*sin(delta) + cos(phi)*cos(delta)*cos(H)
   const sinAlpha = Math.sin(latRad) * Math.sin(declinationRad) +
@@ -91,7 +101,7 @@ export function sampleManausSunPosition(
 
   if (Math.abs(cosAlpha) > 1e-5) {
     const cosGamma = (Math.sin(declinationRad) - Math.sin(latRad) * sinAlpha) / (Math.cos(latRad) * cosAlpha);
-    const clampedCosGamma = Math.max(-1.0, Math.min(1.0, cosGamma));
+    const clampedCosGamma = Math.max(-1.0, Math.min(1.0, Number.isFinite(cosGamma) ? cosGamma : 0));
     const rawAzimuth = Math.acos(clampedCosGamma);
 
     // Azimuth measured from South or North:
@@ -107,7 +117,13 @@ export function sampleManausSunPosition(
   const dirY = Math.sin(elevationRad);
   const dirZ = -cosAlpha * Math.cos(azimuthRad);
 
-  result.direction.set(dirX, dirY, dirZ).normalize();
+  result.direction.set(dirX, dirY, dirZ);
+  if (result.direction.lengthSq() > 1e-6) {
+    result.direction.normalize();
+  } else {
+    result.direction.set(0, 1, 0);
+  }
+
   result.elevationRad = elevationRad;
   result.elevationDeg = elevationDeg;
   result.azimuthRad = azimuthRad;
@@ -135,14 +151,27 @@ export function sampleManausSunPosition(
 export function sampleManausMoonPosition(
   localHour: number,
   lunarAgeDays: number = 14.76, // 0 = New Moon, 14.76 = Full Moon, 29.53 = Cycle end
-  outDirection?: Vector3
-): { direction: Vector3; phaseFraction: number; elevationRad: number } {
-  const dir = outDirection || new Vector3();
-  
+  out?: MoonPositionSample | Vector3
+): MoonPositionSample {
+  const safeAge = Number.isFinite(lunarAgeDays) ? ((lunarAgeDays % 29.53) + 29.53) % 29.53 : 14.76;
+  const safeHour = Number.isFinite(localHour) ? ((localHour % 24) + 24) % 24 : 0.0;
+
+  let target: MoonPositionSample;
+  if (out && 'phaseFraction' in out) {
+    target = out;
+  } else {
+    target = {
+      direction: out instanceof Vector3 ? out : new Vector3(),
+      phaseFraction: 0,
+      elevationRad: 0,
+      elevationDeg: 0
+    };
+  }
+
   // At new moon (age = 0), moon tracks with sun (same hour).
   // At full moon (age = 14.76), moon is opposite sun (+12 hours).
-  const synodicProgress = (lunarAgeDays % 29.53) / 29.53;
-  const moonHour = (localHour + synodicProgress * 24.0) % 24.0;
+  const synodicProgress = safeAge / 29.53;
+  const moonHour = (safeHour + synodicProgress * 24.0) % 24.0;
 
   const latRad = MANAUS_COORDINATES.latitudeRad;
   const moonDeclinationRad = 5.14 * DEG2RAD * Math.sin(synodicProgress * 2 * Math.PI);
@@ -151,13 +180,21 @@ export function sampleManausMoonPosition(
   const sinAlpha = Math.sin(latRad) * Math.sin(moonDeclinationRad) +
                    Math.cos(latRad) * Math.cos(moonDeclinationRad) * Math.cos(hourAngleRad);
   const elevationRad = Math.asin(Math.max(-1.0, Math.min(1.0, sinAlpha)));
+  const elevationDeg = elevationRad * RAD2DEG;
   const cosAlpha = Math.cos(elevationRad);
   const azimuthRad = hourAngleRad > 0 ? (Math.PI * 1.5) : (Math.PI * 0.5);
 
-  dir.set(cosAlpha * Math.sin(azimuthRad), Math.sin(elevationRad), -cosAlpha * Math.cos(azimuthRad)).normalize();
+  target.direction.set(cosAlpha * Math.sin(azimuthRad), Math.sin(elevationRad), -cosAlpha * Math.cos(azimuthRad));
+  if (target.direction.lengthSq() > 1e-6) {
+    target.direction.normalize();
+  } else {
+    target.direction.set(0, 1, 0);
+  }
 
   // Phase fraction: 0.0 (new moon) to 1.0 (full moon)
-  const phaseFraction = 0.5 * (1.0 - Math.cos(synodicProgress * 2 * Math.PI));
+  target.phaseFraction = 0.5 * (1.0 - Math.cos(synodicProgress * 2 * Math.PI));
+  target.elevationRad = elevationRad;
+  target.elevationDeg = elevationDeg;
 
-  return { direction: dir, phaseFraction, elevationRad };
+  return target;
 }
