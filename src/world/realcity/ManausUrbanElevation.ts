@@ -72,6 +72,7 @@ export class ElevationModel {
    * Matches references/city-tour/src/terrain.js
    */
   public sampleBilinear(worldX: number, worldZ: number): number {
+    if (!Number.isFinite(worldX + worldZ)) return 0.0;
     const gridX = (worldX - this.originX) / this.step;
     const gridZ = (worldZ - this.originZ) / this.step;
 
@@ -206,6 +207,7 @@ export class ManausUrbanElevation {
    * Execution time < 0.0002 ms on standard modern CPU.
    */
   public getTerrainHeight(x: number, z: number): number {
+    if (!Number.isFinite(x + z)) return 0.0;
     // 1. If DEM model is provided and covers the coordinates, combine it
     let demContribution = 0;
     if (this.demModel) {
@@ -445,10 +447,11 @@ export class ManausUrbanElevation {
       const startH = this.getTerrainHeight(startX, startZ) + roadClassHeight;
       const endH = this.getTerrainHeight(endX, endZ) + roadClassHeight;
       const bridgeDeckMin = Math.max(startH, endH, 18.0); // clears shipping navigation
+      const archRise = Math.max(12.0, bridgeDeckMin - (startH + endH) * 0.5);
 
       for (let i = 0; i < nodeCount; i++) {
         const t = nodeCount > 1 ? i / (nodeCount - 1) : 0;
-        const arch = Math.sin(t * Math.PI) * 12.0; // elegant navigation arch
+        const arch = Math.sin(t * Math.PI) * archRise; // elegant navigation arch
         rawElevations[i] = (1 - t) * startH + t * endH + arch;
       }
       return rawElevations;

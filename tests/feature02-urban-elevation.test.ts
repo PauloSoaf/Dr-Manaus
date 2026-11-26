@@ -216,3 +216,141 @@ test('CT-10-06: Surface normal calculation via central differences yields normal
   assert.ok(Math.abs(normal.length() - 1.0) < 1e-4, 'Bluff normal must be unit length');
   assert.ok(normal.y > 0.5, 'Bluff normal y must be positive');
 });
+
+test('CT-10-07: Shell tier building foundation skirt parity on sloped terrain', () => {
+  const buf = createBuffers();
+  const building: RealBuilding = {
+    id: 'test-slope-shell-building',
+    h: 15.0,
+    minH: 0,
+    ox: 1200,
+    oz: -3200,
+    p: [
+      -10, -10,
+      10, -10,
+      10, 10,
+      -10, 10,
+    ],
+  };
+
+  const slopeElevation = (_x: number, z: number) => {
+    return 20.0 + (z < 0 ? 3.5 : 0.0);
+  };
+
+  const collider = appendShellBuilding(buf, building, {
+    elevationSampler: slopeElevation,
+  });
+
+  assert.ok(collider, 'Collider must be created for shell building');
+  assert.ok(buf.position.length > 0, 'Vertices must be emitted for shell building');
+
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (let i = 1; i < buf.position.length; i += 3) {
+    const y = buf.position[i];
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+
+  assert.ok(minY <= -0.5, `Lowest shell foundation vertex ${minY} must extend at least 0.5m below minH`);
+  assert.ok(maxY >= 15.0, `Top shell vertex ${maxY} must reach building height 15m`);
+  assert.ok(collider.height >= 15.5, `Shell collider height ${collider.height} must encompass foundation depth`);
+});
+
+test('CT-10-08: Bridge navigation arch elevation and abutment anchoring', () => {
+  const elevation = ManausUrbanElevation.getInstance();
+  const bridgePoints = [
+    -100, 1000, // Abutment A (Ponta da Barra / Manaus bank)
+    -100, 1500, // Midspan A
+    -100, 2000, // Navigation channel center
+    -100, 2500, // Midspan B
+    -100, 3000, // Abutment B (Iranduba bank)
+  ];
+  const roadBaseH = 0.03; // primary arterial height
+
+  const bridgeElevations = elevation.sampleRoadElevations(bridgePoints, roadBaseH, true);
+  assert.equal(bridgeElevations.length, 5, 'Must return 5 node elevations');
+
+  // Verify smooth parabolic arching
+  const startH = bridgeElevations[0];
+  const midH = bridgeElevations[2];
+  const endH = bridgeElevations[4];
+
+  assert.ok(midH > startH + 5.0, `Midspan height ${midH.toFixed(2)}m must arch above start ${startH.toFixed(2)}m`);
+  assert.ok(midH > endH + 10.0, `Midspan height ${midH.toFixed(2)}m must arch above end ${endH.toFixed(2)}m`);
+  assert.ok(midH >= 18.0, `Bridge apex ${midH.toFixed(2)}m must clear maritime shipping navigation clearance (>= 18m)`);
+});
+
+test('CT-10-09: Numerical robustness to non-finite inputs (NaN and Infinity)', () => {
+  const model = new ElevationModel(4, 4, 10, 0, 0);
+  model.setHeight(0, 0, 15.0);
+
+  // NaN coordinates
+  assert.equal(model.sampleBilinear(NaN, 5.0), 0.0, 'sampleBilinear(NaN, y) must return 0.0');
+  assert.equal(model.sampleBilinear(5.0, NaN), 0.0, 'sampleBilinear(x, NaN) must return 0.0');
+  assert.equal(model.sampleBilinear(NaN, NaN), 0.0, 'sampleBilinear(NaN, NaN) must return 0.0');
+
+  // Infinite coordinates
+  assert.equal(model.sampleBilinear(Infinity, 0), 0.0, 'sampleBilinear(Infinity, z) must return 0.0');
+  assert.equal(model.sampleBilinear(0, -Infinity), 0.0, 'sampleBilinear(x, -Infinity) must return 0.0');
+
+  // ManausUrbanElevation singleton
+  const elevation = ManausUrbanElevation.getInstance();
+  assert.equal(elevation.getTerrainHeight(NaN, 100), 0.0, 'getTerrainHeight(NaN, z) must return 0.0');
+  assert.equal(elevation.getTerrainHeight(100, NaN), 0.0, 'getTerrainHeight(x, NaN) must return 0.0');
+  assert.equal(elevation.getTerrainHeight(Infinity, -Infinity), 0.0, 'getTerrainHeight(Inf, -Inf) must return 0.0');
+});
+
+test('CT-10-10: Foundation skirt normal vectors face consistently outward', () => {
+  const buf = createBuffers();
+  const building: RealBuilding = {
+    id: 'test-skirt-normals-building',
+    h: 12.0,
+    minH: 0,
+    ox: 500,
+    oz: -1100,
+    p: [
+      0, 0,
+      10, 0,
+      10, 10,
+      0, 10,
+    ],
+  };
+
+  const slope = (_x: number, z: number) => {
+    return 20.0 + (z > 5 ? -4.0 : 0.0);
+  };
+
+  appendNearBuilding(buf, building, { elevationSampler: slope });
+
+  assert.ok(buf.normal.length > 0, 'Normals must be emitted');
+  // Check that all normal vectors are normalized unit vectors
+  for (let i = 0; i < buf.normal.length; i += 3) {
+    const nx = buf.normal[i];
+    const ny = buf.normal[i + 1];
+    const nz = buf.normal[i + 2];
+    const len = Math.hypot(nx, ny, nz);
+    assert.ok(
+      Math.abs(len - 1.0) < 1e-3,
+      `Normal [${nx.toFixed(3)}, ${ny.toFixed(3)}, ${nz.toFixed(3)}] must be unit length, got ${len}`,
+    );
+  }
+});
+
+test('CT-10-11: Road ribbon sloped 3D normals on inclined terrain', () => {
+  const roadRecord: RoadRecord = {
+    class: 'primary',
+    width: 10,
+    p: [0, 0, 0, 100], // 100m road going along Z
+  };
+
+  // 15% grade slope: elevation rises 15m over 100m
+  const slopeSampler = (_x: number, z: number) => z * 0.15;
+  const dummyMat = {} as any;
+  const network = new RoadNetwork([roadRecord], dummyMat, dummyMat, slopeSampler);
+
+  // Sample road heights
+  const heights = network.sampleRoadHeights(roadRecord.p, ROAD_HEIGHT.primary, false);
+  assert.equal(heights.length, 2);
+  assert.ok(heights[1] > heights[0] + 10.0, 'Road height must rise along slope');
+});

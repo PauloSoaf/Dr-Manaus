@@ -4,6 +4,7 @@ import { REAL_CITY } from '../../core/config';
 import { drawnByLandmark } from './ownership';
 import { SurfaceFrameService } from '../spatial/SurfaceFrameService';
 import { localManausPresentationMode } from '../spatial/ManausSurfacePresentation';
+import { ManausUrbanElevation } from './ManausUrbanElevation';
 
 const surfaceService = new SurfaceFrameService('earth');
 
@@ -287,9 +288,11 @@ export class RoadNetwork {
     if (isBridge) {
       const startH = sampler(p[0], p[1]) + baseH;
       const endH = sampler(p[p.length - 2], p[p.length - 1]) + baseH;
+      const bridgeDeckMin = Math.max(startH, endH, 18.0);
+      const archRise = Math.max(12.0, bridgeDeckMin - (startH + endH) * 0.5);
       for (let i = 0; i < count; i++) {
         const t = count > 1 ? i / (count - 1) : 0;
-        const arch = Math.sin(t * Math.PI) * 12.0; // bridge navigation arch
+        const arch = Math.sin(t * Math.PI) * archRise; // bridge navigation arch
         raw[i] = (1 - t) * startH + t * endH + arch;
       }
       return raw;
@@ -300,15 +303,7 @@ export class RoadNetwork {
     }
 
     // Laplacian smoothing (RF-10-03): prevents sharp vertical step kinks between waypoints
-    const smoothed = new Float32Array(count);
-    smoothed.set(raw);
-    for (let pass = 0; pass < 2; pass++) {
-      for (let i = 1; i < count - 1; i++) {
-        smoothed[i] = 0.25 * raw[i - 1] + 0.5 * raw[i] + 0.25 * raw[i + 1];
-      }
-      raw.set(smoothed);
-    }
-    return smoothed;
+    return ManausUrbanElevation.getInstance().smoothElevationLaplacian(raw, 2);
   }
 
   private buildArterial(): void {
