@@ -241,7 +241,7 @@ export class Game {
       universe: this.universe,
       travelDomain: this.travelDomain,
       player: this.player,
-      getColliders: () => FEATURES.curvedManaus ? this.curvedColliders : this.colliders,
+      getColliders: () => this.activePhysicsColliders,
       prepareManaus: destination => this.manausSimulationActive ? this.streamer.prepare(new Vector3(destination.x, destination.y, destination.z)) : Promise.resolve(),
       prepareSystem: target => this.systemMaterializer.prepareTravel(target),
       notify: message => this.hud.notify(message),
@@ -478,6 +478,9 @@ export class Game {
   ready = false; frame: FrameSample = { fps: 0, cpu: 0, drawCalls: 0, triangles: 0, geometries: 0, textures: 0, active: 0, cached: 0, queued: 0, loadedMB: 0, streamMs: 0, x: 0, z: 0 };
   stressReport: FrameSample[] = []; private stressRoute: Vector3[] = []; private stressIndex = 0; private stressSampleTime = 0;
   private lastTime = 0; private discoveryTime = 0; private telemetryTime = 0; private cpu = 0; private colliders: Collider[] = []; private curvedColliders: Collider[] = []; private playerLocal = new Vector3(); private direction = new Vector3(); private viewForward = new Vector3();
+  private get activePhysicsColliders(): readonly Collider[] {
+    return (FEATURES.curvedManaus && this.manausSimulationActive) ? this.curvedColliders : this.colliders;
+  }
   private stompTimer = 0; private readonly foot = new Vector3(); private readonly surfaceService = new SurfaceFrameService('earth');
   private bounds = false; private lod = false; private culling?: CameraHelper; private spaceFactor = 0;
   /** Exponentially smoothed per-system frame cost, in milliseconds. Drives the F3 panel. */
@@ -747,7 +750,7 @@ export class Game {
       if (this.manausSimulationActive) this.destruction.plough(position, velocity, dt, true);
       this.gatherColliders();
       if (FEATURES.curvedManaus && this.manausSimulationActive) this.curveColliders();
-      return FEATURES.curvedManaus && this.manausSimulationActive ? this.curvedColliders : this.colliders;
+      return this.activePhysicsColliders;
     };
     this.powers = new PowerSystem(this.actorRoot, this.player, this.rendering.camera, this.input, {
       canDeformSurface: () => this.manausSimulationActive || (this.travelDomain.localPhysicsActive && !!this.universe.telemetry.dominantBody),
@@ -801,7 +804,7 @@ export class Game {
           }
         }
         return count;
-      }, prepare: destination => { if (!this.manausSimulationActive) return Promise.resolve(); const flat = FEATURES.curvedManaus && this.travelDomain.localPhysicsActive ? this.surfaceService.renderLocalToLegacyPoint(destination.x, destination.y, destination.z) : destination; return this.streamer.prepare(flat); }, notify: message => this.hud.notify(message), sound: name => this.audio?.play(name), getOrigin: () => this.renderOriginVec, getColliders: () => FEATURES.curvedManaus ? this.curvedColliders : this.colliders, getAttackColliders: (point, radius) => this.attackColliders(point, radius),
+      }, prepare: destination => { if (!this.manausSimulationActive) return Promise.resolve(); const flat = FEATURES.curvedManaus && this.travelDomain.localPhysicsActive ? this.surfaceService.renderLocalToLegacyPoint(destination.x, destination.y, destination.z) : destination; return this.streamer.prepare(flat); }, notify: message => this.hud.notify(message), sound: name => this.audio?.play(name), getOrigin: () => this.renderOriginVec, getColliders: () => this.activePhysicsColliders, getAttackColliders: (point, radius) => this.attackColliders(point, radius),
       universalTeleport: async (rayOrigin, rayDirection) => {
         const res = this.universalTeleport.resolveFromAim(rayOrigin, rayDirection);
         if (!res) {
@@ -1164,7 +1167,7 @@ export class Game {
     if (manaus) this.updateStomps(dt);
     if (manaus && this.stressRoute.length) this.updateStress(dt);
     else if (local) {
-      this.player.update(dt, FEATURES.curvedManaus ? this.curvedColliders : this.colliders, this.camera.yaw, this.camera.pitch, timeSecNow);
+      this.player.update(dt, this.activePhysicsColliders, this.camera.yaw, this.camera.pitch, timeSecNow);
       this.recordSurfaceReturnStep();
       if (this.portals) {
         const crossing = this.portals.checkCrossing(
@@ -1433,7 +1436,7 @@ export class Game {
       this.player,
       this.renderOriginVec,
       dt,
-      local ? (FEATURES.curvedManaus ? this.curvedColliders : this.colliders) : [],
+      local ? this.activePhysicsColliders : [],
       this.vehicle?.isOccupied,
       this.vehicle?.activeType
     );
@@ -1882,7 +1885,7 @@ export class Game {
     this.stompTimer -= dt; if (this.player.size < 5 || this.stompTimer > 0) return;
     this.stompTimer = .12;
     const size = this.player.size, angle = this.player.facingYaw;
-    const activeColliders = FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
+    const activeColliders = this.activePhysicsColliders;
     for (const side of [-1, 1]) {
       this.foot.copy(this.player.position); this.foot.x += Math.cos(angle) * side * .112 * size; this.foot.z -= Math.sin(angle) * side * .112 * size;
       const floor = PhysicsWorld.terrainHeight(this.foot.x, this.foot.z);
@@ -1900,7 +1903,7 @@ export class Game {
   private attackTime = -Infinity; private attackRadius = 0; private readonly attackPosition = new Vector3(); private attackBoxes: Collider[] = [];
   private attackColliders(point: Vector3, radius: number): readonly Collider[] {
     if (!this.manausSimulationActive) return [];
-    if (this.player.size < 7) return FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
+    if (this.player.size < 7) return this.activePhysicsColliders;
     const now = performance.now();
     if (now - this.attackTime > 120 || radius !== this.attackRadius || point.distanceToSquared(this.attackPosition) > 65536) {
       this.attackBoxes = Array.from(this.destructible.blastColliders(point, radius)); this.attackTime = now; this.attackRadius = radius; this.attackPosition.copy(point);
@@ -1916,7 +1919,7 @@ export class Game {
         flat = this.surfaceService.renderLocalToLegacyPoint(point.x, point.y, point.z);
       }
       const out = this.blastBoxes; out.length = 0;
-      const srcBoxes = FEATURES.curvedManaus ? this.curvedColliders : this.colliders;
+      const srcBoxes = this.activePhysicsColliders;
       for (const box of srcBoxes) if (!box.id?.startsWith("real:") && !box.id?.startsWith("landmark:") && !box.id?.startsWith("largo:") && !box.id?.startsWith("airport:")) out.push(box);
 
       const legacyOut: Collider[] = [];
@@ -1938,7 +1941,7 @@ export class Game {
       for (const box of out) { box.category ??= impactCategory(box.id); box.impactKind ??= impactKind(box.id); }
       return out;
     },
-    colliders: (): readonly Collider[] => FEATURES.curvedManaus ? this.curvedColliders : this.colliders,
+    colliders: (): readonly Collider[] => this.activePhysicsColliders,
     destroy: (id: string): boolean => { if (!this.manausSimulationActive) return false; id = id.replace(/^hlod:/, ''); return !!this.traffic?.destroy(id) || this.population.destroy(id) || this.realCity.destroy(id) || this.streamer.destroy(id) || this.landmarks.destroy(id) || this.largo.destroy(id) || this.airport.destroy(id); },
     deform: (point: Vector3, radius: number, damage: number, depth?: number) => {
       if (!this.manausSimulationActive) return false;
@@ -2417,7 +2420,7 @@ export class Game {
     if (this.universalTravelController?.active) { this.input.consume('KeyB'); this.input.consume('KeyF'); return; }
 
     let nearest = Number.POSITIVE_INFINITY;
-    for (const collider of (FEATURES.curvedManaus ? this.curvedColliders : this.colliders)) {
+    for (const collider of this.activePhysicsColliders) {
       const dx = collider.x - this.player.position.x, dy = (collider.y ?? 0) - this.player.position.y, dz = collider.z - this.player.position.z;
       nearest = Math.min(nearest, Math.hypot(dx, dy, dz));
     }
