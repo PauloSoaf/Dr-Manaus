@@ -85,14 +85,14 @@ export class ChunkMeshes {
   constructor() {
     this.oceanGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 24, 24);
     this.oceanGeometry.rotateX(-Math.PI / 2);
-    this.oceanGeometry.translate(WORLD.chunkSize * 0.5, 0.05, WORLD.chunkSize * 0.5);
+    this.oceanGeometry.translate(WORLD.chunkSize * 0.5, 0.0, WORLD.chunkSize * 0.5);
     const shoreArr = new Float32Array(this.oceanGeometry.getAttribute('position').count).fill(1.0);
     this.oceanGeometry.setAttribute('shore', new Float32BufferAttribute(shoreArr, 1));
     this.oceanMaterial = createUniversalLiquidMaterial('terrestrial-ocean');
 
     this.megawaveOceanGeometry = new PlaneGeometry(WORLD.chunkSize, WORLD.chunkSize, 32, 32);
     this.megawaveOceanGeometry.rotateX(-Math.PI / 2);
-    this.megawaveOceanGeometry.translate(WORLD.chunkSize * 0.5, 0.05, WORLD.chunkSize * 0.5);
+    this.megawaveOceanGeometry.translate(WORLD.chunkSize * 0.5, 0.0, WORLD.chunkSize * 0.5);
     const megaShoreArr = new Float32Array(this.megawaveOceanGeometry.getAttribute('position').count).fill(1.0);
     this.megawaveOceanGeometry.setAttribute('shore', new Float32BufferAttribute(megaShoreArr, 1));
     this.megawaveOceanMaterial = createUniversalLiquidMaterial('megawave-ocean');

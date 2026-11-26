@@ -330,12 +330,14 @@ export class ManausBathymetryService {
     }
     if (!BuildingGeneratorContext.activeOrigin.isManaus) {
       if (this.isWater(x, z)) {
-        return sampleUniversalLiquid(x, z, timeSec, 0.05, 'terrestrial-ocean', _scratchLiquidSample).height;
+        return sampleUniversalLiquid(x, z, timeSec, 0.0, 'terrestrial-ocean', _scratchLiquidSample).height;
       }
       return 0;
     }
     const shoreDist = Math.max(0, this.sampleSignedShoreDistance(x, z));
-    return sampleManausWater(x, z, timeSec, this.baseSurfaceY, _scratchSurfaceSample, shoreDist).height;
+    const riverbedY = this.sampleRiverbedHeight(x, z);
+    const depthM = Math.max(0, this.baseSurfaceY - riverbedY);
+    return sampleManausWater(x, z, timeSec, this.baseSurfaceY, _scratchSurfaceSample, shoreDist, 0, undefined, depthM).height;
   }
 
   /**

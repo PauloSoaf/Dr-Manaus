@@ -94,6 +94,6 @@ export class PlanetTerrainProvider implements TerrainProvider {
     const radius = Math.hypot(...point);
     if (radius < 1) return -this.body.semiMajorAxisM;
     for (let i = 0; i < 3; i++) this.direction[i] = point[i] / radius;
-    return radius - planetSurfaceRadius(this.surface, this.direction);
+    return radius - planetSurfaceRadius(this.surface, this.direction, false, true);
   }
 }

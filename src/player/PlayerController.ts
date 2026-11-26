@@ -269,9 +269,10 @@ export class PlayerController {
       ? 'interplanetary' : 'mega';
   }
 
-  update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0): void {
+  update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0, simulationTimeSec = 0): void {
     dt = Math.min(0.06, dt);
     this.armClockS += dt;
+    const waveTime = simulationTimeSec > 0 ? simulationTimeSec : this.armClockS;
     if (this.lastHitTimer > 0) {
       this.lastHitTimer -= dt;
     } else if (this.shield < this.maxShield) {
@@ -291,7 +292,7 @@ export class PlayerController {
     const isB = this.input.held('KeyB');
     if (!isB) this.megaNeedsBoostRelease = false;
     const wasSwimming = this.state === 'Swimming';
-    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
+    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, waveTime);
 
     // Descending cosmic flight that reaches the river surface (outside the take-off grace window,
     // not climbing with Space, not mid-slam) splashes down into Swimming instead of flying through
@@ -397,7 +398,10 @@ export class PlayerController {
     } else if (isSwimming) {
       this.state = 'Swimming';
       this.jumps = 0;
-      const floatFeetY = this.submersion.surfaceY - 1.18 * this.size;
+      const floatFeetY = Math.max(
+        this.submersion.surfaceY - 1.18 * this.size,
+        this.submersion.riverbedY + 0.05 * this.size
+      );
       const wantsDive = this.input.held('ControlLeft') || this.input.held('ControlRight') || this.input.held('KeyC') || this.input.held('KeyZ');
       const wantsAscend = this.input.held('Space');
 
@@ -426,7 +430,6 @@ export class PlayerController {
         if (this.position.y <= this.submersion.riverbedY + 0.16 * this.size) {
           // Resting on the 3D riverbed after a dive: stable benthic contact without bobbing away
           this.velocity.y = Math.max(0, this.velocity.y * Math.exp(-dt * 10));
-          this.position.y = Math.max(this.position.y, this.submersion.riverbedY + 0.05 * this.size);
         } else {
           // Responsive surface buoyancy keeps head/shoulders cleanly above water
           const surfaceError = floatFeetY - this.position.y;
@@ -498,11 +501,11 @@ export class PlayerController {
       0.32 * this.size,
       2.1 * this.size,
       colliders,
-      !flying ? 0.55 * this.size : 0
+      !flying && !isSwimming ? 0.55 * this.size : 0
     );
 
     // Re-evaluate submersion at post-move coordinates with hysteresis
-    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
+    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, waveTime);
     const postDepthThreshold = (wasSwimming || isSwimming) ? swimDepthStay : swimDepthEnter;
     const postSurfaceMargin = (wasSwimming || isSwimming) ? swimSurfaceStay : swimSurfaceEnter;
     const nowDeepWater = this.waterVolumeActive && this.submersion.inWater && this.submersion.totalWaterDepthM >= postDepthThreshold;

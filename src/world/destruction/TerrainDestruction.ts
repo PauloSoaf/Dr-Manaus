@@ -325,6 +325,7 @@ export class TerrainDestruction implements TerrainProvider {
    * Base immutable terrain + excavated river bathymetry before destructive player craters.
    */
   baseHeightAt(x: number, z: number): number {
+    if (this.currentBodyId === 'thalassa') return -4000.0;
     if (this.currentBodyId !== 'earth') return 0;
     return manausBathymetry.sampleRiverbedHeight(x, z);
   }

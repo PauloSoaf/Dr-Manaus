@@ -406,41 +406,30 @@ function createMaterial(u: WaterShaderUniforms): MeshStandardNodeMaterial {
   const flowDir = vec2(1.0, 0.12).normalize();
   const advectedCoord = vec2(p.x, p.z).sub(flowDir.mul(u.uWaveTime.mul(1.15)));
 
-  // 1. Dynamic wave crest breaking foam: 2D isotropic cellular turbulence eliminates 1D parallel stripes
+  // 1. Dynamic wave crest breaking foam: driven by slope and crest elevation, smoothly filtered
   const crestSignal = totalElevation.mul(waveDamp).add(waveSlope.mul(0.35));
-  const crestBreaking = smoothstep(0.18, 0.40, crestSignal);
-  const foamUv = advectedCoord.mul(0.08);
-  const foamA = sin(foamUv.x.mul(2.4).add(cos(foamUv.y.mul(1.9))));
-  const foamB = cos(foamUv.y.mul(2.4).add(sin(foamUv.x.mul(1.9))));
-  const foamPattern = foamA.mul(foamB).abs();
-  const crestFoam = crestBreaking.mul(smoothstep(0.18, 0.65, foamPattern)).mul(near);
+  const crestBreaking = smoothstep(0.22, 0.45, crestSignal);
+  const crestFoam = crestBreaking.mul(near).mul(0.65);
 
   const shoreSurge = sin(u.uWaveTime.mul(2.5).sub(shore.mul(25.0))).mul(0.5).add(0.5);
   const shoreFoam = smoothstep(0.002, 0.045, shore).mul(shoreSurge).mul(near);
-  const totalFoam = min(max(crestFoam.mul(0.85).add(shoreFoam.mul(0.95)), float(0.0)), float(1.0));
+  const totalFoam = min(max(crestFoam.mul(0.7).add(shoreFoam.mul(0.85)), float(0.0)), float(1.0));
   const foamColor = color('#eef6f9');
 
-  // 2. High-frequency solar glitter & diamond sparkles along specular reflection path (adapted from beautiful-water)
-  const sparkleCoord = advectedCoord.mul(2.5).add(waveNormal.xz.mul(1.5));
-  const sparkleA = sin(sparkleCoord.x.mul(7.8).add(cos(sparkleCoord.y.mul(6.4))));
-  const sparkleB = cos(sparkleCoord.y.mul(7.8).add(sin(sparkleCoord.x.mul(6.4))));
-  const sparklePattern = pow(smoothstep(0.65, 0.98, sparkleA.mul(sparkleB).abs()), 4.0);
-  const solarSparkle = sharpSun.mul(sparklePattern).mul(near).mul(2.2);
+  // 2. Natural Sun Specular Reflection: physically derived from sun direction, view direction and wave normals.
+  // Artificial high-frequency sine patterns (sparkles) removed to prevent moire aliasing and zebra stripes.
 
-  // 3. Animated caustics network in shallow river margins and beach shelf
-  const causticsCoord = vec2(p.x, p.z).mul(1.35).add(vec2(u.uWaveTime.mul(0.42), u.uWaveTime.mul(0.28)));
-  const causticsWave = sin(causticsCoord.x.mul(1.6).add(cos(causticsCoord.y.mul(1.3))))
-    .add(cos(causticsCoord.y.mul(1.6).add(sin(causticsCoord.x.mul(1.3)))))
-    .mul(0.5);
-  const causticsPattern = pow(smoothstep(0.38, 0.95, causticsWave.abs()), 2.2).mul(0.35);
-  const causticsColor = mix(color('#6ae5cc'), color('#e2c88f'), silt).mul(causticsPattern).mul(transR);
+  // 3. Subtle shallow caustics in near clear water shelf
+  const shallowCausticFactor = smoothstep(2.5, 0.3, geomDepth).mul(transR).mul(near);
+  const causticsCoord = vec2(p.x, p.z).mul(0.4).add(vec2(u.uWaveTime.mul(0.2), u.uWaveTime.mul(0.15)));
+  const causticsWave = sin(causticsCoord.x.add(cos(causticsCoord.y))).mul(0.5).add(0.5);
+  const causticsColor = mix(color('#1a4d45'), color('#3d3525'), silt).mul(causticsWave).mul(shallowCausticFactor).mul(0.25);
 
-  // Add crest subsurface glow, sun specular glint, solar micro-sparkles, and shallow caustics
+  // Add crest subsurface glow, sun specular glint, and shallow caustics
   const crestGlowColor = mix(color('#0e2f38'), color('#483d28'), silt).mul(crestGlow);
   const riverColorWithHighlights = riverColor
     .add(crestGlowColor)
     .add(sunSpecularGlint)
-    .add(color('#ffffff').mul(solarSparkle))
     .add(causticsColor);
 
   // Subtle shoreline margin brightening (no diagonal checkerboard interference)
@@ -1048,20 +1037,24 @@ export class WaterSystem {
     );
   }
 
-  public createSplash(x: number, z: number, intensity = 1.0, upwardSpeed = 7.0): void {
-    this.vfx.createSplash(x, z, this.surfaceY, intensity, upwardSpeed);
+  public createSplash(x: number, z: number, intensity = 1.0, upwardSpeed = 7.0, surfaceYOverride?: number): void {
+    const y = surfaceYOverride !== undefined ? surfaceYOverride : this.surfaceY;
+    this.vfx.createSplash(x, z, y, intensity, upwardSpeed);
   }
 
-  public createRipple(x: number, z: number, startRadius = 0.3, maxRadius = 1.6, duration = 1.35): void {
-    this.vfx.createRipple(x, z, this.surfaceY, startRadius, maxRadius, duration);
+  public createRipple(x: number, z: number, startRadius = 0.3, maxRadius = 1.6, duration = 1.35, surfaceYOverride?: number): void {
+    const y = surfaceYOverride !== undefined ? surfaceYOverride : this.surfaceY;
+    this.vfx.createRipple(x, z, y, startRadius, maxRadius, duration);
   }
 
-  public createFoam(x: number, z: number, count = 4, radius = 0.5, velX = 0, velZ = 0): void {
-    this.vfx.createFoam(x, z, this.surfaceY, count, radius, velX, velZ);
+  public createFoam(x: number, z: number, count = 4, radius = 0.5, velX = 0, velZ = 0, surfaceYOverride?: number): void {
+    const y = surfaceYOverride !== undefined ? surfaceYOverride : this.surfaceY;
+    this.vfx.createFoam(x, z, y, count, radius, velX, velZ);
   }
 
-  public createWake(x: number, z: number, dirX: number, dirZ: number, speed: number, width = 2.0): void {
-    this.vfx.createWake(x, z, dirX, dirZ, speed, width, this.surfaceY);
+  public createWake(x: number, z: number, dirX: number, dirZ: number, speed: number, width = 2.0, surfaceYOverride?: number): void {
+    const y = surfaceYOverride !== undefined ? surfaceYOverride : this.surfaceY;
+    this.vfx.createWake(x, z, dirX, dirZ, speed, width, y);
   }
 
   public sampleHeight(x: number, z: number, timeSec = this.elapsedTimeSec, out?: WaterSurfaceSample, cameraDistanceM = 0): WaterSurfaceSample {

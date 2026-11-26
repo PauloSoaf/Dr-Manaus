@@ -331,6 +331,11 @@ export interface LiquidSampleResult {
   normal: Vector3;
 }
 
+function calcSmoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
 /**
  * THE Gerstner evaluator. CPU consumers (Manaus physics, buoyancy, universal sampling, the fluid
  * registry) all call this one function, and the GPU shader unrolls the identical equation with the
@@ -338,6 +343,7 @@ export interface LiquidSampleResult {
  *
  * `shoreDamp` scales displacement/normal near banks; `highHarmonicFilter` is the distance filter
  * applied to harmonics with index >= 2 (matches the shader's `near` factor).
+ * `depthM` attenuates waves in shallow water matching the GPU `depthDamp = smoothstep(0.04, 1.4, geomDepth)`.
  */
 export function sampleGerstnerSpectrum(
   waves: readonly GerstnerWaveHarmonic[],
@@ -348,9 +354,13 @@ export function sampleGerstnerSpectrum(
   out: LiquidSampleResult,
   shoreDamp = 1,
   highHarmonicFilter = 1,
+  depthM?: number,
 ): LiquidSampleResult {
   const count = waves.length;
-  let dx = 0, dy = 0, dz = 0, waSumX = 0, waSumZ = 0;
+  const depthDamp = depthM !== undefined ? calcSmoothstep(0.04, 1.4, depthM) : 1.0;
+  const waveDamp = shoreDamp * depthDamp;
+
+  let dx = 0, dy = 0, dz = 0, waSumX = 0, waSumZ = 0, nySum = 0;
   for (let i = 0; i < count; i++) {
     const w = waves[i];
     const amp = w.amplitude * (i >= 2 ? highHarmonicFilter : 1);
@@ -361,18 +371,20 @@ export function sampleGerstnerSpectrum(
     const dirZ = w.direction[1] / len;
     const theta = k * (dirX * x + dirZ * z) - w.speed * c * timeSec;
     const cosTheta = Math.cos(theta);
+    const sinTheta = Math.sin(theta);
     const q = amp > 1e-8 ? w.steepness / (k * amp * count) : 0;
     dx += q * amp * dirX * cosTheta;
-    dy += amp * Math.sin(theta);
+    dy += amp * sinTheta;
     dz += q * amp * dirZ * cosTheta;
     const wa = k * amp;
     waSumX += dirX * wa * cosTheta;
     waSumZ += dirZ * wa * cosTheta;
+    nySum += q * wa * sinTheta;
   }
-  out.displacementX = dx * shoreDamp;
-  out.displacementZ = dz * shoreDamp;
-  out.height = baseElevationM + dy * shoreDamp;
-  out.normal.set(-waSumX * shoreDamp, 1.0, -waSumZ * shoreDamp).normalize();
+  out.displacementX = dx * waveDamp;
+  out.displacementZ = dz * waveDamp;
+  out.height = baseElevationM + dy * waveDamp;
+  out.normal.set(-waSumX * waveDamp, Math.max(0.1, 1.0 - nySum * waveDamp), -waSumZ * waveDamp).normalize();
   return out;
 }
 
@@ -423,6 +435,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   let totalDispZ: any = float(0);
   let dHx: any = float(0);
   let dHz: any = float(0);
+  let dHy: any = float(0);
 
   // Unroll Gerstner harmonic wave nodes in TSL using continuous stable coordinates
   // so wave phase, trocoidal displacement and peaks never restart or produce seams at chunk edges
@@ -453,6 +466,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
     const wa = amp.mul(k);
     dHx = (dHx as any).add(float(w.direction[0]).mul(wa).mul(cosP));
     dHz = (dHz as any).add(float(w.direction[1]).mul(wa).mul(cosP));
+    dHy = (dHy as any).add(dispAmp.mul(k).mul(sinP));
   }
 
   // Shoreline wave damping: ensures wave amplitude flattens out smoothly at coastlines for rivers/freshwater.
@@ -465,8 +479,13 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
     vec3(totalDispX.mul(waveDamp), totalElevation.mul(waveDamp), totalDispZ.mul(waveDamp))
   );
 
-  // Analytical Gerstner wave normal
-  const waveNormal = vec3(dHx.mul(waveDamp).negate(), float(1.0), dHz.mul(waveDamp).negate()).normalize();
+  // Exact analytical Gerstner wave normal from GPU Gems:
+  // N = normalize(-dHx * waveDamp, max(0.1, 1.0 - dHy * waveDamp), -dHz * waveDamp)
+  const waveNormal = vec3(
+    dHx.mul(waveDamp).negate(),
+    max(float(0.1), float(1.0).sub(dHy.mul(waveDamp))),
+    dHz.mul(waveDamp).negate()
+  ).normalize();
   material.normalNode = waveNormal;
 
   // Schlick-Fresnel Specular Reflectance

@@ -128,6 +128,7 @@ import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { PlanetTerrainProvider } from '../world/planet/PlanetTerrainProvider';
 import { planetSurfaceRadius } from '../world/planet/PlanetSurface';
 import { surfaceForBody } from '../world/planet/BodySurfaceFactory';
+import { isLandAt } from '../world/planet/EarthLandMask';
 import { relativeSurfaceMotion, surfaceOutwardNormal } from '../world/travel/LandingCapture';
 import {
   type LandingBody, LANDING_POLICY, PlanetaryLandingIntent, landingCaptureRangeM, landingEtaS,
@@ -1086,7 +1087,8 @@ export class Game {
       // never polling playerGeodetic() every frame which would cause the geographic anchor to drift
       currentLatDeg = BuildingGeneratorContext.activeOrigin.latDeg;
       currentLonDeg = BuildingGeneratorContext.activeOrigin.lonDeg;
-      currentSurfaceType = 'ocean';
+      const isLand = isLandAt(currentLatDeg * (Math.PI / 180), currentLonDeg * (Math.PI / 180));
+      currentSurfaceType = isLand ? 'terrestrial' : 'ocean';
     } else {
       currentLatDeg = 0;
       currentLonDeg = 0;
@@ -1107,6 +1109,10 @@ export class Game {
     if (manaus || isPlanetarySurface) this.destruction.beginFrame();
     const timeSecNow = this.lastTime * 0.001;
     updateUniversalLiquidTime(timeSecNow);
+    this.player.waterVolumeActive = Boolean(manaus || isPlanetarySurface || (local && currentSurfaceType === 'ocean'));
+    if (this.water && (manaus || isPlanetarySurface || local)) {
+      this.water.update(dt, timeSecNow);
+    }
     if (this.atmosphere) {
       const sunInt = (this.atmosphere.time === 'Night' || this.spaceFactor > 0.85) ? 0.05 : 1.0;
       updateUniversalLiquidSun(this.atmosphere.sunDirection, sunInt);
@@ -1130,7 +1136,7 @@ export class Game {
     this.largo.group.visible = manaus;
     this.landmarks.setVisible(manaus);
     this.water.mesh.visible = manaus;
-    this.water.vfx.group.visible = manaus;
+    this.water.vfx.group.visible = Boolean(manaus || isPlanetarySurface || local);
     this.forest.mesh.visible = manaus;
     this.hlod.setVisible(manaus);
 
@@ -1158,7 +1164,7 @@ export class Game {
     if (manaus) this.updateStomps(dt);
     if (manaus && this.stressRoute.length) this.updateStress(dt);
     else if (local) {
-      this.player.update(dt, FEATURES.curvedManaus ? this.curvedColliders : this.colliders, this.camera.yaw, this.camera.pitch);
+      this.player.update(dt, FEATURES.curvedManaus ? this.curvedColliders : this.colliders, this.camera.yaw, this.camera.pitch, timeSecNow);
       this.recordSurfaceReturnStep();
       if (this.portals) {
         const crossing = this.portals.checkCrossing(
@@ -1330,11 +1336,15 @@ export class Game {
     }
     if (this.oceanHorizon) {
       const isOceanDomain = (currentSurfaceType === 'ocean' || currentSurfaceType === 'megawave-ocean' || activeDominantBodyId === 'thalassa');
+      const isMegawave = (currentSurfaceType === 'megawave-ocean' || activeDominantBodyId === 'thalassa');
+      const planetRadiusM = activeDominantBodyId === 'thalassa' ? 5_800_000.0 : 6_371_000.0;
       this.oceanHorizon.setSolvent(
-        (currentSurfaceType === 'megawave-ocean' || activeDominantBodyId === 'thalassa') ? 'megawave-ocean' : 'terrestrial-ocean',
-        0
+        isMegawave ? 'megawave-ocean' : 'terrestrial-ocean',
+        0,
+        planetRadiusM
       );
-      this.oceanHorizon.update(this.player.position, isOceanDomain && (local || isPlanetarySurface));
+      const hasNearChunks = isPlanetarySurface && (this.streamer.activeKeys.size > 0);
+      this.oceanHorizon.update(this.player.position, isOceanDomain && (local || isPlanetarySurface), hasNearChunks);
     }
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
     if (manaus || isPlanetarySurface) {
@@ -1546,10 +1556,6 @@ export class Game {
       this.hazardAlertTimer = 0;
     }
 
-    if (this.water && dominantBodyId === 'earth') {
-      this.water.update(dt, this.lastTime * 0.001);
-    }
-
     const viewportHeight = this.rendering.renderer.domElement.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 1080);
     this.galaxyMaterializer?.update(
       [this.rendering.camera.position.x, this.rendering.camera.position.y, this.rendering.camera.position.z],
@@ -1583,7 +1589,6 @@ export class Game {
     const isBlackHoleNearby = dominantBodyId === 'sgra' || dominantBodyId === 'sagittarius-a-star';
     const blackHoleProx = isBlackHoleNearby ? Math.min(1, Math.max(0, 1 - (altitudeNow / 1e11))) : 0;
 
-    this.player.waterVolumeActive = manaus || isPlanetarySurface;
     if ((manaus || isPlanetarySurface) && this.water && this.input.consume('KeyU')) {
       const nextDebug = !this.water.clearDebugMode;
       this.water.setClearDebugMode(nextDebug);
@@ -1612,19 +1617,19 @@ export class Game {
     }
 
     const sub = this.player.submersion;
-    const isPlayerInWater = Boolean((manaus || isLocalEarth) && sub.inWater && sub.feetSubmerged);
+    const isPlayerInWater = Boolean((manaus || isPlanetarySurface || local) && sub.inWater && sub.feetSubmerged);
     if (!this.wasUnderwater && isPlayerInWater) {
       const impactSpeed = Math.abs(this.player.velocity.y);
       const intensity = Math.min(3.5, Math.max(1.0, impactSpeed / 5.0));
-      this.water?.createSplash(this.player.position.x, this.player.position.z, intensity, Math.min(14, 5 + impactSpeed * 0.4));
+      this.water?.createSplash(this.player.position.x, this.player.position.z, intensity, Math.min(14, 5 + impactSpeed * 0.4), sub.surfaceY);
       this.audio?.play('water-splash');
     } else if (isPlayerInWater && speedNow > 0.4 && sub.submergeDepthM < 1.5 * this.player.size) {
       this.waterRippleTimer += dt;
       if (this.waterRippleTimer > 0.42) {
         this.waterRippleTimer = 0;
-        this.water?.createRipple(this.player.position.x, this.player.position.z, 0.3, 1.5, 1.3);
+        this.water?.createRipple(this.player.position.x, this.player.position.z, 0.3, 1.5, 1.3, sub.surfaceY);
         if (speedNow > 1.8) {
-          this.water?.createWake(this.player.position.x, this.player.position.z, this.player.velocity.x, this.player.velocity.z, speedNow, 1.4);
+          this.water?.createWake(this.player.position.x, this.player.position.z, this.player.velocity.x, this.player.velocity.z, speedNow, 1.4, sub.surfaceY);
         }
       }
     }

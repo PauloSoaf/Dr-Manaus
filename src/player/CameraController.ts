@@ -31,6 +31,8 @@ export class CameraController {
   private wasInSpace = false;
   private lookPrepared = false;
   private readonly spaceOrientation = new Quaternion();
+  private swimRigWeight = 0;
+  private diveRigWeight = 0;
 
   constructor(readonly camera: PerspectiveCamera, readonly input: InputController) {}
   shake(amount: number): void { this.shakeAmount = Math.max(this.shakeAmount, amount); }
@@ -141,33 +143,34 @@ export class CameraController {
         }
         this.target.copy(player.position);
         this.target.y += heightOffset;
-      } else if (player.state === 'Swimming') {
-        baseDistance = 7.8;
-        const surfY = player.submersion.surfaceY;
-        const isDivingDeep = player.position.y < surfY - 2.35 * player.size;
+      } else {
+        const surfY = player.submersion?.surfaceY ?? 0;
+        const targetSwimWeight = player.state === 'Swimming' ? 1.0 : 0.0;
+        this.swimRigWeight = MathUtils.lerp(this.swimRigWeight, targetSwimWeight, 1 - Math.exp(-dt * 4.0));
+
+        const targetDiveWeight = (player.state === 'Swimming' && player.position.y < surfY - 1.8 * player.size) ? 1.0 : 0.0;
+        this.diveRigWeight = MathUtils.lerp(this.diveRigWeight, targetDiveWeight, 1 - Math.exp(-dt * 3.5));
+
+        const swimDistance = MathUtils.lerp(7.8, 6.5, this.diveRigWeight);
+        baseDistance = MathUtils.lerp(baseDistance, swimDistance, this.swimRigWeight);
+
+        const regularTargetY = player.position.y + (player.state !== 'Grounded' ? 1.05 * player.size : 0);
+        const surfaceTargetY = Math.max(player.position.y + 1.65 * player.size, surfY + 0.72 * player.size);
+        const diveTargetY = player.position.y + 1.15 * player.size;
+        const aquaticTargetY = MathUtils.lerp(surfaceTargetY, diveTargetY, this.diveRigWeight);
+
         this.target.copy(player.position);
-        if (!isDivingDeep) {
-          // Elevated third-person focus above the water surface so the swimmer is always viewed from above
-          this.target.y = Math.max(player.position.y + 1.65 * player.size, surfY + 0.72 * player.size);
+        if (player.state !== 'Grounded' && this.swimRigWeight < 0.1) {
+          this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.hips.rotation).applyAxisAngle(this.up, player.model.rotation.y);
+          this.target.add(this.pivotOffset);
         } else {
-          // Diving deep underwater: track diver's upper torso smoothly
-          this.target.y = player.position.y + 1.15 * player.size;
+          this.target.y = MathUtils.lerp(regularTargetY, aquaticTargetY, this.swimRigWeight);
         }
-      } else if (player.state !== 'Grounded') {
-        this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.hips.rotation).applyAxisAngle(this.up, player.model.rotation.y);
-        this.target.copy(player.position).add(this.pivotOffset);
       }
-      const isSurfaceSwimming = !isVehicleOccupied
-        && player.state === 'Swimming'
-        && player.position.y >= player.submersion.surfaceY - 2.35 * player.size;
-      const isDivingSwimming = !isVehicleOccupied
-        && player.state === 'Swimming'
-        && player.position.y < player.submersion.surfaceY - 2.35 * player.size;
-      const effectivePitch = isSurfaceSwimming
-        ? Math.max(this.pitch, 0.42)
-        : isDivingSwimming
-          ? Math.max(this.pitch, 0.24)
-          : this.pitch;
+
+      const swimMinPitch = MathUtils.lerp(0.38, 0.18, this.diveRigWeight);
+      const minPitch = !isVehicleOccupied ? MathUtils.lerp(0.0, swimMinPitch, this.swimRigWeight) : 0.0;
+      const effectivePitch = Math.max(this.pitch, minPitch);
 
       const distance = (baseDistance + Math.min(isVehicleOccupied ? 4.0 : 0.6, player.velocity.length() * (isVehicleOccupied ? 0.02 : 0.001))) * player.size;
       this.direction.set(Math.sin(this.yaw) * Math.cos(effectivePitch), Math.sin(effectivePitch), Math.cos(this.yaw) * Math.cos(effectivePitch));
@@ -184,36 +187,25 @@ export class CameraController {
       this.desired.copy(this.target).addScaledVector(this.direction, safeDistance);
       if (!this.inSpace) {
         this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .35, this.desired.y);
-        if (isSurfaceSwimming) {
-          this.desired.y = Math.max(this.desired.y, player.submersion.surfaceY + 3.1 * player.size);
+        if (this.swimRigWeight > 0.05 && this.diveRigWeight < 0.5 && player.submersion?.inWater) {
+          const surfY = player.submersion.surfaceY;
+          const minSwimCamY = surfY + MathUtils.lerp(1.2, 2.8, this.swimRigWeight) * player.size;
+          this.desired.y = Math.max(this.desired.y, minSwimCamY);
         }
       }
       if (switched || !this.following) this.globalPosition.copy(this.desired);
       else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstruction ? 25 : 9)));
-      // Bound orbit lag, including abrupt reversals and frame-time spikes.
-      this.pivotOffset.subVectors(this.globalPosition, this.desired).clampLength(0, .65 * player.size);
-      this.globalPosition.copy(this.desired).add(this.pivotOffset);
+
       if (obstruction && !this.inSpace) {
         this.pivotOffset.subVectors(this.globalPosition, this.target);
         const hit = PhysicsWorld.raycast(this.target, this.collisionDirection.copy(this.pivotOffset).normalize(), colliders, this.pivotOffset.length(), .35);
         if (hit) this.globalPosition.copy(this.target).addScaledVector(this.pivotOffset.normalize(), Math.max(.1, hit.distance - .6));
       }
-      // Hard guarantee: during surface swimming (or when flying/walking above water), never let
-      // orbit lag or mouse pitch push the camera inside/below the water surface
-      if (!this.inSpace && isSurfaceSwimming) {
-        const minSwimCamY = player.submersion.surfaceY + 3.1 * player.size;
-        this.desired.y = Math.max(this.desired.y, minSwimCamY);
-        const waterFloor = player.submersion.surfaceY + 0.35 * player.size;
-        this.globalPosition.y = Math.max(this.globalPosition.y, waterFloor);
-      } else if (
-        !this.inSpace
-        && player.submersion.inWater
-        && player.position.y >= player.submersion.surfaceY - 0.5 * player.size
-      ) {
-        const minAboveWaterCamY = player.submersion.surfaceY + 1.45 * player.size;
-        this.desired.y = Math.max(this.desired.y, minAboveWaterCamY);
-        const waterFloor = player.submersion.surfaceY + 0.35 * player.size;
-        this.globalPosition.y = Math.max(this.globalPosition.y, waterFloor);
+
+      // Soft water surface floor guard during surface swimming
+      if (!this.inSpace && this.swimRigWeight > 0.5 && this.diveRigWeight < 0.2 && player.submersion?.inWater) {
+        const waterFloor = player.submersion.surfaceY + 0.25 * player.size;
+        if (this.globalPosition.y < waterFloor) this.globalPosition.y = waterFloor;
       }
       if (this.mode === 'first' || this.mode === 'lookBack') {
         this.globalPosition.copy(player.position); this.globalPosition.y += 1.94 * player.size;

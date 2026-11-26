@@ -74,12 +74,14 @@ export function sampleManausWater(
   shoreDistanceM?: number,
   cameraDistanceM: number = 0,
   profileOverride?: WaterWaveProfileId,
+  depthM?: number,
 ): WaterSurfaceSample {
   const result = out || { height: baseSurfaceY, displacementX: 0, displacementZ: 0, normal: new Vector3(0, 1, 0) };
   const waves = profileOverride ? (WATER_WAVE_PROFILES[profileOverride] ?? MANAUS_RIVER_WAVES) : MANAUS_RIVER_WAVES;
   return sampleGerstnerSpectrum(
     waves, x, z, timeSec, baseSurfaceY, result,
     shoreWaveDamping(shoreDistanceM), nearWaveDistanceFilter(cameraDistanceM),
+    depthM,
   );
 }
 export interface BuoyantBody {

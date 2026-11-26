@@ -424,12 +424,27 @@ export function createProceduralPlanetSurface(
     });
   } : undefined;
 
+  const solidHeightAt = (direction: Vec3): number => {
+    if (body.id === 'thalassa') return -4000.0;
+    if (classification === 'oceanic-rocky') {
+      const d = orientVector(direction, baseSeed);
+      const continents = fbm3D(d, 6, 1.8, baseSeed);
+      const seaLevelThreshold = 0.46;
+      if (continents < seaLevelThreshold) {
+        const depthRatio = (seaLevelThreshold - continents) / seaLevelThreshold;
+        return -Math.min(maxRelief, 500 + depthRatio * 3500);
+      }
+    }
+    return heightAt(direction);
+  };
+
   return {
     body: model,
     radiusM,
     coarseResolution: 65,
     fallbackRadiusAt: (_direction: Vec3, _radiusRad: number) => radiusM - maxRelief,
     heightAt,
+    solidHeightAt,
     normalEnu,
     colourAt,
     biomeAt,
