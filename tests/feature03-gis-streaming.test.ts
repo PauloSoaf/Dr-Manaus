@@ -113,3 +113,50 @@ test('CT-17-04: VectorTileCache handles memory limits (< 40MB) and offline persi
   );
 });
 
+test('CT-17-05: Non-finite input protection and zero distance geodesic contract', () => {
+  const pos = new Vector3();
+
+  // NaN protection
+  ManausGISProjector.gpsToLocalMeters(NaN, -60.0, pos);
+  assert.equal(pos.x, 0);
+  assert.equal(pos.y, 0);
+  assert.equal(pos.z, 0);
+
+  // Infinity protection
+  ManausGISProjector.gpsToLocalMeters(-3.13, Infinity, pos);
+  assert.equal(pos.x, 0);
+  assert.equal(pos.y, 0);
+  assert.equal(pos.z, 0);
+
+  // Unprojection protection
+  const unproj = ManausGISProjector.localMetersToGPS(NaN, Infinity);
+  assert.equal(unproj.lat, ManausGISProjector.ORIGIN_LAT);
+  assert.equal(unproj.lon, ManausGISProjector.ORIGIN_LON);
+
+  // Batch protection
+  const coords = new Float64Array([NaN, -60.0, -3.13, Infinity, -3.130282, -60.023439]);
+  const out = new Float32Array(coords.length);
+  ManausGISProjector.projectBatch(coords, out);
+  assert.equal(out[0], 0);
+  assert.equal(out[1], 0);
+  assert.equal(out[2], 0);
+  assert.equal(out[3], 0);
+  assert.ok(Math.abs(out[4]) < 1e-4);
+  assert.ok(Math.abs(out[5]) < 1e-4);
+
+  // Zero distance geodesic test
+  const distZero = ManausGISProjector.geodesicDistanceMeters(-3.13, -60.02, -3.13, -60.02);
+  assert.equal(distZero, 0);
+});
+
+test('CT-17-06: VectorTileCache memory clear and cache query methods', async () => {
+  const cache = new VectorTileCache(2);
+  await cache.setTile('key1', { val: 'test1' });
+  assert.ok(cache.hasMemory('key1'), 'Must report hasMemory true for key1');
+  assert.ok(!cache.hasMemory('non_existent'), 'Must report hasMemory false for missing key');
+
+  cache.clearMemory();
+  assert.equal(cache.getMemoryUsageBytes(), 0, 'Memory usage must reset to 0 after clear');
+  assert.ok(!cache.hasMemory('key1'), 'Must report hasMemory false after clear');
+});
+

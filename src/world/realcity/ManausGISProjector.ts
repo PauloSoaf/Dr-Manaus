@@ -24,6 +24,10 @@ export class ManausGISProjector {
    * Coordinate Frame: East = +X, Up = +Y, North = -Z (Standard OpenGL / Three.js convention).
    */
   public static gpsToLocalMeters(lat: number, lon: number, outPos = new Vector3()): Vector3 {
+    if (!Number.isFinite(lat + lon)) {
+      outPos.set(0, 0, 0);
+      return outPos;
+    }
     const dLat = lat - this.ORIGIN_LAT;
     const dLon = lon - this.ORIGIN_LON;
 
@@ -38,6 +42,9 @@ export class ManausGISProjector {
    * Unprojects local Three.js coordinates (x, z in meters) back to WGS84 GPS (lat, lon).
    */
   public static localMetersToGPS(x: number, z: number): { lat: number; lon: number } {
+    if (!Number.isFinite(x + z)) {
+      return { lat: this.ORIGIN_LAT, lon: this.ORIGIN_LON };
+    }
     const lat = this.ORIGIN_LAT - z / this.METERS_PER_DEGREE_LAT;
     const lon = this.ORIGIN_LON + x / this.METERS_PER_DEGREE_LON;
     return { lat, lon };
@@ -56,6 +63,11 @@ export class ManausGISProjector {
     for (let i = 0; i < count; i++) {
       const lat = coords[i * 2];
       const lon = coords[i * 2 + 1];
+      if (!Number.isFinite(lat + lon)) {
+        out[i * 2] = 0;
+        out[i * 2 + 1] = 0;
+        continue;
+      }
       const dLat = lat - this.ORIGIN_LAT;
       const dLon = lon - this.ORIGIN_LON;
       out[i * 2] = dLon * this.METERS_PER_DEGREE_LON;
