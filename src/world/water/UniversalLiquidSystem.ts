@@ -69,6 +69,18 @@ export function updateUniversalLiquidSky(zenith: Color, horizon: Color): void {
   universalLiquidSkyHorizon.value.copy(horizon);
 }
 
+/**
+ * Dynamic solar direction and intensity for PBR water optics.
+ * Fades specular glare to 0 at night or in deep space vacuum.
+ */
+export const universalLiquidSunDirection = uniform(new Vector3(0.42, 0.82, 0.38));
+export const universalLiquidSunIntensity = uniform(1.0);
+
+export function updateUniversalLiquidSun(dir: Vector3, intensity: number): void {
+  universalLiquidSunDirection.value.copy(dir).normalize();
+  universalLiquidSunIntensity.value = Math.max(0, intensity);
+}
+
 export interface FluidPhysicalProperties {
   densityKgM3: number;
   viscosityRelative: number;
@@ -100,23 +112,23 @@ export const FLUID_PRESETS: Record<LiquidSolventType, FluidPhysicalProperties> =
   'terrestrial-ocean': {
     densityKgM3: 1025,
     viscosityRelative: 1.05,
-    deepColor: '#0a3d78',        // Luminous deep cobalt/sapphire ocean blue (distinct from Rio Negro blackwater)
-    shallowColor: '#00b4d8',     // Radiant coastal azure and tropical turquoise cyan
-    specularReflectColor: '#ffffff', // Crisp bright diamond sun reflections
-    roughness: 0.08,             // Glossy ocean surface
-    metalness: 0.40,
-    fresnelPower: 4.8,
+    deepColor: '#03162c',        // Deep abyssal oceanic navy / sapphire
+    shallowColor: '#0b4c6b',     // Coastal / crest wave scattering azure
+    specularReflectColor: '#d6e8fa',
+    roughness: 0.12,             // Natural ocean surface roughness
+    metalness: 0.25,
+    fresnelPower: 5.0,
     waveDamping: 1.0,
     turbidityBeerLambertAlpha: 0.018
   },
   'megawave-ocean': {
     densityKgM3: 1030,
     viscosityRelative: 1.0,
-    deepColor: '#052244',        // Deep abyssal oceanic sapphire
-    shallowColor: '#00c4cc',     // Radiant crystalline crest turquoise cyan
-    specularReflectColor: '#ffffff', // Crisp bright diamond sun reflections
-    roughness: 0.05,             // Mirror-like oceanic finish
-    metalness: 0.35,
+    deepColor: '#021020',        // Abyssal deep navy
+    shallowColor: '#073c54',     // Subsurface turquoise rim on 500m crests
+    specularReflectColor: '#e0f0ff',
+    roughness: 0.05,
+    metalness: 0.20,
     fresnelPower: 5.0,
     waveDamping: 1.0,
     turbidityBeerLambertAlpha: 0.015
@@ -406,13 +418,16 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const near = float(1).sub(distant);
 
   const waves = getWaveSpectrumForSolvent(solvent);
+  let totalDispX: any = float(0);
   let totalElevation: any = float(0);
+  let totalDispZ: any = float(0);
   let dHx: any = float(0);
   let dHz: any = float(0);
 
   // Unroll Gerstner harmonic wave nodes in TSL using continuous stable coordinates
-  // so wave phase and peaks never restart, jump on rebase, or produce block seams at chunk edges
-  for (let i = 0; i < waves.length; i++) {
+  // so wave phase, trocoidal displacement and peaks never restart or produce seams at chunk edges
+  const count = waves.length;
+  for (let i = 0; i < count; i++) {
     const w = waves[i];
     const k = (2.0 * Math.PI) / w.wavelength;
     const c = Math.sqrt(9.80665 / k);
@@ -423,7 +438,18 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
 
     const sinP = sin(phase);
     const cosP = cos(phase);
+
+    // Trocoidal horizontal displacement: q * amp * dir * cos(phase)
+    // Matches sampleGerstnerSpectrum CPU equation: q = steepness / (k * amp * count)
+    const qAmp = (w.steepness > 0 && w.amplitude > 1e-8)
+      ? float(w.steepness / (k * count))
+      : float(0);
+    const dispAmp = i >= 2 ? qAmp.mul(near) : qAmp;
+
+    totalDispX = (totalDispX as any).add(cosP.mul(float(w.direction[0])).mul(dispAmp));
+    totalDispZ = (totalDispZ as any).add(cosP.mul(float(w.direction[1])).mul(dispAmp));
     totalElevation = (totalElevation as any).add(sinP.mul(amp));
+
     const wa = amp.mul(k);
     dHx = (dHx as any).add(float(w.direction[0]).mul(wa).mul(cosP));
     dHz = (dHz as any).add(float(w.direction[1]).mul(wa).mul(cosP));
@@ -434,8 +460,10 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const shoreAttr = attribute('shore', 'float');
   const waveDamp = isOcean ? float(1.0) : smoothstep(0.008, 0.20, shoreAttr);
 
-  // Vertex displacement node
-  material.positionNode = positionLocal.add(vec3(0, totalElevation.mul(waveDamp), 0));
+  // Vertex displacement node: full 3D trocoidal displacement (X, Y, Z)
+  material.positionNode = positionLocal.add(
+    vec3(totalDispX.mul(waveDamp), totalElevation.mul(waveDamp), totalDispZ.mul(waveDamp))
+  );
 
   // Analytical Gerstner wave normal
   const waveNormal = vec3(dHx.mul(waveDamp).negate(), float(1.0), dHz.mul(waveDamp).negate()).normalize();
@@ -446,8 +474,9 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const cosTheta = waveNormal.dot(viewDir).abs();
   const fresnel = float(0.025).add(pow(float(1.0).sub(cosTheta), props.fresnelPower).mul(0.975));
 
-  // Sun and view directions for PBR optics
-  const sunDir = vec3(0.42, 0.82, 0.38).normalize();
+  // Sun and view directions for PBR optics (coupled to dynamic scene sun)
+  const sunDir = universalLiquidSunDirection;
+  const sunFactor = universalLiquidSunIntensity;
   const halfDir = viewDir.add(sunDir).normalize();
   const NdotH = max(waveNormal.dot(halfDir), float(0.0));
   const NdotV = max(waveNormal.dot(viewDir), float(0.001));
@@ -463,9 +492,9 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const lightTerm = NdotV.mul(sqrt(alphaSq.add(oneMinusAlphaSq.mul(NdotL).mul(NdotL))));
   const Vis = float(0.5).div(max(viewTerm.add(lightTerm), float(0.0001)));
   const rawSpecular = D.mul(Vis).mul(sunFresnel).mul(NdotL);
-  const broadSun = pow(max(dot(waveNormal, halfDir), float(0.0)), 256.0).mul(0.12);
-  const sharpSun = pow(rawSpecular.div(float(1.0).add(rawSpecular)), 1.35).mul(4.5);
-  const totalSunGlint = sharpSun.add(broadSun).mul(NdotL);
+  const broadSun = pow(max(dot(waveNormal, halfDir), float(0.0)), 128.0).mul(0.08);
+  const sharpSun = rawSpecular.div(float(1.0).add(rawSpecular)).mul(2.2);
+  const totalSunGlint = sharpSun.add(broadSun).mul(NdotL).mul(sunFactor);
 
   // Dynamic sky reflection gradient from horizon to zenith, respecting active environmental illumination
   const reflDir = reflect(viewDir.negate(), waveNormal);
@@ -476,7 +505,7 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   const backLighting = pow(max(dot(viewDir.negate(), sunDir), float(0.0)), 2.6);
   const crestTransSignal = isMegawave ? totalElevation.mul(0.004).add(waveSlope.mul(0.35)) : totalElevation.mul(0.35).add(waveSlope.mul(0.35));
   const crestTransmission = smoothstep(0.12, 0.75, crestTransSignal);
-  const crestGlow = crestTransmission.mul(pow(float(1.0).sub(cosTheta), 1.6)).mul(float(0.15).add(backLighting.mul(0.65)));
+  const crestGlow = crestTransmission.mul(pow(float(1.0).sub(cosTheta), 1.6)).mul(float(0.15).add(backLighting.mul(0.65))).mul(sunFactor.mul(0.8).add(0.2));
 
   const deepCol = color(props.deepColor);
   const shallowCol = color(props.shallowColor);
@@ -489,33 +518,27 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
     : deepCol;
   const waterColor = isOcean ? oceanWaveFacet : mix(oceanWaveFacet, shallowCol, float(1).sub(shoreAttr));
 
-  let finalColorNode = mix(waterColor, isOcean ? reflectedSky : reflectCol, fresnel.mul(0.70));
+  // Natural Fresnel reflection blending
+  let finalColorNode = mix(waterColor, reflectedSky, fresnel.mul(0.78));
 
   // Translucent Subsurface Scattering on wave crests
-  const sssColor = isMegawave ? color('#0df2c9') : (solvent === 'terrestrial-ocean' ? color('#16e2bd') : reflectCol);
-  finalColorNode = finalColorNode.add(sssColor.mul(crestGlow).mul(0.60));
+  const sssColor = isMegawave ? color('#074e5b') : (solvent === 'terrestrial-ocean' ? color('#0e6e73') : reflectCol);
+  finalColorNode = finalColorNode.add(sssColor.mul(crestGlow).mul(0.50));
 
-  // Diamond solar sparkles along specular reflection path (using stable coordinates)
-  const sparkleScale = isMegawave ? 0.2 : 0.65;
-  const sparkleCoord = vec2(stableWp.x, stableWp.z).mul(sparkleScale).add(waveNormal.xz.mul(1.5));
-  const sparkleA = sin(sparkleCoord.x.mul(7.8).add(cos(sparkleCoord.y.mul(6.4))));
-  const sparkleB = cos(sparkleCoord.y.mul(7.8).add(sin(sparkleCoord.x.mul(6.4))));
-  const sparklePattern = pow(smoothstep(0.65, 0.98, sparkleA.mul(sparkleB).abs()), 4.0);
-  const solarSparkle = totalSunGlint.mul(sparklePattern).mul(near).mul(2.2);
-
-  finalColorNode = finalColorNode.add(reflectCol.mul(totalSunGlint.mul(near.mul(0.85).add(0.15)).add(solarSparkle)));
+  // Sun specular glint (smooth GGX, free of high-frequency zebra aliasing)
+  finalColorNode = finalColorNode.add(reflectCol.mul(totalSunGlint));
 
   // Dynamic wave-crest breaking foam (using stable coordinates)
   const crestSignal = isMegawave ? totalElevation.mul(0.003).add(waveSlope.mul(0.45)) : totalElevation.mul(0.18).add(waveSlope.mul(0.35));
-  const crestBreaking = smoothstep(0.18, 0.42, crestSignal);
+  const crestBreaking = smoothstep(0.22, 0.48, crestSignal);
   const foamScale = isMegawave ? 0.015 : 0.06;
   const foamUv = vec2(stableWp.x, stableWp.z).mul(foamScale).add(vec2(universalLiquidTime.mul(0.18), universalLiquidTime.mul(-0.14)));
   const foamA = sin(foamUv.x.mul(2.4).add(cos(foamUv.y.mul(1.9))));
   const foamB = cos(foamUv.y.mul(2.4).add(sin(foamUv.x.mul(1.9))));
   const foamPattern = foamA.mul(foamB).abs();
-  const crestFoam = crestBreaking.mul(smoothstep(0.15, 0.60, foamPattern)).mul(near);
+  const crestFoam = crestBreaking.mul(smoothstep(0.20, 0.65, foamPattern)).mul(near);
   const foamColor = color('#f8fcff');
-  finalColorNode = mix(finalColorNode, foamColor, crestFoam.mul(0.85));
+  finalColorNode = mix(finalColorNode, foamColor, crestFoam.mul(0.75));
 
   // If fluid is incandescent magma, add emissive term
   if (props.emissiveColor && props.emissiveIntensity) {

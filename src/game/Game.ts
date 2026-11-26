@@ -52,7 +52,8 @@ import { HLODManager } from '../world/lod/HLODManager';
 import { RealCityLayer } from '../world/realcity/RealCityLayer';
 import { LandmarkManager } from '../world/landmarks/LandmarkManager';
 import { createTerrain, setTerrainOpacity } from '../world/geodata/terrain';
-import { updateUniversalLiquidTime, updateUniversalLiquidOrigin, updateUniversalLiquidSky } from '../world/water/UniversalLiquidSystem';
+import { updateUniversalLiquidTime, updateUniversalLiquidOrigin, updateUniversalLiquidSky, updateUniversalLiquidSun } from '../world/water/UniversalLiquidSystem';
+import { OceanHorizonPresentation } from '../world/water/OceanHorizonPresentation';
 import { GeoDebug } from '../world/geodata/GeoDebug';
 import { LargoDistrict } from '../world/landmarks/largo';
 import { createAirport } from '../world/realcity/airport';
@@ -142,6 +143,9 @@ import {
 
 /** Below this forward speed, S stops braking and starts reversing. */
 const COSMIC_REVERSE_EPSILON_MPS = 25;
+const _vacuumSkyColor = new Color('#010206');
+const _scratchLiquidSky1 = new Color();
+const _scratchLiquidSky2 = new Color();
 import { MANAUS_FRAME_ID } from '../world/spatial/ManausFrameAdapter';
 import { CelestialBodyVisualLayer } from '../rendering/celestial/CelestialBodyVisualLayer';
 import { CelestialPresentationController } from '../rendering/celestial/CelestialPresentationController';
@@ -158,14 +162,18 @@ export class Game {
   readonly save = new SaveManager(); readonly assets = new AssetManager(); readonly rendering: RendererManager;
   readonly celestialRoot = new Group();
   readonly planetaryRoot = new Group();
-  readonly localWorldRoot = new Group();
+  readonly manausAuthoredRoot = new Group();
+  readonly activeProceduralSurfaceRoot = new Group();
+  readonly localWorldRoot = this.manausAuthoredRoot;
   readonly actorRoot = new Group();
   readonly activePlanetaryLifeRoot = new Group();
   private lastActiveEcosystemBodyId: string | null = null;
   /** Backward-compatible aliases */
-  readonly localRoot = this.localWorldRoot;
-  readonly worldRoot = this.localWorldRoot;
+  readonly localRoot = this.manausAuthoredRoot;
+  readonly worldRoot = this.manausAuthoredRoot;
   readonly planetRoot = this.planetaryRoot;
+  readonly oceanHorizon: OceanHorizonPresentation;
+  readonly airportGroup: Group;
   private readonly renderOriginVec = new Vector3(); readonly player: PlayerController; readonly input: InputController; readonly camera: CameraController;
   readonly streamer: WorldStreamer; readonly hlod: HLODManager; readonly realCity: RealCityLayer; readonly landmarks: LandmarkManager; readonly geoDebug: GeoDebug; readonly largo: LargoDistrict; readonly atmosphere: Atmosphere; readonly space: SpaceLayer; readonly speedVfx: SpeedVFX; readonly weather: WeatherSystem; readonly water: WaterSystem; readonly vessels: FluvialVesselSystem; readonly vehicle: VehicleController; readonly portals: PortalSystem; readonly cosmicNebulae: CosmicNebulaeSystem; readonly hlodSystem: HLODSystem;
   private readonly _projScreenMatrix = new Matrix4();
@@ -479,13 +487,17 @@ export class Game {
     this.celestialLabels = new CelestialLabelLayer(container);
     this.celestialRoot.name = 'Celestial · stars & deep space visuals';
     this.planetaryRoot.name = 'Planetary · camera-relative celestial bodies';
-    this.localWorldRoot.name = 'Manaus · local city/terrain';
+    this.manausAuthoredRoot.name = 'Manaus · authored city & terrain';
+    this.activeProceduralSurfaceRoot.name = 'Active Procedural Surface · chunks & ocean horizon';
     this.actorRoot.name = 'Actors · player & dynamic entities';
     this.activePlanetaryLifeRoot.name = 'Planetary Life · Fauna, Flora, Settlements, Ruins & Hazards';
     this.rendering.scene.add(this.celestialRoot);
     this.rendering.scene.add(this.planetaryRoot);
+    this.rendering.scene.add(this.activeProceduralSurfaceRoot);
     this.rendering.scene.add(this.actorRoot);
     this.actorRoot.add(this.activePlanetaryLifeRoot);
+    this.oceanHorizon = new OceanHorizonPresentation();
+    this.activeProceduralSurfaceRoot.add(this.oceanHorizon.group);
     this.atmosphere = new Atmosphere(this.rendering.scene);
     // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
     this.space = new SpaceLayer(this.celestialRoot, this.rendering.camera); this.speedVfx = new SpeedVFX(this.rendering.scene); this.water = new WaterSystem(this.worldRoot); this.weather = new WeatherSystem(this.worldRoot); this.vessels = new FluvialVesselSystem(this.worldRoot);
@@ -688,8 +700,16 @@ export class Game {
     // The far domain costs a longer depth range, so it is only opened when something needs it.
     this.rendering.domains.active = FEATURES.earthGlobe;
     this.terrain = new TerrainDestruction(this.worldRoot); PhysicsWorld.setTerrain(this.terrain);
-    this.flatTerrain = createTerrain(this.worldRoot); this.worldRoot.add(createAirport(this.airport)); this.geoDebug = new GeoDebug(this.worldRoot); this.largo = new LargoDistrict(this.worldRoot); this.landmarks = new LandmarkManager(this.worldRoot);
-    this.streamer = new WorldStreamer(this.worldRoot); this.hlod = new HLODManager(this.worldRoot); this.realCity = new RealCityLayer(this.worldRoot); this.hlod.setDestructionSource(this.streamer);
+    this.flatTerrain = createTerrain(this.manausAuthoredRoot);
+    this.airportGroup = createAirport(this.airport);
+    this.manausAuthoredRoot.add(this.airportGroup);
+    this.geoDebug = new GeoDebug(this.manausAuthoredRoot);
+    this.largo = new LargoDistrict(this.manausAuthoredRoot);
+    this.landmarks = new LandmarkManager(this.manausAuthoredRoot);
+    this.streamer = new WorldStreamer(this.activeProceduralSurfaceRoot);
+    this.hlod = new HLODManager(this.manausAuthoredRoot);
+    this.realCity = new RealCityLayer(this.manausAuthoredRoot);
+    this.hlod.setDestructionSource(this.streamer);
     this.hlodSystem = new HLODSystem();
     for (const landmark of LANDMARKS) {
       this.hlodSystem.registerNode(new DynamicHLODNode(landmark.id, 'landmark', new Vector3(landmark.x, landmark.spawnHeight, landmark.z), landmark.radius));
@@ -1087,14 +1107,24 @@ export class Game {
     if (manaus || isPlanetarySurface) this.destruction.beginFrame();
     const timeSecNow = this.lastTime * 0.001;
     updateUniversalLiquidTime(timeSecNow);
-    updateUniversalLiquidOrigin(this.renderOriginVec);
     if (this.atmosphere) {
-      updateUniversalLiquidSky(this.atmosphere.zenithColor, this.atmosphere.horizonColor);
+      const sunInt = (this.atmosphere.time === 'Night' || this.spaceFactor > 0.85) ? 0.05 : 1.0;
+      updateUniversalLiquidSun(this.atmosphere.sunDirection, sunInt);
+      let zen = this.atmosphere.zenithColor;
+      let hor = this.atmosphere.horizonColor;
+      if (this.spaceFactor > 0.05) {
+        zen = _scratchLiquidSky1.copy(zen).lerp(_vacuumSkyColor, this.spaceFactor);
+        hor = _scratchLiquidSky2.copy(hor).lerp(_vacuumSkyColor, this.spaceFactor);
+      }
+      updateUniversalLiquidSky(zen, hor);
     }
     // Non-Earth local ENU frames are planetary presentation domains too. Earth refines this
     // below with its coverage-aware visual handoff.
     this.presentationDomain = manaus ? 'local' : local ? 'planetary' : 'orbital';
-    this.localRoot.visible = manaus || isPlanetarySurface;
+    if (this.manausAuthoredRoot) this.manausAuthoredRoot.visible = manaus;
+    if (this.airportGroup) this.airportGroup.visible = manaus;
+    if (this.activeProceduralSurfaceRoot) this.activeProceduralSurfaceRoot.visible = manaus || isPlanetarySurface;
+    else if (this.localRoot) this.localRoot.visible = manaus || isPlanetarySurface;
     this.flatTerrain.visible = manaus;
     this.realCity.group.visible = manaus;
     this.largo.group.visible = manaus;
@@ -1229,8 +1259,9 @@ export class Game {
       // The flat backdrop handles its own crossfade based on localWeight, while the rest of
       // the local root (city, trees) remains visible as long as the ground is not fully overridden.
       setTerrainOpacity(this.flatTerrain, manaus ? state.effectiveLocalWeight : 0);
-      const cityVisible = manaus ? (state.effectiveLocalWeight > 0 || state.localGroundVisible) : isPlanetarySurface;
-      this.localWorldRoot.visible = cityVisible;
+      const cityVisible = manaus ? (state.effectiveLocalWeight > 0 || state.localGroundVisible) : false;
+      this.manausAuthoredRoot.visible = cityVisible;
+      this.airportGroup.visible = cityVisible;
 
       // Told, not overwritten. Both layers set their own visibility inside an update that runs
       // later in the frame, so a `visible` flag written here is gone by the time anything is
@@ -1245,20 +1276,19 @@ export class Game {
       const dominantBodyRadius = dominantBodyDef ? dominantBodyDef.equatorialRadiusM : 6_378_137;
       this.rendering.domains.setRange(this.universe.telemetry.altitudeM + dominantBodyRadius);
     }
-    // Dynamic decoupling: In Manaus with Earth globe, localWorldRoot lives on earth.manausSurfaceAnchor.
-    // Outside Manaus (e.g. oceanic surfaces, Thalassa, Moon, Mars), it is decoupled from Manaus
-    // and parented to rendering.scene, aligned with the active local ENU frame.
+    // Dynamic decoupling: In Manaus with Earth globe, manausAuthoredRoot lives on earth.manausSurfaceAnchor.
+    // Outside Manaus (e.g. oceanic surfaces, Thalassa, Moon, Mars), manausAuthoredRoot remains anchored
+    // and completely hidden. Active procedural surface (chunks and continuous ocean horizon) lives on
+    // rendering.scene and receives inverse origin shifts.
     if (manaus && this.earth) {
-      if (this.localWorldRoot.parent !== this.earth.manausSurfaceAnchor) {
-        this.earth.manausSurfaceAnchor.add(this.localWorldRoot);
-        this.localWorldRoot.position.set(0, 0, 0);
-        this.localWorldRoot.quaternion.identity();
+      if (this.manausAuthoredRoot.parent !== this.earth.manausSurfaceAnchor) {
+        this.earth.manausSurfaceAnchor.add(this.manausAuthoredRoot);
+        this.manausAuthoredRoot.position.set(0, 0, 0);
+        this.manausAuthoredRoot.quaternion.identity();
       }
-    } else {
-      if (this.localWorldRoot.parent !== this.rendering.scene) {
-        this.rendering.scene.add(this.localWorldRoot);
-        this.localWorldRoot.quaternion.identity();
-      }
+    } else if (!manaus) {
+      this.manausAuthoredRoot.visible = false;
+      this.airportGroup.visible = false;
     }
 
     // Global doubles stay stable. Every world object receives the same inverse origin transform.
@@ -1266,13 +1296,21 @@ export class Game {
       const uOrigin = this.universe.renderSpace.currentOrigin.position;
       if (this.renderOriginVec.x !== uOrigin[0] || this.renderOriginVec.y !== uOrigin[1] || this.renderOriginVec.z !== uOrigin[2]) {
         this.renderOriginVec.set(uOrigin[0], uOrigin[1], uOrigin[2]);
-        if (!this.earth || !manaus) {
+        if (this.activeProceduralSurfaceRoot) {
+          this.activeProceduralSurfaceRoot.position.copy(this.renderOriginVec).negate();
+        } else if (this.localRoot) {
           this.localRoot.position.copy(this.renderOriginVec).negate();
         }
         this.actorRoot.position.copy(this.renderOriginVec).negate();
-      } else if (!manaus) {
-        this.localRoot.position.copy(this.renderOriginVec).negate();
+      } else {
+        if (this.activeProceduralSurfaceRoot) {
+          this.activeProceduralSurfaceRoot.position.copy(this.renderOriginVec).negate();
+        } else if (this.localRoot) {
+          this.localRoot.position.copy(this.renderOriginVec).negate();
+        }
       }
+      // Rebase wave phase in the exact same frame as origin vector update
+      updateUniversalLiquidOrigin(this.renderOriginVec);
     }
     if (manaus) {
       const updatedLegacyPos = FEATURES.curvedManaus
@@ -1289,6 +1327,14 @@ export class Game {
       const lookDir2D = { x: this._cameraLookDir.x, z: this._cameraLookDir.z };
       this.streamer.update(this.player.position, this.player.velocity, dt, lookDir2D);
       this.lap('streamer');
+    }
+    if (this.oceanHorizon) {
+      const isOceanDomain = (currentSurfaceType === 'ocean' || currentSurfaceType === 'megawave-ocean' || activeDominantBodyId === 'thalassa');
+      this.oceanHorizon.setSolvent(
+        (currentSurfaceType === 'megawave-ocean' || activeDominantBodyId === 'thalassa') ? 'megawave-ocean' : 'terrestrial-ocean',
+        0
+      );
+      this.oceanHorizon.update(this.player.position, isOceanDomain && (local || isPlanetarySurface));
     }
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
     if (manaus || isPlanetarySurface) {
@@ -2878,8 +2924,13 @@ export class Game {
     };
     const uOrigin = this.universe.renderSpace.currentOrigin.position;
     this.renderOriginVec.set(...uOrigin);
-    if (!this.earth || targetBody !== 'earth' || !this.manausSimulationActive) this.localRoot.position.copy(this.renderOriginVec).negate();
+    if (this.activeProceduralSurfaceRoot) {
+      this.activeProceduralSurfaceRoot.position.copy(this.renderOriginVec).negate();
+    } else if (this.localRoot) {
+      this.localRoot.position.copy(this.renderOriginVec).negate();
+    }
     this.actorRoot.position.copy(this.renderOriginVec).negate();
+    updateUniversalLiquidOrigin(this.renderOriginVec);
     this.camera.inSpace = false;
     this.hud.notify(`Aproximação · ${this.universe.activeSystem.bodies.find(body => body.id === targetBody)?.name ?? targetBody}`);
   }

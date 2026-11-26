@@ -203,7 +203,8 @@ export class CameraController {
       if (!this.inSpace && isSurfaceSwimming) {
         const minSwimCamY = player.submersion.surfaceY + 3.1 * player.size;
         this.desired.y = Math.max(this.desired.y, minSwimCamY);
-        this.globalPosition.y = Math.max(this.globalPosition.y, minSwimCamY);
+        const waterFloor = player.submersion.surfaceY + 0.35 * player.size;
+        this.globalPosition.y = Math.max(this.globalPosition.y, waterFloor);
       } else if (
         !this.inSpace
         && player.submersion.inWater
@@ -211,7 +212,8 @@ export class CameraController {
       ) {
         const minAboveWaterCamY = player.submersion.surfaceY + 1.45 * player.size;
         this.desired.y = Math.max(this.desired.y, minAboveWaterCamY);
-        this.globalPosition.y = Math.max(this.globalPosition.y, minAboveWaterCamY);
+        const waterFloor = player.submersion.surfaceY + 0.35 * player.size;
+        this.globalPosition.y = Math.max(this.globalPosition.y, waterFloor);
       }
       if (this.mode === 'first' || this.mode === 'lookBack') {
         this.globalPosition.copy(player.position); this.globalPosition.y += 1.94 * player.size;

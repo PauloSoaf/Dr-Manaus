@@ -182,6 +182,12 @@ export class WorldStreamer {
     let culledCount = 0;
     const safetySq = safetyRadiusM * safetyRadiusM;
 
+    const isMegawave = this.activeContext.bodyId === 'thalassa' || this.activeContext.surfaceType === 'megawave-ocean' || ChunkMeshes.activeSolvent === 'megawave-ocean';
+    const isOcean = isMegawave || this.activeContext.surfaceType === 'ocean' || ChunkMeshes.activeSolvent === 'terrestrial-ocean';
+    const minY = isMegawave ? -350 : (isOcean ? -30 : -50);
+    const maxY = isMegawave ? 350 : (isOcean ? 45 : 250);
+    const marginXZ = isMegawave ? 180 : (isOcean ? 20 : 0);
+
     for (const key of this.active) {
       const chunk = this.records.get(key);
       if (!chunk || !chunk.group) continue;
@@ -190,8 +196,8 @@ export class WorldStreamer {
         chunk.worldBoundingBox = new Box3();
       }
       chunk.group.updateMatrixWorld(true);
-      chunk.worldBoundingBox.min.set(0, -50, 0);
-      chunk.worldBoundingBox.max.set(WORLD.chunkSize, 250, WORLD.chunkSize);
+      chunk.worldBoundingBox.min.set(-marginXZ, minY, -marginXZ);
+      chunk.worldBoundingBox.max.set(WORLD.chunkSize + marginXZ, maxY, WORLD.chunkSize + marginXZ);
       chunk.worldBoundingBox.applyMatrix4(chunk.group.matrixWorld);
 
       chunk.worldBoundingBox.getCenter(this._scratchCenter);

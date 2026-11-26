@@ -401,13 +401,10 @@ export class PlayerController {
       const wantsDive = this.input.held('ControlLeft') || this.input.held('ControlRight') || this.input.held('KeyC') || this.input.held('KeyZ');
       const wantsAscend = this.input.held('Space');
 
-      // On initial water entry from fall or flight, absorb downward splash momentum at the surface
-      // so the character stays swimming on top of the water instead of plunging meters underwater
+      // On initial water entry from fall or flight, smoothly absorb downward splash momentum at the surface
+      // with exponential damping so the character glides smoothly into swimming without visual teleportation
       if (!wasSwimming && !wantsDive) {
-        this.velocity.y = Math.max(this.velocity.y * 0.12, -1.8 * sizeSpeed);
-        if (this.position.y < floatFeetY - 0.35 * this.size) {
-          this.position.y = floatFeetY - 0.25 * this.size;
-        }
+        this.velocity.y = MathUtils.lerp(this.velocity.y * 0.25, 0, 1 - Math.exp(-dt * 14));
       }
 
       if (wantsDive) {
