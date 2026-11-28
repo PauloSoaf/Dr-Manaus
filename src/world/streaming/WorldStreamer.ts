@@ -167,6 +167,8 @@ export class WorldStreamer {
     }
   }
   get activeKeys(): ReadonlySet<string> { return this.active; }
+  /** Radius within which detailed chunks, and their real trees, are planned. */
+  get detailRadiusM(): number { return this.detailRadius; }
 
   /** Resident ocean meshes in the current region, independent of view culling. */
   coversOceanDisk(x: number, z: number, radiusM: number): boolean {

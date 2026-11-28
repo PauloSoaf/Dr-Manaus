@@ -135,6 +135,7 @@ import { localGroundSurface } from '../world/planet/EarthSurface';
 import { earthSurfaceChart, localGeodetic, localSeaLevelY, type LocalSurfaceChart } from '../world/planet/LocalSurface';
 import { earthSolidGroundAt, EARTH_WET_TOLERANCE_M } from '../world/planet/EarthElevation';
 import { EarthHorizonPresentation } from '../world/lod/EarthHorizonPresentation';
+import { EarthCanopyLayer } from '../world/lod/EarthCanopyLayer';
 import { relativeSurfaceMotion, surfaceOutwardNormal } from '../world/travel/LandingCapture';
 import {
   type LandingBody, LANDING_POLICY, PlanetaryLandingIntent, landingCaptureRangeM, landingEtaS,
@@ -182,6 +183,8 @@ export class Game {
   readonly oceanHorizon: OceanHorizonPresentation;
   /** Distant terrain and sea around the player on the Earth outside Manaus. */
   readonly earthHorizon: EarthHorizonPresentation;
+  /** Distant forest on the same ground. */
+  readonly earthCanopy: EarthCanopyLayer;
   private classificationChart?: LocalSurfaceChart;
   readonly airportGroup: Group;
   private readonly renderOriginVec = new Vector3(); readonly player: PlayerController; readonly input: InputController; readonly camera: CameraController;
@@ -505,7 +508,7 @@ export class Game {
   private stompTimer = 0; private readonly foot = new Vector3(); private readonly surfaceService = new SurfaceFrameService('earth');
   private bounds = false; private lod = false; private culling?: CameraHelper; private spaceFactor = 0;
   /** Exponentially smoothed per-system frame cost, in milliseconds. Drives the F3 panel. */
-  readonly profile: Record<string, number> = { realCity: 0, colliders: 0, player: 0, universe: 0, streamer: 0, hlod: 0, horizon: 0, landmarks: 0, population: 0, destruction: 0, traffic: 0, render: 0 };
+  readonly profile: Record<string, number> = { realCity: 0, colliders: 0, player: 0, universe: 0, streamer: 0, hlod: 0, horizon: 0, canopy: 0, landmarks: 0, population: 0, destruction: 0, traffic: 0, render: 0 };
   private mark = 0; private lastSpeed = 0; private district = 'AMAZONAS';
   constructor(container: HTMLElement) {
     this.rendering = new RendererManager(container);
@@ -525,6 +528,8 @@ export class Game {
     this.activeProceduralSurfaceRoot.add(this.oceanHorizon.group);
     this.earthHorizon = new EarthHorizonPresentation();
     this.activeProceduralSurfaceRoot.add(this.earthHorizon.group);
+    this.earthCanopy = new EarthCanopyLayer();
+    this.activeProceduralSurfaceRoot.add(this.earthCanopy.group);
     this.atmosphere = new Atmosphere(this.rendering.scene);
     // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
     this.space = new SpaceLayer(this.celestialRoot, this.rendering.camera); this.speedVfx = new SpeedVFX(this.rendering.scene); this.water = new WaterSystem(this.worldRoot); this.weather = new WeatherSystem(this.worldRoot); this.vessels = new FluvialVesselSystem(this.worldRoot);
@@ -1334,6 +1339,17 @@ export class Game {
         this.earthHorizon.setOpacity(localGroundWeight);
       } else this.earthHorizon.hide();
       this.lap('horizon');
+    }
+    if (this.earthCanopy) {
+      if (earthRemote && localGroundWeight > .99) {
+        const ground = PhysicsWorld.terrainHeight(this.player.position.x, this.player.position.z);
+        this.earthCanopy.setFelled(this.streamer.destructionRevision, this.streamer.destroyedBounds.values());
+        this.earthCanopy.update(this.player.position, { latDeg: currentLatDeg, lonDeg: currentLonDeg }, {
+          altitudeAboveGroundM: this.player.position.y - (Number.isFinite(ground) ? ground : 0),
+          hideRadiusM: Math.max(0, this.streamer.detailRadiusM - 24),
+        });
+      } else this.earthCanopy.hide();
+      this.lap('canopy');
     }
     if (this.oceanHorizon) {
       const isOceanDomain = !earthRemote && (currentSurfaceType === 'ocean' || currentSurfaceType === 'megawave-ocean' || activeDominantBodyId === 'thalassa');
@@ -3523,6 +3539,8 @@ export class Game {
       'Horizonte terrestre': this.earthHorizon ? (this.earthHorizon.stats.visible
         ? this.earthHorizon.stats.levels.map(level => `${level.name} ${level.publishes}× ${level.lastBuildMs.toFixed(1)} ms${level.pending ? ' …' : ''}`).join(' · ')
         : 'inativo') : '—',
+      'Copas distantes · tiles / instâncias / ms': this.earthCanopy?.stats.visible
+        ? `${this.earthCanopy.stats.tiles} / ${this.earthCanopy.stats.instances} / ${this.earthCanopy.stats.lastTileMs.toFixed(1)}` : 'inativo',
       'Geo · Lat / Lon': `${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
       'Geo · Altitude': `${t.altitudeM.toFixed(1)} m`,
       'Frame · Ativo': `${t.frame} · corpo ${t.dominantBody}`,
