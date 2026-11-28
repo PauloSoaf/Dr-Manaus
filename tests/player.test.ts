@@ -10,6 +10,7 @@ import { SPACE } from '../src/core/config.ts';
 import { PowerSystem, type PowerHooks } from '../src/player/powers/PowerSystem.ts';
 import type { InputController } from '../src/player/InputController.ts';
 import type { Collider, Target } from '../src/core/types.ts';
+import type { ExcavationFootprint } from '../src/world/destruction/ExcavationFootprint.ts';
 
 const classes = new Set<string>();
 Object.defineProperty(globalThis, 'document', { configurable: true, value: { body: { classList: { add: (name: string) => classes.add(name), remove: (name: string) => classes.delete(name) } } } });
@@ -42,6 +43,54 @@ function harness(options: Partial<PowerHooks> = {}) {
   const powers = new PowerSystem(root, player, camera, input, hooks);
   return { powers, player, camera, input, held, edges, hits, messages, impulses, targets, root };
 }
+
+test('ground beams and shockwave emit bounded excavation independent of structural damage', () => {
+  const cuts: { radius: number; amount: number; excavation: ExcavationFootprint | 0 | undefined }[] = [];
+  const h = harness({ targets: () => [], damage: (_p, radius, amount, excavation) => {
+    cuts.push({ radius, amount, excavation });
+    return 0;
+  } });
+  PhysicsWorld.setTerrain({ heightAt: () => 0 });
+  try {
+    h.player.teleport(new Vector3());
+    h.player.character.rightHand.position.set(0, 1.3, 0);
+    h.camera.position.set(0, 3, 6);
+    h.camera.lookAt(0, 0, -12);
+    h.camera.updateMatrixWorld();
+    h.powers.use('energy');
+    h.powers.use('shockwave');
+    assert.deepEqual(cuts[0], { radius: 16, amount: 250000, excavation: { radiusM: 5, depthM: 1.8 } });
+    assert.deepEqual(cuts[1], { radius: 48, amount: 500000, excavation: { radiusM: 10, depthM: 2.5 } });
+    h.powers.use('laser');
+    for (let i = 0; i < 100; i++) h.powers.update(.05, .05);
+    const laserCuts = cuts.slice(2).map(call => call.excavation).filter(cut => !!cut);
+    assert.ok(laserCuts.length > 10);
+    assert.ok(laserCuts[0].depthM < laserCuts.at(-1)!.depthM);
+    assert.ok(laserCuts.every(cut => cut.radiusM === 2 && cut.depthM <= .9));
+    assert.equal(laserCuts.at(-1)!.depthM, .9);
+  } finally { PhysicsWorld.setTerrain(null); }
+});
+
+test('grounded camera aims from the torso, looks up and stays in front of an obstruction after rebase', () => {
+  const h = harness(), rig = new CameraController(h.camera, h.input);
+  rig.skipIntro();
+  const origin = new Vector3(1024, 512, 1024);
+  const player = h.player;
+  player.teleport(new Vector3(993, 0, 1050));
+  player.state = 'Grounded';
+  PhysicsWorld.setTerrain({ heightAt: () => 0 });
+  try {
+    rig.pitch = 0;
+    rig.update(player, new Vector3(), 1 / 60, []);
+    assert.equal(rig.globalPosition.y, 1.4);
+    const wall = { x: 993, y: 2, z: 1052, width: 10, height: 4, depth: .3 };
+    rig.pitch = -.45;
+    rig.update(player, origin, 1 / 60, [wall]);
+    assert.ok(rig.globalPosition.y >= .35 && rig.globalPosition.z < wall.z - wall.depth / 2);
+    assert.ok(h.camera.getWorldDirection(new Vector3()).y > .43);
+    assert.ok(h.camera.position.clone().add(origin).distanceTo(rig.globalPosition) < 1e-8);
+  } finally { PhysicsWorld.setTerrain(null); }
+});
 
 test('continuous character sweep stops supersonic movement at a thin wall', () => {
   const physics = new PhysicsWorld(), position = new Vector3(0, 1, 0), velocity = new Vector3(720, 0, 0);
