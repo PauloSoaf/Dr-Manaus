@@ -23,6 +23,8 @@ export const EARTH_CANOPY = {
   cellM: 40,
   tileCells: 24,
   radiusM: 2_800,
+  /** No clump ever stands this close to the player: crowns reach 20 m and would swallow the camera. */
+  clearanceM: 64,
   /** Above this height over the ground the clumps are too small to matter; the ring colours remain. */
   maxAltitudeM: 3_000,
   tilesPerUpdate: 1,
@@ -139,7 +141,7 @@ export class EarthCanopyLayer {
       this.chart = earthSurfaceChart(anchor.latDeg, anchor.lonDeg);
     }
     this.focus.value.set(position.x, position.z);
-    this.hideRadius.value = Math.max(0, options.hideRadiusM);
+    this.hideRadius.value = Math.max(EARTH_CANOPY.clearanceM, Number.isFinite(options.hideRadiusM) ? options.hideRadiusM : 0);
     this.group.visible = options.altitudeAboveGroundM < EARTH_CANOPY.maxAltitudeM;
     if (!this.group.visible) return;
 

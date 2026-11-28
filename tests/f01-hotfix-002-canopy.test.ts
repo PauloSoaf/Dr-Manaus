@@ -99,6 +99,9 @@ test('the shader hole follows the chunk radius, altitude retires the layer and f
   const layer = new EarthCanopyLayer();
   t.after(() => layer.dispose());
   const anchor = { latDeg: -5, lonDeg: -65 };
+  // With no resident tiles yet (right after arriving), the camera still gets clear space.
+  layer.update({ x: 120, z: -40 }, anchor, { altitudeAboveGroundM: 10, hideRadiusM: 0 });
+  assert.equal(layer.hiddenWithin.radiusM, EARTH_CANOPY.clearanceM);
   fill(layer, 120, -40, anchor);
   assert.deepEqual(layer.hiddenWithin, { x: 120, z: -40, radiusM: 450 });
   const before = clumpCentres(layer);
