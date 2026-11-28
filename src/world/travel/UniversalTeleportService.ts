@@ -70,6 +70,7 @@ export interface UniversalTeleportServiceContext {
   burstVfx?: (pos: { x: number; y: number; z: number }) => void;
   targetCatalog?: UniversalTargetCatalog;
   targetResolver?: UniversalTargetResolver;
+  onTeleported?: () => void;
   onRegionChange?: (context: {
     bodyId: string;
     latDeg: number;
@@ -414,6 +415,7 @@ export class UniversalTeleportService {
       }
 
       if (result.success) {
+        this.context.onTeleported?.();
         this.context.sound?.('teleport');
         this.context.burstVfx?.(this.context.player.position);
         this.context.notify?.(result.message);

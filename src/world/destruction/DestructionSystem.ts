@@ -79,11 +79,11 @@ export class DestructionSystem {
   }
 
   /** Call once per frame. Drives the high-speed ram, the rubble and the scorch in that order. */
-  update(dt: number, playerPosition: Vector3, playerVelocity: Vector3, running = false): void {
+  update(dt: number, playerPosition: Vector3, playerVelocity: Vector3 | null, running = false): void {
     if(!this.frameOpened)this.beginFrame();
     this.frameOpened=false;
     this.time += dt;
-    if (!running) this.plough(playerPosition, playerVelocity, dt);
+    if (!running && playerVelocity) this.plough(playerPosition, playerVelocity, dt);
     this.drainPending(this.pending,DESTRUCTION.maxCollapsesPerFrame-this.collapsedThisFrame);
     this.drainPending(this.pendingLight,DESTRUCTION.maxLightRetirementsPerFrame);
     this.debris.update(dt, playerPosition);

@@ -25,6 +25,14 @@ export interface LandingImpact {
   readonly position: Vector3;
 }
 
+export interface PlayerPhysicsStep {
+  dt: number;
+  position: number[];
+  displacement: number[];
+  correction: number[];
+  contact: 'volume' | 'terrain' | null;
+}
+
 export class PlayerController {
   readonly position = new Vector3(WORLD.spawn.x, WORLD.spawn.y, WORLD.spawn.z);
   readonly velocity = new Vector3();
@@ -58,6 +66,7 @@ export class PlayerController {
   speedMultiplier = 1;
   speedMode: FlightSpeedMode = 'ground';
   beforeMove?: (position: Vector3, velocity: Vector3, dt: number) => readonly Collider[];
+  onPhysicsStep?: (sample: PlayerPhysicsStep) => void;
   readonly input: InputController;
   private jumps = 0;
   private armedTier: ArmedTier = 'none';
@@ -283,11 +292,31 @@ export class PlayerController {
     }
   }
 
-  update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0, liquidTimeSec?: number): void {
-    if (!Number.isFinite(dt) || dt <= 0) return;
-    dt = Math.min(0.06, dt);
-    this.armClockS += dt;
-    this.liquidTimeSec = liquidTimeSec ?? this.armClockS;
+  /** The occupied vehicle owns movement. Publish its pose without stepping the avatar. */
+  followVehicle(dt: number, position: Vector3, velocity: Vector3, liquidTimeSec: number): void {
+    this.updateVitals(dt);
+    this.position.copy(position);
+    this.velocity.copy(velocity);
+    this.model.position.copy(position);
+    this.liquidTimeSec = liquidTimeSec;
+    this.submersion = manausBathymetry.evaluateSubmersion(position, 1.8 * this.size, liquidTimeSec);
+    this.state = 'Falling';
+    this.speedMode = 'ground';
+    this.armedTier = 'none';
+    this.lastArmTapS = -Infinity;
+    this.grounded = false;
+    this.pendingImpact = null;
+    this.swimmingVisualState = 'None';
+  }
+
+  dismountVehicle(position: Vector3, velocity: Vector3): void {
+    this.teleport(position);
+    this.velocity.copy(velocity);
+    if (this.state === 'Hover') this.state = 'Falling';
+    this.speedMode = 'ground';
+  }
+
+  private updateVitals(dt: number): void {
     if (this.lastHitTimer > 0) {
       this.lastHitTimer -= dt;
     } else if (this.shield < this.maxShield) {
@@ -296,6 +325,14 @@ export class PlayerController {
     if (this.damageFlash > 0) {
       this.damageFlash = Math.max(0, this.damageFlash - dt * 2.0);
     }
+  }
+
+  update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0, liquidTimeSec?: number): void {
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    dt = Math.min(0.06, dt);
+    this.armClockS += dt;
+    this.liquidTimeSec = liquidTimeSec ?? this.armClockS;
+    this.updateVitals(dt);
     if (this.flightTakeoffGraceS > 0) {
       this.flightTakeoffGraceS = Math.max(0, this.flightTakeoffGraceS - dt);
     }
@@ -509,6 +546,9 @@ export class PlayerController {
 
     const wasGrounded = this.grounded;
     this.impactVelocity.copy(this.velocity);
+    const traceStep = this.onPhysicsStep ? {
+      dt, position: this.position.toArray(), displacement: this.velocity.clone().multiplyScalar(dt).toArray(),
+    } : undefined;
     this.grounded = this.physics.move(
       this.position,
       this.velocity,
@@ -518,6 +558,15 @@ export class PlayerController {
       colliders,
       !flying && !isSwimming ? 0.55 * this.size : 0
     );
+    if (traceStep) {
+      const [x, y, z] = traceStep.position;
+      const [dx, dy, dz] = traceStep.displacement;
+      this.onPhysicsStep?.({
+        ...traceStep,
+        correction: [this.position.x - x - dx, this.position.y - y - dy, this.position.z - z - dz],
+        contact: this.physics.lastVolumeContact ? 'volume' : this.physics.lastTerrainContact ? 'terrain' : null,
+      });
+    }
 
     // Re-evaluate submersion at post-move coordinates with hysteresis
     this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.liquidTimeSec);

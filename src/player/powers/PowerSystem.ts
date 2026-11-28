@@ -52,6 +52,7 @@ export interface PowerHooks {
   getActiveBodyId?: () => string | null;
   /** Returns whether the player is currently piloting a vehicle. */
   isVehicleOccupied?: () => boolean;
+  onTeleport?: () => void;
 }
 
 export type PlanetRuptureState = 'idle' | 'charging' | 'ready' | 'executing' | 'cooldown';
@@ -255,6 +256,7 @@ export class PowerSystem {
   }
 
   use(name: string): void {
+    if (this.hooks.isVehicleOccupied?.()) return;
     if (!(name in this.cooldowns)) return;
     this.selected = name;
     if (this.cooldowns[name] > 0 || this.teleporting) return;
@@ -346,7 +348,7 @@ export class PowerSystem {
   }
 
   async teleportTo(position: Vector3): Promise<void> {
-    if (this.teleporting || !Number.isFinite(position.x + position.y + position.z)) return;
+    if (this.teleporting || this.hooks.isVehicleOccupied?.() || !Number.isFinite(position.x + position.y + position.z)) return;
     this.teleporting = true; this.cooldowns.teleport = 1.2;
     this.player.powerPose('teleport', 0.8);
     this.effects.burst(this.player.position, 0x91ffe1, this.player.size, 48);
@@ -355,8 +357,10 @@ export class PowerSystem {
     document.body.classList.add('teleporting');
     try {
       await this.hooks.prepare(position);
+      if (this.hooks.isVehicleOccupied?.()) return;
       const safe = PhysicsWorld.safeLanding(position, this.hooks.getColliders(), 0.34 * this.player.size, 2.1 * this.player.size);
       this.player.teleport(safe);
+      this.hooks.onTeleport?.();
       this.effects.burst(safe, 0x91ffe1, this.player.size, 48); this.effects.wave(safe, 13 * this.player.size);
       this.hooks.notify('Salto espacial concluído.');
     } catch (error) {

@@ -189,6 +189,16 @@ export class VehicleController {
     this.updateTransform();
   }
 
+  public applyPortalPose(position: Vector3, velocity: Vector3, orientation: Quaternion): void {
+    this.position.copy(position);
+    this.velocity.copy(velocity);
+    const angles = new Euler().setFromQuaternion(orientation, 'YXZ');
+    this.pitch = angles.x;
+    this.yaw = angles.y;
+    this.roll = angles.z;
+    this.updateTransform();
+  }
+
   /**
    * Updates vehicle physics and visual state for the current frame.
    */
