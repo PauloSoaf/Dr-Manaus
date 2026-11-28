@@ -102,6 +102,44 @@ test('dense streamed tiles are built across frames, identical to the one-shot ti
   await assert.rejects(orphaned, /disposed/);
 });
 
+test('the distant disc dissolves over the globe that replaces it, except when it fills the view', t => {
+  const universe = new UniverseRuntime({ streaming: false, epochS: 0 });
+  const providers = createPlanetProviders(new Group(), universe);
+  const layer = new CelestialBodyVisualLayer(), controller = new CelestialPresentationController(layer);
+  const moon = providers.get('moon')!;
+  t.after(() => { for (const provider of providers.values()) provider.dispose(); layer.dispose(); universe.dispose(); });
+  const centre = universe.activeSystem.positionOf('moon')!;
+  const moveTo = (distanceM: number) => universe.updateSystemPose([centre[0] + distanceM, centre[1], centre[2]], [0, 0, 0], 0);
+  const prepare = (nowS: number) => {
+    controller.prepare({ universe, planetProviders: providers, fovRad: 1, viewportHeightPx: 1080, handoffFadeS: .5, nowS });
+    return controller.renderSamples.find(s => s.bodyId === 'moon')!;
+  };
+  // About 190 px across: the globe takes over while the disc is still a disc.
+  moveTo(17_000_000);
+  let sample = prepare(100);
+  assert.ok(moon.globe.visible && moon.readiness().fallbackReady);
+  assert.ok(sample.presentationDiameterPx! < 1080);
+  assert.deepEqual([sample.visible, sample.opacity], [true, 1]);
+  sample = prepare(100.25);
+  assert.ok(sample.visible && Math.abs(sample.opacity - .5) < 1e-9);
+  sample = prepare(100.6);
+  assert.deepEqual([sample.visible, sample.opacity], [false, 0]);
+  sample = prepare(200);
+  assert.equal(sample.visible, false, 'a finished hand-over never restarts while the globe stays');
+  // Leaving the globe and returning dissolves again.
+  moveTo(4e8);
+  assert.equal(prepare(300).visible, true);
+  moveTo(17_000_000);
+  assert.equal(prepare(301).opacity, 1);
+  // Arriving close, where the disc would cover the view, hands over at once.
+  moveTo(4e8);
+  prepare(400);
+  moveTo(moon.bodyDef.semiMajorAxisM + 200_000);
+  sample = prepare(401);
+  assert.ok(sample.presentationDiameterPx! >= 1080);
+  assert.equal(sample.visible, false);
+});
+
 test('approaching a planet keeps its distant disc until the sliced globe is ready', t => {
   const universe = new UniverseRuntime({ streaming: false, epochS: 0 });
   const providers = createPlanetProviders(new Group(), universe, undefined, true, { slices: { coarseMs: 0, surfaceMs: 0 } });

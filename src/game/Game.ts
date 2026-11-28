@@ -1239,6 +1239,8 @@ export class Game {
       fovRad: (this.rendering.camera.fov * Math.PI) / 180,
       viewportHeightPx: this.rendering.renderer.domElement.clientHeight,
       cameraFarM: this.rendering.camera.far,
+      handoffFadeS: .6,
+      nowS: performance.now() / 1000,
     });
 
     // Process streaming based on updated presentation state
