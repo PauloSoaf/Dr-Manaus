@@ -68,6 +68,8 @@ Uma preparação iniciada antes de `clear()` falha quando a região é substitu�
 
 Veredito parcial: `VISUAL_VALIDATION_PENDING`. O checkpoint continua aberto. Testes automatizados de navegador omitidos pela política da fase. Homologação manual e o restante dos critérios precedem FOUNDATION-02.
 
+O [F01-HOTFIX-001](../agent-reports/2026/2026-11-27-2131-f01-hotfix-001.md) trata em branch paralela as regressões de câmera, malha do terreno e escavação. A integração depende da validação visual e da revisão contra a sprint.
+
 ## Roteiro manual de condução
 
 1. Abra a prévia local da sessão em `http://127.0.0.1:9998/?motionTrace=1`. Aproxime-se de um carro até aparecer **E · Pilotar**. Em terra, **V** alterna os veículos e posiciona o selecionado à frente.

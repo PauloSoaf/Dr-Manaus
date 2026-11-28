@@ -2,6 +2,8 @@
 
 ## FOUNDATION-01
 
+`F01-HOTFIX-001` acompanha cinco regressões de câmera, cobertura do terreno e poderes. A correção fica na branch `fix/f01-camera-terrain-blast`, com homologação manual e integração pendentes. [Relatório e roteiro](agent-reports/2026/2026-11-27-2131-f01-hotfix-001.md).
+
 | ID | Pendência | Severidade | Estado |
 | --- | --- | --- | --- |
 | F01-01 | A condução agora tem uma autoridade, diagnóstico e teste de integração headless. Falta validar ao vivo a câmera nas transições e as exceções de handoff com rebase. | Gate | VISUAL_VALIDATION_PENDING |
