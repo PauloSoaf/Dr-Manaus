@@ -2,10 +2,10 @@
 
 ## Próxima sessão de FOUNDATION-01
 
-1. Coletar o retorno da validação em jogo do `F01-HOTFIX-002` (branch `fix/f01-global-terrain-streaming`, relatório na própria branch). Se aprovado, integrar em `feat/universe-map` com `git merge --ff-only`, depois de confirmar que nenhuma outra sessão alterou os mesmos sistemas. Se houver defeito, corrigir na branch.
-2. Coletar o retorno dos roteiros de [solo, teleporte e água](foundation/FOUNDATION-01.md#roteiro-manual-de-solo-teleporte-e-água) e de [condução](foundation/FOUNDATION-01.md#roteiro-manual-de-condução). Para salto na condução, reproduzir com `?motionTrace=1`.
-3. Medir quadro, GPU, memória e ciclo de vida em viagem longa no equipamento do usuário. Reavaliar o contrato após suspensão da aba.
-4. Tratar a reancoragem do ENU em voo longo (F01-08) e a escolha entre registrar Thalassa no sistema ativo ou retirá-la do catálogo (F01-07). Manter FOUNDATION-02 em espera.
+1. Coletar o retorno item a item dos roteiros do [F01-HOTFIX-002](agent-reports/2026/2026-11-27-2358-claude-f01-hotfix-002-report.md), de [aproximação de planetas](foundation/FOUNDATION-01.md#carregamento-de-planetas), de [solo, teleporte e água](foundation/FOUNDATION-01.md#roteiro-manual-de-solo-teleporte-e-água) e de [condução](foundation/FOUNDATION-01.md#roteiro-manual-de-condução). Para salto na condução, reproduzir com `?motionTrace=1`.
+2. Com o F3 aberto no equipamento do usuário, registrar o tempo de quadro na aproximação de planetas e no voo rápido. Verificar a hipótese F01-15 (material por tile) com um perfil do navegador antes de alterar a máscara.
+3. Medir GPU, memória e ciclo de vida em viagem longa. Reavaliar o contrato após suspensão da aba.
+4. Tratar a reancoragem do ENU em voo longo (F01-08), a dissolução na saída do globo (F01-16) e a escolha entre registrar Thalassa no sistema ativo ou retirá-la do catálogo (F01-07). Manter FOUNDATION-02 em espera.
 
 Fila anterior preservada abaixo.
 

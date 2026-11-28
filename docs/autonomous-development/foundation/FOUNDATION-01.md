@@ -67,6 +67,12 @@ Entregue pela sessão [FOUNDATION-01-CLAUDE-001](../agent-reports/2026/2026-11-2
 
 Uma preparação iniciada antes de `clear()` falha quando a região é substituída. Respostas antigas não publicam chunks e rejeições antigas não contaminam o preparo atual. `setSolvent` descarta o material compartilhado anterior. `ChunkMeshes.dispose` agora libera os recursos do oceano de megawaves. Falta ensaio prolongado de workers, VRAM e alternância de domínio.
 
+## Carregamento de planetas
+
+A geometria densa dos planetas rochosos é construída em fatias por quadro e guardada para o retorno ([ADR-FOUNDATION-007](../ARCHITECTURE-DECISIONS.md)). O disco distante só sai depois que o globo está pronto e se dissolve sobre ele. Numa aproximação simulada da Lua em Node, os quadros acima de 16 ms caíram de 17 (pior: 316 ms) para nenhum (pior: 8 ms), com os mesmos 96 tiles ao fim (`foundation-planet-loading.test.ts`). O painel F3 só é montado enquanto está aberto.
+
+Roteiro manual: suba de Manaus ao espaço, trave a Lua com **Tab** e use o piloto automático com **P**. Durante a aproximação, o jogo não deve congelar. A Lua deve passar do disco para o relevo sem corte. Saia, volte e repita a aproximação.
+
 ## Evidências e aceite
 
 `tests/helpers/foundation-lab.ts` usa jogador, colisão e batimetria de produção. Cenários atuais: solo plano, parede, salto e áreas rasa/profunda. Nas seis cadências (30, 60, 120 e 144 FPS, variável e picos de 60 ms), distância em 1 s ficou entre 6,116 e 6,146 m, ápice entre 1,722 e 1,767 m, pouso entre 0,750 e 0,767 s e diferença vertical máxima de flutuação de 0,009 m. São métricas headless de movimento. O desempenho de frame, GPU e memória ainda não foi medido.
@@ -94,7 +100,8 @@ O [F01-HOTFIX-002](../agent-reports/2026/2026-11-27-2358-claude-f01-hotfix-002-r
 | CODEX-002 | Condução e diagnóstico | até `d89fccc` | SUCCESS |
 | CODEX-003 (interrompida) | Tráfego e continuidade em rebase | `59a18b5`, `7884462` | validados no push da sessão seguinte |
 | CLAUDE-001 | Solo, água, teleporte e referenciais fora de Manaus | `046a9be` a `a3a5a90` | SUCCESS |
-| F01-HOTFIX-002 (paralela) | Streaming e horizonte terrestre | branch `fix/f01-global-terrain-streaming` | ver relatório na branch |
+| F01-HOTFIX-002 (paralela) | Streaming e horizonte terrestre | `2cb4366` a `4a91ff2`, integrados por fast-forward | SUCCESS |
+| CLAUDE-002 | Carregamento de planetas e custo do HUD | `01797e1`, `270345c`, `dff3c22` | ver [CI-HISTORY](../CI-HISTORY.md) |
 
 ## Roteiro manual de solo, teleporte e água
 

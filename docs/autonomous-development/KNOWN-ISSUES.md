@@ -16,10 +16,12 @@
 | F01-08 | Sem reancoragem do ENU em voos longos. Terreno e água acompanham a curvatura, mas a vertical da gravidade permanece a do ponto de pouso. | P2 | Aberto |
 | F01-09 | Marcas de queimado são relativas a y=0 e não aparecem em terreno elevado fora de Manaus. | P3 | Aberto |
 | F01-10 | A escavação volumétrica usa a superfície desenhada e pode divergir do solo jogável em faixas costeiras. | P3 | Aberto |
-| F01-11 | Testes de tempo de parede (CT-17-03, CT-08-01, FEATURE 18/CT-06-03 e FEATURE 20/RNF-20-03) já falharam sob carga paralela nesta máquina e passam isolados. Nenhum limite foi alterado. | P2 | Aberto |
+| F01-11 | Testes de tempo de parede (CT-17-03, CT-08-01, FEATURE 18/CT-06-03 e FEATURE 20/RNF-20-03) já falharam sob carga paralela nesta máquina e passam isolados. Em 2026-11-28, CT-06-03 falhou em 2 de 5 execuções completas e passou nas isoladas. Nenhum limite foi alterado. | P2 | Aberto |
 | F01-12 | Horizonte e copas sem texturas, normal maps, triplanar nem impostores. A forma geográfica é grosseira (ETOPO5 ~78 km por amostra, máscara de ~39 km). | P2 | Aberto |
 | F01-13 | Uma âncora nova (teleporte) reconstrói o horizonte na mesma chamada, o que pode causar um engasgo pontual. As copas voltam um tile por quadro (~41 quadros). | P3 | Aberto |
 | F01-14 | FPS, GPU, upload e memória do horizonte, das copas e do streaming não foram medidos no equipamento do usuário. Não há baseline anterior com a mesma instrumentação. | Gate | NOT_MEASURED |
+| F01-15 | Cada tile de planeta recebe um material próprio da máscara de volume. No WebGPU, isso pode custar CPU no primeiro desenho de cada tile. É uma hipótese vinda da leitura do código e precisa de perfil no navegador. | P2 | NOT_MEASURED |
+| F01-16 | Ao sair do alcance do globo físico, a troca de volta para o disco distante acontece num quadro. | P3 | Aberto |
 
 Este documento rastreia problemas não bloqueantes, pendências de homologação e dívidas técnicas mapeadas para tratamento posterior.
 

@@ -94,6 +94,17 @@ Mesma sessão.
 - **Decisão.** A ordem é: solo sob o jogador; corredor de voo por tempo de chegada; resto do disco com viés da câmera; antecipação distante. O alcance é velocidade × 2,8 s, até 6 km. O disco detalhado encolhe quando a velocidade supera a taxa de ativação (mínimo de 128 m). O plano nunca passa de 64 ativos mais 24 de antecipação, e a evicção remove primeiro o que não foi pedido. São de 2 a 4 workers, conforme os núcleos. O painel F3 mostra latências, contadores e cobertura.
 - **Consequências.** Em voo muito rápido, o detalhe próximo encolhe, e o horizonte e as copas mantêm a cobertura visual. Com 2 ou 3 workers, parte dos 4 pedidos em voo espera na fila do pool.
 
+### ADR-FOUNDATION-007 — Geometria densa de planetas em fatias, com o globo de reserva mantido
+
+Aceita em 2026-11-28 por Claude (`claude-sonnet-5-5`), sessão `FOUNDATION-01-CLAUDE-002`, checkpoint FOUNDATION-01.
+
+- **Contexto.** A geometria dos planetas rochosos é gerada na thread principal.
+- **Problema.** Medido em Node: o globo de reserva da Lua (6 faces de 65²) custava 261 a 284 ms numa chamada. Era destruído quando a Lua deixava de ser o corpo físico e reconstruído na aproximação seguinte. Os níveis 0 a 2 da Lua custavam 28 a 42 ms cada dentro do agendador.
+- **Decisão.** `prepareFallback` avança linhas de vértices dentro de um orçamento e guarda a geometria. `ensureFallback` só monta quando as seis faces existem, e `releaseFallback` desmonta sem descartar. Com `slices` (`PLANET_LOADING`, usado pelo jogo), os tiles densos entram numa fila que o jogo avança a cada quadro. Os planetas distantes são preparados com 2 ms por quadro. O disco distante permanece até o globo ficar pronto e então se dissolve em 0,6 s, ou na hora, quando é maior que a tela.
+- **Alternativas rejeitadas.** Gerar em worker: exigiria um segundo protocolo de geração e transferência, e as fatias já removem a travada. Reduzir a resolução: degradaria a silhueta da Lua.
+- **Consequências.** Sem preparo, o globo da Lua leva cerca de 64 quadros para aparecer, sempre com o disco visível. A geometria guardada dos planetas solares ocupa cerca de 1,5 MB. Quem usa `slices` precisa chamar `advanceLoading` a cada quadro.
+- **Revisão.** Se o perfil no navegador mostrar custo relevante em upload ou compilação de shaders (F01-15).
+
 ### ADR-001: Floating Origin e Coordenadas Espaciais Hierárquicas
 - **Contexto:** O universo do DR-MANAUS se estende da escala milimétrica do chão de Manaus até a escala cosmológica de bilhões de anos-luz. Padrões comuns de `Vector3` de 32 bits (IEEE 754) sofrem perda severa de precisão além de 10.000 metros da origem.
 - **Decisão:**

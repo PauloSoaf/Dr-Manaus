@@ -2,11 +2,9 @@
 
 ## Checkpoint ativo
 
-`FOUNDATION-01` aberto na branch `feat/universe-map`, em `VISUAL_VALIDATION_PENDING`. Código verificado e publicado em `a3a5a90647ad89cbf707c10ed4904b210aa76647`: tipagem, testes 2.067/2.067 e build aprovados localmente, com CI SUCCESS (inclui as 639 regressões). Veja o [CI por SHA](CI-HISTORY.md) e a [sessão FOUNDATION-01-CLAUDE-001](agent-reports/2026/2026-11-27-2306-claude-foundation-01.md).
+`FOUNDATION-01` aberto na branch `feat/universe-map`, em `VISUAL_VALIDATION_PENDING`. Código em `dff3c22`: tipagem, regressões 639/639, testes 2.102/2.102 e build aprovados localmente. Veja o [CI por SHA](CI-HISTORY.md) e a [sessão FOUNDATION-01-CLAUDE-002](agent-reports/2026/2026-11-28-0333-claude-foundation-01.md).
 
-O [mapa de runtime](foundation/FOUNDATION-01.md) cobre tempo, física, streaming e referência. Solo, água e teleporte fora de Manaus agora usam uma autoridade única, com roteiro manual próprio. Há também o roteiro de condução.
-
-O `F01-HOTFIX-002` (horizonte, florestas e streaming globais) está na branch `fix/f01-global-terrain-streaming`, sem merge, aguardando a validação em jogo. As informações anteriores abaixo são históricas.
+O [mapa de runtime](foundation/FOUNDATION-01.md) cobre tempo, física, streaming, referência e carregamento de planetas. O `F01-HOTFIX-002` (horizonte, florestas e streaming globais) foi integrado por fast-forward depois que o usuário relatou melhora geral em jogo. Os roteiros ainda não foram validados item a item. As informações anteriores abaixo são históricas.
 
 - **Data/Hora:** 2026-11-13T16:10:00-04:00
 - **Branch Ativa:** `feat/universe-map`
