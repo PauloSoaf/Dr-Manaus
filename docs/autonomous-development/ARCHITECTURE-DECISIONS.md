@@ -67,6 +67,33 @@ Aceita em 2026-11-27 por Claude (`claude-sonnet-5-5`), sessão `FOUNDATION-01-CL
 - **Consequências.** Períodos físicos: ~8 s na ondulação de 160 m e ~54 s nas megaondas. O visual muda em Manaus e no oceano e precisa de homologação. O commit `d75419c` pode ser revertido isoladamente, mas a flutuação volta a oscilar no mar.
 - **Revisão.** Homologação visual da água (FOUNDATION-06).
 
+### ADR-F01H2-001 — Horizonte terrestre em níveis aninhados com publicação atômica
+
+Aceita em 2026-11-28 por Claude (`claude-sonnet-5-5`), sessão `F01-HOTFIX-002-CLAUDE-001`.
+
+- **Contexto.** Fora de Manaus e abaixo de 8 km, o globo fica oculto e o terreno desenhado eram só os chunks (~480 m).
+- **Problema.** O mundo aparecia como um quadrado cercado de vazio, e o horizonte oceânico dependia do tipo de superfície na âncora.
+- **Decisão.** `EarthHorizonPresentation` tem dois níveis radiais (até 12,8 km e de 6 a 262 km) sobre a mesma superfície radial da física. Usa a paleta dos chunks, desenha água só onde há água, monta em buffers de trabalho (1,5 ms por quadro) e publica atomicamente. Reconstrói na mesma chamada quando a âncora muda ou o observador sai da folga do nível. Na Terra fora de Manaus, substitui o horizonte oceânico, que continua em Thalassa.
+- **Alternativas rejeitadas.** Reativar o globo a baixa altitude (outro referencial e precisão, com z-fighting contra o solo local); aumentar o raio dos chunks (custo quadrático, sem chegar ao horizonte).
+- **Referências.** GPU Gems 2, cap. 2 (geometry clipmaps); seleção REPLACE do Cesium.
+- **Consequências.** Uma âncora nova custa uma reconstrução síncrona. O relevo é grosseiro (ETOPO5 reduzido, ~78 km por amostra). Sem texturas nem normal maps.
+
+### ADR-F01H2-002 — Florestas distantes em grade geodésica, abertas só onde os chunks já desenham
+
+Mesma sessão.
+
+- **Decisão.** `EarthCanopyLayer` instancia agrupamentos em células geodésicas fixas (40 m, tiles de 24×24, até 2,8 km, um tile por quadro), com densidade pelo bioma compartilhado e nada na água. O furo do shader acompanha o raio coberto por chunks residentes e nunca fica menor que 64 m, para a câmera não parar dentro de uma copa. Árvores derrubadas removem o agrupamento sobre elas.
+- **Alternativas rejeitadas.** Árvores individuais (milhões de instâncias); furo no raio planejado, que deixava um anel sem vegetação durante o carregamento.
+- **Consequências.** Cada agrupamento representa várias árvores. Sem impostores 2D.
+
+### ADR-F01H2-003 — Streaming por tempo de chegada, limitado ao que permanece residente
+
+Mesma sessão.
+
+- **Contexto.** A antecipação parava em 1,6 km, e havia no máximo dois workers.
+- **Decisão.** A ordem é: solo sob o jogador; corredor de voo por tempo de chegada; resto do disco com viés da câmera; antecipação distante. O alcance é velocidade × 2,8 s, até 6 km. O disco detalhado encolhe quando a velocidade supera a taxa de ativação (mínimo de 128 m). O plano nunca passa de 64 ativos mais 24 de antecipação, e a evicção remove primeiro o que não foi pedido. São de 2 a 4 workers, conforme os núcleos. O painel F3 mostra latências, contadores e cobertura.
+- **Consequências.** Em voo muito rápido, o detalhe próximo encolhe, e o horizonte e as copas mantêm a cobertura visual. Com 2 ou 3 workers, parte dos 4 pedidos em voo espera na fila do pool.
+
 ### ADR-001: Floating Origin e Coordenadas Espaciais Hierárquicas
 - **Contexto:** O universo do DR-MANAUS se estende da escala milimétrica do chão de Manaus até a escala cosmológica de bilhões de anos-luz. Padrões comuns de `Vector3` de 32 bits (IEEE 754) sofrem perda severa de precisão além de 10.000 metros da origem.
 - **Decisão:**

@@ -82,7 +82,9 @@ Uma preparação iniciada antes de `clear()` falha quando a região é substitu�
 
 Veredito parcial: `VISUAL_VALIDATION_PENDING`. O checkpoint continua aberto. Testes automatizados de navegador omitidos pela política da fase. Homologação manual e o restante dos critérios precedem FOUNDATION-02.
 
-Limitações desta rodada: o horizonte terrestre contínuo é tratado no F01-HOTFIX-002. Sem ele, fora de Manaus e abaixo de 8 km só os chunks próximos têm terreno. Não há reancoragem do ENU em voos longos. As demais pendências estão em [KNOWN-ISSUES](../KNOWN-ISSUES.md).
+Limitações desta rodada: não há reancoragem do ENU em voos longos. As demais pendências estão em [KNOWN-ISSUES](../KNOWN-ISSUES.md).
+
+O [F01-HOTFIX-002](../agent-reports/2026/2026-11-27-2358-claude-f01-hotfix-002-report.md) acrescenta o horizonte terrestre de até 262 km, florestas distantes e streaming por tempo de chegada (ADR-F01H2-001 a 003). Sem ele, fora de Manaus e abaixo de 8 km só os chunks próximos têm terreno.
 
 ## Sessões, commits e CI
 

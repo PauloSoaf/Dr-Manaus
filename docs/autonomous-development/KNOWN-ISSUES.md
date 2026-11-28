@@ -11,12 +11,15 @@
 | F01-03 | Rebase em voo e natação, rampas/escadas e aba suspensa ganharam cenário integrado (`foundation-continuity.test.ts`). Falta o cenário de trânsito universal. | Gate | Parcial |
 | F01-04 | As alterações de tráfego pendentes foram revisadas, corrigidas e commitadas em `59a18b5`. CT-08 aprovados na suíte completa. | Local | Encerrado |
 | F01-05 | Chão invisível e plano de chunks em y=0 fora de Manaus; sem leito no oceano; ondas fora da física; teleportes sem gravidade; Marte e Lua em posição errada; volta a Manaus com o relevo de origem. | P0 | Corrigido (`d75419c` a `439c7e1`), VISUAL_VALIDATION_PENDING |
-| F01-06 | Fora de Manaus e abaixo de 8 km não há terreno distante além dos chunks próximos (o "quadrado verde"). | P0 | Em tratamento no F01-HOTFIX-002 |
+| F01-06 | Fora de Manaus e abaixo de 8 km não há terreno distante além dos chunks próximos (o "quadrado verde"). | P0 | Corrigido no F01-HOTFIX-002 (`66d584c` a `30e25bf`), VISUAL_VALIDATION_PENDING |
 | F01-07 | Thalassa está no catálogo, mas não no sistema solar ativo. O teleporte falha com aviso, como já falhava antes desta sessão. | P2 | Aberto |
 | F01-08 | Sem reancoragem do ENU em voos longos. Terreno e água acompanham a curvatura, mas a vertical da gravidade permanece a do ponto de pouso. | P2 | Aberto |
 | F01-09 | Marcas de queimado são relativas a y=0 e não aparecem em terreno elevado fora de Manaus. | P3 | Aberto |
 | F01-10 | A escavação volumétrica usa a superfície desenhada e pode divergir do solo jogável em faixas costeiras. | P3 | Aberto |
 | F01-11 | Testes de tempo de parede (CT-17-03, CT-08-01, FEATURE 18/CT-06-03 e FEATURE 20/RNF-20-03) já falharam sob carga paralela nesta máquina e passam isolados. Nenhum limite foi alterado. | P2 | Aberto |
+| F01-12 | Horizonte e copas sem texturas, normal maps, triplanar nem impostores. A forma geográfica é grosseira (ETOPO5 ~78 km por amostra, máscara de ~39 km). | P2 | Aberto |
+| F01-13 | Uma âncora nova (teleporte) reconstrói o horizonte na mesma chamada, o que pode causar um engasgo pontual. As copas voltam um tile por quadro (~41 quadros). | P3 | Aberto |
+| F01-14 | FPS, GPU, upload e memória do horizonte, das copas e do streaming não foram medidos no equipamento do usuário. Não há baseline anterior com a mesma instrumentação. | Gate | NOT_MEASURED |
 
 Este documento rastreia problemas não bloqueantes, pendências de homologação e dívidas técnicas mapeadas para tratamento posterior.
 
