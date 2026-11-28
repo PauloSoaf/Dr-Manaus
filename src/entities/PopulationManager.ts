@@ -98,11 +98,13 @@ export class PopulationManager {
     const damp=Math.exp(-dt*2);body.velocity.x*=damp;body.velocity.z*=damp;
   }
   update(dt:number,player:Vector3,size:number,playerVelocity?:Vector3){
+    if (!Number.isFinite(player.x + player.y + player.z)) return;
+    dt = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), .25) : 0;
     this.seed(player);this.elapsed+=dt;this.reaction=Math.max(0,this.reaction-dt);this.colliders.length=0;
     this.gaspCooldown=Math.max(0,this.gaspCooldown-dt);
     const curved = localManausPresentationMode() === 'curved';
     const playerSpeed = playerVelocity ? playerVelocity.length() : 0;
-    const isSupersonicFlyby = playerSpeed > 28;
+    const isSupersonicFlyby = Number.isFinite(playerSpeed) && playerSpeed > 28;
 
     // Fast Spatial Grid pre-pass for pedestrian crowd separation
     this.spatialGrid.clear();

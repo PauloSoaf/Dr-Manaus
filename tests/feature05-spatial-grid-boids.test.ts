@@ -4,6 +4,9 @@ import { Group, Vector3 } from 'three';
 import { FastSpatialGrid2D } from '../src/world/spatial/FastSpatialGrid2D';
 import { FluvialVesselSystem, VESSEL_ARCHETYPES } from '../src/world/traffic/FluvialVesselSystem';
 import { PopulationManager } from '../src/entities/PopulationManager';
+import { RoadGraph } from '../src/world/traffic/RoadGraph';
+import { TrafficSystem } from '../src/world/traffic/TrafficSystem';
+import { resolveImpact } from '../src/player/combat/MeteorImpact';
 
 test('CT-08-01: FastSpatialGrid2D performs O(1) insertions and accurate proximity queries with zero GC', () => {
   const grid = new FastSpatialGrid2D(4000, 32, 1024);
@@ -138,5 +141,89 @@ test('CT-08-03: PopulationManager crowd separation avoids pedestrian overlapping
   } finally {
     pop.dispose();
   }
+});
+
+test('traffic brakes for a player in its lane and turns a hit car into a wreck', () => {
+  const graph = new RoadGraph();
+  assert.ok(graph.load({
+    nodes: [[-400, 0], [400, 0]],
+    segments: [{ id: 'av-djalma-batista', p: [-400, 0, 400, 0], a: 0, b: 1, width: 14, speed: 12 }],
+  }));
+  let honks = 0;
+  const traffic = new TrafficSystem(new Group(), graph, () => { honks++; });
+  try {
+    traffic.setCount(4);
+    traffic.update(1 / 60, new Vector3());
+    assert.equal(traffic.stats.segments, 1);
+    const body = traffic.colliders[0];
+    assert.ok(body);
+    const center = new Vector3(body.x, body.y, body.z);
+    const car = traffic.findNearestCar(center);
+    assert.ok(car);
+    const ahead = center.clone().add(new Vector3(Math.sin(car.yaw) * 8, 0, Math.cos(car.yaw) * 8));
+    traffic.update(1 / 60, ahead);
+    assert.ok(honks > 0);
+    // Neither a non-finite dt nor an invalid player position poisons existing vehicle poses.
+    traffic.update(NaN, center);
+    traffic.update(1 / 60, new Vector3(Infinity, 0, 0));
+    assert.ok(traffic.colliders.every(({x, y, z}) => Number.isFinite(x + y + z)));
+    assert.ok(traffic.impulse(center, 50, 45) > 0);
+    assert.ok(traffic.lastImpulseWrecks > 0);
+    assert.ok(!traffic.colliders.some(collider => collider.id === body.id));
+  } finally { traffic.dispose(); }
+});
+
+test('crowd keeps finite poses on a bad timestep and reconstructs an NPC hit in the core', () => {
+  const pop = new PopulationManager(new Group());
+  const focus = new Vector3();
+  try {
+    pop.update(1 / 60, focus, 1);
+    const npc = pop.npcs.find(actor => actor.active);
+    assert.ok(npc);
+    pop.update(NaN, focus, 1);
+    assert.ok(pop.npcs.every(({position}) => Number.isFinite(position.x + position.y + position.z)));
+    const point = npc.position.clone();
+    const footprint = { ...resolveImpact(450), reactionRadiusM: 35, blastDamageRadiusM: 25,
+      impulseRadiusM: 15, coreDestructionRadiusM: 5, impulse: 40 };
+    assert.ok(pop.applyImpact(point, footprint).disabled > 0);
+    assert.equal(npc.active, false);
+    assert.ok(pop.reconstruct(point, 100) > 0);
+    assert.equal(npc.active, true);
+    assert.equal(pop.reconstruct(point, 100), 0);
+  } finally { pop.dispose(); }
+});
+
+test('vessels keep finite navigation and wave poses after invalid time input', () => {
+  const vessels = new FluvialVesselSystem(new Group());
+  try {
+    vessels.setFleetSize(16);
+    const active = vessels.activeVessels.filter(vessel => vessel.active);
+    assert.equal(active.length, 16);
+    const initialX = active[0].x, initialZ = active[0].z;
+    for (let i = 0; i < 40; i++) vessels.update(1 / 60, i / 60, -800, 2400);
+    assert.ok(Math.hypot(active[0].x - initialX, active[0].z - initialZ) > .1);
+    vessels.update(NaN, 2, -800, 2400);
+    vessels.update(1 / 60, NaN, -800, 2400);
+    assert.ok(active.every(({x, y, z, yaw}) => Number.isFinite(x + y + z + yaw)));
+  } finally { vessels.dispose(); }
+});
+
+test('spatial grid rejects corrupt and duplicate inserts and finds neighbors beyond its edge', () => {
+  const grid = new FastSpatialGrid2D(4000, 32, 512);
+  grid.insert(0, NaN, 100);
+  grid.insert(1.5, 100, 100);
+  grid.insert(2, 100, Infinity);
+  assert.equal(grid.size, 0);
+
+  grid.insert(0, 2300, 0);
+  grid.insert(1, 2310, 0);
+  grid.insert(0, 2300, 0);
+  assert.equal(grid.size, 2);
+  assert.deepEqual(grid.findNearest(2300, 0, 10, 0), { neighborId: 1, distM: 10 });
+  assert.equal(grid.findNearest(2300, 0, -1), null);
+  assert.equal(grid.findNearest(NaN, 0, 20), null);
+  grid.clear();
+  grid.insert(0, 0, 0);
+  assert.deepEqual(grid.findNearest(0, 0, 1), { neighborId: 0, distM: 0 });
 });
 

@@ -18,6 +18,7 @@ export class FastSpatialGrid2D {
   private readonly halfExtent: number;
   private readonly grid: Int32Array; // Heads of cell linked lists
   private readonly next: Int32Array; // Links to next entity in list
+  private readonly inserted: Uint8Array;
   private readonly posX: Float32Array;
   private readonly posZ: Float32Array;
   private readonly maxEntities: number;
@@ -33,16 +34,17 @@ export class FastSpatialGrid2D {
 
     this.grid = new Int32Array(this.cellsX * this.cellsZ).fill(-1);
     this.next = new Int32Array(maxEntities).fill(-1);
+    this.inserted = new Uint8Array(maxEntities);
     this.posX = new Float32Array(maxEntities);
     this.posZ = new Float32Array(maxEntities);
   }
 
   /**
-   * Resets all cell buckets in constant time per frame.
+   * Resets the preallocated cell buckets before the next population pass.
    */
   public clear(): void {
     this.grid.fill(-1);
-    this.next.fill(-1);
+    this.inserted.fill(0);
     this.count = 0;
   }
 
@@ -50,7 +52,8 @@ export class FastSpatialGrid2D {
    * Inserts an entity into the grid. O(1) operation.
    */
   public insert(entityId: number, x: number, z: number): void {
-    if (entityId < 0 || entityId >= this.maxEntities) return;
+    if (!Number.isInteger(entityId) || entityId < 0 || entityId >= this.maxEntities ||
+        this.inserted[entityId] || !Number.isFinite(Math.fround(x) + Math.fround(z))) return;
 
     // Shift coordinates so [-halfExtent, +halfExtent] maps to [0, worldExtent]
     const localX = x + this.halfExtent;
@@ -66,6 +69,7 @@ export class FastSpatialGrid2D {
     // Prepend to cell linked list
     this.next[entityId] = this.grid[cellIdx];
     this.grid[cellIdx] = entityId;
+    this.inserted[entityId] = 1;
     this.count++;
   }
 
@@ -79,6 +83,8 @@ export class FastSpatialGrid2D {
     radiusM: number,
     callback: (neighborId: number, nx: number, nz: number, distSq: number) => void
   ): void {
+    if (!Number.isFinite(x + z + radiusM) || radiusM <= 0) return;
+
     const localX = x + this.halfExtent;
     const localZ = z + this.halfExtent;
 
@@ -86,10 +92,11 @@ export class FastSpatialGrid2D {
     const centerCx = Math.floor(localX * this.invCellSize);
     const centerCz = Math.floor(localZ * this.invCellSize);
 
-    const minCx = Math.max(0, centerCx - radCells);
-    const maxCx = Math.min(this.cellsX - 1, centerCx + radCells);
-    const minCz = Math.max(0, centerCz - radCells);
-    const maxCz = Math.min(this.cellsZ - 1, centerCz + radCells);
+    // Insertions outside the grid share an edge bucket. Distance still filters its candidates.
+    const minCx = Math.max(0, Math.min(this.cellsX - 1, centerCx - radCells));
+    const maxCx = Math.max(0, Math.min(this.cellsX - 1, centerCx + radCells));
+    const minCz = Math.max(0, Math.min(this.cellsZ - 1, centerCz - radCells));
+    const maxCz = Math.max(0, Math.min(this.cellsZ - 1, centerCz + radCells));
 
     const radSq = radiusM * radiusM;
 
@@ -122,11 +129,13 @@ export class FastSpatialGrid2D {
     maxRadiusM: number,
     excludeId: number = -1
   ): { neighborId: number; distM: number } | null {
+    if (!Number.isFinite(x + z + maxRadiusM) || maxRadiusM <= 0) return null;
+
     let nearestId = -1;
     let minDistanceSq = maxRadiusM * maxRadiusM;
 
     this.forEachNeighbor(x, z, maxRadiusM, (id, _nx, _nz, distSq) => {
-      if (id !== excludeId && distSq < minDistanceSq) {
+      if (id !== excludeId && (nearestId === -1 || distSq < minDistanceSq)) {
         minDistanceSq = distSq;
         nearestId = id;
       }

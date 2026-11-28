@@ -252,6 +252,7 @@ export class TrafficSystem {
   }
 
   update(dt: number, playerPosition: Vector3): void {
+    if (!Number.isFinite(playerPosition.x + playerPosition.y + playerPosition.z)) return;
     this.colliders.length=0;
     this.stats.segments = this.graph.size;
     this.stats.nodes = this.graph.nodeCount;
@@ -271,7 +272,7 @@ export class TrafficSystem {
       this.lastX = px; this.lastZ = pz;
     }
     // A tab restored after a stall must not teleport the whole city's traffic across the map.
-    const step = Math.min(dt, .1);
+    const step = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), .1) : 0;
     const blend = 1 - Math.exp(-step * 11);
 
     // Fast Spatial Grid 2D pre-pass: register current vehicle positions for O(1) neighbor lookups

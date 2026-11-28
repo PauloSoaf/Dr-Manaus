@@ -242,7 +242,8 @@ export class FluvialVesselSystem {
   }
 
   public update(dt: number, timeSec: number, playerX: number, playerZ: number): void {
-    const clampedDt = Math.min(Math.max(dt, 0), 0.25);
+    if (!Number.isFinite(timeSec + playerX + playerZ)) return;
+    const clampedDt = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), 0.25) : 0;
 
     // 1. Spatial Grid pre-pass for vessel separation
     this.spatialGrid.clear();
