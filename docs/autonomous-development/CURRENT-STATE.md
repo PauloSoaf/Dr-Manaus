@@ -1,5 +1,9 @@
 # DR-MANAUS | Current State
 
+## Checkpoint ativo
+
+`FOUNDATION-01` em execução na branch `feat/universe-map`. A sessão [FOUNDATION-01-CODEX-001](agent-reports/2026/2026-11-27-2023-codex-foundation-01.md) parte de `8d94a86`. As informações anteriores abaixo são históricas.
+
 - **Data/Hora:** 2026-11-13T16:10:00-04:00
 - **Branch Ativa:** `feat/universe-map`
 - **Último Milestone Entregue:** `ISSUE-04 Resolution` (Polimento da Transição Atmosférica Terrestre-Orbital)
