@@ -5,6 +5,7 @@ import { classifyEarthBiome, isLandAt } from '../planet/EarthLandMask';
 import { enuBasis, enuToGeodetic } from '../spatial/ENU';
 import { degToRad } from '../spatial/units';
 import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
+import { generateEarthTile } from './EarthTerrainTile';
 
 export { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 
@@ -70,6 +71,8 @@ export function generateChunk(cx: number, cz: number, context?: ChunkGenerationC
     };
   }
   const isManaus = resolvedContext.isManaus;
+  // The Earth outside Manaus follows the collision relief vertex by vertex.
+  if (!isManaus && resolvedContext.bodyId === 'earth') return generateEarthTile(cx, cz, resolvedContext, random);
   let latRad: number;
   let lonRad: number;
   let chunkIsLand: boolean;

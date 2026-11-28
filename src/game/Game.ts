@@ -1313,6 +1313,7 @@ export class Game {
       this.rendering.camera.getWorldDirection(this._cameraLookDir);
       const lookDir2D = { x: this._cameraLookDir.x, z: this._cameraLookDir.z };
       this.streamer.update(this.player.position, this.player.velocity, dt, lookDir2D);
+      this.cutReplacedGround(activeDominantBodyId);
       this.lap('streamer');
     }
     if (this.oceanHorizon) {
@@ -1324,7 +1325,8 @@ export class Game {
         0,
         planetRadiusM
       );
-      this.oceanHorizon.update(this.player.position, isOceanDomain && local, isPlanetarySurface && this.streamer);
+      this.oceanHorizon.update(this.player.position, isOceanDomain && local, isPlanetarySurface && this.streamer,
+        (x, z) => manausBathymetry.seaLevelAt(x, z));
     }
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
     if (manaus || isPlanetarySurface) {
@@ -3030,6 +3032,15 @@ export class Game {
       velocity: this.player.velocity.toArray(), state: this.player.state,
       terrainHeightM: PhysicsWorld.terrainHeight(this.player.position.x, this.player.position.z, .32 * this.player.size)
     };
+  }
+
+  /** Streamed relief opens wherever a published volume replacement owns the ground. */
+  private cutReplacedGround(bodyId: string): void {
+    const replacement = this.universe.volume.replacement;
+    const frameId = this.universe.player.frame;
+    if (replacement.bodyId !== bodyId) { this.streamer.setGroundCutout('', null); return; }
+    this.streamer.setGroundCutout(`${replacement.generation}@${frameId}`, (x, y, z) =>
+      replacement.contains(bodyId, this.universe.frames.convertPosition(frameId, `${bodyId}/fixed`, [x, y, z])));
   }
 
   /** The player's surface frame on a body: its landing ENU or a teleport site. */

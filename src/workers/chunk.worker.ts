@@ -14,5 +14,6 @@ scope.onmessage = ({ data }) => {
     payload,
     generationVersion: payload.generationVersion ?? data.context?.generationVersion,
     regionId: payload.regionId ?? data.context?.regionId,
-  }, [payload.buildings.buffer, payload.trees.buffer]);
+  }, [payload.buildings, payload.trees, payload.ground, payload.groundColors, payload.seaPlane, payload.treeBase]
+    .flatMap(array => array ? [array.buffer] : []));
 };

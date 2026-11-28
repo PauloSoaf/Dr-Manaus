@@ -169,6 +169,14 @@ export class ManausBathymetryService {
     return this.chart;
   }
 
+  /** Local Y of mean sea level under (x, z): curved on the Earth outside Manaus, flat elsewhere. */
+  seaLevelAt(x: number, z: number): number {
+    const { isManaus, bodyId = 'earth' } = BuildingGeneratorContext.activeOrigin;
+    if (isManaus || bodyId !== 'earth') return 0;
+    const y = localSeaLevelY(this.earthChart(), EARTH, x, z);
+    return Number.isFinite(y) ? y : 0;
+  }
+
   /** Sets the active base water surface elevation (e.g. 0.12m when real water is active). */
   setBaseSurfaceY(y: number): void {
     if (Number.isFinite(y)) this.baseSurfaceY = y;

@@ -2,7 +2,7 @@ import { Box3, BoxGeometry, EdgesGeometry, Frustum, Group, InstancedMesh, LineBa
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
 import { ChunkState, chunkKey, defaultChunkGenerationContext, createRegionId, type Chunk, type ChunkGenerationContext } from '../chunks/Chunk';
-import { ChunkMeshes } from '../chunks/ChunkMeshes';
+import { ChunkMeshes, type ChunkCullBounds } from '../chunks/ChunkMeshes';
 import { planChunks, type ChunkDemand, type PositionLike } from './ChunkPriority';
 import { GenerationPool } from './GenerationPool';
 import { generateChunk } from '../chunks/BuildingGenerator';
@@ -41,6 +41,25 @@ export class WorldStreamer {
   private readonly destroyedLocations = new Map<string, Collider>();
   private revision = 0;
   private activeContext: ChunkGenerationContext = defaultChunkGenerationContext();
+  private cutoutRevision = '';
+  private cutout: ((x: number, y: number, z: number) => boolean) | null = null;
+
+  /**
+   * Relief tiles must not cover space a published volume replacement owns. `hidden` tests points
+   * in the surface frame; a new revision string re-masks every resident tile.
+   */
+  setGroundCutout(revision: string, hidden: ((x: number, y: number, z: number) => boolean) | null): void {
+    if (revision === this.cutoutRevision) return;
+    this.cutoutRevision = revision;
+    this.cutout = hidden;
+    for (const chunk of this.records.values()) this.applyCutout(chunk);
+  }
+
+  private applyCutout(chunk: Chunk): void {
+    if (!chunk.group) return;
+    const hidden = this.cutout, originX = chunk.cx * WORLD.chunkSize, originZ = chunk.cz * WORLD.chunkSize;
+    ChunkMeshes.maskGround(chunk.group, hidden && ((x, y, z) => hidden(originX + x, y, originZ + z)));
+  }
 
   get generationContext(): Readonly<ChunkGenerationContext> {
     return this.activeContext;
@@ -210,11 +229,12 @@ export class WorldStreamer {
     let culledCount = 0;
     const safetySq = safetyRadiusM * safetyRadiusM;
 
+    // Only for groups without measured bounds. The solvent alone says nothing about a chunk: the
+    // terrestrial ocean is the default even while every tile on screen is dry land.
     const isMegawave = this.activeContext.bodyId === 'thalassa' || this.activeContext.surfaceType === 'megawave-ocean' || ChunkMeshes.activeSolvent === 'megawave-ocean';
-    const isOcean = isMegawave || this.activeContext.surfaceType === 'ocean' || ChunkMeshes.activeSolvent === 'terrestrial-ocean';
-    const minY = isMegawave ? -350 : (isOcean ? -30 : -50);
-    const maxY = isMegawave ? 350 : (isOcean ? 45 : 250);
-    const marginXZ = isMegawave ? 180 : (isOcean ? 20 : 0);
+    const isOcean = isMegawave || this.activeContext.surfaceType === 'ocean';
+    const fallback: ChunkCullBounds = isMegawave ? { minY: -350, maxY: 350, marginXZ: 180 }
+      : isOcean ? { minY: -30, maxY: 45, marginXZ: 20 } : { minY: -50, maxY: 250, marginXZ: 0 };
 
     for (const key of this.active) {
       const chunk = this.records.get(key);
@@ -224,6 +244,8 @@ export class WorldStreamer {
         chunk.worldBoundingBox = new Box3();
       }
       chunk.group.updateMatrixWorld(true);
+      // Measured from the geometry the chunk draws: relief height, trees, buildings and waves.
+      const { minY, maxY, marginXZ } = (chunk.group.userData.cullBounds as ChunkCullBounds | undefined) ?? fallback;
       chunk.worldBoundingBox.min.set(-marginXZ, minY, -marginXZ);
       chunk.worldBoundingBox.max.set(WORLD.chunkSize + marginXZ, maxY, WORLD.chunkSize + marginXZ);
       chunk.worldBoundingBox.applyMatrix4(chunk.group.matrixWorld);
@@ -363,6 +385,7 @@ export class WorldStreamer {
       if (!chunk.group && chunk.payload) {
         const built = this.meshes.create(chunk.payload);
         chunk.group = built.group; chunk.colliders = built.colliders; chunk.bytes = built.bytes;
+        if (this.cutout) this.applyCutout(chunk);
         if (this.destroyed.size) for (const collider of built.colliders) if (this.destroyed.has(collider.id ?? '')) this.collapse(chunk, collider.id!);
         chunk.colliders = chunk.colliders.filter(collider => !this.destroyed.has(collider.id ?? ''));
       }

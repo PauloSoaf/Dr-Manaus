@@ -19,6 +19,7 @@ import { BufferGeometry, DoubleSide, Float32BufferAttribute, Group, Mesh, Vector
 import { createUniversalLiquidMaterial, LiquidSolventType } from './UniversalLiquidSystem';
 
 const SEGMENTS = 128;
+const UP = new Vector3(0, 1, 0);
 const CHUNK_TRANSITION_RADIUS_M = 384.0;
 const EARTH_RADIUS_M = 6_371_000.0;
 const THALASSA_RADIUS_M = 5_800_000.0;
@@ -34,6 +35,7 @@ export class OceanHorizonPresentation {
   private currentSolvent: LiquidSolventType = 'terrestrial-ocean';
   private currentElevation = 0;
   private planetRadiusM = EARTH_RADIUS_M;
+  private readonly seaNormal = new Vector3(0, 1, 0);
 
   constructor() {
     this.group.name = 'Ocean Horizon Presentation (Continuous Multi-LOD Clipmap)';
@@ -78,7 +80,8 @@ export class OceanHorizonPresentation {
     this.innerCapMesh.visible = visible;
   }
 
-  update(surfacePosition: Vector3, active: boolean, coverage: OceanCoverageSource | boolean = false): void {
+  update(surfacePosition: Vector3, active: boolean, coverage: OceanCoverageSource | boolean = false,
+    seaLevel?: (x: number, z: number) => number): void {
     this.group.visible = active;
     if (!active) return;
 
@@ -89,9 +92,23 @@ export class OceanHorizonPresentation {
     const snappedX = Math.floor(surfacePosition.x / gridSnap) * gridSnap;
     const snappedZ = Math.floor(surfacePosition.z / gridSnap) * gridSnap;
 
+    // Away from the frame anchor the sea sags and tilts below the tangent plane; the rings are
+    // curved around their own centre, so the centre is placed and tilted onto that surface.
+    let baseY = this.currentElevation;
+    this.seaNormal.set(0, 1, 0);
+    if (seaLevel) {
+      const step = 256;
+      baseY += seaLevel(snappedX, snappedZ);
+      this.seaNormal.set(
+        -(seaLevel(snappedX + step, snappedZ) - seaLevel(snappedX - step, snappedZ)) / (2 * step), 1,
+        -(seaLevel(snappedX, snappedZ + step) - seaLevel(snappedX, snappedZ - step)) / (2 * step)).normalize();
+    }
+
     // Outer horizon follows camera horizontally at the target fluid surface elevation
-    this.outerMesh.position.set(snappedX, this.currentElevation, snappedZ);
-    this.innerCapMesh.position.set(snappedX, this.currentElevation, snappedZ);
+    for (const mesh of [this.outerMesh, this.innerCapMesh]) {
+      mesh.position.set(snappedX, baseY, snappedZ);
+      mesh.quaternion.setFromUnitVectors(UP, this.seaNormal);
+    }
 
     const covered = typeof coverage === 'boolean'
       ? coverage

@@ -176,7 +176,8 @@ function hash2D(ix: number, iy: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
 }
 
-function valueNoise2D(x: number, y: number): number {
+/** Deterministic value noise in [-1, 1]. */
+export function valueNoise2D(x: number, y: number): number {
   const x0 = Math.floor(x), y0 = Math.floor(y);
   const fx = x - x0, fy = y - y0;
   const u = fx * fx * (3 - 2 * fx);

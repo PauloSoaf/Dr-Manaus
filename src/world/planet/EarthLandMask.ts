@@ -201,6 +201,11 @@ export function classifyEarthBiome(latRad: number, lonRad: number): EarthBiome {
   if (surfaceClass === EarthSurfaceClass.ShallowWater) return 'coastal-water';
   if (surfaceClass === EarthSurfaceClass.Urban) return 'urban';
 
+  return classifyEarthLandBiome(latRad, lonRad);
+}
+
+/** The vegetation zone of dry ground at a coordinate, whatever the coarse mask says about water. */
+export function classifyEarthLandBiome(latRad: number, lonRad: number): 'desert' | 'rainforest' | 'woodland' {
   const latDeg = latRad * RAD_TO_DEG;
   const lonDeg = (((lonRad * RAD_TO_DEG + 180) % 360 + 360) % 360) - 180;
 
