@@ -119,7 +119,7 @@ F01-12 a F01-14 em [KNOWN-ISSUES](../../KNOWN-ISSUES.md). Fora do escopo: textur
 
 ## Push e CI
 
-Publicado em `origin/fix/f01-global-terrain-streaming`, sem force push e sem merge. O resultado do CI fica no [CI-HISTORY](../../CI-HISTORY.md).
+Publicado em `origin/fix/f01-global-terrain-streaming`, sem force push e sem merge. CI SUCCESS em `3262e18` ([run 46119814061](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46119814061)), registrado no [CI-HISTORY](../../CI-HISTORY.md). O commit que registra esse resultado vem depois do SHA validado.
 
 ## Próximas ações
 
