@@ -32,6 +32,16 @@ function windingIsOutward(positions: Float32Array, normals: Float32Array, size: 
 
 export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetSurfaceGenerator, flat = false, insetM = 0,
   resolution = PLANET_TILE_RESOLUTION): PlanetTileMesh {
+  const steps = planetTileSteps(address, surface, flat, insetM, resolution);
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return step.value;
+  }
+}
+
+/** The same tile, evaluating one vertex row per step so a dense one can be spread across frames. */
+export function* planetTileSteps(address: PlanetTileAddress, surface: PlanetSurfaceGenerator, flat: boolean, insetM: number,
+  resolution: number = PLANET_TILE_RESOLUTION): Generator<void, PlanetTileMesh> {
   const size = Math.max(3, Math.min(129, Math.round(resolution)));
   const { minU, maxU, minV, maxV } = tileBounds(address);
   const centreDirection = tileCentreDirection(address, [0, 0, 0]);
@@ -82,6 +92,7 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
       colors[index + 1] = colour[1];
       colors[index + 2] = colour[2];
     }
+    if (row < size - 1) yield;
   }
 
   const quads = (size - 1) * (size - 1);
@@ -127,6 +138,10 @@ export class PlanetGlobe {
   
   private readonly tiles = new Map<string, Mesh>();
   private requiredKeys?: ReadonlySet<string>;
+  /** Coarse faces built so far; kept after release so a returning body never builds them again. */
+  private fallbackFaces: PlanetTileMesh[] = [];
+  private fallbackSteps?: Generator<void, PlanetTileMesh>;
+  private fallbackSurface?: PlanetSurfaceGenerator;
 
   constructor(bodyId: string) {
     this.volumeMask=new PlanetVolumeSurfaceMask(bodyId);
@@ -169,12 +184,37 @@ export class PlanetGlobe {
   get fallbackReady(): boolean { return this.fallbackGroup.children.length === 6; }
   get opacity(): number { return this.uTileOpacity.value; }
 
-  /** Created only for the active physical body, never for every registered provider shell. */
-  ensureFallback(surface: PlanetSurfaceGenerator): void {
-    if (this.fallbackReady) return;
+  /**
+   * Advances the coarse planet's geometry by whole vertex rows until `budgetMs` is spent (at least
+   * one row per call). Nothing is attached to the scene. Returns true once all six faces exist.
+   */
+  prepareFallback(surface: PlanetSurfaceGenerator, budgetMs = Number.POSITIVE_INFINITY): boolean {
+    if (this.fallbackSurface !== surface) {
+      this.discardFallbackGeometry();
+      this.fallbackSurface = surface;
+    }
+    const deadline = performance.now() + budgetMs;
+    while (this.fallbackFaces.length < 6) {
+      this.fallbackSteps ??= planetTileSteps(planetTile(surface.body.id, this.fallbackFaces.length as 0, 0, 0, 0), surface,
+        false, PLANET_FALLBACK_INSET_M, surface.coarseResolution);
+      const step = this.fallbackSteps.next();
+      if (step.done) {
+        this.fallbackFaces.push(step.value);
+        this.fallbackSteps = undefined;
+      }
+      if (this.fallbackFaces.length < 6 && performance.now() >= deadline) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Attached only for the active physical body, never for every registered provider shell. With a
+   * finite budget the faces appear together, once the last one is built.
+   */
+  ensureFallback(surface: PlanetSurfaceGenerator, budgetMs = Number.POSITIVE_INFINITY): void {
+    if (this.fallbackReady || !this.prepareFallback(surface, budgetMs)) return;
     for (let face = 0; face < 6; face++) {
-      const tile = buildPlanetTileMesh(planetTile(surface.body.id, face as 0, 0, 0, 0), surface, false,
-        PLANET_FALLBACK_INSET_M, surface.coarseResolution);
+      const tile = this.fallbackFaces[face];
       const mesh = new Mesh(tile.geometry, this.material);
       this.volumeMask.attach(mesh,tile.centre);
       mesh.name = `${surface.body.id}-fallback-face-${face}`;
@@ -187,9 +227,18 @@ export class PlanetGlobe {
     }
   }
 
+  /** Takes the coarse planet out of the scene; its geometry stays for the next approach. */
   releaseFallback(): void {
-    for (const child of this.fallbackGroup.children) {this.volumeMask.detach(child as Mesh);(child as Mesh).geometry.dispose();}
+    for (const child of this.fallbackGroup.children) this.volumeMask.detach(child as Mesh);
     this.fallbackGroup.clear();
+  }
+
+  private discardFallbackGeometry(): void {
+    this.releaseFallback();
+    for (const face of this.fallbackFaces) face.geometry.dispose();
+    this.fallbackFaces = [];
+    this.fallbackSteps = undefined;
+    this.fallbackSurface = undefined;
   }
 
   /** Retired parent/child cuts must not draw on top of the new cut while the scheduler evicts them. */
@@ -247,7 +296,7 @@ export class PlanetGlobe {
 
   dispose(): void {
     this.volumeMask.dispose();
-    this.releaseFallback();
+    this.discardFallbackGeometry();
     this.material.dispose();
     for (const tile of this.tiles.values()) {
       tile.geometry.dispose();

@@ -116,7 +116,7 @@ import type { CelestialImpactEvent } from '../world/travel/CelestialImpactEvent'
 import type { ImpactResult } from '../player/combat/MeteorImpact';
 import { impactCategory, impactKind } from '../world/destruction/ImpactCategories';
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
-import { RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
+import { PLANET_LOADING, RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
 import { createPlanetProviders } from '../world/providers/PlanetProviderRegistry';
 import { bodyProfile, bodyArrivalPolicy, supportsLanding, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2 } from '../world/celestial/CelestialBodyProfile';
 import { NavigationTargetState, celestialLockCandidates, cycleNavigationTarget, type NavigationLock } from '../world/travel/NavigationLock';
@@ -390,7 +390,7 @@ export class Game {
       let providers: Map<string, RockyPlanetProvider> = new Map();
       try {
         const providerStart = performance.now();
-        providers = createPlanetProviders(root, this.universe, runtime.bodies, false);
+        providers = createPlanetProviders(root, this.universe, runtime.bodies, false, { slices: PLANET_LOADING.slices });
         this.materializer!.timings.providers = performance.now() - providerStart;
         const visualStart = performance.now();
         visuals = new CelestialBodyVisualLayer(undefined, runtime.bodies); visuals.setQuality(this.rendering.preset); this.materializer!.timings.visuals = performance.now() - visualStart;
@@ -641,7 +641,7 @@ export class Game {
     }
     this.planetRoot.add(this.photosphereGround.group);
     this.planetProviders = FEATURES.solarSystem
-      ? createPlanetProviders(this.planetRoot, this.universe) : new Map();
+      ? createPlanetProviders(this.planetRoot, this.universe, undefined, true, { slices: PLANET_LOADING.slices }) : new Map();
     this.volumeRenderer = new PlanetVolumeSurfaceRenderer(this.planetRoot, this.universe.frames, this.universe.renderSpace,
       id => bodyProfile(this.universe.activeSystem.bodies.find(b => b.id === id)!), entries => {
         this.earth?.globe.volumeMask.update(entries);
@@ -1230,6 +1230,7 @@ export class Game {
 
     // Landing prefetch is gameplay-driven and separate from the angular presentation rule.
     if (!this.universalTravelController?.active) this.updateLandingPrefetch();
+    this.advancePlanetLoading();
     // Prepare celestial presentation state before streaming
     if (!this.universalTravelController?.active) this.celestialController.prepare({
       universe: this.universe,
@@ -3444,6 +3445,15 @@ export class Game {
       'SOL · Contato CCD': s.contact ? 'SIM' : 'NÃO',
       'SOL · Visual / Draws / Triângulos': `${s.visual?.mode ?? '—'} / ${s.visual?.drawCalls ?? 0} / ${s.visual?.triangles ?? 0}`
     };
+  }
+
+  /**
+   * Dense planet geometry is built a few rows per frame so no approach stalls, and the coarse
+   * planets of distant bodies are prepared ahead, one at a time.
+   */
+  private advancePlanetLoading(): void {
+    for (const provider of this.planetProviders.values()) provider.advanceLoading(PLANET_LOADING.tileMs);
+    for (const provider of this.planetProviders.values()) if (!provider.prewarm(PLANET_LOADING.prewarmMs)) break;
   }
 
   /** Chunk streaming measurements; only computed while the F3 panel is open. */

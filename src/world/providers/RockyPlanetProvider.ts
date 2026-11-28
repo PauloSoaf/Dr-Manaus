@@ -1,5 +1,5 @@
 import type { Object3D } from 'three/webgpu';
-import { PlanetGlobe, buildPlanetTileMesh } from '../planet/PlanetGlobe';
+import { PLANET_TILE_RESOLUTION, PlanetGlobe, buildPlanetTileMesh, planetTileSteps, type PlanetTileMesh } from '../planet/PlanetGlobe';
 import type { PlanetSurfaceGenerator } from '../planet/PlanetSurface';
 import { type PlanetBody, surfacePosition } from '../planet/PlanetBody';
 import { PlanetQuadtree } from '../planet/PlanetQuadtree';
@@ -44,6 +44,27 @@ export interface LandingPrefetchRequest {
 /** Same level the surface selection reserves under the player, so the tiles are shared. */
 export const LANDING_PATCH_LEVEL = 8;
 
+/**
+ * Main-thread time per frame for dense planet geometry. With slices, the coarse planet and tiles
+ * denser than a standard one are built a few vertex rows per frame instead of in one long call;
+ * the host must then call `advanceLoading` every frame.
+ */
+export interface PlanetLoadingSlices {
+  /** Building the coarse planet while it is still far away. */
+  readonly coarseMs: number;
+  /** The same, once the player is close enough for surface detail. */
+  readonly surfaceMs: number;
+}
+
+/** The game's per-frame budgets for dense planet geometry, ms. */
+export const PLANET_LOADING = Object.freeze({
+  slices: Object.freeze({ coarseMs: 3, surfaceMs: 8 }),
+  /** Queued dense tiles, such as the Moon's three coarsest levels. */
+  tileMs: 3,
+  /** Coarse planets of distant bodies, prepared ahead one body at a time. */
+  prewarmMs: 2,
+});
+
 export interface RockyPlanetProviderOptions {
   minAltitudeM?: number;
   maxRangeM?: number;
@@ -51,6 +72,15 @@ export interface RockyPlanetProviderOptions {
   maxLevel?: number;
   replanIntervalS?: number;
   renderSpace?: RenderSpaceService;
+  /** Omitted: everything is built synchronously. */
+  slices?: PlanetLoadingSlices;
+}
+
+interface DenseTileJob {
+  readonly steps: Generator<void, PlanetTileMesh>;
+  readonly signal?: AbortSignal;
+  readonly resolve: (mesh: PlanetTileMesh) => void;
+  readonly reject: (error: Error) => void;
 }
 
 export class RockyPlanetProvider implements WorldProvider {
@@ -59,7 +89,9 @@ export class RockyPlanetProvider implements WorldProvider {
 
   readonly globe: PlanetGlobe;
   private readonly quadtree: PlanetQuadtree;
-  private readonly options: Required<Omit<RockyPlanetProviderOptions, 'renderSpace'>> & { renderSpace?: RenderSpaceService };
+  private readonly options: Required<Omit<RockyPlanetProviderOptions, 'renderSpace' | 'slices'>>
+    & { renderSpace?: RenderSpaceService; slices?: PlanetLoadingSlices };
+  private readonly denseJobs: DenseTileJob[] = [];
   private centreM: Vec3 = [0, 0, 0];
   private distanceM = Number.POSITIVE_INFINITY;
   private streamingMode: 'off' | 'coarse' | 'surface' = 'off';
@@ -95,6 +127,7 @@ export class RockyPlanetProvider implements WorldProvider {
       maxLevel: Math.max(0, finite(options.maxLevel, 9)),
       replanIntervalS: Math.max(0, finite(options.replanIntervalS, 0.25)),
       renderSpace: options.renderSpace,
+      slices: options.slices,
     };
     this.quadtree = new PlanetQuadtree(bodyDef, {
       maxTiles: this.options.maxTiles, maxLevel: this.options.maxLevel,
@@ -191,8 +224,38 @@ export class RockyPlanetProvider implements WorldProvider {
       this.cachedPlan = undefined;
     }
     if (mode === 'off') this.globe.releaseFallback();
-    else this.globe.ensureFallback(this.surface);
+    else this.globe.ensureFallback(this.surface, mode === 'surface' ? this.options.slices?.surfaceMs : this.options.slices?.coarseMs);
   }
+
+  /** Builds the coarse planet ahead of any approach, within a time budget. True once complete. */
+  prewarm(budgetMs: number): boolean { return this.globe.prepareFallback(this.surface, budgetMs); }
+
+  /** Advances queued dense tiles within a time budget; each call makes progress on at least a row. */
+  advanceLoading(budgetMs: number): void {
+    if (!this.denseJobs.length) return;
+    const deadline = performance.now() + budgetMs;
+    while (this.denseJobs.length) {
+      const job = this.denseJobs[0];
+      if (job.signal?.aborted) {
+        this.denseJobs.shift();
+        job.reject(new Error(`${this.id}: tile load aborted`));
+        continue;
+      }
+      try {
+        const step = job.steps.next();
+        if (step.done) {
+          this.denseJobs.shift();
+          job.resolve(step.value);
+        }
+      } catch (error) {
+        this.denseJobs.shift();
+        job.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+      if (performance.now() >= deadline) return;
+    }
+  }
+
+  get pendingDenseTiles(): number { return this.denseJobs.length; }
 
   setVisible(visible: boolean): void {
     this.globe.visible = visible;
@@ -363,21 +426,27 @@ export class RockyPlanetProvider implements WorldProvider {
     return demands;
   }
 
-  load(demand: TileDemand): Promise<TilePayload> {
+  load(demand: TileDemand, signal?: AbortSignal): Promise<TilePayload> {
     const k = demand.key as PlanetTileKey;
     if (k.kind !== 'planet' || k.bodyId !== this.bodyDef.id) {
       return Promise.reject(new Error(`${tileKeyToString(demand.key)} is not a ${this.bodyDef.id} tile`));
     }
     const address = { bodyId: k.bodyId, face: k.face as import('../planet/CubeSphere').CubeFace, level: k.level, x: k.x, y: k.y };
-    const mesh = buildPlanetTileMesh(address, this.surface, false, 0,
-      k.level <= 2 ? this.surface.coarseResolution : undefined);
-    return Promise.resolve({
+    const resolution = (k.level <= 2 ? this.surface.coarseResolution : undefined) ?? PLANET_TILE_RESOLUTION;
+    const payload = (mesh: PlanetTileMesh): TilePayload => ({
       key: demand.key,
       version: 1,
       cpuBytes: mesh.bytes,
       estimatedGpuBytes: mesh.bytes,
       geometricErrorM: demand.geometricErrorM,
       geometry: mesh,
+    });
+    if (!this.options.slices || resolution <= PLANET_TILE_RESOLUTION) {
+      return Promise.resolve(payload(buildPlanetTileMesh(address, this.surface, false, 0, resolution)));
+    }
+    return new Promise((resolve, reject) => {
+      this.denseJobs.push({ steps: planetTileSteps(address, this.surface, false, 0, resolution), signal,
+        resolve: mesh => resolve(payload(mesh)), reject });
     });
   }
 
@@ -395,7 +464,12 @@ export class RockyPlanetProvider implements WorldProvider {
     tile.dispose();
   }
 
-  dispose(): void { this.setLandingPrefetch(undefined); this.globe.dispose(); this.globe.root.removeFromParent(); }
+  dispose(): void {
+    for (const job of this.denseJobs.splice(0)) job.reject(new Error(`${this.id}: provider disposed`));
+    this.setLandingPrefetch(undefined);
+    this.globe.dispose();
+    this.globe.root.removeFromParent();
+  }
 
   private resolveBodyFrame(): string | null {
     const primary = `${this.bodyDef.id}/fixed`;
