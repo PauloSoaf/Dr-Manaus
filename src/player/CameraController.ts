@@ -18,14 +18,14 @@ export class CameraController {
   intro = true;
   private elapsed = 0;
   private shakeAmount = 0;
-  private readonly target = new Vector3();
+  private readonly orbitPivot = new Vector3();
+  private readonly lookTarget = new Vector3();
   private readonly desired = new Vector3();
   readonly globalPosition = new Vector3(0, 65, 110);
   private readonly direction = new Vector3();
   private readonly previousPlayer = new Vector3();
   private readonly pivotOffset = new Vector3();
   private readonly collisionDirection = new Vector3();
-  private readonly up = new Vector3(0, 1, 0);
   private following = false;
   inSpace = false;
   private wasInSpace = false;
@@ -99,7 +99,8 @@ export class CameraController {
     player.model.visible = !isVehicleOccupied && this.mode !== 'first' && this.mode !== 'lookBack';
     this.elapsed += dt;
     if (this.input.held('KeyW') || this.input.held('KeyA') || this.input.held('KeyS') || this.input.held('KeyD') || this.input.held('KeyF') || Math.abs(this.input.mouseDelta.x) > 1) this.intro = false;
-    this.target.copy(player.position); this.target.y += 1.5 * player.size;
+    this.orbitPivot.copy(player.position); this.orbitPivot.y += 1.4 * player.size;
+    this.lookTarget.copy(this.orbitPivot);
     if (this.inSpace) {
       this.intro = false;
       const baseDist = isVehicleOccupied ? (vehicleType === 'spaceship' || vehicleType === 'rocket' ? 18.0 : 12.0) : 6.2;
@@ -112,7 +113,7 @@ export class CameraController {
       // Ends the fly-in facing the Teatro Amazonas across the Largo, the game's first sight.
       this.yaw = WORLD.spawnYaw + (progress - 1) * 2.94;
       const distance = MathUtils.lerp(110, 9, progress);
-      this.desired.set(Math.sin(this.yaw) * distance, MathUtils.lerp(27, 3.2, progress), Math.cos(this.yaw) * distance).add(this.target);
+      this.desired.set(Math.sin(this.yaw) * distance, MathUtils.lerp(27, 3.2, progress), Math.cos(this.yaw) * distance).add(this.orbitPivot);
       this.globalPosition.lerp(this.desired, Math.min(1, dt * 5));
     } else {
       this.intro = false;
@@ -120,7 +121,7 @@ export class CameraController {
       // damping accumulated speed/rate metres of lag, then repeatedly snapped at 400 m.
       if (this.following) this.globalPosition.add(player.position).sub(this.previousPlayer);
       let baseDistance = 6.2;
-      let heightOffset = 1.05;
+      let heightOffset = 1.4;
       if (isVehicleOccupied) {
         if (vehicleType === 'car') {
           baseDistance = 8.5;
@@ -141,8 +142,7 @@ export class CameraController {
           baseDistance = 22.0;
           heightOffset = 3.6;
         }
-        this.target.copy(player.position);
-        this.target.y += heightOffset;
+        this.orbitPivot.y = player.position.y + heightOffset;
       } else {
         const surfY = player.submersion?.surfaceY ?? 0;
         const targetSwimWeight = player.state === 'Swimming' ? 1.0 : 0.0;
@@ -154,22 +154,18 @@ export class CameraController {
         const swimDistance = MathUtils.lerp(7.8, 6.5, this.diveRigWeight);
         baseDistance = MathUtils.lerp(baseDistance, swimDistance, this.swimRigWeight);
 
-        const regularTargetY = player.position.y + (player.state !== 'Grounded' ? 1.05 * player.size : 0);
+        const regularTargetY = this.orbitPivot.y;
         const surfaceTargetY = Math.max(player.position.y + 1.65 * player.size, surfY + 0.72 * player.size);
         const diveTargetY = player.position.y + 1.15 * player.size;
         const aquaticTargetY = MathUtils.lerp(surfaceTargetY, diveTargetY, this.diveRigWeight);
 
-        this.target.copy(player.position);
-        if (player.state !== 'Grounded' && this.swimRigWeight < 0.1) {
-          this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.hips.rotation).applyAxisAngle(this.up, player.model.rotation.y);
-          this.target.add(this.pivotOffset);
-        } else {
-          this.target.y = MathUtils.lerp(regularTargetY, aquaticTargetY, this.swimRigWeight);
-        }
+        this.orbitPivot.y = MathUtils.lerp(regularTargetY, aquaticTargetY, this.swimRigWeight);
       }
 
       const swimMinPitch = MathUtils.lerp(0.38, 0.18, this.diveRigWeight);
-      const minPitch = !isVehicleOccupied ? MathUtils.lerp(0.0, swimMinPitch, this.swimRigWeight) : 0.0;
+      const minPitch = !isVehicleOccupied && player.state === 'Swimming'
+        ? MathUtils.lerp(-1.15, swimMinPitch, this.swimRigWeight)
+        : -1.15;
       const effectivePitch = Math.max(this.pitch, minPitch);
 
       const distance = (baseDistance + Math.min(isVehicleOccupied ? 4.0 : 0.6, player.velocity.length() * (isVehicleOccupied ? 0.02 : 0.001))) * player.size;
@@ -178,39 +174,28 @@ export class CameraController {
         // Face the actual character, independently of the movement/camera heading.
         this.direction.set(-Math.sin(player.model.rotation.y) * Math.cos(effectivePitch), Math.sin(effectivePitch), -Math.cos(player.model.rotation.y) * Math.cos(effectivePitch));
       }
+      this.desired.copy(this.orbitPivot).addScaledVector(this.direction, distance);
       if (this.mode === 'shoulder') {
         const side = 1.5 * Math.pow(player.size, .83);
-        this.target.x += Math.cos(this.yaw) * side; this.target.z -= Math.sin(this.yaw) * side;
-      }
-      const obstruction = this.inSpace ? null : PhysicsWorld.raycast(this.target, this.direction, colliders, distance, 0.35);
-      const safeDistance = obstruction ? Math.max(0.1, obstruction.distance - 0.6) : distance;
-      this.desired.copy(this.target).addScaledVector(this.direction, safeDistance);
-      if (!this.inSpace) {
-        this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .35, this.desired.y);
-        if (this.swimRigWeight > 0.05 && this.diveRigWeight < 0.5 && player.submersion?.inWater) {
-          const surfY = player.submersion.surfaceY;
-          const minSwimCamY = surfY + MathUtils.lerp(1.2, 2.8, this.swimRigWeight) * player.size;
-          this.desired.y = Math.max(this.desired.y, minSwimCamY);
-        }
-      }
-      if (switched || !this.following) this.globalPosition.copy(this.desired);
-      else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstruction ? 25 : 9)));
-
-      if (obstruction && !this.inSpace) {
-        this.pivotOffset.subVectors(this.globalPosition, this.target);
-        const hit = PhysicsWorld.raycast(this.target, this.collisionDirection.copy(this.pivotOffset).normalize(), colliders, this.pivotOffset.length(), .35);
-        if (hit) this.globalPosition.copy(this.target).addScaledVector(this.pivotOffset.normalize(), Math.max(.1, hit.distance - .6));
-      }
-
-      // Soft water surface floor guard during surface swimming
-      if (!this.inSpace && this.swimRigWeight > 0.5 && this.diveRigWeight < 0.2 && player.submersion?.inWater) {
-        const waterFloor = player.submersion.surfaceY + 0.25 * player.size;
-        if (this.globalPosition.y < waterFloor) this.globalPosition.y = waterFloor;
+        this.desired.x += Math.cos(this.yaw) * side; this.desired.z -= Math.sin(this.yaw) * side;
       }
       if (this.mode === 'first' || this.mode === 'lookBack') {
         this.globalPosition.copy(player.position); this.globalPosition.y += 1.94 * player.size;
-        this.target.copy(this.globalPosition).addScaledVector(this.direction, this.mode === 'lookBack' ? 100 : -100);
+        this.keepAboveTerrain(this.globalPosition);
+      } else {
+        if (this.swimRigWeight > 0.05 && this.diveRigWeight < 0.5 && player.submersion?.inWater) {
+          this.desired.y = Math.max(this.desired.y, player.submersion.surfaceY + MathUtils.lerp(1.2, 2.8, this.swimRigWeight) * player.size);
+        }
+        const obstructed = this.constrainOrbit(this.desired, colliders);
+        if (switched || !this.following) this.globalPosition.copy(this.desired);
+        else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstructed ? 25 : 9)));
+        if (this.swimRigWeight > 0.5 && this.diveRigWeight < 0.2 && player.submersion?.inWater) {
+          this.globalPosition.y = Math.max(this.globalPosition.y, player.submersion.surfaceY + 0.25 * player.size);
+        }
+        this.constrainOrbit(this.globalPosition, colliders);
       }
+      // Keep the reticle and thrust aligned after orbit damping or wall avoidance.
+      this.lookTarget.copy(this.globalPosition).addScaledVector(this.direction, this.mode === 'lookBack' ? 100 : -100);
       this.following = true;
     }
     this.previousPlayer.copy(player.position);
@@ -220,10 +205,29 @@ export class CameraController {
     this.camera.position.copy(this.globalPosition).sub(origin);
     this.shakeAmount *= Math.exp(-dt * 9);
     if (this.shakeAmount > 0.001) { this.camera.position.x += Math.sin(this.elapsed * 83) * this.shakeAmount; this.camera.position.y += Math.cos(this.elapsed * 97) * this.shakeAmount; }
-    this.target.sub(origin);
     if (this.inSpace) this.camera.quaternion.copy(this.spaceOrientation);
-    else this.camera.lookAt(this.target);
+    else {
+      this.lookTarget.add(this.camera.position).sub(this.globalPosition);
+      this.camera.lookAt(this.lookTarget);
+    }
     this.lookPrepared = false;
+  }
+
+  private keepAboveTerrain(position: Vector3): void {
+    position.y = Math.max(position.y, PhysicsWorld.terrainHeight(position.x, position.z) + .35);
+  }
+
+  private constrainOrbit(position: Vector3, colliders: readonly Collider[]): boolean {
+    this.keepAboveTerrain(position);
+    this.pivotOffset.subVectors(position, this.orbitPivot);
+    const distance = this.pivotOffset.length();
+    if (distance < 1e-5) return false;
+    const ray = this.collisionDirection.copy(this.pivotOffset).divideScalar(distance);
+    const hit = PhysicsWorld.raycast(this.orbitPivot, ray, colliders, distance, .35, true);
+    if (!hit) return false;
+    position.copy(this.orbitPivot).addScaledVector(ray, Math.max(0, hit.distance - .6));
+    this.keepAboveTerrain(position);
+    return true;
   }
 }
 
