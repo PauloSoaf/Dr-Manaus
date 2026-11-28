@@ -152,6 +152,32 @@ test('published volume replacements open the relief beneath them and restore it 
   assert.equal(ground.geometry.index!.count, full);
 });
 
+test('evicting relief chunks disposes the geometry each tile owns, and never the shared one', t => {
+  const coastLon = findEastCoast(-8.05, -36.5, -33.5);
+  const site = bindEarthSite(-8.05, coastLon);
+  t.after(() => site.restore());
+  let mixed: ChunkPayload | undefined;
+  for (let cx = -4; cx <= 4 && !mixed; cx++) {
+    const payload = generateChunk(cx, 0, remote(-8.05, coastLon));
+    if (payload.ground && payload.seaPlane) mixed = payload;
+  }
+  const restoreDocument = canvasStub(), previous = ChunkMeshes.isLocalManausActive;
+  ChunkMeshes.isLocalManausActive = false;
+  const meshes = new ChunkMeshes();
+  t.after(() => { meshes.dispose(); ChunkMeshes.isLocalManausActive = previous; restoreDocument(); });
+  const owned = meshes.create(mixed!);
+  const openOcean = meshes.create({ ...mixed!, key: 'open', ground: undefined, land: false, trees: new Float32Array(), treeBase: undefined });
+  const disposed = new Set<string>();
+  const watch = (group: Group, label: string) => group.traverse(object => {
+    if (object instanceof Mesh) object.geometry.addEventListener('dispose', () => disposed.add(`${label}:${object.name}`));
+  });
+  watch(owned.group, 'coast');
+  watch(openOcean.group, 'open');
+  meshes.disposeChunk(owned.group);
+  meshes.disposeChunk(openOcean.group);
+  assert.deepEqual([...disposed].sort(), ['coast:forest-ground', 'coast:ocean-surface'], 'shared ocean grid survives');
+});
+
 test('a tall building top stays visible when only the top is on screen', async t => {
   const restoreDocument = canvasStub();
   const root = new Group(), streamer = new WorldStreamer(root);
