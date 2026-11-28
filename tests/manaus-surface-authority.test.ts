@@ -171,3 +171,48 @@ test('T_FLAT_MANAUS_ONE_SURFACE_AUTHORITY',()=>{
   assert.deepEqual(offenders,[],'these curve local geometry without consulting the presentation authority');
   assert.ok(gated.length>=6,`the guard must actually be watching the curvature call sites, saw ${gated.length}`);
 });
+
+
+test('T_CURVED_MANAUS_FULL_SUBSYSTEM_PARITY_WHEN_ENABLED', async () => {
+  const previous = FEATURES.curvedManaus;
+  Object.assign(FEATURES, { curvedManaus: true });
+  try {
+    assert.equal(localManausPresentationMode(), 'curved');
+    const service = new SurfaceFrameService('earth');
+    const f = await buildingsAt(20000);
+    const r = roadsAt(20000);
+    try {
+      // Building tile matrix must be curved (Y sag < -20 m at 20 km)
+      assert.ok(f.tile.group.matrix.elements[13] < -20, 'Curved building tile must sag below Y=0 at 20 km');
+
+      // Visual base of curved building at (20000, -500) must match curved ground and curved collider base
+      const bldgVisualBaseY = visualBase(f.tile.detail);
+      const groundCurved = service.legacyPointToRenderLocal(20000, 0, -500);
+      assert.ok(
+        Math.abs(bldgVisualBaseY - groundCurved.y) < 0.20,
+        `Curved building visual base (${bldgVisualBaseY}) must match curved ground (${groundCurved.y}) within 20 cm`,
+      );
+
+      const rawCollider = f.tile.colliders[0];
+      const curvedCollider = service.legacyColliderToRenderLocal(rawCollider, {
+        id: '',
+        x: 0,
+        y: 0,
+        z: 0,
+        width: 0,
+        height: 0,
+        depth: 0,
+      });
+      const curvedColliderBaseY = curvedCollider.y - curvedCollider.height * 0.5;
+      assert.ok(
+        Math.abs(bldgVisualBaseY - curvedColliderBaseY) < 0.25,
+        `Curved building visual base (${bldgVisualBaseY}) must match curved collider base (${curvedColliderBaseY})`,
+      );
+    } finally {
+      f.dispose();
+      r.dispose();
+    }
+  } finally {
+    Object.assign(FEATURES, { curvedManaus: previous });
+  }
+});

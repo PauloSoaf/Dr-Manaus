@@ -64,7 +64,7 @@ for (const body of SOLAR_SYSTEM_BODIES.filter(body => !bodyProfile(body).hasSoli
     const domain = new TravelDomain();
     domain.update({ ...context, altitudeM: 20_000, requested: true }, 1 / 60);
     domain.update({ ...context, altitudeM: 0, speedMps: 0, surfaceReady: bodyProfile(body).canLand }, 1 / 60);
-    assert.equal(domain.kind, 'interplanetary');
+    assert.equal(domain.kind, bodyProfile(body).canLand ? 'local' : 'interplanetary');
   });
 }
 

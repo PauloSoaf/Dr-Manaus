@@ -68,6 +68,7 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   private prepared?:{entries:readonly PlanetVolumeReplacement[];regions:readonly ImpactResidentRegion[];collision:()=>void;coverage:()=>void;
     footprint:PlanetVolumeRuntime['footprint'];revision:number};
   requestImpactRegion(editId:string,_plan:RockyImpactEditPlan):void {this.requestedImpact=editId;}
+  requestEditRegion(editId: string): void { this.requestedImpact = editId; }
   setImpactPublication(publication:PlanetVolumePublication):void {this.publication=publication;}
   private collisionEnabled=false;
   private collisionWanted:readonly PlanetVolumeChunkKey[]=[];
@@ -125,6 +126,8 @@ export class PlanetVolumeRuntime implements ManagedSubsystem {
   }
   setCollisionDiagnostics(metrics:PlanetVolumeCollisionProvider['metrics']|undefined):void {this.collisionQueries=metrics;}
   get meshes() {this.meshCache.prune(this.cache);return this.meshCache.values();}
+  /** Drops derived meshes whose source samples were evicted or replaced. */
+  pruneStaleMeshes():void {this.meshCache.prune(this.cache);}
   private deactivate(): void {
     this.selectedRegions=[];this.publishedRegions=[];this.blockedRegions.clear();this.blockedRevision=-1;this.blockedPriority='';this.prepared=undefined;this.footprint=[];
     this.replacement.clear();this.publication?.clear();this.productionActive=false;

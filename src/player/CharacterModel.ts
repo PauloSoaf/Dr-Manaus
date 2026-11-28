@@ -4,10 +4,11 @@ import { CosmicTrail } from './cosmic/CosmicTrail';
 import { CosmicMaterial, type CosmicLevel } from './cosmic/CosmicMaterial';
 import { SpeedArcs } from './vfx/SpeedArcs';
 import { CosmicVideoSource } from './cosmic/CosmicVideoSource';
-import { AnimationController } from './animations/AnimationController';
+import { AnimationController, type SwimmingVisualState } from './animations/AnimationController';
 import type { CombatMove } from './animations/types';
 import { findCharacterBone, loadCharacterAsset, type CharacterAsset } from './animations/CharacterAsset';
 import { CharacterAnimator } from './animations/CharacterAnimator';
+import type { ActionHandle, ActionOptions } from './animations/graph/AnimationGraph';
 import { ANIMATION_LIBRARY, loadAnimationLibrary } from './animations/AnimationLibrary';
 import { measureSkinnedGround, type GroundAlignmentResult } from './animations/GroundAlignment';
 
@@ -28,7 +29,18 @@ export interface MotionIntent {
   /** Speed the player is asking for, so flight can start righting the body while it decelerates. */
   desiredSpeed?: number;
   grounded?: boolean;
+  swimming?: boolean;
+  wading?: boolean;
+  swimmingState?: SwimmingVisualState;
   dodge?: 'roll' | 'airDash' | null;
+  /** Crouched locomotion. */
+  crouch?: boolean;
+  /** Combat stance: strafe relative to facing instead of turning toward travel. */
+  strafe?: boolean;
+  /** Direction of travel relative to facing (radians, 0 forward, +pi/2 right). */
+  localDirection?: number;
+  /** Sustained cast (continuous laser). */
+  casting?: boolean;
 }
 
 export class CharacterModel {
@@ -39,6 +51,8 @@ export class CharacterModel {
   readonly cosmicSource?: CosmicVideoSource;
   readonly cosmicMaterial?: CosmicMaterial;
   readonly animationController = new AnimationController();
+  /** Footstep notifies from the stride-synchronised locomotion (audio, dust). */
+  onFootstep?: (foot: 'l' | 'r', strength: number) => void;
   private readonly echoMaterial?: MeshBasicMaterial;
   private readonly aura?: CosmicAura;
   private readonly trail?: CosmicTrail;
@@ -140,7 +154,20 @@ export class CharacterModel {
     this.setBodyPivot(scaled.minY, scaled.maxY);
     this.group.updateMatrixWorld(true);
     this.animator = new CharacterAnimator(asset.scene, asset.animations);
+    this.animator.graph.onFootstep = (foot, strength) => this.onFootstep?.(foot, strength);
   }
+
+  /** The hero's animation policy, once the asset has loaded. */
+  get animation(): CharacterAnimator | undefined { return this.animator; }
+  /** Plays an authored clip as a prioritised action (interactions, reactions, dialogue). */
+  playAction(name: string, options: ActionOptions): ActionHandle | null { return this.animator?.playAction(name, options) ?? null; }
+  stopAction(handle: ActionHandle | null | undefined, fade?: number): void { this.animator?.stopAction(handle, fade); }
+  /** Holds a looping base pose (seated, driving, talking) until cleared with null. */
+  setBaseOverride(pose: string | null, rate = 1): void { this.animator?.setBaseOverride(pose, rate); }
+  react(severity: 'light' | 'medium' | 'heavy'): void { this.animator?.react(severity); }
+  private appliedRootYaw = 0;
+  /** Yaw the running clips turned the body through since the last call (root motion, already shown). */
+  consumeRootYaw(): number { const v = this.appliedRootYaw; this.appliedRootYaw = 0; return v; }
 
   /**
    * Moves the rotation node up to the body's centre of mass and pushes the mesh back down by the
@@ -204,9 +231,13 @@ export class CharacterModel {
   ): void {
     dt = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
     const vel = velocity ?? this.defaultVelocity.set(0, verticalSpeed, -speed);
+    const isSwimming = Boolean(intent?.swimming) && !flying;
     const params = {
       speed, verticalSpeed, velocity: vel, flying,
-      grounded: intent?.grounded ?? (!flying && pose !== 'jump' && pose !== 'vault'),
+      grounded: intent?.grounded ?? (!flying && !isSwimming && pose !== 'jump' && pose !== 'vault'),
+      swimming: isSwimming,
+      wading: Boolean(intent?.wading) && !isSwimming && !flying,
+      swimmingState: intent?.swimmingState,
       boosting: boost, size, turn, powerPoseName: pose,
       combatTimeFactor: combatFactor, speedMode, forward, facingYaw,
       desiredSpeed: intent?.desiredSpeed, dodge: intent?.dodge ?? null,
@@ -216,7 +247,23 @@ export class CharacterModel {
     this.group.quaternion.copy(this.yaw);
     this.flightRoot.quaternion.copy(this.yaw).invert().multiply(this.animationController.rootOrientation);
     this.visualRoot.position.y = this.groundAlignment.offset + this.animationController.bodyOffset.y;
-    this.animator?.update(dt, params, this.animationController.activeCombatMove, this.animationController.isDoubleJumping, this.animationController.currentFlipPhase);
+    if (this.animator) {
+      this.animator.worldScale = this.visualRoot.scale.x * Math.max(1e-3, size);
+      this.animator.intent = {
+        crouch: intent?.crouch, strafe: intent?.strafe, localDirection: intent?.localDirection,
+        casting: intent?.casting, landingTier: this.animationController.lastLandingTier,
+      };
+      this.animator.update(dt, params, this.animationController.activeCombatMove, this.animationController.isDoubleJumping, this.animationController.currentFlipPhase);
+      // Root motion yaw (spinning kicks): turn the body now, and let the controller catch up.
+      const rootYaw = this.animator.consumeRootYaw();
+      if (rootYaw !== 0 && Number.isFinite(rootYaw)) {
+        this.animationController.applyRootYaw(rootYaw);
+        this.yaw.setFromAxisAngle(up, facingYaw + rootYaw);
+        this.group.quaternion.copy(this.yaw);
+        this.flightRoot.quaternion.copy(this.yaw).invert().multiply(this.animationController.rootOrientation);
+        this.appliedRootYaw += rootYaw;
+      }
+    }
 
     const level: CosmicLevel = pose ? 'power' : this.level ?? (boost ? 'boost' : flying ? 'flight' : 'idle');
     const pace = this.level ? this.levelSpeed : speed;

@@ -1,4 +1,4 @@
-import { Group, MathUtils, Vector3 } from 'three/webgpu';
+import { Group, MathUtils, Vector3, Quaternion } from 'three/webgpu';
 import type { Collider } from '../core/types';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { CharacterModel } from './CharacterModel';
@@ -13,6 +13,8 @@ import { TitanGroundSupport } from './physics/TitanGroundSupport';
 import type { FlipDirection } from './animations/types';
 import { DodgeSystem, type DodgeKind } from './movement/DodgeSystem';
 import { resolveContactImpact, type ImpactResult } from './combat/MeteorImpact';
+import { manausBathymetry, type PlayerSubmersionState } from '../world/water/ManausBathymetry';
+import type { SwimmingVisualState } from './animations/AnimationController';
 
 /** Fraction of the run speed the somersault throws forward, so the flip travels. */
 const DOUBLE_JUMP_CARRY = 0.45;
@@ -21,6 +23,14 @@ const SLAM = { window: 1.4, accel: 260, entry: 45 } as const;
 export interface LandingImpact {
   readonly impact: ImpactResult;
   readonly position: Vector3;
+}
+
+export interface PlayerPhysicsStep {
+  dt: number;
+  position: number[];
+  displacement: number[];
+  correction: number[];
+  contact: 'volume' | 'terrain' | null;
 }
 
 export class PlayerController {
@@ -33,18 +43,37 @@ export class PlayerController {
   readonly dodge = new DodgeSystem();
   /** The key that evades: a roll on the ground, a dash in the air. */
   dodgeKey = 'KeyZ';
-  state: 'Grounded' | 'Falling' | 'Hover' | 'Flight' = 'Grounded';
+  maxHealth = 1000;
+  health = 1000;
+  maxShield = 500;
+  shield = 500;
+  isGodMode = false;
+  shieldRegenDelay = 3.0;
+  shieldRegenRate = 50.0;
+  lastHitTimer = 0;
+  damageFlash = 0;
+  lastDamageReason: string | null = null;
+  onDamageTaken?: (amount: number, health: number, shield: number, reason: string) => void;
+  onDeath?: (reason: string) => void;
+  state: 'Grounded' | 'Falling' | 'Hover' | 'Flight' | 'Swimming' = 'Grounded';
+  swimmingVisualState: SwimmingVisualState = 'None';
+  submersion: PlayerSubmersionState = manausBathymetry.evaluateSubmersion(this.position, 1.8, 0);
+  waterVolumeActive = true;
+  onRiverbed = false;
+  private swimExitTimer = 0;
   facingYaw = 0;
   size = 1;
   speedMultiplier = 1;
   speedMode: FlightSpeedMode = 'ground';
   beforeMove?: (position: Vector3, velocity: Vector3, dt: number) => readonly Collider[];
+  onPhysicsStep?: (sample: PlayerPhysicsStep) => void;
   readonly input: InputController;
   private jumps = 0;
   private armedTier: ArmedTier = 'none';
   private megaNeedsBoostRelease = false;
   /** Seconds since the controller started, used only to time the arm key's double tap. */
   private armClockS = 0;
+  private liquidTimeSec = 0;
   private lastArmTapS = -Infinity;
   private targetSize = 1;
   private readonly desired = new Vector3();
@@ -58,19 +87,53 @@ export class PlayerController {
   private readonly impactPoint = new Vector3();
   private pendingImpact: ImpactResult | null = null;
   private slamTimer = 0;
+  private flightTakeoffGraceS = 0;
   private desiredSpeed = 0;
   private bodyGravityMps2 = surfaceGravityMps2(EARTH);
 
+  readonly sceneRoot: Group;
+  private scripted = false;
+
   constructor(root: Group, input: InputController) {
     this.input = input;
+    this.sceneRoot = root;
     root.add(this.model);
     this.model.position.copy(this.position);
   }
 
+  setDivineVitals(): void {
+    this.maxHealth = 1000000;
+    this.health = 1000000;
+    this.maxShield = 500000;
+    this.shield = 500000;
+    this.shieldRegenDelay = 0.2;
+    this.shieldRegenRate = 50000.0;
+  }
+
+  get isScripted(): boolean { return this.scripted; }
+  beginScripted(): void { this.scripted = true; this.velocity.set(0, 0, 0); }
+  endScripted(): void { this.scripted = false; }
+  setScriptedPose(position: Vector3, yaw?: number, speed = 0): void {
+    this.position.copy(position);
+    this.model.position.copy(position);
+    if (yaw !== undefined) {
+      this.facingYaw = yaw;
+      this.forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    }
+    this.velocity.set(0, 0, 0);
+  }
+  setScriptedLocal(isLocal: boolean): void {
+    if (!isLocal) {
+      this.model.position.copy(this.position);
+    }
+  }
+
   get jumpCount(): number { return this.jumps; }
   get isGrounded(): boolean { return this.grounded; }
+  get isSwimming(): boolean { return this.state === 'Swimming'; }
   /** Physical gravity of the current body, before the existing Earth gameplay calibration. */
   get surfaceGravityMps2(): number { return this.bodyGravityMps2; }
+  get gravity(): number { return this.bodyGravityMps2; }
   get gravityMps2(): number {
     return getGravity(this.size, JUMP_CONFIG.baseGravity * this.bodyGravityMps2 / surfaceGravityMps2(EARTH));
   }
@@ -81,8 +144,63 @@ export class PlayerController {
   /** The speed the player is currently asking for; flight rights the body against it. */
   get requestedSpeed(): number { return this.desiredSpeed; }
   get isSlamming(): boolean { return this.slamTimer > 0; }
-  /** True inside the evade window. Nothing damages the player yet; this is the hook for when it does. */
-  get invulnerable(): boolean { return this.dodge.invulnerable; }
+  /** True inside the evade window or when godmode is active. */
+  get invulnerable(): boolean { return this.isGodMode || this.dodge.invulnerable; }
+  get isInvulnerable(): boolean { return this.invulnerable; }
+
+  takeDamage(amount: number, reason: string = 'Impacto'): { damageDealt: number; absorbedByShield: number; fatal: boolean } {
+    if (this.isInvulnerable || amount <= 0) {
+      return { damageDealt: 0, absorbedByShield: 0, fatal: false };
+    }
+
+    this.lastHitTimer = this.shieldRegenDelay;
+    this.damageFlash = 0.5;
+    this.lastDamageReason = reason;
+
+    let absorbedByShield = 0;
+    let damageDealt = 0;
+
+    if (this.shield > 0) {
+      if (amount <= this.shield) {
+        this.shield -= amount;
+        absorbedByShield = amount;
+      } else {
+        absorbedByShield = this.shield;
+        const remaining = amount - this.shield;
+        this.shield = 0;
+        this.health = Math.max(0, this.health - remaining);
+        damageDealt = remaining;
+      }
+    } else {
+      this.health = Math.max(0, this.health - amount);
+      damageDealt = amount;
+    }
+
+    const fatal = this.health <= 0;
+    this.onDamageTaken?.(amount, this.health, this.shield, reason);
+
+    if (fatal) {
+      this.onDeath?.(reason);
+      this.respawn();
+    }
+
+    return { damageDealt, absorbedByShield, fatal };
+  }
+
+  heal(amount: number): void {
+    this.health = Math.min(this.maxHealth, this.health + Math.max(0, amount));
+  }
+
+  rechargeShield(amount: number): void {
+    this.shield = Math.min(this.maxShield, this.shield + Math.max(0, amount));
+  }
+
+  respawn(): void {
+    this.health = this.maxHealth;
+    this.shield = this.maxShield;
+    this.lastHitTimer = 0;
+    this.damageFlash = 0;
+  }
 
   /**
    * The landing that just happened, if it was hard enough to matter, handed over exactly once.
@@ -122,6 +240,7 @@ export class PlayerController {
   /** True for either armed tier. Interplanetary is mega and then some. */
   get megaMode(): boolean { return this.armedTier !== 'none'; }
   set megaMode(enabled: boolean) { this.armed = enabled ? 'mega' : 'none'; }
+  get isFlying(): boolean { return this.state === 'Hover' || this.state === 'Flight'; }
   get interplanetaryMode(): boolean { return this.armedTier === 'interplanetary'; }
   get lastTerrainContact() { return this.physics.lastTerrainContact; }
   get lastVolumeContact() { return this.physics.lastVolumeContact; }
@@ -160,22 +279,107 @@ export class PlayerController {
       ? 'interplanetary' : 'mega';
   }
 
-  update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0): void {
+  /** Ground and water use bounded substeps. Boosted travel keeps its swept frame contract. */
+  updateLocalFrame(dt: number, colliders: readonly Collider[], yaw: number, pitch: number, liquidTimeSec: number): void {
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    dt = Math.min(0.06, dt);
+    const travel = this.isFlying || this.input.held('KeyB') || this.input.pressed('KeyF');
+    // Allow 0.2 ms of frame timestamp jitter around 60 Hz to avoid redundant collision sweeps.
+    const steps = travel ? 1 : Math.ceil(dt / (1 / 60 + 0.0002));
+    const stepDt = dt / steps;
+    for (let i = 1; i <= steps; i++) {
+      this.update(stepDt, colliders, yaw, pitch, liquidTimeSec - (steps - i) * stepDt);
+    }
+  }
+
+  /** The occupied vehicle owns movement. Publish its pose without stepping the avatar. */
+  followVehicle(dt: number, position: Vector3, velocity: Vector3, liquidTimeSec: number): void {
+    this.updateVitals(dt);
+    this.position.copy(position);
+    this.velocity.copy(velocity);
+    this.model.position.copy(position);
+    this.liquidTimeSec = liquidTimeSec;
+    this.submersion = manausBathymetry.evaluateSubmersion(position, 1.8 * this.size, liquidTimeSec);
+    this.state = 'Falling';
+    this.speedMode = 'ground';
+    this.armedTier = 'none';
+    this.lastArmTapS = -Infinity;
+    this.grounded = false;
+    this.pendingImpact = null;
+    this.swimmingVisualState = 'None';
+  }
+
+  dismountVehicle(position: Vector3, velocity: Vector3): void {
+    this.teleport(position);
+    this.velocity.copy(velocity);
+    if (this.state === 'Hover') this.state = 'Falling';
+    this.speedMode = 'ground';
+  }
+
+  private updateVitals(dt: number): void {
+    if (this.lastHitTimer > 0) {
+      this.lastHitTimer -= dt;
+    } else if (this.shield < this.maxShield) {
+      this.shield = Math.min(this.maxShield, this.shield + this.shieldRegenRate * dt);
+    }
+    if (this.damageFlash > 0) {
+      this.damageFlash = Math.max(0, this.damageFlash - dt * 2.0);
+    }
+  }
+
+  update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0, liquidTimeSec?: number): void {
+    if (!Number.isFinite(dt) || dt <= 0) return;
     dt = Math.min(0.06, dt);
     this.armClockS += dt;
-    if (this.input.consume('KeyV')) this.tapArm();
-    if (!this.input.held('KeyB')) this.megaNeedsBoostRelease = false;
-    if (this.input.consume('KeyF')) {
-      this.state = this.state === 'Grounded' || this.state === 'Falling' ? 'Hover' : 'Falling';
-      if (this.state === 'Hover') {
-        this.velocity.y = 5;
-        this.position.y += 0.18;
-      }
+    this.liquidTimeSec = liquidTimeSec ?? this.armClockS;
+    this.updateVitals(dt);
+    if (this.flightTakeoffGraceS > 0) {
+      this.flightTakeoffGraceS = Math.max(0, this.flightTakeoffGraceS - dt);
     }
-    const flying = this.state === 'Hover' || this.state === 'Flight';
-    
-    const boosting = this.input.held('KeyB');
-    const sprinting = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+    if (this.input.consume('KeyF')) {
+      this.toggleFlight();
+    }
+    if (this.input.consume('KeyV')) this.tapArm();
+    const isShift = this.input.held('ShiftLeft') || this.input.held('ShiftRight');
+    const isB = this.input.held('KeyB');
+    if (!isB) this.megaNeedsBoostRelease = false;
+    const wasSwimming = this.state === 'Swimming';
+    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.liquidTimeSec);
+
+    // Descending cosmic flight that reaches the river surface (outside the take-off grace window,
+    // not climbing with Space, not mid-slam) splashes down into Swimming instead of flying through
+    // the water column. Voluntary flight above the surface is never overridden.
+    if (
+      this.isFlying
+      && this.waterVolumeActive && this.submersion.inWater
+      && this.submersion.totalWaterDepthM >= 1.15 * this.size
+      && this.flightTakeoffGraceS <= 0
+      && this.slamTimer <= 0
+      && this.position.y <= this.submersion.surfaceY + 0.05
+      && !this.input.held('Space')
+    ) {
+      this.state = 'Swimming';
+      this.armedTier = 'none';
+      this.megaNeedsBoostRelease = true;
+      this.speedMode = 'ground';
+      this.velocity.set(0, 0, 0);
+    }
+    const flying = this.isFlying;
+
+    // Sample shared Manaus bathymetry & water volume authority with hysteresis near shoreline and surface
+    const swimDepthEnter = 1.15 * this.size;
+    const swimDepthStay = 0.90 * this.size;
+    const swimSurfaceEnter = 0.06 * this.size;
+    const swimSurfaceStay = 0.32 * this.size;
+    const activeDepthThreshold = wasSwimming ? swimDepthStay : swimDepthEnter;
+    const activeSurfaceMargin = wasSwimming ? swimSurfaceStay : swimSurfaceEnter;
+
+    const inDeepWater = this.waterVolumeActive && this.submersion.inWater && this.submersion.totalWaterDepthM >= activeDepthThreshold;
+    const isSwimming = !flying && inDeepWater && this.position.y <= this.submersion.surfaceY + activeSurfaceMargin;
+    const isWading = !flying && !isSwimming && this.waterVolumeActive && this.submersion.inWater && this.submersion.feetSubmerged;
+
+    const boosting = isB;
+    const sprinting = isShift;
     const movementX = Number(this.input.held('KeyD')) - Number(this.input.held('KeyA'));
     const movementZ = Number(this.input.held('KeyS')) - Number(this.input.held('KeyW'));
     const ascent = Number(this.input.held('Space')) - Number(this.input.held('ControlLeft') || this.input.held('ControlRight'));
@@ -183,17 +387,20 @@ export class PlayerController {
     this.speedMode = this.localTier(flying, boosting, sprinting);
     const armedReady = this.armedTier !== 'none' && !this.megaNeedsBoostRelease;
     const ground = FLIGHT.groundBoostSpeed;
-    const speed = this.speedMode === 'ground'
-      ? Math.min(3000, (boosting ? armedReady ? ground.armed : ground.plain
-        : sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * sizeSpeed * this.speedMultiplier)
-      : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
+    const wadeFactor = isWading ? 0.85 : 1.0;
+    const speed = isSwimming
+      ? (sprinting ? 8.5 : 5.2) * sizeSpeed * this.speedMultiplier
+      : this.speedMode === 'ground'
+        ? Math.min(3000, (boosting ? armedReady ? ground.armed : ground.plain
+          : sprinting ? FLIGHT.runSpeed : FLIGHT.walkSpeed) * sizeSpeed * this.speedMultiplier * wadeFactor)
+        : Math.min(FLIGHT.maxSpeed, FLIGHT.speeds[this.speedMode] * this.speedMultiplier);
 
     this.dodge.update(dt);
     if (this.input.consume(this.dodgeKey)) this.requestDodge(flying, movementX, movementZ, cameraYaw, cameraPitch, speed);
     const dashing = this.dodge.kind === 'airDash';
     const rolling = this.dodge.kind === 'roll';
     // A roll that leaves the ground — off a kerb, or into flight — stops being a roll.
-    if (rolling && (flying || !this.grounded)) this.dodge.cancel();
+    if (rolling && (flying || isSwimming || !this.grounded)) this.dodge.cancel();
 
     if (flying) {
       const cosPitch = Math.cos(cameraPitch);
@@ -207,9 +414,6 @@ export class PlayerController {
         rightZ * movementX + forwardZ * -movementZ,
       );
       if (this.desired.lengthSq() > 0) this.desired.normalize().multiplyScalar(speed);
-      // Boost is a modifier, never a direction. Synthesising a forward intent from it -- which
-      // this did -- means the player drifts off whenever they hold it to think, and it let the
-      // cosmic cruise engage with no forward input at all.
     } else {
       this.desired.set(movementX, 0, movementZ);
       if (this.desired.lengthSq() > 0) this.desired.normalize();
@@ -219,17 +423,17 @@ export class PlayerController {
       this.desired.multiplyScalar(speed);
     }
 
-    // A committed roll owns the horizontal velocity outright: that is what makes it an evade
-    // rather than a sprint with a clip attached.
     if (this.dodge.kind === 'roll') {
       this.desired.copy(this.dodge.direction).multiplyScalar(this.dodge.speed(this.size) * this.speedMultiplier);
       this.desired.y = 0;
     }
     this.desiredSpeed = this.desired.length();
 
-    let response = this.speedMode === 'ground'
-      ? this.grounded ? FLIGHT.groundResponse : FLIGHT.airControl
-      : this.desired.lengthSq() < this.velocity.lengthSq() ? FLIGHT.response.braking : FLIGHT.response[this.speedMode];
+    let response = isSwimming
+      ? 6.5
+      : this.speedMode === 'ground'
+        ? this.grounded ? FLIGHT.groundResponse : FLIGHT.airControl
+        : this.desired.lengthSq() < this.velocity.lengthSq() ? FLIGHT.response.braking : FLIGHT.response[this.speedMode];
     if (dashing) response *= FLIGHT.dashControl;
     const acceleration = 1 - Math.exp(-dt * response);
     this.velocity.x = MathUtils.lerp(this.velocity.x, this.desired.x, acceleration);
@@ -243,13 +447,69 @@ export class PlayerController {
     if (flying) {
       if (this.slamTimer <= 0) this.velocity.y = MathUtils.lerp(this.velocity.y, this.desired.y, acceleration);
       this.state = this.desired.lengthSq() > 1 || this.velocity.lengthSq() > 36 ? 'Flight' : 'Hover';
+    } else if (isSwimming) {
+      this.state = 'Swimming';
+      this.jumps = 0;
+      const floatFeetY = Math.max(
+        this.submersion.surfaceY - 1.18 * this.size,
+        this.submersion.riverbedY + 0.05 * this.size
+      );
+      const wantsDive = this.input.held('ControlLeft') || this.input.held('ControlRight') || this.input.held('KeyC') || this.input.held('KeyZ');
+      const wantsAscend = this.input.held('Space');
+
+      // On initial water entry from fall or flight, smoothly absorb downward splash momentum at the surface
+      // with exponential damping so the character glides smoothly into swimming without visual teleportation
+      if (!wasSwimming && !wantsDive) {
+        this.velocity.y = MathUtils.lerp(this.velocity.y * 0.25, 0, 1 - Math.exp(-dt * 14));
+      }
+
+      if (wantsDive) {
+        // Active downward diving toward the excavated 3D riverbed (no surface spring fighting the dive)
+        const diveSpeed = (sprinting ? 9.5 : 6.8) * sizeSpeed;
+        this.velocity.y = MathUtils.lerp(this.velocity.y, -diveSpeed, 1 - Math.exp(-dt * 6.5));
+      } else if (wantsAscend) {
+        if (this.position.y < floatFeetY - 0.08 * this.size) {
+          // Active upward swimming from depth back to the water surface
+          const ascendSpeed = (sprinting ? 9.5 : 7.2) * sizeSpeed;
+          this.velocity.y = MathUtils.lerp(this.velocity.y, ascendSpeed, 1 - Math.exp(-dt * 7.0));
+        } else {
+          // At the water surface: stabilize at float height
+          const surfaceError = floatFeetY - this.position.y;
+          this.velocity.y = MathUtils.lerp(this.velocity.y, surfaceError * 7.0, 1 - Math.exp(-dt * 8.5));
+        }
+      } else {
+        // Neutral vertical input in water column
+        if (this.position.y <= this.submersion.riverbedY + 0.16 * this.size) {
+          // Resting on the 3D riverbed after a dive: stable benthic contact without bobbing away
+          this.velocity.y = Math.max(0, this.velocity.y * Math.exp(-dt * 10));
+        } else {
+          // Responsive surface buoyancy keeps head/shoulders cleanly above water
+          const surfaceError = floatFeetY - this.position.y;
+          const targetBuoyancyVel = MathUtils.clamp(surfaceError * 6.5, -4.0 * sizeSpeed, 8.2 * sizeSpeed);
+          this.velocity.y = MathUtils.lerp(this.velocity.y, targetBuoyancyVel, 1 - Math.exp(-dt * 7.5));
+        }
+      }
+
+      // Give a shallow uphill swim enough vertical velocity to follow the bank.
+      // Moving the feet directly, or enabling stair stepping, bypasses solid obstacles.
+      if (!wantsDive && this.desired.lengthSq() > 1 &&
+          this.submersion.totalWaterDepthM <= 2.5 * this.size &&
+          this.position.y <= this.submersion.riverbedY + .25 * this.size) {
+        const radius = .32 * this.size, lookAhead = .16;
+        const floor = PhysicsWorld.terrainHeight(this.position.x, this.position.z, radius);
+        const ahead = PhysicsWorld.terrainHeight(this.position.x + this.velocity.x * lookAhead,
+          this.position.z + this.velocity.z * lookAhead, radius);
+        const rise = ahead - floor;
+        if (rise > 0 && rise <= .3 * this.size) {
+          const climbSpeed = Math.min(2.4 * sizeSpeed, rise / lookAhead + .1 * sizeSpeed);
+          this.velocity.y = Math.max(this.velocity.y, climbSpeed);
+        }
+      }
     } else {
       if (this.grounded) this.jumps = 0;
 
       if (this.input.consume('Space') && this.jumps < 2) {
         if (this.grounded || this.jumps === 0) {
-          // Keep the same muscular impulse on each body: lower gravity gives a higher,
-          // longer jump, while Earth's established movement remains exactly as before.
           this.jumps = 1;
           this.velocity.y = getJumpVelocity(this.size);
           this.grounded = false;
@@ -275,15 +535,12 @@ export class PlayerController {
           this.jumps = 2;
           this.velocity.y = Math.max(this.velocity.y, 0) + getJumpVelocity(this.size) * 0.85;
 
-          // Carry the jump forward. A somersault that only rises reads as a pirouette; the throw
-          // is what makes it travel, and reduced air control is what lets it survive the frame.
           if (this.desired.lengthSq() > 1) {
             this.flipCarry.copy(this.desired).setY(0).normalize().multiplyScalar(speed * DOUBLE_JUMP_CARRY);
             this.velocity.x += this.flipCarry.x;
             this.velocity.z += this.flipCarry.z;
           }
 
-          // Direction based on input
           let flipDir: FlipDirection = 'back';
           if (this.input.held('KeyW')) flipDir = 'front';
           else if (this.input.held('KeyA')) flipDir = 'sideLeft';
@@ -305,6 +562,9 @@ export class PlayerController {
 
     const wasGrounded = this.grounded;
     this.impactVelocity.copy(this.velocity);
+    const traceStep = this.onPhysicsStep ? {
+      dt, position: this.position.toArray(), displacement: this.velocity.clone().multiplyScalar(dt).toArray(),
+    } : undefined;
     this.grounded = this.physics.move(
       this.position,
       this.velocity,
@@ -312,33 +572,75 @@ export class PlayerController {
       0.32 * this.size,
       2.1 * this.size,
       colliders,
-      !flying ? 0.55 * this.size : 0
+      !flying && !isSwimming ? 0.55 * this.size : 0
     );
+    if (traceStep) {
+      const [x, y, z] = traceStep.position;
+      const [dx, dy, dz] = traceStep.displacement;
+      this.onPhysicsStep?.({
+        ...traceStep,
+        correction: [this.position.x - x - dx, this.position.y - y - dy, this.position.z - z - dz],
+        contact: this.physics.lastVolumeContact ? 'volume' : this.physics.lastTerrainContact ? 'terrain' : null,
+      });
+    }
+
+    // Re-evaluate submersion at post-move coordinates with hysteresis
+    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.liquidTimeSec);
+    const postDepthThreshold = (wasSwimming || isSwimming) ? swimDepthStay : swimDepthEnter;
+    const postSurfaceMargin = (wasSwimming || isSwimming) ? swimSurfaceStay : swimSurfaceEnter;
+    const nowDeepWater = this.waterVolumeActive && this.submersion.inWater && this.submersion.totalWaterDepthM >= postDepthThreshold;
+    const nowSwimming = !flying && nowDeepWater && this.position.y <= this.submersion.surfaceY + postSurfaceMargin;
+    const nowWading = !flying && !nowSwimming && this.waterVolumeActive && this.submersion.inWater && this.submersion.feetSubmerged;
+    this.onRiverbed = this.submersion.inWater && this.position.y <= this.submersion.riverbedY + 0.08 * this.size;
 
     // Evaluate titan ground support and fall animation suppression
     const supportInfo = this.titanSupport.evaluateSupport(this.position, this.size, this.velocity.y, dt, colliders);
     if (this.size >= 4 && supportInfo.hasSupport) {
       this.grounded = true;
     }
-    // Surface contact ends downward flight. Ordinary jumps/falls remain under body gravity.
-    if (this.grounded && (!flying || (this.desired.y <= 0 && !this.input.held('Space')))) {
+
+    // State transition resolution:
+    // Voluntary cosmic flight stays in Flight/Hover even underwater; only landing on dry land ends downward flight.
+    if (nowSwimming) {
+      this.state = 'Swimming';
+    } else if (this.grounded && (!flying || (!this.submersion.inWater && this.desired.y <= 0 && !this.input.held('Space')))) {
       this.state = 'Grounded';
-    } else if (!flying) this.state = 'Falling';
+    } else if (!flying) {
+      this.state = 'Falling';
+    }
 
-    // The one reliable contact event: the frame the sweep first reports ground. `velocity` has
-    // already been zeroed by the sweep, so the arrival speed is the snapshot taken before it.
-    if (!wasGrounded && this.grounded) this.registerImpact();
+    // Resolve explicit visual swimming state for CharacterAnimator
+    const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (nowSwimming) {
+      this.swimExitTimer = 0;
+      const wantsDiveNow = this.input.held('ControlLeft') || this.input.held('ControlRight') || this.input.held('KeyC') || this.input.held('KeyZ');
+      const wantsAscendNow = this.input.held('Space');
+      const isDeepSubmerged = this.position.y < this.submersion.surfaceY - 1.55 * this.size;
+      if (wantsDiveNow || (isDeepSubmerged && this.velocity.y < -1.1 * sizeSpeed)) {
+        this.swimmingVisualState = 'SwimmingDive';
+      } else if ((wantsAscendNow && this.position.y < this.submersion.surfaceY - 1.30 * this.size) || (isDeepSubmerged && this.velocity.y > 1.1 * sizeSpeed)) {
+        this.swimmingVisualState = 'SwimmingAscend';
+      } else if (isDeepSubmerged) {
+        this.swimmingVisualState = horizontalSpeed > 0.35 ? 'SwimmingSurfaceForward' : 'SwimmingUnderwaterIdle';
+      } else if (horizontalSpeed > 0.35) {
+        this.swimmingVisualState = 'SwimmingSurfaceForward';
+      } else {
+        this.swimmingVisualState = 'SwimmingSurfaceIdle';
+      }
+    } else if (wasSwimming && !flying) {
+      this.swimExitTimer = 0.25;
+      this.swimmingVisualState = 'SwimmingExit';
+    } else if (this.swimExitTimer > 0 && !flying) {
+      this.swimExitTimer = Math.max(0, this.swimExitTimer - dt);
+      this.swimmingVisualState = this.swimExitTimer > 0 ? 'SwimmingExit' : (nowWading ? 'Wading' : 'None');
+    } else if (nowWading) {
+      this.swimmingVisualState = 'Wading';
+    } else {
+      this.swimmingVisualState = 'None';
+    }
 
-    /**
-     * The ceiling holds.
-     *
-     * It was briefly removed so that interplanetary flight could keep climbing, and that is the
-     * one thing the roadmap says not to do yet: "remove altitude ceiling only after successful
-     * handoff" (Sprint H5). Until the player can be handed into another body's reference frame,
-     * an unbounded `position.y` is not freedom, it is the point at which a coordinate stops being
-     * representable — and every system downstream takes it at face value.
-     */
-    // The altitude ceiling was removed here as part of Sprint H5 step 7.
+    // Contact impact craters only on dry land or high-speed meteor strikes
+    if (!wasGrounded && this.grounded && !nowSwimming) this.registerImpact();
 
     // Model facing rotation
     if (flying && this.velocity.lengthSq() > 2) {
@@ -354,17 +656,16 @@ export class PlayerController {
     this.poseTime -= dt;
     if (this.poseTime <= 0) this.pose = '';
 
-    const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
     const bank = horizontalSpeed > 2 ? Math.sin(Math.atan2(-this.velocity.x, -this.velocity.z) - this.facingYaw) : 0;
 
-    // Titan Fall visual check: giants only show jump/fall pose if supportInfo.isFallingVisually
-    const showFallAnimation = this.size >= 4
+    // Titan Fall visual check: never trigger jump/fall pose while swimming or diving
+    const showFallAnimation = !nowSwimming && !wasSwimming && (this.size >= 4
       ? supportInfo.isFallingVisually
-      : (!flying && !this.grounded);
+      : (!flying && !this.grounded));
 
     this.character.animate(
       dt,
-      Math.hypot(this.velocity.x, this.velocity.z) / sizeSpeed,
+      horizontalSpeed / sizeSpeed,
       flying,
       sprinting,
       this.pose || (showFallAnimation ? 'jump' : ''),
@@ -376,12 +677,43 @@ export class PlayerController {
       this.speedMode,
       this.forward,
       this.facingYaw,
-      { desiredSpeed: this.desiredSpeed, grounded: this.grounded, dodge: this.dodge.kind },
+      {
+        desiredSpeed: this.desiredSpeed,
+        grounded: this.grounded && !nowSwimming,
+        swimming: nowSwimming,
+        wading: nowWading,
+        swimmingState: this.swimmingVisualState,
+        dodge: this.dodge.kind,
+      },
     );
 
     this.model.position.copy(this.position);
     this.model.scale.setScalar(this.size);
   }
+
+  toggleFlight(): void {
+    if (this.state === 'Grounded' || this.state === 'Falling' || this.state === 'Swimming') {
+      const wasInWater = this.state === 'Swimming';
+      this.state = 'Hover';
+      this.flightTakeoffGraceS = 0.65;
+      this.armedTier = 'none';
+      this.speedMode = 'normal';
+      this.velocity.set(0, 5, 0);
+      this.position.y += wasInWater ? 0.35 : 0.18;
+    } else {
+      const sub = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.liquidTimeSec);
+      if (this.waterVolumeActive && sub.inWater && sub.totalWaterDepthM >= 1.15 * this.size && this.position.y <= sub.surfaceY + 0.05) {
+        this.state = 'Swimming';
+        this.armedTier = 'none';
+        this.speedMode = 'ground';
+        this.velocity.set(0, 0, 0);
+      } else {
+        this.state = 'Falling';
+      }
+    }
+  }
+
+  private readonly travelVelocity = new Vector3();
 
   /**
    * Updates the visual proxy during interplanetary travel.
@@ -395,16 +727,17 @@ export class PlayerController {
     this.facingYaw = cameraYaw;
     this.speedMode = 'interplanetary';
     this.state = 'Flight';
+    this.travelVelocity.copy(viewForward).normalize().multiplyScalar(speedMps);
     this.character.animate(
       dt,
       speedMps,
       true,
       issprinting,
       'interplanetary',
-      0,
+      this.travelVelocity.y,
       0,
       this.size,
-      undefined,
+      this.travelVelocity,
       1,
       'interplanetary',
       viewForward,
@@ -476,30 +809,54 @@ export class PlayerController {
    * are resolved by the shared local footprint policy, including its shallow-graze gate.
    */
   private registerImpact(): void {
-    const contact=this.lastTerrainContact;
+    const contact = this.lastTerrainContact;
     const slam = this.slamTimer > 0;
     this.slamTimer = 0;
-    const impact = resolveContactImpact(this.impactVelocity,contact?.normal??{x:0,y:1,z:0},this.size,slam,!!contact);
+    const impact = resolveContactImpact(this.impactVelocity, contact?.normal ?? { x: 0, y: 1, z: 0 }, this.size, slam, !!contact);
     this.character.animationController.triggerLanding(
       impact.profile === 'titan' ? 'titan'
         : impact.profile === 'meteor' ? 'super'
-        : impact.profile === 'soft' ? 'soft' : 'hard',
+          : impact.profile === 'soft' ? 'soft' : 'hard',
     );
     if (impact.profile === 'soft') return;
-    this.impactPoint.copy(contact?.position??this.position);
+    this.impactPoint.copy(contact?.position ?? this.position);
     this.pendingImpact = impact;
   }
 
   teleport(position: Vector3): void {
     this.position.copy(position);
     this.velocity.set(0, 0, 0);
+    this.armedTier = 'none';
+    this.speedMode = 'normal';
     this.model.position.copy(position);
-    this.state = position.y > PhysicsWorld.terrainHeight(position.x, position.z, 0.32 * this.size) + 1 ? 'Hover' : 'Grounded';
+    this.submersion = manausBathymetry.evaluateSubmersion(position, 1.8 * this.size, this.liquidTimeSec);
+    if (this.waterVolumeActive && this.submersion.inWater && position.y <= this.submersion.surfaceY + 0.5) {
+      const isDeep = this.submersion.totalWaterDepthM >= 1.15 * this.size;
+      this.state = isDeep ? 'Swimming' : 'Grounded';
+      this.swimmingVisualState = isDeep ? 'SwimmingSurfaceIdle' : (this.submersion.feetSubmerged ? 'Wading' : 'None');
+    } else {
+      this.state = position.y > PhysicsWorld.terrainHeight(position.x, position.z, 0.32 * this.size) + 1 ? 'Hover' : 'Grounded';
+      this.swimmingVisualState = 'None';
+    }
+    this.swimExitTimer = 0;
     this.grounded = false;
     this.jumps = 0;
     this.slamTimer = 0;
     this.pendingImpact = null;
     this.dodge.reset();
+    this.titanSupport.reset();
+  }
+
+  /**
+   * The same physical place expressed in another surface frame: motion and state carry on. Unlike
+   * a teleport, nothing is reset beyond what refers to old coordinates.
+   */
+  rebaseSurface(position: Vector3, velocity: Vector3): void {
+    this.position.copy(position);
+    this.velocity.copy(velocity);
+    this.model.position.copy(position);
+    this.submersion = manausBathymetry.evaluateSubmersion(position, 1.8 * this.size, this.liquidTimeSec);
+    this.pendingImpact = null;
     this.titanSupport.reset();
   }
 
@@ -509,6 +866,9 @@ export class PlayerController {
     if (Number.isFinite(floor)) this.position.y = Math.max(this.position.y, floor + 0.05);
     this.state = 'Falling';
     this.grounded = false;
+    this.armedTier = 'none';
+    this.speedMode = 'normal';
+    this.velocity.clampLength(0, FLIGHT.speeds.normal);
     this.model.position.copy(this.position);
   }
 

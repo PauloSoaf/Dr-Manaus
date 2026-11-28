@@ -73,6 +73,10 @@ export interface TravelContext {
   readonly entryPositionM?: Vec3;
   /** The player's barycentric velocity at departure, so the Earth's orbital motion is kept. */
   readonly entryVelocityMps?: Vec3;
+  /** Celestial gravity sources exerting forces on the spacecraft / player. */
+  readonly gravitySources?: readonly import('../celestial/GravitySource').GravitySource[];
+  /** Pre-calculated net gravitational acceleration vector, m/s^2. */
+  readonly netGravityMps2?: Vec3;
 }
 
 export interface TravelDomainOptions {

@@ -1,0 +1,1423 @@
+{
+  "generatedBy": "scripts/assets/build-character-animations.mjs",
+  "rigHeightMeters": 1.81,
+  "clips": {
+    "Walk_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 1.333,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Walk_Loop",
+      "groundSpeed": 1.018,
+      "plants": {
+        "l": [
+          0.063
+        ],
+        "r": [
+          0.575
+        ]
+      }
+    },
+    "Jog_Fwd_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 0.933,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Jog_Fwd_Loop",
+      "groundSpeed": 6.094,
+      "plants": {
+        "l": [
+          0.036
+        ],
+        "r": [
+          0.536
+        ]
+      }
+    },
+    "Sprint_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 0.667,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Sprint_Loop",
+      "groundSpeed": 9.247,
+      "plants": {
+        "l": [
+          0.05,
+          0.125,
+          0.175
+        ],
+        "r": [
+          0.6,
+          0.675,
+          0.725
+        ]
+      }
+    },
+    "Idle_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2.5,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Idle_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Idle_FoldArms_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2.5,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Idle_FoldArms_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Swim_Fwd_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 1.333,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Swim_Fwd_Loop",
+      "groundSpeed": 0.168,
+      "plants": {
+        "l": [
+          0.05
+        ],
+        "r": [
+          0.05
+        ]
+      }
+    },
+    "Slide_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Slide_Loop",
+      "groundSpeed": 0.001,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "NinjaJump_Idle_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "NinjaJump_Idle_Loop",
+      "groundSpeed": 0.001,
+      "plants": {
+        "l": [
+          0.275
+        ],
+        "r": [
+          0.992
+        ]
+      }
+    },
+    "Jump_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2.5,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Jump_Loop",
+      "groundSpeed": 0.004,
+      "plants": {
+        "l": [],
+        "r": [
+          0.82
+        ]
+      }
+    },
+    "Swim_Idle_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 3.333,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Swim_Idle_Loop",
+      "groundSpeed": 0.593,
+      "plants": {
+        "l": [
+          0.31
+        ],
+        "r": [
+          0.4
+        ]
+      }
+    },
+    "Punch_Jab": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 0.867,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Punch_Jab",
+      "hit": 0.231,
+      "reach": 1.159,
+      "hitHeight": 1.44,
+      "effector": "hand_l"
+    },
+    "Punch_Cross": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 1,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Punch_Cross",
+      "hit": 0.4,
+      "reach": 1.125,
+      "hitHeight": 1.427,
+      "effector": "hand_r"
+    },
+    "Melee_Hook": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 0.467,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Melee_Hook",
+      "hit": 0.571,
+      "reach": 1.122,
+      "hitHeight": 0.753,
+      "effector": "hand_r"
+    },
+    "OverhandThrow": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 1.333,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "OverhandThrow",
+      "hit": 0.275,
+      "reach": 1.191,
+      "hitHeight": 1.265,
+      "effector": "hand_r"
+    },
+    "Jump_Start": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 1.333,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Jump_Start"
+    },
+    "Jump_Land": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 1.267,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Jump_Land"
+    },
+    "Roll": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 1.467,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Roll"
+    },
+    "Hit_Chest": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.333,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Hit_Chest"
+    },
+    "Hit_Head": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.433,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Hit_Head"
+    },
+    "ClimbUp_1m": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.667,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "ClimbUp_1m"
+    },
+    "Hit_Knockback": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.833,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Hit_Knockback"
+    },
+    "Melee_Hook_Rec": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.6,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Melee_Hook_Rec"
+    },
+    "NinjaJump_Start": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.967,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "NinjaJump_Start"
+    },
+    "NinjaJump_Land": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 1.267,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "NinjaJump_Land"
+    },
+    "Slide_Start": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.833,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Slide_Start"
+    },
+    "Slide_Exit": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.5,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Slide_Exit"
+    },
+    "Kick_Front_R": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 0.933,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Kick_Right",
+      "floorOffsetCm": -13.7,
+      "hit": 0.536,
+      "reach": 1.242,
+      "hitHeight": 1.145,
+      "effector": "ball_r"
+    },
+    "Kick_Front_L": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 0.933,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Kick_Left",
+      "floorOffsetCm": -13.5,
+      "hit": 0.536,
+      "reach": 1.241,
+      "hitHeight": 1.146,
+      "effector": "ball_l"
+    },
+    "Kick_Side_R": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 1.4,
+      "source": "CMU Graphics Lab Motion Capture Database (NSF EIA-0196217)",
+      "licence": "Free for use in products; the data itself may not be resold",
+      "url": "http://mocap.cs.cmu.edu/",
+      "from": "135_11 [2.35-3.75s]",
+      "floorOffsetCm": 9.9,
+      "hit": 0.393,
+      "reach": 1.321,
+      "hitHeight": 1.283,
+      "effector": "ball_r"
+    },
+    "Kick_Roundhouse_R": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 1.15,
+      "source": "CMU Graphics Lab Motion Capture Database (NSF EIA-0196217)",
+      "licence": "Free for use in products; the data itself may not be resold",
+      "url": "http://mocap.cs.cmu.edu/",
+      "from": "135_07 [5.9-7.05s]",
+      "rootYaw": {
+        "fps": 30,
+        "yawDeg": [
+          0,
+          0.06,
+          1.22,
+          3.35,
+          7.39,
+          12.45,
+          17.41,
+          22.67,
+          29.06,
+          37.4,
+          48.55,
+          59.99,
+          68.9,
+          75.17,
+          80.87,
+          81.38,
+          80.85,
+          84.29,
+          94.95,
+          103.97,
+          113.72,
+          119.82,
+          123.12,
+          123.73,
+          126.81,
+          129.02,
+          131.09,
+          133.38,
+          135.17,
+          136.96,
+          138.58,
+          139.59,
+          140.03,
+          139.84,
+          139.28
+        ]
+      },
+      "rootYawTotalDeg": 139.28,
+      "floorOffsetCm": 8.9,
+      "hit": 0.478,
+      "reach": 1.34,
+      "hitHeight": 1.564,
+      "effector": "ball_r"
+    },
+    "Kick_Spin_Jump": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 0.64,
+      "source": "CMU Graphics Lab Motion Capture Database (NSF EIA-0196217)",
+      "licence": "Free for use in products; the data itself may not be resold",
+      "url": "http://mocap.cs.cmu.edu/",
+      "from": "88_06 [0.38-1.02s]",
+      "rootYaw": {
+        "fps": 30,
+        "yawDeg": [
+          0,
+          21.12,
+          37.85,
+          48.99,
+          59.78,
+          80.41,
+          108.89,
+          153.16,
+          199.76,
+          234.48,
+          262.77,
+          284.57,
+          302.42,
+          318.38,
+          334.64,
+          351.58,
+          366.47,
+          378.21,
+          391.64,
+          410.65
+        ]
+      },
+      "rootYawTotalDeg": 410.65,
+      "floorOffsetCm": 3.5,
+      "hit": 0.391,
+      "reach": 1.411,
+      "hitHeight": 1.555,
+      "effector": "ball_l"
+    },
+    "Kick_Push": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 0.933,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Melee_Unarmed_Attack_Kick",
+      "floorOffsetCm": -6.6,
+      "hit": 0.464,
+      "reach": 1.185,
+      "hitHeight": 0.917,
+      "effector": "ball_r"
+    },
+    "Punch_Guard_R": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 0.833,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Punch_Right",
+      "floorOffsetCm": -13.8,
+      "hit": 0.66,
+      "reach": 1.236,
+      "hitHeight": 1.564,
+      "effector": "hand_r"
+    },
+    "Punch_Guard_L": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 0.833,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Punch_Left",
+      "floorOffsetCm": -13.7,
+      "hit": 0.66,
+      "reach": 1.236,
+      "hitHeight": 1.563,
+      "effector": "hand_l"
+    },
+    "Guard_Idle_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 0.85,
+      "source": "CMU Graphics Lab Motion Capture Database (NSF EIA-0196217)",
+      "licence": "Free for use in products; the data itself may not be resold",
+      "url": "http://mocap.cs.cmu.edu/",
+      "from": "135_04 [3.55-4.4s]",
+      "floorOffsetCm": 8.1,
+      "groundSpeed": 0.045,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Hit_React_A": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.567,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "HitRecieve",
+      "floorOffsetCm": -13.6
+    },
+    "Hit_React_B": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.567,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "HitRecieve_2",
+      "floorOffsetCm": -13.8
+    },
+    "GetUp_Back": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 1.533,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "LayToIdle"
+    },
+    "Knockout_Fall": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 2.4,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Death01"
+    },
+    "Strafe_L_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 0.8,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Run_Left",
+      "floorOffsetCm": -13.9,
+      "groundSpeed": 3.045,
+      "plants": {
+        "l": [
+          0.979
+        ],
+        "r": [
+          0.479
+        ]
+      }
+    },
+    "Strafe_R_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 0.8,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Run_Right",
+      "floorOffsetCm": -13.9,
+      "groundSpeed": 3.03,
+      "plants": {
+        "l": [
+          0.479
+        ],
+        "r": [
+          0.979
+        ]
+      }
+    },
+    "Run_Back_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 0.833,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Run_Back",
+      "floorOffsetCm": -13.9,
+      "groundSpeed": 3.032,
+      "plants": {
+        "l": [
+          0.28
+        ],
+        "r": [
+          0.78
+        ]
+      }
+    },
+    "Run_Fwd_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 0.8,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Run",
+      "floorOffsetCm": -13.9,
+      "groundSpeed": 3.03,
+      "plants": {
+        "l": [
+          0.479
+        ],
+        "r": [
+          0.979
+        ]
+      }
+    },
+    "Walk_Guard_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 1.333,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Walk",
+      "floorOffsetCm": -13.4,
+      "groundSpeed": 1.361,
+      "plants": {
+        "l": [
+          0.05,
+          0.825
+        ],
+        "r": [
+          0.325,
+          0.55
+        ]
+      }
+    },
+    "Crouch_Idle_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2.933,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Crouch_Idle_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Crouch_Fwd_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Crouch_Fwd_Loop",
+      "groundSpeed": 0.733,
+      "plants": {
+        "l": [
+          0.975
+        ],
+        "r": [
+          0.533
+        ]
+      }
+    },
+    "Dodge_Left": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.4,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Dodge_Left",
+      "floorOffsetCm": -1.2
+    },
+    "Dodge_Right": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.4,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Dodge_Right",
+      "floorOffsetCm": -1
+    },
+    "Dodge_Back": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.4,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Dodge_Backward",
+      "floorOffsetCm": -4.6
+    },
+    "Cast_Enter": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.533,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Spell_Simple_Enter"
+    },
+    "Cast_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2.1,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Spell_Simple_Idle_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Cast_Shoot": {
+      "kind": "strike",
+      "core": true,
+      "loop": false,
+      "duration": 0.5,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Spell_Simple_Shoot",
+      "hit": 0.267,
+      "reach": 0.653,
+      "hitHeight": 0.998,
+      "effector": "hand_r"
+    },
+    "Cast_Exit": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 0.433,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Spell_Simple_Exit"
+    },
+    "Power_Raise": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 2.1,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Ranged_Magic_Raise",
+      "floorOffsetCm": -2.4
+    },
+    "Power_Summon": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 4.3,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Ranged_Magic_Summon",
+      "floorOffsetCm": -7.4
+    },
+    "Teleport_Arrive": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 1.3,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Spawn_Ground",
+      "floorOffsetCm": -2.3
+    },
+    "Reach_R": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 2,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Interact (mirrored)",
+      "floorOffsetCm": 1.5,
+      "hit": 0.45,
+      "reach": 1.005,
+      "hitHeight": 1.364,
+      "effector": "hand_r"
+    },
+    "Reach_L": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 2,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Interact",
+      "hit": 0.45,
+      "reach": 1,
+      "hitHeight": 1.334,
+      "effector": "hand_l"
+    },
+    "Sit_Enter": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 1.3,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Sitting_Enter"
+    },
+    "Sit_Idle_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 1.667,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Sitting_Idle_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Sit_Exit": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 1.033,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Sitting_Exit"
+    },
+    "Driving_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 1.667,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Driving_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Push_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2.667,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Push_Loop",
+      "groundSpeed": 0.31,
+      "plants": {
+        "l": [
+          0.894
+        ],
+        "r": [
+          0.525
+        ]
+      }
+    },
+    "PickUp_Table": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 0.833,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "PickUp_Table"
+    },
+    "Talk_Loop": {
+      "kind": "loop",
+      "core": true,
+      "loop": true,
+      "duration": 2.933,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Idle_Talking_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Sit_Talk_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 2.933,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Sitting_Talking_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Phone_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 2.933,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Idle_TalkingPhone_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Nod_Yes": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 2.5,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Yes"
+    },
+    "Shake_No": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 2.5,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Idle_No_Loop"
+    },
+    "Wave": {
+      "kind": "action",
+      "core": true,
+      "loop": false,
+      "duration": 1.667,
+      "source": "Quaternius · Ultimate Modular Men Pack (Animations.fbx)",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+      "from": "Wave",
+      "floorOffsetCm": -13.7
+    },
+    "Cheer": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 1.667,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Cheering",
+      "floorOffsetCm": -2.4
+    },
+    "Walk_Formal_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 1.333,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Walk_Formal_Loop",
+      "groundSpeed": 1.017,
+      "plants": {
+        "l": [
+          0.063
+        ],
+        "r": [
+          0.562
+        ]
+      }
+    },
+    "Walk_Carry_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 2,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Walk_Carry_Loop",
+      "groundSpeed": 0.684,
+      "plants": {
+        "l": [
+          0.983
+        ],
+        "r": [
+          0.483
+        ]
+      }
+    },
+    "Lean_Rail_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 2.5,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Idle_Rail_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Look_Around": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 2.5,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Idle_Rail_Call"
+    },
+    "Fix_Kneel_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 5.2,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Fixing_Kneeling",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [
+          0.875
+        ],
+        "r": [
+          0.946
+        ]
+      }
+    },
+    "Dance_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 1,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Dance_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Drink": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 1.333,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Consume"
+    },
+    "Open_Trunk": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 1.367,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Chest_Open"
+    },
+    "Garden_Harvest": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 2.5,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Farm_Harvest"
+    },
+    "Garden_Plant": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 2.767,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Farm_PlantSeed"
+    },
+    "Garden_Water": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 3.8,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Farm_Watering"
+    },
+    "Hold_Lantern_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 2.5,
+      "source": "Quaternius · Universal Animation Library 2 [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary2.html",
+      "from": "Idle_Lantern_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Hold_Torch_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 1.267,
+      "source": "Quaternius · Universal Animation Library [Standard]",
+      "licence": "CC0 1.0",
+      "url": "https://quaternius.com/packs/universalanimationlibrary.html",
+      "from": "Idle_Torch_Loop",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Bench_Sit_Down": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 0.8,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Sit_Chair_Down",
+      "floorOffsetCm": 2.1
+    },
+    "Bench_Sit_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 3.6,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Sit_Chair_Idle",
+      "floorOffsetCm": 60.4,
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Bench_Stand_Up": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 0.8,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Sit_Chair_StandUp",
+      "floorOffsetCm": -1.6
+    },
+    "Floor_Sit_Down": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 1,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Sit_Floor_Down",
+      "floorOffsetCm": -18.4
+    },
+    "Floor_Sit_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 4,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Sit_Floor_Idle",
+      "floorOffsetCm": -18.6,
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Floor_Stand_Up": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 1.133,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Sit_Floor_StandUp",
+      "floorOffsetCm": -14.9
+    },
+    "Lie_Down": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 3,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Lie_Down"
+    },
+    "Lie_Loop": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 2.667,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Lie_Idle",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [],
+        "r": []
+      }
+    },
+    "Lie_Stand_Up": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 2.333,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Lie_StandUp"
+    },
+    "Exercise_PushUps": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 1.033,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Push_Ups",
+      "groundSpeed": 0,
+      "plants": {
+        "l": [
+          0.839
+        ],
+        "r": [
+          0.839
+        ]
+      }
+    },
+    "Exercise_SitUps": {
+      "kind": "loop",
+      "core": false,
+      "loop": true,
+      "duration": 1.733,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Sit_Ups",
+      "groundSpeed": 0.002,
+      "plants": {
+        "l": [
+          0.346
+        ],
+        "r": [
+          0.346
+        ]
+      }
+    },
+    "Pick_Up": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 1.3,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "PickUp",
+      "floorOffsetCm": -2.3
+    },
+    "Throw_Object": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 1.367,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Throw",
+      "floorOffsetCm": -2.9
+    },
+    "Use_Item": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 1.6,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Use_Item",
+      "floorOffsetCm": -2.4
+    },
+    "Interact_Generic": {
+      "kind": "action",
+      "core": false,
+      "loop": false,
+      "duration": 1.3,
+      "source": "Kay Lousberg · KayKit Character Animations 1.1",
+      "licence": "CC0 1.0",
+      "url": "https://kaylousberg.com/game-assets/character-animations",
+      "from": "Interact",
+      "floorOffsetCm": -3
+    }
+  }
+}

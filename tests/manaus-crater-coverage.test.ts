@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { BufferGeometry, Group, Mesh, MeshStandardMaterial, Raycaster, Vector2, Vector3 } from 'three/webgpu';
+import { BufferGeometry, Group, Matrix4, Mesh, MeshStandardMaterial, Raycaster, Vector2, Vector3 } from 'three/webgpu';
 import { TerrainDestruction, TERRAIN_DAMAGE, terrainSurfaceKind } from '../src/world/destruction/TerrainDestruction.ts';
 import { createAirport } from '../src/world/realcity/airport.ts';
 import { createLargoPavement } from '../src/world/landmarks/largo/plaza.ts';
@@ -11,19 +11,17 @@ interface MaskState {
   pixels: Uint8Array;
   step: number;
   uMinimum: { value: Vector2 };
-  uOrigin: { value: Vector3 };
+  worldToTerrain: { value: Matrix4 };
 }
 
-// Independent reference for the current GPU's bilinear binary mask, including texel-centre UVs.
+// Independent reference for the GPU cell mask. Each selected texel must have two repair triangles.
 function maskAtWorld(terrain: TerrainDestruction, point: Vector3): number {
   const state = terrain as unknown as MaskState;
-  const gx = (point.x + state.uOrigin.value.x - state.uMinimum.value.x) / state.step;
-  const gz = (point.z + state.uOrigin.value.z - state.uMinimum.value.y) / state.step;
-  if (gx < 0 || gz < 0 || gx > TERRAIN_DAMAGE.cells || gz > TERRAIN_DAMAGE.cells) return 0;
-  const ix = Math.floor(gx), iz = Math.floor(gz), u = gx - ix, v = gz - iz;
-  const pixel = (x: number, z: number) => state.pixels[(Math.min(z, GRID - 1) * GRID + Math.min(x, GRID - 1)) * 4] / 255;
-  return pixel(ix, iz) * (1 - u) * (1 - v) + pixel(ix + 1, iz) * u * (1 - v)
-    + pixel(ix, iz + 1) * (1 - u) * v + pixel(ix + 1, iz + 1) * u * v;
+  const local = point.clone().applyMatrix4(state.worldToTerrain.value);
+  const x = Math.floor((local.x - state.uMinimum.value.x) / state.step);
+  const z = Math.floor((local.z - state.uMinimum.value.y) / state.step);
+  if (x < 0 || z < 0 || x >= TERRAIN_DAMAGE.cells || z >= TERRAIN_DAMAGE.cells) return 0;
+  return state.pixels[(z * GRID + x) * 4] / 255;
 }
 
 function craterFixture(radius = 640) {

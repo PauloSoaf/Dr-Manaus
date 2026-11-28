@@ -18,19 +18,21 @@ export class CameraController {
   intro = true;
   private elapsed = 0;
   private shakeAmount = 0;
-  private readonly target = new Vector3();
+  private readonly orbitPivot = new Vector3();
+  private readonly lookTarget = new Vector3();
   private readonly desired = new Vector3();
-  private readonly globalPosition = new Vector3(0, 65, 110);
+  readonly globalPosition = new Vector3(0, 65, 110);
   private readonly direction = new Vector3();
   private readonly previousPlayer = new Vector3();
   private readonly pivotOffset = new Vector3();
   private readonly collisionDirection = new Vector3();
-  private readonly up = new Vector3(0, 1, 0);
   private following = false;
   inSpace = false;
   private wasInSpace = false;
   private lookPrepared = false;
   private readonly spaceOrientation = new Quaternion();
+  private swimRigWeight = 0;
+  private diveRigWeight = 0;
 
   constructor(readonly camera: PerspectiveCamera, readonly input: InputController) {}
   shake(amount: number): void { this.shakeAmount = Math.max(this.shakeAmount, amount); }
@@ -79,7 +81,14 @@ export class CameraController {
    * behaviour in a way nobody had measured. Dead scaffolding that quietly fights the real
    * mechanism is worse than no mechanism, so it is gone.
    */
-  update(player: PlayerController, origin: Vector3, dt: number, colliders: readonly Collider[]): void {
+  update(
+    player: PlayerController,
+    origin: Vector3,
+    dt: number,
+    colliders: readonly Collider[],
+    isVehicleOccupied = false,
+    vehicleType: string = 'car',
+  ): void {
     this.prepareLook();
     const switched = this.input.consume('F5');
     if (switched) {
@@ -87,14 +96,16 @@ export class CameraController {
       this.mode = modes[(modes.indexOf(this.mode) + 1) % modes.length];
       this.intro = false;
     }
-    player.model.visible = this.mode !== 'first' && this.mode !== 'lookBack';
+    player.model.visible = !isVehicleOccupied && this.mode !== 'first' && this.mode !== 'lookBack';
     this.elapsed += dt;
     if (this.input.held('KeyW') || this.input.held('KeyA') || this.input.held('KeyS') || this.input.held('KeyD') || this.input.held('KeyF') || Math.abs(this.input.mouseDelta.x) > 1) this.intro = false;
-    this.target.copy(player.position); this.target.y += 1.5 * player.size;
+    this.orbitPivot.copy(player.position); this.orbitPivot.y += 1.4 * player.size;
+    this.lookTarget.copy(this.orbitPivot);
     if (this.inSpace) {
       this.intro = false;
-      const distance = (this.mode === 'first' || this.mode === 'lookBack') ? 0 : 6.2 * player.size;
-      this.desired.set(0, 1.5 * player.size, distance).applyQuaternion(this.spaceOrientation).add(player.position);
+      const baseDist = isVehicleOccupied ? (vehicleType === 'spaceship' || vehicleType === 'rocket' ? 18.0 : 12.0) : 6.2;
+      const distance = (this.mode === 'first' || this.mode === 'lookBack') ? 0 : baseDist * player.size;
+      this.desired.set(0, (isVehicleOccupied ? 2.5 : 1.5) * player.size, distance).applyQuaternion(this.spaceOrientation).add(player.position);
       this.globalPosition.copy(this.desired);
       this.following = true;
     } else if (this.intro && this.elapsed < 6) {
@@ -102,47 +113,89 @@ export class CameraController {
       // Ends the fly-in facing the Teatro Amazonas across the Largo, the game's first sight.
       this.yaw = WORLD.spawnYaw + (progress - 1) * 2.94;
       const distance = MathUtils.lerp(110, 9, progress);
-      this.desired.set(Math.sin(this.yaw) * distance, MathUtils.lerp(27, 3.2, progress), Math.cos(this.yaw) * distance).add(this.target);
+      this.desired.set(Math.sin(this.yaw) * distance, MathUtils.lerp(27, 3.2, progress), Math.cos(this.yaw) * distance).add(this.orbitPivot);
       this.globalPosition.lerp(this.desired, Math.min(1, dt * 5));
     } else {
       this.intro = false;
       // Transport the rig with its subject before damping the orbit. World-space
       // damping accumulated speed/rate metres of lag, then repeatedly snapped at 400 m.
       if (this.following) this.globalPosition.add(player.position).sub(this.previousPlayer);
-      if (player.state !== 'Grounded') {
-        this.pivotOffset.set(0, 1.05 * player.size, 0).applyEuler(player.character.hips.rotation).applyAxisAngle(this.up, player.model.rotation.y);
-        this.target.copy(player.position).add(this.pivotOffset);
+      let baseDistance = 6.2;
+      let heightOffset = 1.4;
+      if (isVehicleOccupied) {
+        if (vehicleType === 'car') {
+          baseDistance = 8.5;
+          heightOffset = 1.35;
+        } else if (vehicleType === 'hovercraft') {
+          baseDistance = 10.5;
+          heightOffset = 1.7;
+        } else if (vehicleType === 'boat') {
+          baseDistance = 14.0;
+          heightOffset = 2.4;
+        } else if (vehicleType === 'airplane') {
+          baseDistance = 16.5;
+          heightOffset = 2.6;
+        } else if (vehicleType === 'saucer') {
+          baseDistance = 15.0;
+          heightOffset = 2.5;
+        } else if (vehicleType === 'spaceship' || vehicleType === 'rocket') {
+          baseDistance = 22.0;
+          heightOffset = 3.6;
+        }
+        this.orbitPivot.y = player.position.y + heightOffset;
+      } else {
+        const surfY = player.submersion?.surfaceY ?? 0;
+        const targetSwimWeight = player.state === 'Swimming' ? 1.0 : 0.0;
+        this.swimRigWeight = MathUtils.lerp(this.swimRigWeight, targetSwimWeight, 1 - Math.exp(-dt * 4.0));
+
+        const targetDiveWeight = (player.state === 'Swimming' && player.position.y < surfY - 1.8 * player.size) ? 1.0 : 0.0;
+        this.diveRigWeight = MathUtils.lerp(this.diveRigWeight, targetDiveWeight, 1 - Math.exp(-dt * 3.5));
+
+        const swimDistance = MathUtils.lerp(7.8, 6.5, this.diveRigWeight);
+        baseDistance = MathUtils.lerp(baseDistance, swimDistance, this.swimRigWeight);
+
+        const regularTargetY = this.orbitPivot.y;
+        const surfaceTargetY = Math.max(player.position.y + 1.65 * player.size, surfY + 0.72 * player.size);
+        const diveTargetY = player.position.y + 1.15 * player.size;
+        const aquaticTargetY = MathUtils.lerp(surfaceTargetY, diveTargetY, this.diveRigWeight);
+
+        this.orbitPivot.y = MathUtils.lerp(regularTargetY, aquaticTargetY, this.swimRigWeight);
       }
-      const distance = (6.2 + Math.min(.6, player.velocity.length() * .001)) * player.size;
-      this.direction.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
+
+      const swimMinPitch = MathUtils.lerp(0.38, 0.18, this.diveRigWeight);
+      const minPitch = !isVehicleOccupied && player.state === 'Swimming'
+        ? MathUtils.lerp(-1.15, swimMinPitch, this.swimRigWeight)
+        : -1.15;
+      const effectivePitch = Math.max(this.pitch, minPitch);
+
+      const distance = (baseDistance + Math.min(isVehicleOccupied ? 4.0 : 0.6, player.velocity.length() * (isVehicleOccupied ? 0.02 : 0.001))) * player.size;
+      this.direction.set(Math.sin(this.yaw) * Math.cos(effectivePitch), Math.sin(effectivePitch), Math.cos(this.yaw) * Math.cos(effectivePitch));
       if (this.mode === 'front') {
         // Face the actual character, independently of the movement/camera heading.
-        this.direction.set(-Math.sin(player.model.rotation.y) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(player.model.rotation.y) * Math.cos(this.pitch));
+        this.direction.set(-Math.sin(player.model.rotation.y) * Math.cos(effectivePitch), Math.sin(effectivePitch), -Math.cos(player.model.rotation.y) * Math.cos(effectivePitch));
       }
+      this.desired.copy(this.orbitPivot).addScaledVector(this.direction, distance);
       if (this.mode === 'shoulder') {
         const side = 1.5 * Math.pow(player.size, .83);
-        this.target.x += Math.cos(this.yaw) * side; this.target.z -= Math.sin(this.yaw) * side;
-      }
-      const obstruction = this.inSpace ? null : PhysicsWorld.raycast(this.target, this.direction, colliders, distance, 0.35);
-      const safeDistance = obstruction ? Math.max(0.1, obstruction.distance - 0.6) : distance;
-      this.desired.copy(this.target).addScaledVector(this.direction, safeDistance);
-      if (!this.inSpace) {
-        this.desired.y = Math.max(PhysicsWorld.terrainHeight(this.desired.x, this.desired.z) + .3, this.desired.y);
-      }
-      if (switched || !this.following) this.globalPosition.copy(this.desired);
-      else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstruction ? 25 : 9)));
-      // Bound orbit lag, including abrupt reversals and frame-time spikes.
-      this.pivotOffset.subVectors(this.globalPosition, this.desired).clampLength(0, .65 * player.size);
-      this.globalPosition.copy(this.desired).add(this.pivotOffset);
-      if (obstruction && !this.inSpace) {
-        this.pivotOffset.subVectors(this.globalPosition, this.target);
-        const hit = PhysicsWorld.raycast(this.target, this.collisionDirection.copy(this.pivotOffset).normalize(), colliders, this.pivotOffset.length(), .35);
-        if (hit) this.globalPosition.copy(this.target).addScaledVector(this.pivotOffset.normalize(), Math.max(.1, hit.distance - .6));
+        this.desired.x += Math.cos(this.yaw) * side; this.desired.z -= Math.sin(this.yaw) * side;
       }
       if (this.mode === 'first' || this.mode === 'lookBack') {
         this.globalPosition.copy(player.position); this.globalPosition.y += 1.94 * player.size;
-        this.target.copy(this.globalPosition).addScaledVector(this.direction, this.mode === 'lookBack' ? 100 : -100);
+        this.keepAboveTerrain(this.globalPosition);
+      } else {
+        if (this.swimRigWeight > 0.05 && this.diveRigWeight < 0.5 && player.submersion?.inWater) {
+          this.desired.y = Math.max(this.desired.y, player.submersion.surfaceY + MathUtils.lerp(1.2, 2.8, this.swimRigWeight) * player.size);
+        }
+        const obstructed = this.constrainOrbit(this.desired, colliders);
+        if (switched || !this.following) this.globalPosition.copy(this.desired);
+        else this.globalPosition.lerp(this.desired, 1 - Math.exp(-dt * (obstructed ? 25 : 9)));
+        if (this.swimRigWeight > 0.5 && this.diveRigWeight < 0.2 && player.submersion?.inWater) {
+          this.globalPosition.y = Math.max(this.globalPosition.y, player.submersion.surfaceY + 0.25 * player.size);
+        }
+        this.constrainOrbit(this.globalPosition, colliders);
       }
+      // Keep the reticle and thrust aligned after orbit damping or wall avoidance.
+      this.lookTarget.copy(this.globalPosition).addScaledVector(this.direction, this.mode === 'lookBack' ? 100 : -100);
       this.following = true;
     }
     this.previousPlayer.copy(player.position);
@@ -152,10 +205,29 @@ export class CameraController {
     this.camera.position.copy(this.globalPosition).sub(origin);
     this.shakeAmount *= Math.exp(-dt * 9);
     if (this.shakeAmount > 0.001) { this.camera.position.x += Math.sin(this.elapsed * 83) * this.shakeAmount; this.camera.position.y += Math.cos(this.elapsed * 97) * this.shakeAmount; }
-    this.target.sub(origin);
     if (this.inSpace) this.camera.quaternion.copy(this.spaceOrientation);
-    else this.camera.lookAt(this.target);
+    else {
+      this.lookTarget.add(this.camera.position).sub(this.globalPosition);
+      this.camera.lookAt(this.lookTarget);
+    }
     this.lookPrepared = false;
+  }
+
+  private keepAboveTerrain(position: Vector3): void {
+    position.y = Math.max(position.y, PhysicsWorld.terrainHeight(position.x, position.z) + .35);
+  }
+
+  private constrainOrbit(position: Vector3, colliders: readonly Collider[]): boolean {
+    this.keepAboveTerrain(position);
+    this.pivotOffset.subVectors(position, this.orbitPivot);
+    const distance = this.pivotOffset.length();
+    if (distance < 1e-5) return false;
+    const ray = this.collisionDirection.copy(this.pivotOffset).divideScalar(distance);
+    const hit = PhysicsWorld.raycast(this.orbitPivot, ray, colliders, distance, .35, true);
+    if (!hit) return false;
+    position.copy(this.orbitPivot).addScaledVector(ray, Math.max(0, hit.distance - .6));
+    this.keepAboveTerrain(position);
+    return true;
   }
 }
 

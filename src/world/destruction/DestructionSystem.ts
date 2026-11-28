@@ -1,4 +1,5 @@
-import { Group, type Vector3 } from 'three/webgpu';
+import { Group, type Mesh, type Vector3 } from 'three/webgpu';
+import { MeshSlicing, type SlicedMeshPair } from './MeshSlicing';
 import { DESTRUCTION } from '../../core/config';
 import type { Collider } from '../../core/types';
 import type { ImpactFootprint } from '../../player/combat/MeteorImpact';
@@ -78,11 +79,11 @@ export class DestructionSystem {
   }
 
   /** Call once per frame. Drives the high-speed ram, the rubble and the scorch in that order. */
-  update(dt: number, playerPosition: Vector3, playerVelocity: Vector3, running = false): void {
+  update(dt: number, playerPosition: Vector3, playerVelocity: Vector3 | null, running = false): void {
     if(!this.frameOpened)this.beginFrame();
     this.frameOpened=false;
     this.time += dt;
-    if (!running) this.plough(playerPosition, playerVelocity, dt);
+    if (!running && playerVelocity) this.plough(playerPosition, playerVelocity, dt);
     this.drainPending(this.pending,DESTRUCTION.maxCollapsesPerFrame-this.collapsedThisFrame);
     this.drainPending(this.pendingLight,DESTRUCTION.maxLightRetirementsPerFrame);
     this.debris.update(dt, playerPosition);
@@ -97,16 +98,9 @@ export class DestructionSystem {
     for(const [id,queued] of queue){if(budget--<=0)break;queue.delete(id);this.apply(queued.box,queued.amount,true,queued.impact);}
   }
 
-  /**
-   * A beam/impact at a point with a blast radius. Returns how many buildings collapsed.
-   *
-   * `deform` is what the ground is told, separate from what the buildings are told, because the
-   * terrain derives crater depth from `radius * .36 + sqrt(damage) * .32`. An impact strong
-   * enough to level a block would otherwise dig a shaft rather than a bowl.
-   */
-  damageAt(point: Vector3, radius: number, damage: number, deform = damage): number {
+  /** Structural damage only. Terrain edits require their own footprint. */
+  damageAt(point: Vector3, radius: number, damage: number): number {
     if(!Number.isFinite(point.x+point.y+point.z+radius+damage)||radius<=0||damage<=0)return 0;
-    if(Number.isFinite(deform)&&deform>0)this.world.deform?.(point,radius,deform);
     const colliders = this.world.blastColliders?.(point,radius)??this.world.colliders();
     const radiusSq = radius * radius;
     let collapsed = 0;
@@ -130,6 +124,16 @@ export class DestructionSystem {
     this.debris.spawn(point.x, point.y, point.z, DESTRUCTION.impactChunks, DESTRUCTION.impactColour, DESTRUCTION.impactEnergy);
     if (point.y <= DESTRUCTION.scarMaxHeight) this.scars.spawn(point.x, point.z, radius * DESTRUCTION.scarRadiusScale, 1);
     return collapsed;
+  }
+
+  /**
+   * Slices a physical mesh in half along an incision plane (e.g. laser blade, kinetic slice).
+   */
+  sliceMesh(mesh: Mesh, planeOrigin: Vector3, planeNormal: Vector3, separationForce = 12.0): SlicedMeshPair | null {
+    const pair = MeshSlicing.sliceMesh(mesh, planeOrigin, planeNormal, separationForce);
+    if (!pair) return null;
+    this.stats.debris += 2;
+    return pair;
   }
 
   /** One footprint drives excavation and an XZ surface shockwave, including tall structures. */

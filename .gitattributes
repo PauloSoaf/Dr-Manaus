@@ -1,2 +1,5 @@
 # Preserve the reproducible lunar artifact's byte hash on Windows checkouts.
 src/world/geodata/moon-surface.json text eol=lf
+
+# Natural Earth source files are verified against upstream byte hashes.
+scripts/geodata/sources/*.geojson text eol=lf

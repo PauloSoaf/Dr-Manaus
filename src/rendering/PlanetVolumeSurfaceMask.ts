@@ -16,6 +16,9 @@ type MaskPlan={entries:readonly PlanetVolumeReplacement[];tiles:Map<Mesh,MaskDat
 export class PlanetVolumeSurfaceMask {
   private readonly tiles=new Map<Mesh,TileMask>();
   private active:readonly PlanetVolumeReplacement[]=[];
+  private activeBounds:readonly PlanetVolumeBounds[]=[];
+  /** Body-fixed boxes the published replacements own; a new array only when they change. */
+  get replacementBounds():readonly PlanetVolumeBounds[]{return this.activeBounds;}
   private prepared?:MaskPlan;
   constructor(readonly bodyId:string) {}
   attach(mesh:Mesh,centre:Vec3):void {
@@ -55,12 +58,12 @@ export class PlanetVolumeSurfaceMask {
     this.prepared=plan;
     return ()=>{if(this.prepared!==plan)throw new Error('obsolete prepared volume mask');
       for(const [mesh,data] of plan.tiles){const tile=this.tiles.get(mesh);if(tile)this.apply(tile,data);}
-      this.active=plan.entries;this.prepared=undefined;};
+      this.active=plan.entries;this.activeBounds=plan.entries.map(e=>e.source.boundsBodyFixedM);this.prepared=undefined;};
   }
   update(entries:readonly PlanetVolumeReplacement[]):void {this.prepareUpdate(entries)();}
   get publishedCount(){return this.active.length;}
   get stats(){const counts=[...this.tiles.values()].map(t=>t.count.value),sum=counts.reduce((s,n)=>s+n,0);
     return {published:this.active.length,tiles:counts.length,averageBounds:counts.length?sum/counts.length:0,
       maxBounds:Math.max(0,...counts),zeroTiles:counts.filter(n=>!n).length,maskedTiles:counts.filter(n=>n>0).length};}
-  dispose():void {for(const mesh of [...this.tiles.keys()])this.detach(mesh);this.active=[];this.prepared=undefined;}
+  dispose():void {for(const mesh of [...this.tiles.keys()])this.detach(mesh);this.active=[];this.activeBounds=[];this.prepared=undefined;}
 }

@@ -43,6 +43,10 @@ export const FLIGHT = {
    * thing you do from the sky.
    */
   interplanetaryFloorM: 9000,
+  /** Mega flight (8 km/s) engages only above low-altitude troposphere (500m); below 500m boost gives super. */
+  megaFloorM: 500,
+  /** Normal local cruising ceiling on final surface approach (Megaton Rainfall threshold). */
+  surfaceNormalFlightAltitudeM: 150,
   /** How quickly the arm key has to be struck twice for the second tap to mean the next tier. */
   armDoubleTapS: 0.45,
   /** On foot, boost is a bounded sprint; armed, it is the stride of someone who flies for a living. */

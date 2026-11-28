@@ -12,6 +12,8 @@ import {
   geodeticToTrueLocal, legacyDivergenceM, legacyLocalToEcef, legacyLocalToGeo,
 } from '../src/world/spatial/ManausFrameAdapter.ts';
 import { GEO_ORIGIN, latLonToWorld, worldToLatLon } from '../src/world/geodata/geodata.ts';
+import { SurfaceFrameService } from '../src/world/spatial/SurfaceFrameService.ts';
+import { manausTileSceneMatrix } from '../src/world/spatial/ManausSurfacePresentation.ts';
 
 test('the ellipsoid uses the defining WGS84 constants, not fitted ones', () => {
   assert.equal(WGS84.semiMajorAxisM, 6_378_137.0);
@@ -236,6 +238,36 @@ test('the true local frame keeps the game axis convention', () => {
   assert.ok(Math.abs(up[1] - 750) < 1e-6, `a step up must be +Y, got ${up[1]}`);
 });
 
+test('the surface frame facade shares tile transforms with gameplay colliders', () => {
+  const service = new SurfaceFrameService();
+  const frame = service.frameForTile('earth', '0,0', 0, 0);
+  assert.equal(frame.bodyId, 'earth');
+  assert.equal(frame.localFrameId, 'earth/tile/0,0');
+  assert.equal(service.frameForTile('earth', '0,0', 0, 0), frame, 'tile frames must be cached');
+
+  const source = { id: 'road/test', x: 5400, y: 12, z: -7400, width: 8, height: 2, depth: 30 };
+  const curved = service.legacyColliderToRenderLocal(source, { ...source });
+  assert.ok(Number.isFinite(curved.x) && Number.isFinite(curved.y) && Number.isFinite(curved.z));
+  assert.ok(Math.hypot(curved.x, curved.z) > 0);
+});
+
+test('surface frame cache invalidates moved centres and stays bounded', () => {
+  const service = new SurfaceFrameService('earth', 2);
+  const first = service.frameForTile('tile-0', 0, 0);
+  const moved = service.frameForTile('tile-0', 32, 0);
+  assert.notEqual(first, moved, 'a moved tile centre must not reuse the previous frame');
+  assert.equal(service.cachedFrameCount, 2);
+
+  service.frameForTile('tile-1', 64, 0);
+  assert.equal(service.cachedFrameCount, 2, 'frame cache must remain bounded');
+  assert.equal(service.frameForTile('tile-0', 32, 0), moved, 'recent frame should remain cached');
+});
+
+test('Manaus tile presentation resolves through the shared surface-frame facade', () => {
+  const matrix = manausTileSceneMatrix('tile-0', 0, 0);
+  assert.ok(matrix.elements.every(Number.isFinite));
+});
+
 test('haversine distance agrees with the local projection over short ranges', () => {
   const a = geodeticFromDegrees(MANAUS_ANCHOR.latDeg, MANAUS_ANCHOR.lonDeg, 0);
   const b = geodeticFromDegrees(-3.1302764, -60.0232792, 0);
@@ -253,4 +285,88 @@ test('degrees only appear at the edges, and bad input never becomes NaN', () => 
   assert.ok(wrapped.lonRad > -Math.PI && wrapped.lonRad <= Math.PI, 'longitude wraps');
   assert.equal(wrapped.heightM, 0);
   assert.ok(Math.abs(wrapped.lonRad - degToRad(40)) < 1e-12, '400 degrees east is 40 degrees east');
+});
+
+
+test('legacyPoseToRenderLocalMatrix builds a right-handed orthonormal basis that aligns with curved colliders', () => {
+  const service = new SurfaceFrameService('earth');
+  const probes: Array<[number, number, number]> = [
+    [0, 0, 0],
+    [-3300, 0, -9600], // Airport
+    [-9533.89, 0, -7412.02], // Ponta Negra
+    [9189.89, 0, -13708.40], // MUSA
+  ];
+
+  for (const [x, y, z] of probes) {
+    const mat = service.legacyPoseToRenderLocalMatrix(x, y, z);
+    const e = mat.elements;
+    // Determinant of upper-left 3x3 rotation block must be +1 (right-handed SO(3), never -1)
+    const det =
+      e[0] * (e[5] * e[10] - e[6] * e[9]) -
+      e[4] * (e[1] * e[10] - e[2] * e[9]) +
+      e[8] * (e[1] * e[6] - e[2] * e[5]);
+    assert.ok(Math.abs(det - 1) < 1e-6, `determinant at (${x},${z}) must be +1, got ${det}`);
+
+    // Translation of pose matrix must match curved collider position exactly
+    const collider = service.legacyColliderToRenderLocal(
+      { id: 'probe', x, y, z, width: 10, height: 10, depth: 10 },
+      { id: '', x: 0, y: 0, z: 0, width: 0, height: 0, depth: 0 },
+    );
+    assert.ok(Math.abs(e[12] - collider.x) < 1e-9);
+    assert.ok(Math.abs(e[13] - collider.y) < 1e-9);
+    assert.ok(Math.abs(e[14] - collider.z) < 1e-9);
+  }
+});
+
+
+test('distant tile building base, road, vehicle wheel, ground and collider coincide within local tolerance (05-MANAUS-FULL-WGS84)', () => {
+  const service = new SurfaceFrameService('earth');
+  const tileSize = 1024;
+  const tx = 9, tz = -13;
+  const originX = tx * tileSize;
+  const originZ = tz * tileSize;
+  const tileFrame = service.frameForTile(`${tx},${tz}`, originX, originZ);
+  const tileMatrix = tileFrame.getSceneMatrix();
+
+  for (const [dx, dz] of [[0, 0], [512, 512], [980, 980]] as const) {
+    const worldX = originX + dx;
+    const worldZ = originZ + dz;
+
+    const buildingBase = tileFrame.legacyToLocal(worldX, 0, worldZ);
+    const buildingRenderX =
+      tileMatrix.elements[0] * buildingBase[0] +
+      tileMatrix.elements[4] * buildingBase[1] +
+      tileMatrix.elements[8] * buildingBase[2] +
+      tileMatrix.elements[12];
+    const buildingRenderY =
+      tileMatrix.elements[1] * buildingBase[0] +
+      tileMatrix.elements[5] * buildingBase[1] +
+      tileMatrix.elements[9] * buildingBase[2] +
+      tileMatrix.elements[13];
+    const buildingRenderZ =
+      tileMatrix.elements[2] * buildingBase[0] +
+      tileMatrix.elements[6] * buildingBase[1] +
+      tileMatrix.elements[10] * buildingBase[2] +
+      tileMatrix.elements[14];
+
+    const groundVertex = service.legacyPointToRenderLocal(worldX, 0, worldZ);
+    const roadVertex = service.legacyPointToRenderLocal(worldX, 0.024, worldZ);
+    const vehicleWheel = service.legacyPointToRenderLocal(worldX, 0.024, worldZ);
+    const collider = service.legacyColliderToRenderLocal(
+      { id: 'test-bldg', x: worldX, y: 10, z: worldZ, width: 14, height: 20, depth: 14 },
+      { id: '', x: 0, y: 0, z: 0, width: 0, height: 0, depth: 0 },
+    );
+    const colliderBaseY = collider.y - collider.height * 0.5;
+
+    const horizDiffM = Math.hypot(buildingRenderX - groundVertex.x, buildingRenderZ - groundVertex.z);
+    const vertDiffM = Math.abs(buildingRenderY - groundVertex.y);
+    const colliderHorizDiffM = Math.hypot(buildingRenderX - collider.x, buildingRenderZ - collider.z);
+    const colliderVertDiffM = Math.abs(buildingRenderY - colliderBaseY);
+
+    assert.ok(horizDiffM < 0.05, `building vs ground horizontal drift at (${dx},${dz}) = ${horizDiffM} m`);
+    assert.ok(vertDiffM < 0.20, `building vs ground vertical drift at (${dx},${dz}) = ${vertDiffM} m`);
+    assert.ok(roadVertex.distanceTo(vehicleWheel) < 1e-6, 'road and vehicle wheel coincide');
+    assert.ok(colliderHorizDiffM < 0.05, `building vs collider horizontal drift = ${colliderHorizDiffM} m`);
+    assert.ok(colliderVertDiffM < 0.25, `building base vs collider base vertical drift = ${colliderVertDiffM} m`);
+  }
 });

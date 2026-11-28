@@ -1,10 +1,13 @@
-import { generateChunk } from '../chunks/BuildingGenerator';
-import type { ChunkPayload, WorkerRequest, WorkerResponse } from '../chunks/Chunk';
+import { WORLD } from '../../core/config';
+import { chunkSeed, generateChunk } from '../chunks/BuildingGenerator';
+import { defaultChunkGenerationContext, type ChunkGenerationContext, type ChunkPayload, type WorkerRequest, type WorkerResponse } from '../chunks/Chunk';
 
 interface Job {
   id: number;
   cx: number;
   cz: number;
+  context: ChunkGenerationContext;
+  seed: number;
   resolve: (payload: ChunkPayload) => void;
   reject: (error: Error) => void;
 }
@@ -16,12 +19,24 @@ interface Slot {
 
 const WORKER_JOB_TIMEOUT_MS = 5000;
 
+/**
+ * Chunk generation workers for a machine: at least two, one more for each two spare logical cores
+ * beyond the main thread and renderer, and never more than the requests allowed in flight.
+ */
+export function chunkWorkerCount(logicalCores: number = globalThis.navigator?.hardwareConcurrency ?? 4): number {
+  const cores = Number.isFinite(logicalCores) ? logicalCores : 4;
+  return Math.max(2, Math.min(WORLD.maxRequests, Math.floor(cores / 2) - 1));
+}
+
 /** Worker output owns its transferred buffers; no copies or geometry objects cross threads. */
 export class GenerationPool {
   private slots: Slot[] = [];
   private sequence = 0;
   private queue: Job[] = [];
   private stopped = false;
+
+  /** Live workers; zero when generation falls back to the main thread. */
+  get workerCount(): number { return this.slots.length; }
 
   constructor(size: number) {
     if (typeof Worker === 'undefined') return;
@@ -32,7 +47,21 @@ export class GenerationPool {
         worker.onmessage = ({ data }: MessageEvent<WorkerResponse>) => {
           if (slot.job?.id !== data.id) return;
           const job = this.releaseSlot(slot);
-          job?.resolve(data.payload);
+          if (!job) return;
+
+          // Reject / drop stale responses if regionId or generationVersion do not match
+          if (data.regionId && data.regionId !== job.context.regionId) {
+            job.reject(new Error(`Worker region mismatch: expected ${job.context.regionId}, got ${data.regionId}`));
+            this.dispatch();
+            return;
+          }
+          if (data.generationVersion !== undefined && data.generationVersion !== job.context.generationVersion) {
+            job.reject(new Error(`Worker generation version mismatch: expected ${job.context.generationVersion}, got ${data.generationVersion}`));
+            this.dispatch();
+            return;
+          }
+
+          job.resolve(data.payload);
           this.dispatch();
         };
         worker.onerror = () => {
@@ -48,12 +77,31 @@ export class GenerationPool {
     }
   }
 
-  generate(cx: number, cz: number): Promise<ChunkPayload> {
+  generate(cx: number, cz: number, context?: ChunkGenerationContext, seed?: number): Promise<ChunkPayload> {
     if (this.stopped) return Promise.reject(new Error('Chunk generation pool is disposed.'));
+    const resolvedContext = context ?? defaultChunkGenerationContext();
+    const resolvedSeed = seed ?? chunkSeed(cx, cz, resolvedContext.seed);
     return new Promise((resolve, reject) => {
-      this.queue.push({ id: ++this.sequence, cx, cz, resolve, reject });
+      this.queue.push({ id: ++this.sequence, cx, cz, context: resolvedContext, seed: resolvedSeed, resolve, reject });
       this.dispatch();
     });
+  }
+
+  /**
+   * Purges pending queued jobs (e.g. during region teleportation).
+   * In-flight worker slots will finish or timeout, but will be discarded by WorldStreamer.
+   */
+  clearQueue(filter?: (context: ChunkGenerationContext) => boolean): void {
+    const error = new Error('Job cancelled due to region change.');
+    const remaining: Job[] = [];
+    for (const job of this.queue) {
+      if (!filter || filter(job.context)) {
+        job.reject(error);
+      } else {
+        remaining.push(job);
+      }
+    }
+    this.queue = remaining;
   }
 
   private dispatch(): void {
@@ -67,7 +115,14 @@ export class GenerationPool {
       if (slot.job || !this.queue.length) continue;
       const job = this.queue.shift()!;
       slot.job = job;
-      const message: WorkerRequest = { type: 'generate', id: job.id, cx: job.cx, cz: job.cz };
+      const message: WorkerRequest = {
+        type: 'generate',
+        id: job.id,
+        cx: job.cx,
+        cz: job.cz,
+        context: job.context,
+        seed: job.seed,
+      };
 
       slot.timeout = setTimeout(() => {
         if (this.stopped || slot.job?.id !== job.id) return;
@@ -109,7 +164,7 @@ export class GenerationPool {
         return;
       }
       try {
-        job.resolve(generateChunk(job.cx, job.cz));
+        job.resolve(generateChunk(job.cx, job.cz, job.context, job.seed));
       } catch (error) {
         job.reject(error instanceof Error ? error : new Error(String(error)));
       }

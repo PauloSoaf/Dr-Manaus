@@ -5,3 +5,5 @@ import '../manaus-aerial.test.ts';
 import '../manaus-surface-authority.test.ts';
 import '../floating-origin-3d.test.ts';
 import '../flight-input.test.ts';
+import '../flight-orientation-polish.test.ts';
+import '../manaus-far-lod.test.ts';

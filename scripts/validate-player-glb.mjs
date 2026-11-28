@@ -11,9 +11,10 @@ const nodes = new Set(root.listNodes());
 for (const animation of animations) for (const channel of animation.listChannels()) {
   if (!nodes.has(channel.getTargetNode())) throw new Error(`${animation.getName()} targets a missing node`);
 }
-for (const name of ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land', 'Punch_Jab', 'Punch_Cross', 'Melee_Hook', 'Kick_Left', 'Kick_Right']) {
+for (const name of ['Idle_Loop', 'Walk_Loop', 'Jog_Fwd_Loop', 'Sprint_Loop', 'Jump_Start', 'Jump_Loop', 'Jump_Land', 'Punch_Jab', 'Punch_Cross', 'Melee_Hook', 'Kick_Front_R', 'Kick_Side_R', 'Kick_Roundhouse_R', 'Guard_Idle_Loop', 'Crouch_Fwd_Loop', 'Driving_Loop', 'Sit_Enter', 'Sit_Exit']) {
   if (!animations.some(animation => animation.getName() === name)) throw new Error(`Missing required clip ${name}`);
 }
+if (animations.some(animation => /^Kick_(Left|Right)$/.test(animation.getName()))) throw new Error('Legacy broken kick retarget is still shipped');
 const names = root.listNodes().map(node => node.getName()).filter(Boolean);
 const duplicate = names.find((name, index) => names.indexOf(name) !== index);
 if (duplicate) throw new Error(`Duplicate node ${duplicate}`);

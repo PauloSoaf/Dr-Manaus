@@ -455,13 +455,15 @@ function roofRise(shape: RoofShape, building: RealBuilding, obb: OBB): number {
   return 0;
 }
 
-function colliderFor(building: RealBuilding, footprint: Footprint, minH: number, height: number): Collider {
+function colliderFor(building: RealBuilding, footprint: Footprint, minH: number, height: number, lowestFoundationY = minH): Collider {
+  const bottom = Math.min(minH, lowestFoundationY);
+  const totalH = (minH + height) - bottom;
   return {
     x: (footprint.minX + footprint.maxX) * .5,
-    y: minH + height * .5,
+    y: bottom + totalH * .5,
     z: (footprint.minZ + footprint.maxZ) * .5,
     width: Math.max(.6, footprint.maxX - footprint.minX),
-    height,
+    height: totalH,
     depth: Math.max(.6, footprint.maxZ - footprint.minZ),
     id: `real:${building.id}`,
   };
@@ -545,11 +547,14 @@ function appendBox(
 export interface NearOptions {
   /** Windows, balconies and air-conditioning units are skipped below this height budget. */
   detail?: boolean;
+  /** Elevation sampler for terrain-adaptive foundation skirts and terracing. */
+  elevationSampler?: (x: number, z: number) => number;
 }
 
 /**
  * Near LOD: plinth, storey-divided facade, recessed window panes that light at night,
  * cornice, optional balconies and air-conditioning units, and a closed roof.
+ * Integrates foundation skirts (RF-10-02) for sloped terrain and igarapé embankments.
  */
 export function appendNearBuilding(buf: MeshBuffers, building: RealBuilding, options: NearOptions = {}): Collider | null {
   const footprint = readFootprint(building.p);
@@ -559,6 +564,20 @@ export function appendNearBuilding(buf: MeshBuffers, building: RealBuilding, opt
   const height = Math.max(2.6, building.h);
   const top = minH + height;
   const obb = orientedBox(footprint.points);
+  const sampler = options.elevationSampler;
+  const ox = building.ox ?? 0;
+  const oz = building.oz ?? 0;
+  let lowestFoundationY = minH;
+
+  let maxTerrainElev = 0;
+  if (sampler) {
+    let maxH = -Infinity;
+    for (const p of footprint.points) {
+      const h = sampler(ox + p.x, oz + p.z);
+      if (h > maxH) maxH = h;
+    }
+    maxTerrainElev = maxH;
+  }
 
   const klass = (building.klass ?? '').toLowerCase();
   const residential = klass.includes('residential') || klass.includes('apart') || klass.includes('house') || !klass;
@@ -584,8 +603,28 @@ export function appendNearBuilding(buf: MeshBuffers, building: RealBuilding, opt
       edge.ax + edge.ex * t + edge.nx * offset, y, edge.az + edge.ez * t + edge.nz * offset,
     ];
 
-    // Backing wall, then the plinth and cornice sit proud of it so they never z-fight.
-    pushQuad(buf, [edge.ax, minH, edge.az], [edge.ax, top, edge.az], [bx, top, bz], [bx, minH, bz], facade, 0, ref);
+    let baseYa = minH;
+    let baseYb = minH;
+    if (sampler) {
+      const hA = sampler(ox + edge.ax, oz + edge.az);
+      const hB = sampler(ox + bx, oz + bz);
+      const dropA = hA - maxTerrainElev;
+      const dropB = hB - maxTerrainElev;
+      baseYa = minH + dropA - 0.6;
+      baseYb = minH + dropB - 0.6;
+      if (baseYa < lowestFoundationY) lowestFoundationY = baseYa;
+      if (baseYb < lowestFoundationY) lowestFoundationY = baseYb;
+    }
+
+    // Backing wall: extends from baseYa/baseYb up to top
+    pushQuad(buf, [edge.ax, baseYa, edge.az], [edge.ax, top, edge.az], [bx, top, bz], [bx, baseYb, bz], facade, 0, ref);
+
+    // Foundation skirt / retaining arrimo under minH if sloping ground
+    if (baseYa < minH || baseYb < minH) {
+      const arrimo = shade(plinth, 0.72);
+      pushQuad(buf, at(0, baseYa, .11), at(0, minH, .11), at(edge.length, minH, .11), at(edge.length, baseYb, .11), arrimo, 0, ref);
+    }
+
     pushQuad(buf, at(0, minH, .09), at(0, plinthTop, .09), at(edge.length, plinthTop, .09), at(edge.length, minH, .09), plinth, 0, ref);
     pushQuad(buf, at(0, plinthTop, .09), at(edge.length, plinthTop, .09), at(edge.length, plinthTop, -.01), at(0, plinthTop, -.01), shade(plinth, 1.12), 0, [0, 1, 0]);
     if (corniceHeight > .2) {
@@ -646,14 +685,15 @@ export function appendNearBuilding(buf: MeshBuffers, building: RealBuilding, opt
   }
 
   appendRoof(buf, footprint, obb, top, shape, deckColor, pitched, trim, seed, roofRise(shape, building, obb));
-  return colliderFor(building, footprint, minH, height);
+  return colliderFor(building, footprint, minH, height, lowestFoundationY);
 }
 
 /**
  * Medium LOD: real footprints with a flat facade colour and a closed roof, no panes or fittings.
  * One order of magnitude cheaper than the near tier and still recognisably the same block.
+ * Integrates foundation skirts (RF-10-02) for sloped terrain.
  */
-export function appendShellBuilding(buf: MeshBuffers, building: RealBuilding): Collider | null {
+export function appendShellBuilding(buf: MeshBuffers, building: RealBuilding, options: NearOptions = {}): Collider | null {
   const footprint = readFootprint(building.p);
   if (!footprint) return null;
   const seed = buildingSeed(building.id);
@@ -664,13 +704,44 @@ export function appendShellBuilding(buf: MeshBuffers, building: RealBuilding): C
   const { facade, pitched, deck: deckColor } = paintFor(building, footprint, seed);
   const obb = orientedBox(footprint.points);
   const shape = roofShapeFor(building, footprint, obb, seed);
+  const sampler = options.elevationSampler;
+  const ox = building.ox ?? 0;
+  const oz = building.oz ?? 0;
+  let lowestFoundationY = minH;
+
+  let maxTerrainElev = 0;
+  if (sampler) {
+    let maxH = -Infinity;
+    for (const p of footprint.points) {
+      const h = sampler(ox + p.x, oz + p.z);
+      if (h > maxH) maxH = h;
+    }
+    maxTerrainElev = maxH;
+  }
 
   for (const edge of footprint.edges) {
     const bx = edge.ax + edge.ex * edge.length, bz = edge.az + edge.ez * edge.length;
+    let baseYa = minH;
+    let baseYb = minH;
+    if (sampler) {
+      const hA = sampler(ox + edge.ax, oz + edge.az);
+      const hB = sampler(ox + bx, oz + bz);
+      const dropA = hA - maxTerrainElev;
+      const dropB = hB - maxTerrainElev;
+      baseYa = minH + dropA - 0.6;
+      baseYb = minH + dropB - 0.6;
+      if (baseYa < lowestFoundationY) lowestFoundationY = baseYa;
+      if (baseYb < lowestFoundationY) lowestFoundationY = baseYb;
+    }
+
     // A darker band at street level keeps the shell from reading as a single flat prism.
     const plinthTop = Math.min(top, minH + Math.min(3, height * .3));
     pushQuad(buf, [edge.ax, plinthTop, edge.az], [edge.ax, top, edge.az], [bx, top, bz], [bx, plinthTop, bz], facade, 0, [edge.nx, 0, edge.nz]);
     pushQuad(buf, [edge.ax, minH, edge.az], [edge.ax, plinthTop, edge.az], [bx, plinthTop, bz], [bx, minH, bz], shade(facade, .74), 0, [edge.nx, 0, edge.nz]);
+
+    if (baseYa < minH || baseYb < minH) {
+      pushQuad(buf, [edge.ax, baseYa, edge.az], [edge.ax, minH, edge.az], [bx, minH, bz], [bx, baseYb, bz], shade(facade, .52), 0, [edge.nx, 0, edge.nz]);
+    }
   }
 
   const simple: RoofShape = shape === 'terrace' ? 'flat' : shape === 'gabled' ? 'gabled' : shape === 'pyramidal' ? 'pyramidal' : shape === 'hipped' ? 'hipped' : 'flat';
@@ -683,7 +754,7 @@ export function appendShellBuilding(buf: MeshBuffers, building: RealBuilding): C
   } else {
     appendRoof(buf, footprint, obb, top, simple, deckColor, pitched, facade, seed, roofRise(simple, building, obb));
   }
-  return colliderFor(building, footprint, minH, height);
+  return colliderFor(building, footprint, minH, height, lowestFoundationY);
 }
 
 /** Every representation shares one footprint reader, so extents agree across tiers. */

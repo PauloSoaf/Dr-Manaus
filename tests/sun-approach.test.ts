@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PerspectiveCamera, Quaternion, Vector3 } from 'three/webgpu';
 import { SOLAR_SYSTEM_BODIES } from '../src/world/celestial/CelestialBody.ts';
-import { bodyArrivalPolicy, bodyProfile } from '../src/world/celestial/CelestialBodyProfile.ts';
+import { bodyArrivalPolicy, bodyProfile, supportsLanding, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2, PROCEDURAL_STAR_PROFILE } from '../src/world/celestial/CelestialBodyProfile.ts';
 import { bodyExclusionEnvelopes, resolveBodyDestination } from '../src/world/travel/BodyNavigation.ts';
 import { CosmicCruiseController, type CosmicCruiseContext } from '../src/world/travel/CosmicFlight.ts';
 import { LIGHT_SPEED_MPS } from '../src/world/travel/TravelConstants.ts';
@@ -11,11 +11,13 @@ import { angularRadiusRad, boundedCelestialProxy } from '../src/rendering/celest
 import { solarDiagnostics, solarPresentation, solarRaySurface } from '../src/rendering/celestial/solarPresentation.ts';
 import { celestialLabelOpacity } from '../src/rendering/celestial/CelestialLabelLayer.ts';
 import type { CelestialRenderSample } from '../src/rendering/celestial/types.ts';
-import type { InterplanetaryState } from '../src/world/travel/TravelDomain.ts';
+import { TravelDomain, type InterplanetaryState } from '../src/world/travel/TravelDomain.ts';
 import { impactFixture } from './helpers/celestial-impact.ts';
 import { CelestialPresentationController } from '../src/rendering/celestial/CelestialPresentationController.ts';
 import { CelestialBodyVisualLayer } from '../src/rendering/celestial/CelestialBodyVisualLayer.ts';
 import { UniverseRuntime } from '../src/world/runtime/UniverseRuntime.ts';
+import { planRockyImpact } from '../src/world/destruction/RockyImpactDestructionPolicy.ts';
+import { surfaceForBody } from '../src/world/planet/BodySurfaceFactory.ts';
 
 const sun=SOLAR_SYSTEM_BODIES.find(b=>b.id==='sun')!,earth=SOLAR_SYSTEM_BODIES.find(b=>b.id==='earth')!;
 const R=sun.equatorialRadiusM,policy=bodyArrivalPolicy(sun),edge=R+policy.exclusionMarginM;
@@ -64,7 +66,327 @@ test('T_SUN_MANUAL_CAN_CONTINUE_AFTER_AUTOPILOT_CANCEL',()=>{const f=flight();f.
 test('T_SUN_C4_CONTACT_USES_NEW_BOUNDARY',()=>{const r=manual(edge+1000,LIGHT_SPEED_MPS*1.001);assert.equal(r.contact?.envelopeRadiusM,edge);assert.ok(Math.abs(r.event.contactSystemPositionM[1]-edge)<1);});
 test('T_SUN_CATASTROPHIC_EVENT_AT_HIGH_SPEED',()=>{const f=impactFixture('sun',LIGHT_SPEED_MPS*1.001);try {f.step();for(let i=0;i<120;i++)f.step();assert.equal(f.event().classification,'CATASTROPHIC_IMPACT');assert.equal(f.game.celestialImpacts.emittedCount,1);}finally{f.dispose();}});
 test('T_SUN_NO_PLANET_VOLUME',()=>{const f=impactFixture('sun');try{const before={...f.universe.volume.metrics};f.universe.volume.edits.add=()=>{throw Error('star must never edit');};f.step();assert.deepEqual(f.universe.volume.metrics,before);assert.equal(bodyProfile(sun).supportsVolumeDestruction,false);}finally{f.dispose();}});
-test('T_SUN_CANLAND_FALSE',()=>assert.equal(bodyProfile(sun).canLand,false));
+test('T_SUN_CAPABILITY_CONSISTENT', () => {
+  const p = bodyProfile(sun);
+  assert.equal(p.canLand, true);
+  assert.equal(p.hasSolidSurface, false);
+  assert.equal(p.landingMode, 'photosphere');
+  assert.equal(supportsLanding(p), 'photosphere');
+});
+
+test('T_SUN_AUTOPILOT_LANDING_POLICY', () => {
+  const f = flight();
+  assert.equal(f.controller.autopilot.phase, 'arrived');
+  // Autopilot without explicit landing intent captures and holds at standoff (captureRadius = R + arrivalMarginM)
+  assert.ok(Math.abs(f.state.positionM[1] - R - policy.arrivalMarginM) < 4);
+  assert.equal(policy.arrivalMarginM, 20_871_000);
+  assert.ok(f.minimum >= R + policy.arrivalMarginM, 'Autopilot does not descend to photosphere without explicit intent');
+});
+
+test('T_SUN_EXPLICIT_F_LANDING_INTENT', () => {
+  const f = impactFixture('sun', 200);
+  try {
+    // Place player in solar orbital standoff within capture range (< 30,000 km)
+    f.place(20_000_000, 200);
+    // Real KeyF command pressed
+    f.held.add('KeyF');
+    f.gameStep(1 / 60);
+
+    assert.equal(f.game.landingIntent.active, true, 'Landing intent is activated by KeyF');
+    assert.equal(f.game.landingIntent.bodyId, 'sun', 'Landing intent targets the Sun');
+    assert.equal(f.game.landingIntent.phase, 'capture', 'Landing intent enters capture phase');
+    for (let i = 0; i < 30; i++) f.step();
+    assert.ok(f.travelDomain.state);
+  } finally {
+    f.dispose();
+  }
+});
+
+test('T_SUN_FULL_E2E_LANDING_AND_TAKEOFF_CYCLE', () => {
+  const f = impactFixture('sun', 200);
+  try {
+    // 1. Interplanetary cruise approaching Sun at 7,500m altitude (outside 7,000m return gate, within 30,000 km capture limit)
+    f.place(R + 7_500, 60);
+    assert.equal(f.travelDomain.kind, 'interplanetary');
+    assert.equal(f.universe.telemetry.dominantBody, 'sun');
+    assert.ok(Math.abs(f.universe.telemetry.altitudeM - 7_500) < 5);
+
+    // 2. Real user key press: KeyF engages landing intent
+    f.held.add('KeyF');
+    f.gameStep(1 / 60);
+    f.held.delete('KeyF');
+
+    assert.equal(f.game.landingIntent.active, true, 'KeyF must trigger active landing intent');
+    assert.equal(f.game.landingIntent.bodyId, 'sun', 'Target must be Sun');
+    assert.equal(f.game.landingIntent.phase, 'capture');
+
+    // 3. Autonomous descent guided purely by CosmicCruiseController & LandingIntent through the 7,000m return gate (no f.place shortcuts!)
+    for (let step = 0; step < 240 && f.travelDomain.kind === 'interplanetary'; step++) {
+      f.gameStep(1 / 60);
+    }
+
+    // 4. Photosphere arrival and handoff
+    assert.equal(f.travelDomain.kind, 'local', 'Handoff to local simulation completed');
+    assert.equal(f.universe.player.frame, 'sun/local-enu', 'Player handed off to Sun local ENU frame');
+    assert.equal(f.game.physicsDomain, 'sun', 'Physics domain is bound to sun');
+    assert.equal(f.game.district, 'FOTOSFERA', 'District identifier set to FOTOSFERA');
+    assert.equal(f.game.player.gravity, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2, 'Buoyancy gravity applied');
+    assert.ok(f.game.player.position.toArray().every(Number.isFinite), 'Photosphere position coordinates are finite');
+
+    // 5. Player local movement on photospheric surface driven purely by character locomotion input (no manual position mutation!)
+    f.held.add('KeyW');
+    for (let i = 0; i < 20; i++) f.gameStep(1 / 60);
+    f.held.delete('KeyW');
+    assert.ok(f.game.player.position.length() > 0, 'Player displaced across surface plane via movement input');
+    assert.equal(f.universe.player.frame, 'sun/local-enu', 'Remains on sun/local-enu during surface walk');
+
+    // 6. Player takeoff using genuine player flight controls (no direct travelDomain.update calls!):
+    // a) KeyF to engage hover/flight mode
+    f.held.add('KeyF');
+    f.gameStep(1 / 60);
+    f.held.delete('KeyF');
+    assert.ok(f.game.player.state === 'Hover' || f.game.player.state === 'Flight', 'Player enters flight state');
+
+    // b) Double-tap KeyV to arm interplanetary flight tier
+    f.held.add('KeyV'); f.gameStep(0.05); f.held.delete('KeyV');
+    f.held.add('KeyV'); f.gameStep(0.05); f.held.delete('KeyV');
+    assert.equal(f.game.player.armed, 'interplanetary', 'Interplanetary tier armed');
+    assert.equal(f.game.player.interplanetaryMode, true, 'Interplanetary flight mode active');
+
+    // c) Hold Space (vertical climb) + KeyB (boost) to accelerate past departure gate (>= 9,000m)
+    f.held.add('Space');
+    f.held.add('KeyB');
+    for (let i = 0; i < 240 && f.travelDomain.kind === 'local'; i++) {
+      f.gameStep(1 / 60);
+    }
+    f.held.delete('Space');
+    f.held.delete('KeyB');
+
+    assert.equal(f.travelDomain.kind, 'interplanetary', 'Takeoff successfully departs from photospheric surface to space');
+    assert.ok(f.travelDomain.state, 'Interplanetary state active');
+    assert.equal(f.universe.telemetry.dominantBody, 'sun');
+  } finally {
+    f.dispose();
+  }
+});
+
+test('T_SUN_FAR_APPROACH_LANDING_AND_TAKEOFF_CYCLE', () => {
+  const f = impactFixture('sun', 200);
+  try {
+    // 1. Start far away at 25,000 km orbital altitude (standoff range > 20,000 km)
+    f.place(R + 25_000_000, 200);
+    assert.equal(f.travelDomain.kind, 'interplanetary');
+    assert.equal(f.universe.telemetry.dominantBody, 'sun');
+    assert.ok(f.universe.telemetry.altitudeM > 24_000_000);
+
+    // 2. Real user command: KeyF initiates landing intent from cosmic standoff distance
+    f.held.add('KeyF');
+    f.gameStep(1 / 60);
+    f.held.delete('KeyF');
+
+    assert.equal(f.game.landingIntent.active, true, 'Landing intent must engage from 25,000 km');
+    assert.equal(f.game.landingIntent.bodyId, 'sun');
+
+    // 3. Autonomous descent guided by CosmicCruiseController & LandingIntent crossing 100 km boundary down to return gate
+    for (let step = 0; step < 700 && f.travelDomain.kind === 'interplanetary'; step++) {
+      f.gameStep(0.2);
+    }
+
+    // 4. Safe handoff to solar local ENU
+    assert.equal(f.travelDomain.kind, 'local', 'Handoff to local simulation completed from far approach');
+    assert.equal(f.universe.player.frame, 'sun/local-enu', 'Player in sun/local-enu');
+    assert.equal(f.game.physicsDomain, 'sun', 'Physics domain is sun');
+    assert.equal(f.game.district, 'FOTOSFERA', 'District is FOTOSFERA');
+    assert.equal(f.game.player.gravity, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2, 'Photospheric buoyancy gravity active');
+    assert.ok(f.game.photosphereGround.group.visible, 'Photosphere surface ground visual is active and visible');
+
+    // 5. Character locomotion on the surface
+    f.held.add('KeyW');
+    for (let i = 0; i < 20; i++) f.gameStep(1 / 60);
+    f.held.delete('KeyW');
+    assert.ok(f.game.player.position.length() > 0, 'Player moves across the photosphere');
+
+    // 6. Character takeoff back to space
+    f.held.add('KeyF');
+    f.gameStep(1 / 60);
+    f.held.delete('KeyF');
+    assert.ok(f.game.player.state === 'Hover' || f.game.player.state === 'Flight', 'Enters flight mode');
+
+    f.held.add('KeyV'); f.gameStep(0.05); f.held.delete('KeyV');
+    f.held.add('KeyV'); f.gameStep(0.05); f.held.delete('KeyV');
+    assert.equal(f.game.player.interplanetaryMode, true, 'Interplanetary flight tier armed');
+
+    f.held.add('Space');
+    f.held.add('KeyB');
+    for (let i = 0; i < 240 && f.travelDomain.kind === 'local'; i++) {
+      f.gameStep(1 / 60);
+    }
+    f.held.delete('Space');
+    f.held.delete('KeyB');
+
+    assert.equal(f.travelDomain.kind, 'interplanetary', 'Takeoff successfully returns to interplanetary space');
+  } finally {
+    f.dispose();
+  }
+});
+
+test('T_SUN_NOT_ROCKY', () => {
+  const p = bodyProfile(sun);
+  assert.equal(p.hasSolidSurface, false);
+  assert.equal(p.surfaceKind, 'none');
+  assert.equal(surfaceForBody(sun), undefined);
+});
+
+test('T_SUN_PHOTOSPHERE_RADIUS_695700KM', () => {
+  assert.equal(sun.equatorialRadiusM, 695_700_000);
+  assert.equal(R, 695_700_000);
+});
+
+test('T_SUN_GAMEPLAY_GRAVITY_EXPLICIT', () => {
+  assert.equal(PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2, 9.80665);
+  // Verify it is explicit gameplay buoyancy policy, NOT the lethal 274 m/s² gravitational field
+  assert.ok(PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2 < 20.0);
+});
+
+test('T_GENERIC_PROCEDURAL_STARS_NOT_LANDABLE', () => {
+  const genericStar = {
+    id: 'procedural_star_hd12345',
+    name: 'HD 12345',
+    frameId: 'system/hd12345',
+    equatorialRadiusM: 800_000_000,
+    massKg: 2e30,
+    axialTiltRad: 0,
+    rotationPeriodS: 2_000_000,
+  };
+  const profile = bodyProfile(genericStar as any);
+  assert.equal(profile.bodyClass, 'star');
+  assert.equal(profile.canLand, false, 'Generic procedural stars must not be landable');
+  assert.equal(profile.landingMode, 'none', 'Generic procedural stars landingMode is none');
+  assert.equal(supportsLanding(profile), 'none');
+});
+
+test('T_SUN_PHOTOSPHERE_CONTACT_NO_BOUNCE', () => {
+  const r = manual(edge + 1000, LIGHT_SPEED_MPS);
+  assert.ok(Math.hypot(...r.velocity) < 0.001);
+  assert.equal(r.contact?.responseRadialSpeedMps, 0);
+});
+
+test('T_SUN_ACTUAL_LOCAL_HANDOFF', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    const entryPos: [number, number, number] = [sunCentre[0], sunCentre[1] + R + 5000, sunCentre[2]];
+    u.updateSystemPose(entryPos, [0, 0, 0], 0);
+    const domain = new TravelDomain();
+    domain.enterSystem({ systemId: 'sol', positionM: entryPos, velocityMps: [0, 0, 0] });
+    const trans = domain.update({
+      altitudeM: 5000,
+      speedMps: 20,
+      radialSpeedMps: -20,
+      requested: false,
+      nearestColliderM: Infinity,
+      bodyRadiusM: R,
+      bodyId: 'sun',
+      surfaceReady: true,
+    }, 1 / 60);
+    assert.equal(trans.kind, 'returned');
+    const localPos = u.handoffTo('sun');
+    assert.equal(u.player.frame, 'sun/local-enu');
+    assert.ok(localPos.every(Number.isFinite));
+    assert.ok(Math.abs(localPos[1] - 5000) < 1);
+  } finally {
+    u.dispose();
+  }
+});
+
+test('T_SUN_PHOTOSPHERE_GROUND_CONTACT', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    u.updateSystemPose([sunCentre[0], sunCentre[1] + R, sunCentre[2]], [0, 0, 0], 0);
+    const localPos = u.handoffTo('sun');
+    assert.equal(u.player.frame, 'sun/local-enu');
+    assert.ok(localPos.every(Number.isFinite));
+    assert.ok(Math.abs(localPos[1]) < 0.1, 'Character is placed on the photospheric surface plane at y=0');
+  } finally {
+    u.dispose();
+  }
+});
+
+test('T_SUN_PHOTOSPHERE_MOVEMENT', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    u.updateSystemPose([sunCentre[0], sunCentre[1] + R, sunCentre[2]], [0, 0, 0], 0);
+    u.handoffTo('sun');
+    assert.equal(u.player.frame, 'sun/local-enu');
+    // Move 100m east (+X) and 50m south (+Z) on the photospheric ENU plane
+    u.player.position[0] += 100;
+    u.player.position[2] += 50;
+    assert.ok(u.player.position.every(Number.isFinite));
+    const loc = u.location;
+    assert.equal(loc.frameId, 'sun/local-enu');
+  } finally {
+    u.dispose();
+  }
+});
+
+test('T_SUN_TANGENT_FRAME_FINITE', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    u.updateSystemPose([sunCentre[0], sunCentre[1] + R + 100, sunCentre[2]], [0, 0, 0], 0);
+    const pos = u.handoffTo('sun');
+    assert.ok(pos.every(Number.isFinite));
+    const frame = u.frames.get('sun/local-enu')!;
+    assert.ok(frame.originInParent.every(Number.isFinite));
+    assert.ok(frame.rotationToParent.every(Number.isFinite));
+  } finally {
+    u.dispose();
+  }
+});
+
+test('T_SUN_PHOTOSPHERE_TAKEOFF', () => {
+  const u = new UniverseRuntime({ epochS: 0 });
+  try {
+    const sunCentre = u.activeSystem.positionOf('sun')!;
+    u.updateSystemPose([sunCentre[0], sunCentre[1] + R + 100, sunCentre[2]], [0, 0, 0], 0);
+    u.handoffTo('sun');
+    assert.equal(u.player.frame, 'sun/local-enu');
+    const domain = new TravelDomain();
+    const refused = domain.update({ altitudeM: 100, speedMps: 500, requested: true, nearestColliderM: Infinity, bodyRadiusM: R }, 1 / 60);
+    assert.equal(refused.kind, 'refused');
+    const departed = domain.update({ altitudeM: 10_000, speedMps: 2500, requested: true, nearestColliderM: Infinity, bodyRadiusM: R,
+      entryPositionM: [sunCentre[0], sunCentre[1] + R + 10_000, sunCentre[2]], entryVelocityMps: [0, 2500, 0] }, 1 / 60);
+    assert.equal(departed.kind, 'departed');
+    assert.equal(domain.kind, 'interplanetary');
+  } finally {
+    u.dispose();
+  }
+});
+
+test('T_SUN_NO_CRATER', () => {
+  const p = bodyProfile(sun);
+  assert.equal(p.supportsVolumeDestruction, false);
+  const plan = planRockyImpact({
+    eventId: 'impact-sun-1',
+    bodyId: 'sun',
+    contactSystemPositionM: [0, R, 0],
+    contactBodyFixedM: [0, R, 0],
+    classification: 'MAJOR_IMPACT',
+    relativeSpeedMps: 5000,
+    inwardRadialSpeedMps: 5000,
+    tangentialSpeedMps: 0,
+    kineticEnergyJoules: 1e12,
+  } as any, sun, p, undefined as any);
+  assert.equal(plan, null);
+});
+
+test('T_SUN_256C_CCD_PRESERVED', () => {
+  const r = manual(5 * R, LIGHT_SPEED_MPS * 256, 0.25);
+  assert.ok(r.contact, 'CCD detects contact even at 256c');
+  assert.ok(Math.hypot(...r.position.map((v, i) => v - r.centre[i])) >= edge, 'Does not tunnel through photospheric exclusion boundary');
+});
 test('T_SUN_ANGULAR_SIZE_MONOTONIC',()=>{let previous=0;for(const d of [149597870700,10*R,5*R,2*R,1.5*R,1.1*R,1.03*R,edge]){const angle=angularRadiusRad(R,d);assert.ok(Number.isFinite(angle)&&angle>previous);previous=angle;}});
 for(const [name,d] of [['1AU_SIZE_FINITE',149597870700],['10R_SIZE',10*R],['5R_SIZE',5*R],['2R_SIZE',2*R],['1_5R_SIZE',1.5*R],['1_1R_SIZE',1.1*R],['1_03R_SIZE',1.03*R],['NEAR_PHOTOSPHERE_SIZE_FINITE',edge]] as const) {
   test(`T_SUN_${name}`,()=>{const s=sample(d),angle=s.angularRadiusRad;assert.ok(Number.isFinite(s.physicalProjectedDiameterPx));

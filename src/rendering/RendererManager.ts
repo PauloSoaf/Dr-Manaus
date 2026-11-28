@@ -38,11 +38,30 @@ export class RendererManager {
     this.backend = 'isWebGPUBackend' in this.renderer.backend ? 'WebGPU' : 'WebGL 2';
   }
   resize = () => {
-    this.camera.aspect = innerWidth / innerHeight;
+    const w = typeof innerWidth === 'number' && innerWidth > 0 ? innerWidth : 1920;
+    const h = typeof innerHeight === 'number' && innerHeight > 0 ? innerHeight : 1080;
+    const dpr = typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? devicePixelRatio : 1;
+    this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, QUALITY[this.preset].pixelRatio) * this.renderScale);
-    this.renderer.setSize(innerWidth, innerHeight);
+    this.renderer.setPixelRatio(Math.min(dpr, QUALITY[this.preset].pixelRatio) * this.renderScale);
+    this.renderer.setSize(w, h);
   };
+  get resolutionDiagnostics() {
+    const cssWidthPx = typeof innerWidth === 'number' && innerWidth > 0 ? innerWidth : 1920;
+    const cssHeightPx = typeof innerHeight === 'number' && innerHeight > 0 ? innerHeight : 1080;
+    const dpr = typeof devicePixelRatio === 'number' && devicePixelRatio > 0 ? devicePixelRatio : 1;
+    const effectivePixelRatio = Math.min(dpr, QUALITY[this.preset].pixelRatio) * this.renderScale;
+    return {
+      backend: this.backend,
+      preset: this.preset,
+      renderScale: this.renderScale,
+      effectivePixelRatio,
+      internalWidthPx: Math.round(cssWidthPx * effectivePixelRatio),
+      internalHeightPx: Math.round(cssHeightPx * effectivePixelRatio),
+      cssWidthPx,
+      cssHeightPx,
+    };
+  }
   setQuality(preset: QualityPreset) { this.preset = preset; this.applyShadows(); this.resize(); }
   setShadows(allowed: boolean) { this.shadowsAllowed = allowed; this.applyShadows(); }
   private applyShadows() { this.renderer.shadowMap.enabled = this.shadowsAllowed && QUALITY[this.preset].shadows; }

@@ -15,12 +15,25 @@ const HOVER_SWAY = 0.045;
 
 export type DodgePose = 'roll' | 'airDash' | null;
 
+export type SwimmingVisualState =
+  | 'None'
+  | 'Wading'
+  | 'SwimmingSurfaceIdle'
+  | 'SwimmingSurfaceForward'
+  | 'SwimmingDive'
+  | 'SwimmingAscend'
+  | 'SwimmingUnderwaterIdle'
+  | 'SwimmingExit';
+
 export interface AnimationUpdateParams {
   speed: number;
   verticalSpeed: number;
   velocity: Vector3;
   flying: boolean;
   grounded: boolean;
+  swimming?: boolean;
+  wading?: boolean;
+  swimmingState?: SwimmingVisualState;
   boosting: boolean;
   size: number;
   turn: number;
@@ -43,11 +56,13 @@ export interface AnimationDebugState {
   movePhase: MovePhase; boneMask: BoneMaskName; jumpCount: number; doubleJumpProgress: number;
   flipDirection: FlipDirection; flightAlignment: number; rootPitch: number; rootBank: number;
   velocityDir: Vector3; flightMode: FlightMode; upright: number; flipPhase: FlipPhase; dodge: DodgePose;
+  swimmingState?: SwimmingVisualState;
 }
 
 /**
- * Gameplay animation state only. Bone poses are owned by CharacterAnimator and
- * native THREE.AnimationClips; this class never writes to skeleton transforms.
+ * Gameplay animation state only: root orientation (flight, somersault), combat move timing and
+ * events. Bone poses are owned by CharacterAnimator's graph of authored clips; this class never
+ * writes to skeleton transforms (the old procedural spine aim was removed for that reason).
  */
 export class AnimationController {
   readonly events = new AnimationEvents();
@@ -78,6 +93,11 @@ export class AnimationController {
   private flipPhaseName: FlipPhase = 'recovery';
   private flipTuckAmount = 0;
   private dodgePose: DodgePose = null;
+  private swimmingState: SwimmingVisualState = 'None';
+  private swimPitch = 0;
+  private swimVisualLift = 0;
+  private readonly qSwimPitch = new Quaternion();
+  private readonly swimPitchAxis = new Vector3(1, 0, 0);
 
   get isDoubleJumping(): boolean { return this.doubleJump.active; }
   get doubleJumpProgress(): number { return this.doubleJump.progress; }
@@ -86,10 +106,12 @@ export class AnimationController {
   /** 0 is belly-down flight, 1 is standing in the air. Driven by speed *and* intent. */
   get uprightAmount(): number { return this.upright; }
   get currentFlightMode(): FlightMode { return this.flightMode; }
+  get currentFlightPose(): FlightPoseName { return this.flightPose; }
   get currentFlipPhase(): FlipPhase { return this.flipPhaseName; }
   /** How settled the hover is, 0 to 1. Drives both the sway and the at-ease posture. */
   get restAmount(): number { return this.restPose; }
   get flipTuckAmountNow(): number { return this.flipTuckAmount; }
+  get currentSwimmingState(): SwimmingVisualState { return this.swimmingState; }
   get debugState(): AnimationDebugState {
     const total = this.currentMove ? this.currentMove.startup + this.currentMove.active + this.currentMove.recovery : 1;
     return {
@@ -106,6 +128,7 @@ export class AnimationController {
       flightAlignment: this.debugAlignment, rootPitch: this.debugPitch, rootBank: this.debugBank,
       velocityDir: this.debugVelocityDir, flightMode: this.flightMode, upright: this.upright,
       flipPhase: this.flipPhaseName, dodge: this.dodgePose,
+      swimmingState: this.swimmingState,
     };
   }
 
@@ -163,13 +186,33 @@ export class AnimationController {
       : this.dodgePose === 'airDash' ? 'dash'
       : this.takeoffTimer > 0 ? 'takeoff'
       : this.flightMode === 'braking' && this.upright > 0.28 ? 'braking'
+      : params.speedMode === 'interplanetary' ? 'interplanetary'
       : params.speedMode === 'mega' ? 'mega'
       : params.speedMode === 'super' ? 'super'
       : params.speedMode === 'fast' ? 'fast'
       : this.flightMode === 'hover' ? 'hover' : 'cruise';
 
     const facingYaw = params.facingYaw ?? 0;
+    const isSwimming = Boolean(params.swimming) && !params.flying;
+    if (isSwimming) {
+      if (params.swimmingState && params.swimmingState !== 'None' && params.swimmingState !== 'Wading' && params.swimmingState !== 'SwimmingExit') {
+        this.swimmingState = params.swimmingState;
+      } else if (params.verticalSpeed < -0.5) {
+        this.swimmingState = 'SwimmingDive';
+      } else if (params.verticalSpeed > 0.5) {
+        this.swimmingState = 'SwimmingAscend';
+      } else if (params.speed > 0.35) {
+        this.swimmingState = 'SwimmingSurfaceForward';
+      } else {
+        this.swimmingState = 'SwimmingSurfaceIdle';
+      }
+    } else {
+      this.swimmingState = params.swimmingState ?? (params.wading ? 'Wading' : 'None');
+    }
+
     if (params.flying) {
+      this.swimPitch = 0;
+      this.qSwimPitch.identity();
       computeFlightOrientation(params.velocity, this.baseOrientation, dt, params.turn, params.speedMode ?? 'normal', this.baseOrientation, facingYaw, this.upright);
       tmpHead.set(0, 1, 0).applyQuaternion(this.baseOrientation);
       if (speed > 1e-4) {
@@ -183,10 +226,52 @@ export class AnimationController {
       this.debugBank = params.turn * (1 - this.upright);
       tmpEuler.setFromQuaternion(this.baseOrientation, 'YXZ');
       this.debugPitch = tmpEuler.x;
+    } else if (isSwimming) {
+      this.targetYaw.setFromAxisAngle(up, facingYaw);
+      this.baseOrientation.slerp(this.targetYaw, 1 - Math.exp(-dt * 10));
+      // In flightRoot local space (-Z forward, +Y up, +X right):
+      // Positive X rotation tilts the forward (-Z) head UPWARD; negative X rotation tilts the head DOWNWARD.
+      // Swim_Fwd_Loop has a baked -11 deg (-0.19 rad) downward spine tilt, so +0.22 rad levels the swimmer at the surface.
+      let targetSwimPitch = 0;
+      if (this.swimmingState === 'SwimmingDive') {
+        targetSwimPitch = -Math.min(0.45, Math.max(0.24, Math.abs(params.verticalSpeed) * 0.06));
+      } else if (this.swimmingState === 'SwimmingAscend') {
+        targetSwimPitch = Math.min(0.58, Math.max(0.32, Math.abs(params.verticalSpeed) * 0.07 + 0.22));
+      } else if (this.swimmingState === 'SwimmingSurfaceForward') {
+        targetSwimPitch = 0.22;
+      }
+      this.swimPitch += (targetSwimPitch - this.swimPitch) * (1 - Math.exp(-dt * 8));
+      this.qSwimPitch.setFromAxisAngle(this.swimPitchAxis, this.swimPitch);
+      this.debugAlignment = 1;
+      this.debugBank = 0;
+      this.debugPitch = this.swimPitch;
     } else {
+      this.swimPitch *= Math.exp(-dt * 14);
+      if (Math.abs(this.swimPitch) < 1e-4) {
+        this.swimPitch = 0;
+        this.qSwimPitch.identity();
+      } else {
+        this.qSwimPitch.setFromAxisAngle(this.swimPitchAxis, this.swimPitch);
+      }
       this.targetYaw.setFromAxisAngle(up, facingYaw);
       this.baseOrientation.slerp(this.targetYaw, 1 - Math.exp(-dt * 12));
       this.debugAlignment = 1; this.debugBank = 0; this.debugPitch = 0;
+    }
+
+    // Quaternius authored Swim_Idle_Loop (pelvis.z = -0.297) and Swim_Fwd_Loop (pelvis.z = -0.045)
+    // with root (0,0,0) at the water surface rather than at the soles of the feet (Idle_Loop pelvis.z = +0.91).
+    // Compensate visualRoot height while swimming so the character's head/shoulders sit at the water surface
+    // while the physical capsule feet remain at `player.position.y = surfaceY - 1.18 * size`.
+    if (isSwimming) {
+      const targetLift = (this.swimmingState === 'SwimmingSurfaceIdle' || this.swimmingState === 'SwimmingUnderwaterIdle')
+        ? 1.22
+        : 1.12;
+      this.swimVisualLift += (targetLift - this.swimVisualLift) * (1 - Math.exp(-dt * 10));
+    } else if (params.grounded || params.flying) {
+      this.swimVisualLift = 0;
+    } else {
+      this.swimVisualLift *= Math.exp(-dt * 12);
+      if (this.swimVisualLift < 1e-3) this.swimVisualLift = 0;
     }
 
     // Resting in the air is the one state with nothing else moving the body, so it gets a slow
@@ -196,26 +281,55 @@ export class AnimationController {
       // A strike or an evade owns the whole body. Easing the posture out instead of dropping it
       // lets the at-ease pose fight the first frames of a kick, which bends the leg sideways.
       this.restPose = 0;
+      this.bodyOffset.y = this.swimVisualLift;
     } else if (params.flying) {
       const resting = this.upright * (1 - Math.min(1, speed / 12));
       this.restPose += (resting - this.restPose) * (1 - Math.exp(-dt * 5));
       if (this.restPose > 0.002) this.bodyOffset.y = Math.sin(this.hoverTime * 1.15) * HOVER_SWAY * this.restPose;
+    } else if (isSwimming) {
+      this.restPose += (1 - this.restPose) * (1 - Math.exp(-dt * 5));
+      const bob = (this.swimmingState === 'SwimmingSurfaceIdle' || this.swimmingState === 'SwimmingUnderwaterIdle')
+        ? Math.sin(this.hoverTime * 1.65) * 0.032 * this.restPose
+        : Math.sin(this.hoverTime * 2.4) * 0.018 * this.restPose;
+      this.bodyOffset.y = this.swimVisualLift + bob;
     } else {
       // Feet on the ground means exactly zero offset. Decaying it instead would leave the
       // character standing a few centimetres above or below the surface for a third of a second.
       this.restPose = 0;
+      this.bodyOffset.y = this.swimVisualLift;
     }
 
     this.updateDoubleJump(dt);
-    this.rootOrientation.copy(this.baseOrientation).multiply(this.qFlip);
+    this.rootOrientation.copy(this.baseOrientation).multiply(this.qSwimPitch).multiply(this.qFlip);
+    const hasExplicitSwimState = params.swimmingState !== undefined && params.swimmingState !== 'None';
+    const swimClipName = (
+      hasExplicitSwimState
+        ? (this.swimmingState === 'SwimmingSurfaceForward' || this.swimmingState === 'SwimmingDive' || this.swimmingState === 'SwimmingAscend')
+        : (params.speed > 0.35 || Math.abs(params.verticalSpeed) > 0.45)
+    ) ? 'Swim_Fwd_Loop' : 'Swim_Idle_Loop';
     this.locomotion = this.dodgePose ? this.dodgePose
       : this.doubleJump.active ? 'doubleJump'
       : params.flying ? this.flightPose
+      : isSwimming ? swimClipName
       : !params.grounded ? 'airborne'
       : params.speed > 8 ? 'run' : params.speed > 0.4 ? 'walk' : 'idle';
     this.locomotionTime += dt;
     this.updateCombat(dt * (params.combatTimeFactor ?? 1));
   }
+
+  /**
+   * Root motion: the clip turned the body by `delta` radians this frame. The base orientation turns
+   * with it immediately so the smoothing toward the facing never lags behind an authored spin.
+   */
+  applyRootYaw(delta: number): void {
+    if (!delta) return;
+    this.targetYaw.setFromAxisAngle(up, delta);
+    this.baseOrientation.premultiply(this.targetYaw);
+    this.rootOrientation.copy(this.baseOrientation).multiply(this.qSwimPitch).multiply(this.qFlip);
+  }
+
+  /** Severity of the last landing, for the animator's landing choice. */
+  get lastLandingTier(): LandingTier { return this.landingTier; }
 
   private updateDoubleJump(dt: number): void {
     if (!this.doubleJump.active) { this.qFlip.identity(); this.flipTuckAmount = 0; return; }

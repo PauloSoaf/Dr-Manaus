@@ -3,6 +3,10 @@ import type { Collider, Target } from '../core/types';
 import { isLand, LANDMARKS } from '../world/geodata/geodata';
 import { PhysicsWorld } from '../physics/PhysicsWorld';
 import { IMPACT, type ImpactFootprint } from '../player/combat/MeteorImpact';
+import { localManausPresentationMode } from '../world/spatial/ManausSurfacePresentation';
+import { SurfaceFrameService } from '../world/spatial/SurfaceFrameService';
+import { FastSpatialGrid2D } from '../world/spatial/FastSpatialGrid2D';
+
 interface Body extends Target { base: Vector3; velocity: Vector3; index: number; angle: number; chunk: string }
 export interface NpcBody { id: string; index: number; base: Vector3; position: Vector3; velocity: Vector3; active: boolean; state: 'walking'|'fleeing'|'knocked'|'disabled'; timer: number }
 const hash=(n:number)=>{const x=Math.sin(n*127.1+311.7)*43758.5453;return x-Math.floor(x);};
@@ -13,10 +17,15 @@ export class PopulationManager {
   readonly npcs: NpcBody[]=[];
   readonly destroyed=new Set<string>();
   readonly colliders:Collider[]=[];
+  readonly presented = new Set<number>();
+  readonly held = new Set<string>();
   npcCount=24; reaction=0; vehicleCount=16;
   private props:InstancedMesh; private people:InstancedMesh; private heads:InstancedMesh;
   private dummy=new Object3D(); private color=new Color(); private cell=''; private elapsed=0;
-  constructor(root:Group){
+  private gaspCooldown = 0;
+  private readonly surfaceService = new SurfaceFrameService('earth');
+  private readonly spatialGrid = new FastSpatialGrid2D(4000, 16, NPC_CAPACITY);
+  constructor(root:Group, private readonly onGasp?: () => void){
     this.props=new InstancedMesh(new BoxGeometry(1,1,1),new MeshStandardMaterial({color:'#ba8a56',roughness:.8}),48);
     this.people=new InstancedMesh(new CapsuleGeometry(.28,.9,3,6),new MeshStandardMaterial({roughness:.9}),NPC_CAPACITY);
     this.heads=new InstancedMesh(new SphereGeometry(.19,6,5),new MeshStandardMaterial({color:'#a07555'}),NPC_CAPACITY);
@@ -88,26 +97,63 @@ export class PopulationManager {
     if(body.position.y<=movedFloor){body.position.y=movedFloor;body.velocity.y=0;}
     const damp=Math.exp(-dt*2);body.velocity.x*=damp;body.velocity.z*=damp;
   }
-  update(dt:number,player:Vector3,size:number){
+  update(dt:number,player:Vector3,size:number,playerVelocity?:Vector3){
+    if (!Number.isFinite(player.x + player.y + player.z)) return;
+    dt = Number.isFinite(dt) ? Math.min(Math.max(dt, 0), .25) : 0;
     this.seed(player);this.elapsed+=dt;this.reaction=Math.max(0,this.reaction-dt);this.colliders.length=0;
+    this.gaspCooldown=Math.max(0,this.gaspCooldown-dt);
+    const curved = localManausPresentationMode() === 'curved';
+    const playerSpeed = playerVelocity ? playerVelocity.length() : 0;
+    const isSupersonicFlyby = Number.isFinite(playerSpeed) && playerSpeed > 28;
+
+    // Fast Spatial Grid pre-pass for pedestrian crowd separation
+    this.spatialGrid.clear();
+    for (const npc of this.npcs) {
+      if (npc.active) {
+        this.spatialGrid.insert(npc.index, npc.position.x, npc.position.z);
+      }
+    }
+
     for(const body of this.targets){
       const enabled=body.active&&Math.abs(player.y-body.position.y)<250;
-      if(enabled){this.advance(body,dt,.7);body.angle+=dt*body.velocity.length()*.07;this.colliders.push({x:body.position.x,y:body.position.y,z:body.position.z,width:1.2,height:1.4,depth:1.2,id:body.id,category:'fragile'});}
-      this.dummy.position.copy(body.position);this.dummy.rotation.set(0,body.angle,0);this.dummy.scale.setScalar(enabled?1.2:0);this.dummy.updateMatrix();this.props.setMatrixAt(body.index,this.dummy.matrix);
+      if(enabled){
+        if(isSupersonicFlyby&&Math.abs(player.y-body.position.y)<18&&Math.hypot(body.position.x-player.x,body.position.z-player.z)<18){
+          body.velocity.x+=playerVelocity!.x*0.02;body.velocity.z+=playerVelocity!.z*0.02;
+        }
+        this.advance(body,dt,.7);body.angle+=dt*body.velocity.length()*.07;this.colliders.push({x:body.position.x,y:body.position.y,z:body.position.z,width:1.2,height:1.4,depth:1.2,id:body.id,category:'fragile'});
+      }
+      const renderPos = curved ? this.surfaceService.legacyPointToRenderLocal(body.position.x, body.position.y, body.position.z) : body.position;
+      this.dummy.position.copy(renderPos);this.dummy.rotation.set(0,body.angle,0);this.dummy.scale.setScalar(enabled?1.2:0);this.dummy.updateMatrix();this.props.setMatrixAt(body.index,this.dummy.matrix);
     }
     for(const npc of this.npcs){
       const knocked=npc.state==='knocked'&&npc.timer>0;
       if(npc.active||knocked){
-        if(npc.state==='walking'&&(this.reaction>0||size>2)){
-          const dx=npc.position.x-player.x,dz=npc.position.z-player.z,d=Math.hypot(dx,dz);
+        const dx=npc.position.x-player.x,dz=npc.position.z-player.z,d=Math.hypot(dx,dz);
+        if(isSupersonicFlyby&&Math.abs(player.y-npc.position.y)<20&&d<26){
+          npc.state='fleeing';npc.timer=Math.max(npc.timer,3.5);
+          npc.velocity.set(dx/(d||1)*8+playerVelocity!.x*0.05,1.2,dz/(d||1)*8+playerVelocity!.z*0.05);
+          if(this.gaspCooldown<=0){this.onGasp?.();this.gaspCooldown=2.2;}
+        } else if(npc.state==='walking'&&(this.reaction>0||size>2)){
           if(d<80*size){npc.state='fleeing';npc.timer=2;npc.velocity.set(dx/(d||1)*10,0,dz/(d||1)*10);}
         }
         if(npc.state==='walking')npc.position.z=npc.base.z+Math.sin(this.elapsed*.07+npc.index)*38;
         this.advance(npc,dt,knocked?.35:1);npc.timer=Math.max(0,npc.timer-dt);
         if(npc.state==='fleeing'&&npc.timer===0){npc.state='walking';npc.base.copy(npc.position);npc.base.z-=Math.sin(this.elapsed*.07+npc.index)*38;}
+
+        // Reynolds Crowd Separation: prevent pedestrian overlap
+        if (!knocked && npc.active) {
+          this.spatialGrid.forEachNeighbor(npc.position.x, npc.position.z, 2.2, (otherIdx, ox, oz, distSq) => {
+            if (otherIdx === npc.index || distSq < 0.001) return;
+            const d = Math.sqrt(distSq);
+            const push = Math.min(1.5, (2.2 - d) * 1.8);
+            npc.position.x += ((npc.position.x - ox) / d) * push * dt;
+            npc.position.z += ((npc.position.z - oz) / d) * push * dt;
+          });
+        }
       }
       const enabled=(npc.active||knocked)&&npc.index<this.npcCount&&Math.abs(player.y-npc.position.y)<250;
-      this.dummy.position.copy(npc.position);this.dummy.rotation.set(0,0,knocked?1.4:Math.sin(this.elapsed*6+npc.index)*.035);this.dummy.scale.setScalar(enabled?1:0);this.dummy.updateMatrix();this.people.setMatrixAt(npc.index,this.dummy.matrix);
+      const renderPos = curved ? this.surfaceService.legacyPointToRenderLocal(npc.position.x, npc.position.y, npc.position.z) : npc.position;
+      this.dummy.position.copy(renderPos);this.dummy.rotation.set(0,0,knocked?1.4:Math.sin(this.elapsed*6+npc.index)*.035);this.dummy.scale.setScalar(enabled?1:0);this.dummy.updateMatrix();this.people.setMatrixAt(npc.index,this.dummy.matrix);
       this.dummy.position.y+=knocked?.12:.88;this.dummy.updateMatrix();this.heads.setMatrixAt(npc.index,this.dummy.matrix);
     }
     for(const mesh of [this.props,this.people,this.heads])mesh.instanceMatrix.needsUpdate=true;

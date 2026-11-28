@@ -8,6 +8,7 @@ import { CelestialBodyVisualLayer } from './CelestialBodyVisualLayer';
 import type { CelestialRenderSample } from './types';
 import { angularRadiusRad, boundedCelestialProxy, projectedDiameterPx } from './math';
 import { bodyPresentation } from './presentation';
+import { occludingBodyId, type OcclusionBody } from './occlusion';
 
 export interface CelestialPresentationContext {
   universe: UniverseRuntime;
@@ -16,6 +17,10 @@ export interface CelestialPresentationContext {
   fovRad: number;
   viewportHeightPx: number;
   cameraFarM?: number;
+  /** Seconds the distant disc takes to dissolve over a physical globe that became ready. */
+  handoffFadeS?: number;
+  /** A monotonic clock for that dissolve, seconds. */
+  nowS?: number;
 }
 
 export interface CelestialRenderContext { camera: PerspectiveCamera; }
@@ -25,8 +30,24 @@ export class CelestialPresentationController {
   private samples: CelestialRenderSample[] = [];
   private activePhysicalBody?: string;
   private activePhysicalMode: 'off' | 'coarse' | 'surface' = 'off';
+  /** When the physical globe that now represents a body first became drawable. */
+  private handoff?: { bodyId: string; startedS: number };
 
   constructor(private readonly visualLayer: CelestialBodyVisualLayer) {}
+
+  /**
+   * Opacity of the distant disc while the physical globe takes over. The disc sits nearer than the
+   * globe, so dissolving it reads as the surface sharpening. A disc taller than the view, as
+   * when arriving on a surface, hands over at once.
+   */
+  private discOverGlobe(bodyId: string, ctx: CelestialPresentationContext, diameterPx: number): number {
+    const duration = ctx.handoffFadeS ?? 0;
+    if (!(duration > 0) || ctx.nowS === undefined) return 0;
+    if (this.handoff?.bodyId !== bodyId) {
+      this.handoff = { bodyId, startedS: diameterPx < ctx.viewportHeightPx ? ctx.nowS : Number.NEGATIVE_INFINITY };
+    }
+    return Math.min(1, Math.max(0, 1 - (ctx.nowS - this.handoff.startedS) / duration));
+  }
 
   get renderSamples(): readonly CelestialRenderSample[] { return this.samples; }
   get physicalBodyId(): string | undefined { return this.activePhysicalBody; }
@@ -68,7 +89,12 @@ export class CelestialPresentationController {
       if (id !== physical?.body.id) provider.setVisible(false);
     }
 
-    this.samples = candidates.map(candidate => {
+    if (this.handoff && this.handoff.bodyId !== physical?.body.id) this.handoff = undefined;
+    // Geometric occlusion in logical coordinates: nearer and larger discs hide what lies fully behind them.
+    const occlusionBodies: OcclusionBody[] = candidates.map(c => ({ id: c.body.id, delta: c.delta, distanceM: c.distance,
+      angularRadiusRad: angularRadiusRad(c.body.equatorialRadiusM, c.distance) }));
+    this.samples = candidates.map((candidate, index) => {
+      const occludedBy = occludingBodyId(occlusionBodies[index], occlusionBodies);
       const { body, position, delta, distance, handoff, angle, provider, profile } = candidate;
       const direction = normalizeVec3(universe.frames.convertDirection(
         system.systemFrameId, renderFrame, delta));
@@ -88,21 +114,25 @@ export class CelestialPresentationController {
       const physicalProxyRadiusM = presentation.physicalTangent * proxy.distanceM;
       const presentationProxyRadiusM = presentation.presentationTangent * proxy.distanceM;
       const glowProxyRadiusM = presentation.glowTangent * proxy.distanceM;
-      let visible = proxy.safe && distance > 0;
+      let visible = proxy.safe && distance > 0 && !occludedBy;
       let opacity = 1;
       if (body.id === physical?.body.id) {
+        let globeDraws = false;
         if (profile.surfaceKind === 'earth' && earth) {
           const ready = earth.readiness();
-          if (ready.coarseFallbackReady || ready.viewCoverageReady) { visible = false; opacity = 0; }
+          globeDraws = ready.coarseFallbackReady || ready.viewCoverageReady;
         } else if (provider) {
           provider.setCentre(position, system.systemFrameId, renderFrame, observer);
           if (phaseLightDirection) provider.setSunDirection(phaseLightDirection, renderFrame, renderFrame);
           const ready = provider.readiness();
-          const readyToDraw = ready.coarseCoverageReady || ready.surfaceCoverageReady;
-          provider.setVisible(readyToDraw);
-          provider.setOpacity(readyToDraw ? 1 : 0);
-          if (readyToDraw) { opacity = 0; visible = false; }
+          globeDraws = ready.coarseCoverageReady || ready.surfaceCoverageReady;
+          provider.setVisible(globeDraws);
+          provider.setOpacity(globeDraws ? 1 : 0);
         }
+        if (globeDraws) {
+          opacity = this.discOverGlobe(body.id, ctx, presentation.presentationDiameterPx);
+          visible &&= opacity > 0;
+        } else if (this.handoff?.bodyId === body.id) this.handoff = undefined;
       }
       if (profile.surfaceKind === 'earth' && earth && phaseLightDirection) {
         earth.setSunDirection(phaseLightDirection, renderFrame, renderFrame);
@@ -113,7 +143,7 @@ export class CelestialPresentationController {
         physicalProjectedDiameterPx: presentation.physicalProjectedDiameterPx,
         presentationDiameterPx: presentation.presentationDiameterPx,
         pointMix: presentation.pointMix, ringsOpacity: presentation.ringsOpacity,
-        visible, opacity, phaseLightDirection, bodyOrientationRender, bodyFixedOrientationRender };
+        visible, opacity, phaseLightDirection, bodyOrientationRender, bodyFixedOrientationRender, occludedBy };
     });
   }
 

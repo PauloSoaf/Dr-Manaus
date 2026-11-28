@@ -82,7 +82,8 @@ function validateCrater(value: unknown): CraterRecord | undefined {
   if (!isFiniteNumber(c.id) || !isFiniteNumber(c.x) || !isFiniteNumber(c.z)) return undefined;
   if (!isFiniteNumber(c.radius) || !isFiniteNumber(c.depth) || !isFiniteNumber(c.order)) return undefined;
   if (c.radius <= 0 || c.depth <= 0) return undefined;
-  return { id: c.id, x: c.x, z: c.z, radius: c.radius, depth: c.depth, order: c.order };
+  return { id: c.id, x: c.x, z: c.z, radius: c.radius, depth: c.depth, order: c.order,
+    ...(c.profile === 'smooth' ? { profile: 'smooth' as const } : {}) };
 }
 
 /** Whatever was stored, turned into something this version understands, or discarded. */

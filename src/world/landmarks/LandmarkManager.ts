@@ -89,12 +89,8 @@ export class LandmarkManager {
     for (const landmark of LANDMARKS) {
       const anchor = new Group(); anchor.name = landmark.name;
       if (localManausPresentationMode() === 'curved') {
-        const pt = surfaceService.legacyPointToRenderLocal(landmark.x, 0, landmark.z);
-        const up = surfaceService.legacyDirectionToRenderLocal(0, 1, 0, landmark.x, 0, landmark.z).normalize();
-        const north = surfaceService.legacyDirectionToRenderLocal(0, 0, -1, landmark.x, 0, landmark.z).normalize();
-        const east = surfaceService.legacyDirectionToRenderLocal(1, 0, 0, landmark.x, 0, landmark.z).normalize();
-        anchor.position.copy(pt);
-        const mat = new Matrix4().makeBasis(east, up, north);
+        const mat = surfaceService.legacyPoseToRenderLocalMatrix(landmark.x, 0, landmark.z);
+        anchor.position.setFromMatrixPosition(mat);
         anchor.quaternion.setFromRotationMatrix(mat);
       } else {
         anchor.position.set(landmark.x, 0, landmark.z);
@@ -112,6 +108,10 @@ export class LandmarkManager {
     }
     for (const collider of this.allColliders) this.destruction.addCollider(collider);
     this.refreshColliders();
+  }
+
+  setVisible(visible: boolean): void {
+    for (const node of this.nodes) node.anchor.visible = visible;
   }
 
   update(player: Vector3, dt: number): void {

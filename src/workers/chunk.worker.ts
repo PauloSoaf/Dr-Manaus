@@ -7,6 +7,13 @@ const scope = self as unknown as {
 };
 scope.onmessage = ({ data }) => {
   if (data.type !== 'generate') return;
-  const payload = generateChunk(data.cx, data.cz);
-  scope.postMessage({ type: 'generated', id: data.id, payload }, [payload.buildings.buffer, payload.trees.buffer]);
+  const payload = generateChunk(data.cx, data.cz, data.context, data.seed);
+  scope.postMessage({
+    type: 'generated',
+    id: data.id,
+    payload,
+    generationVersion: payload.generationVersion ?? data.context?.generationVersion,
+    regionId: payload.regionId ?? data.context?.regionId,
+  }, [payload.buildings, payload.trees, payload.ground, payload.groundColors, payload.seaPlane, payload.treeBase]
+    .flatMap(array => array ? [array.buffer] : []));
 };

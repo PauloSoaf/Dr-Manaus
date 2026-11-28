@@ -36,6 +36,11 @@ export class HitStopSystem {
     return this.remaining > 0;
   }
 
+  /** True while a triggered freeze is still running (alias of `isFrozen`). */
+  get active(): boolean {
+    return this.remaining > 0;
+  }
+
   get remainingSeconds(): number {
     return this.remaining;
   }

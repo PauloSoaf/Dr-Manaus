@@ -24,7 +24,7 @@ function distantColor(x: number, z: number, random: () => number): number {
  */
 export class HLODManager {
   private readonly surfaceService = new SurfaceFrameService('earth');
-  private readonly group = new Group();
+  readonly group = new Group();
   private readonly geometry = new BoxGeometry(1, 1, 1);
   private readonly canopyGeometry = new IcosahedronGeometry(1, 0);
   private readonly canopyMaterial = new MeshStandardMaterial({ color: 0x57744c, roughness: 1 });
@@ -104,6 +104,22 @@ export class HLODManager {
     return false;
   }
 
+  setVisible(visible: boolean): void { this.group.visible = visible; }
+
+  clear(): void {
+    this.proxies.clear();
+    this.aggregates.length = 0;
+    this.horizons.length = 0;
+    this.colliderList.length = 0;
+    this.medium.count = 0;
+    this.aggregate.count = 0;
+    this.horizon.count = 0;
+    this.canopy.count = 0;
+    this.previous.set(Infinity, Infinity, Infinity);
+    this.distantPosition.set(Infinity, Infinity, Infinity);
+    this.dirty = true;
+  }
+
   get nodeCount(): number { return this.medium.count + this.aggregate.count + this.horizon.count + this.canopy.count; }
   get colliders(): readonly Collider[] { return this.colliderList; }
   get stats(): { medium: number; aggregate: number; horizon: number; vegetation: number; cached: number } {
@@ -168,7 +184,8 @@ export class HLODManager {
     const collisionRadiusSq = 900 * 900;
     for (const [key, payload] of this.proxies) {
       const distance = Math.hypot((payload.cx + .5) * WORLD.chunkSize - position.x, (payload.cz + .5) * WORLD.chunkSize - position.z);
-      if (activeKeys ? activeKeys.has(key) : distance < this.detailRadius) continue;
+      const regionalKey = chunkKey(payload.cx, payload.cz, 'earth:manaus');
+      if (activeKeys ? (activeKeys.has(key) || activeKeys.has(regionalKey)) : distance < this.detailRadius) continue;
       if (isUrban((payload.cx+.5)*WORLD.chunkSize,(payload.cz+.5)*WORLD.chunkSize) && this.realCovers((payload.cx + .5) * WORLD.chunkSize, (payload.cz + .5) * WORLD.chunkSize)) continue;
       // Soft height ramp at the outside of the medium ring blends into the aggregate silhouette.
       const fade = Math.max(0, Math.min(1, (WORLD.mediumRadius + WORLD.chunkSize - distance) / WORLD.chunkSize));
@@ -263,14 +280,8 @@ export class HLODManager {
 
   private set(mesh: InstancedMesh, index: number, x: number, y: number, z: number, w: number, h: number, d: number): void {
     if (localManausPresentationMode() === 'curved') {
-      const up = this.surfaceService.legacyDirectionToRenderLocal(0, 1, 0, x, y, z).normalize();
-      const north = this.surfaceService.legacyDirectionToRenderLocal(0, 0, -1, x, y, z).normalize();
-      const east = this.surfaceService.legacyDirectionToRenderLocal(1, 0, 0, x, y, z).normalize();
-      const pt = this.surfaceService.legacyPointToRenderLocal(x, y, z);
-      
-      this.matrix.makeBasis(east, up, north);
+      this.surfaceService.legacyPoseToRenderLocalMatrix(x, y, z, this.matrix);
       this.matrix.scale(new Vector3(w, h, d));
-      this.matrix.setPosition(pt);
     } else {
       this.matrix.makeScale(w, h, d);
       this.matrix.setPosition(x, y, z);

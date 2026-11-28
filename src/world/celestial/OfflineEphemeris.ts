@@ -83,6 +83,18 @@ const ROWS: Readonly<Record<string, ElementRow>> = {
     longitudeOfPerihelion: [44.964_762_27, -0.322_414_64],
     longitudeOfAscendingNode: [131.784_225_74, -0.005_086_64],
   },
+    thalassa: {
+    a: [2.14, 0.0], e: [0.02, 0.0],
+    i: [1.2, 0.0], meanLongitude: [45.0, 185.0],
+    longitudeOfPerihelion: [65.0, 0.0],
+    longitudeOfAscendingNode: [35.0, 0.0],
+  },
+  'titan-astral-leviathan-01': {
+    a: [11.2, 0.0], e: [0.03, 0.0],
+    i: [2.5, 0.0], meanLongitude: [85.0, 105.0],
+    longitudeOfPerihelion: [105.0, 0.0],
+    longitudeOfAscendingNode: [95.0, 0.0],
+  },
 };
 
 function toElements(row: ElementRow): OrbitalElements {

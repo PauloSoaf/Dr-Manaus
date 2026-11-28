@@ -4,6 +4,12 @@ import {
 } from '../spatial/ManausFrameAdapter';
 import osmRoads from './osm-roads.json';
 import { LAND_MASK, type LandMaskPayload } from './landmask';
+import { isLandAt } from '../planet/EarthLandMask';
+import { earthSolidGroundAt, EARTH_WET_TOLERANCE_M } from '../planet/EarthElevation';
+import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
+import { enuBasis, enuToGeodetic } from '../spatial/ENU';
+import { degToRad } from '../spatial/units';
+import type { ChunkGenerationContext } from '../chunks/Chunk';
 // Bundled rather than fetched: `isLand` runs inside the chunk worker and must answer synchronously.
 import landmask from '../../../public/geodata/real-city/landmask.json';
 LAND_MASK.load(landmask as LandMaskPayload);
@@ -49,6 +55,14 @@ function place(id: string, name: string, shortName: string, lat: number, lon: nu
  */
 export const IRANDUBA_CENTER = latLonToWorld(-3.1608, -60.0990);
 
+/** A broad density envelope preserves the green fringe of metropolitan Manaus. */
+export function urbanDensity(x: number, z: number): number {
+  const main = 1 - Math.hypot((x - 1200) / 14200, (z + 7400) / 16500);
+  const west = 1 - Math.hypot((x + 10200) / 5200, (z + 5800) / 9000);
+  const iranduba = 1 - Math.hypot((x - IRANDUBA_CENTER.x) / 3200, (z - IRANDUBA_CENTER.z) / 2700);
+  return Math.min(1, Math.max(0, Math.max(main, west, iranduba * .74) * 2.2));
+}
+
 /** Approximate survey positions; a meter scale local projection, not a navigation map. */
 export const LANDMARKS: Landmark[] = [
   place('teatro', 'Teatro Amazonas', 'Teatro Amazonas', -3.1302764, -60.0232792, 92, 42, 'A cúpula do coração de Manaus. Arquitetura estilizada, criada para este mundo.'),
@@ -84,25 +98,51 @@ export function shoreZ(x: number): number {
   return 6000;
 }
 export function riverWidth(x: number): number { return 2900 + Math.max(0, x + 5000) * 0.25; }
-export function isLand(x: number, z: number): boolean {
-  // The baked river mask is the truth wherever it reaches; the generalized shoreline covers the rest.
+export function isLand(x: number, z: number, context?: ChunkGenerationContext): boolean {
+  const isManaus = context ? context.isManaus : BuildingGeneratorContext.activeOrigin.isManaus;
+  if (!isManaus) {
+    // Only the Earth's coasts come from this data. Thalassa is ocean everywhere and the other
+    // worlds have no sea here.
+    const bodyId = (context ? context.bodyId : BuildingGeneratorContext.activeOrigin.bodyId) ?? 'earth';
+    if (bodyId !== 'earth') return bodyId !== 'thalassa';
+    const latDeg = context ? context.latDeg : BuildingGeneratorContext.activeOrigin.latDeg;
+    const lonDeg = context ? context.lonDeg : BuildingGeneratorContext.activeOrigin.lonDeg;
+    const basis = enuBasis({ latRad: degToRad(latDeg), lonRad: degToRad(lonDeg), heightM: 0 });
+    const geodetic = enuToGeodetic(basis, [x, -z, 0]);
+    // The same ground the collision provider uses, so water and seabed can never disagree.
+    return earthSolidGroundAt(geodetic.latRad, geodetic.lonRad) >= -EARTH_WET_TOLERANCE_M;
+  }
+
+  // 1. The baked sub-meter river mask is the ground truth wherever it reaches
   if (LAND_MASK.covers(x, z)) return !LAND_MASK.isWater(x, z);
-  const shore = shoreZ(x);
-  return z <= shore || z >= shore + riverWidth(x);
+
+  // 2. High-resolution fluvial corridor around greater Manaus (preserves local river channels and tributaries)
+  if (Math.abs(x) <= 45000 && Math.abs(z) <= 35000) {
+    const shore = shoreZ(x);
+    return z <= shore || z >= shore + riverWidth(x);
+  }
+
+  // 3. Global planetary Earth surface: query the authoritative Natural Earth global land/ocean mask
+  const geo = worldToLatLon(x, z);
+  const latRad = geo.lat * (Math.PI / 180);
+  const lonRad = geo.lon * (Math.PI / 180);
+  return isLandAt(latRad, lonRad);
 }
 /** The baked mask has precedence throughout the footprint, including coverage edges. */
-export function isLandFootprint(x:number,z:number,radiusM:number):boolean {
-  if(!Number.isFinite(radiusM)||radiusM<0||!isLand(x,z)||LAND_MASK.hasWaterWithin(x,z,radiusM))return false;
+export function isLandFootprint(x: number, z: number, radiusM: number, context?: ChunkGenerationContext): boolean {
+  if (!Number.isFinite(radiusM) || radiusM < 0 || !isLand(x, z, context) || LAND_MASK.hasWaterWithin(x, z, radiusM)) return false;
   // The expanded real mask covers local gameplay. Unknown areas keep the legacy fallback,
   // conservatively sampled over the whole disk instead of just its centre.
-  if(LAND_MASK.covers(x-radiusM,z-radiusM)&&LAND_MASK.covers(x+radiusM,z+radiusM))return true;
-  const step=Math.max(1,Math.min(32,radiusM/4||1));
-  for(let dz=-radiusM;dz<=radiusM;dz+=step)for(let dx=-radiusM;dx<=radiusM;dx+=step)
-    if(dx*dx+dz*dz<=radiusM*radiusM&&!isLand(x+dx,z+dz))return false;
-  for(let i=0;i<32;i++)if(!isLand(x+Math.cos(i*Math.PI/16)*radiusM,z+Math.sin(i*Math.PI/16)*radiusM))return false;
+  if (LAND_MASK.covers(x - radiusM, z - radiusM) && LAND_MASK.covers(x + radiusM, z + radiusM)) return true;
+  const step = Math.max(1, Math.min(32, radiusM / 4 || 1));
+  for (let dz = -radiusM; dz <= radiusM; dz += step) for (let dx = -radiusM; dx <= radiusM; dx += step)
+    if (dx * dx + dz * dz <= radiusM * radiusM && !isLand(x + dx, z + dz, context)) return false;
+  for (let i = 0; i < 32; i++) if (!isLand(x + Math.cos(i * Math.PI / 16) * radiusM, z + Math.sin(i * Math.PI / 16) * radiusM, context)) return false;
   return true;
 }
-export function isUrban(x: number, z: number): boolean {
+export function isUrban(x: number, z: number, context?: ChunkGenerationContext): boolean {
+  const isManaus = context ? context.isManaus : BuildingGeneratorContext.activeOrigin.isManaus;
+  if (!isManaus) return false;
   const manaus = z < shoreZ(x) - 25 && x > -12800 && x < 19500 && z > -17100;
   const oppositeShore = shoreZ(x) + riverWidth(x);
   const ix = (x - IRANDUBA_CENTER.x) / 3100;
@@ -148,13 +188,13 @@ export function onAirfield(x: number, z: number, padding = 0): boolean {
   return px * px + pz * pz < (AIRFIELD_HALF_WIDTH + padding) ** 2;
 }
 
-export function buildingAllowed(x: number, z: number, padding = 0): boolean {
-  return isUrban(x,z) && vegetationAllowed(x,z,padding);
+export function buildingAllowed(x: number, z: number, padding = 0, context?: ChunkGenerationContext): boolean {
+  return isUrban(x, z, context) && vegetationAllowed(x, z, padding, context);
 }
 
 /** Reservations also apply to wilderness trees, independently of the urban boundary. */
-export function vegetationAllowed(x: number, z: number, padding = 0): boolean {
-  if (!isLandFootprint(x,z,padding)) return false;
+export function vegetationAllowed(x: number, z: number, padding = 0, context?: ChunkGenerationContext): boolean {
+  if (!isLandFootprint(x, z, padding, context)) return false;
   if (onAirfield(x, z, padding)) return false;
   for (const landmark of LANDMARKS) if ((x - landmark.x) ** 2 + (z - landmark.z) ** 2 < (landmark.radius + padding) ** 2) return false;
   for (const segment of roadIndex.get(`${Math.floor(x / CELL)},${Math.floor(z / CELL)}`) ?? []) {

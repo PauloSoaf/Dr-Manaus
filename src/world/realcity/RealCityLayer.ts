@@ -1,12 +1,11 @@
 import { skylineBuildings } from './skyline';
-import { WORLD } from '../../core/config';
+import { FEATURES, REAL_CITY, WORLD } from '../../core/config';
 import { isUrban } from '../geodata/geodata';
 import {
-  BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Group, InstancedMesh,
+  Box3, BufferAttribute, BufferGeometry, Color, DynamicDrawUsage, Float32BufferAttribute, Frustum, Group, InstancedMesh,
   Matrix4, Mesh, MeshStandardMaterial, Vector3,
 } from 'three/webgpu';
 import type { Collider } from '../../core/types';
-import { REAL_CITY } from '../../core/config';
 import { RealCityMaterials } from './materials';
 import { RoadNetwork, type RoadRecord } from './roads';
 import { DistrictIndex } from './districts';
@@ -16,6 +15,8 @@ import {
   type MeshBuffers, type RealBuilding,
 } from './buildingGeometry';
 import { manausTileSceneMatrix } from '../spatial/ManausSurfacePresentation';
+import { getManausTerrainHeight } from './ManausUrbanElevation';
+import { VectorTileCache } from './VectorTileCache';
 
 interface PackedTile { key: string; tx: number; tz: number; buildings: RealBuilding[] }
 interface RuinedBuilding { bounds: Collider; tile: string; blocks: number[] }
@@ -54,6 +55,7 @@ interface Tile {
   detailRanges: Map<string, number>;
   shellRanges: Map<string, number>;
   touched: number;
+  worldBoundingBox?: Box3;
 }
 
 interface BuildJob {
@@ -143,6 +145,11 @@ export class RealCityLayer {
   private readonly skylineShapes=new Map<string,ReturnType<typeof skylineBuildings>[]>();
   private enabled = false;
   private night = false;
+  private elevationSampler?: (x: number, z: number) => number;
+
+  setElevationSampler(sampler: ((x: number, z: number) => number) | null): void {
+    this.elevationSampler = sampler ?? undefined;
+  }
   private detailEnabled = true;
   private lastPlanX = Infinity;
   private lastPlanZ = Infinity;
@@ -211,7 +218,8 @@ export class RealCityLayer {
       if (!response.ok) return;
       const records = await response.json() as RoadRecord[];
       if (!Array.isArray(records) || !records.length) return;
-      this.roads = new RoadNetwork(records, this.materials.road, this.materials.lamp);
+      const sampler = this.elevationSampler ?? (FEATURES.urbanElevation ? getManausTerrainHeight : undefined);
+      this.roads = new RoadNetwork(records, this.materials.road, this.materials.lamp, sampler);
       this.group.add(this.roads.group);
       this.metrics.roadTriangles = this.roads.triangleCount;
     } catch { /* The procedural road ribbons stay visible when the real network is missing. */ }
@@ -432,6 +440,10 @@ export class RealCityLayer {
     this.materials?.setNight(night);
   }
 
+  setWetness(factor: number): void {
+    this.materials?.setWetness(factor);
+  }
+
   /** Quality presets trade near-tier detail for frame time without changing the streamed set. */
   setDetail(enabled: boolean): void {
     if (enabled === this.detailEnabled) return;
@@ -513,6 +525,49 @@ export class RealCityLayer {
     this.metrics.tiles = this.tiles.size;
     this.metrics.queued = this.jobs.length + this.loading.size;
   }
+  private readonly _scratchTileCenter = new Vector3();
+
+  /**
+   * GTA / RAGE-style hierarchical real city tile frustum culling.
+   * Toggles tile.group.visible based on camera frustum and immediate safety bubble.
+   * Drops draw calls and matrix computations for all city buildings behind the camera.
+   */
+  cullFrustum(frustum: Frustum, cameraPos: Vector3, safetyRadiusM = 120): { visible: number; culled: number } {
+    let visibleCount = 0;
+    let culledCount = 0;
+    const size = this.manifest?.tileSize ?? 1024;
+    const safetySq = safetyRadiusM * safetyRadiusM;
+
+    for (const tile of this.tiles.values()) {
+      if (!tile.worldBoundingBox) {
+        tile.worldBoundingBox = new Box3(
+          new Vector3(0, -30, 0),
+          new Vector3(size, 320, size),
+        );
+        tile.group.updateMatrixWorld(true);
+        tile.worldBoundingBox.applyMatrix4(tile.group.matrixWorld);
+      }
+
+      tile.worldBoundingBox.getCenter(this._scratchTileCenter);
+      const distSq = this._scratchTileCenter.distanceToSquared(cameraPos);
+
+      if (distSq <= safetySq) {
+        tile.group.visible = true;
+        visibleCount++;
+      } else {
+        const inFrustum = frustum.intersectsBox(tile.worldBoundingBox);
+        tile.group.visible = inFrustum;
+        if (inFrustum) {
+          visibleCount++;
+        } else {
+          culledCount++;
+        }
+      }
+    }
+
+    return { visible: visibleCount, culled: culledCount };
+  }
+
 
   /** Requests the shell ring around the focus point and evicts tiles past the hysteresis band. */
   private plan(radius: number): void {
@@ -567,14 +622,36 @@ export class RealCityLayer {
     if (!this.manifest) return;
     this.loading.add(key);
     try {
-      const response = await fetch(`${baseUrl()}geodata/real-city/${file}`);
-      if (!response.ok) return;
-      const packed = await response.json() as PackedTile;
+      // In-memory / offline tile cache integration (RF-17-05)
+      let packed: PackedTile | null = null;
+      if (!file.includes('fixture')) {
+        packed = await VectorTileCache.getInstance().getTile(key) as PackedTile | null;
+      }
+      if (!packed) {
+        const response = await fetch(`${baseUrl()}geodata/real-city/${file}`);
+        if (!response.ok) return;
+        packed = await response.json() as PackedTile;
+        if (packed && !file.includes('fixture')) {
+          void VectorTileCache.getInstance().setTile(key, packed);
+        }
+      }
+      if (packed?.buildings) {
+        // Purge any synthetic infill buildings previously cached in IndexedDB over riverfront/port tiles
+        const cleaned = packed.buildings.filter(b => !b.id.startsWith('infill:'));
+        if (cleaned.length !== packed.buildings.length) {
+          packed.buildings = cleaned;
+          if (!file.includes('fixture')) {
+            void VectorTileCache.getInstance().setTile(key, packed);
+          }
+        }
+      }
       if (!packed?.buildings?.length || this.tiles.has(key)) return;
       const size = this.manifest.tileSize, cellSize = size / CELLS_PER_SIDE;
       const cells: RealBuilding[][] = Array.from({ length: CELLS_PER_SIDE * CELLS_PER_SIDE }, () => []);
       const bounds=new Map<string,Collider>();
       for (const building of packed.buildings) {
+        building.ox = packed.tx * size;
+        building.oz = packed.tz * size;
         const extent = buildingExtent(building);
         if (!extent) continue;
         bounds.set(building.id,{id:`real:${building.id}`,x:packed.tx*size+extent.x,y:extent.top/2,z:packed.tz*size+extent.z,width:extent.radius*1.414,height:extent.top,depth:extent.radius*1.414});
@@ -696,9 +773,10 @@ export class RealCityLayer {
         const building = job.list[job.index++];
         if (this.destroyed.has(building.id)) continue;
         const first = job.buffers.position.length / 3;
+        const sampler = this.elevationSampler ?? (FEATURES.urbanElevation ? getManausTerrainHeight : undefined);
         const collider = job.rich
-          ? appendNearBuilding(job.buffers, building)
-          : appendShellBuilding(job.buffers, building);
+          ? appendNearBuilding(job.buffers, building, { elevationSampler: sampler })
+          : appendShellBuilding(job.buffers, building, { elevationSampler: sampler });
         const vertices = job.buffers.position.length / 3 - first;
         // Packed into one double so a collapse is two integer reads, not an object per building.
         if (vertices > 0 && vertices < VERTEX_SPAN) job.ranges.set(building.id, first * VERTEX_SPAN + vertices);

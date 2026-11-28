@@ -1,8 +1,9 @@
 import {
   BufferAttribute, BufferGeometry, FrontSide, Group, Mesh, MeshBasicNodeMaterial,
-  type Object3D, Vector3,
+  type Object3D, Quaternion, Vector3,
 } from 'three/webgpu';
-import { attribute, normalWorld, uniform } from 'three/tsl';
+import { attribute, Fn, normalWorld, uniform, vec3 } from 'three/tsl';
+import { detailBase, detailNormalNode, planetDetailNode, planetDetailStyle } from './PlanetSurfaceDetail';
 import { PLANET_LAYER } from '../../rendering/domains/RenderDomains';
 import { faceUvToDirection } from './CubeSphere';
 import { planetTile, type PlanetTileAddress, tileBounds, tileCentreDirection } from './PlanetTileAddress';
@@ -32,6 +33,16 @@ function windingIsOutward(positions: Float32Array, normals: Float32Array, size: 
 
 export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetSurfaceGenerator, flat = false, insetM = 0,
   resolution = PLANET_TILE_RESOLUTION): PlanetTileMesh {
+  const steps = planetTileSteps(address, surface, flat, insetM, resolution);
+  for (;;) {
+    const step = steps.next();
+    if (step.done) return step.value;
+  }
+}
+
+/** The same tile, evaluating one vertex row per step so a dense one can be spread across frames. */
+export function* planetTileSteps(address: PlanetTileAddress, surface: PlanetSurfaceGenerator, flat: boolean, insetM: number,
+  resolution: number = PLANET_TILE_RESOLUTION): Generator<void, PlanetTileMesh> {
   const size = Math.max(3, Math.min(129, Math.round(resolution)));
   const { minU, maxU, minV, maxV } = tileBounds(address);
   const centreDirection = tileCentreDirection(address, [0, 0, 0]);
@@ -45,6 +56,9 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
   const positions = new Float32Array(size * size * 3);
   const normals = new Float32Array(size * size * 3);
   const colors = new Float32Array(size * size * 3);
+  // Body-fixed position reduced by the detail period, for the close-range detail shader.
+  const detail = new Float32Array(size * size * 3);
+  const detailOrigin = [detailBase(centre[0]), detailBase(centre[1]), detailBase(centre[2])];
   const direction: Vec3 = [0, 0, 0];
   const colour: [number, number, number] = [0, 0, 0];
   const slope: [number, number, number] = [0, 0, 1];
@@ -65,6 +79,7 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
       positions[index] = direction[0] * radius - centre[0];
       positions[index + 1] = direction[1] * radius - centre[1];
       positions[index + 2] = direction[2] * radius - centre[2];
+      for (let axis = 0; axis < 3; axis++) detail[index + axis] = detailOrigin[axis] + (direction[axis] * radius - centre[axis]);
 
       const ux = direction[0] / equatorSquared, uy = direction[1] / equatorSquared, uz = direction[2] / poleSquared;
       const upLength = Math.hypot(ux, uy, uz);
@@ -82,6 +97,7 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
       colors[index + 1] = colour[1];
       colors[index + 2] = colour[2];
     }
+    if (row < size - 1) yield;
   }
 
   const quads = (size - 1) * (size - 1);
@@ -105,6 +121,7 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
   geometry.setAttribute('position', new BufferAttribute(positions, 3));
   geometry.setAttribute('normal', new BufferAttribute(normals, 3));
   geometry.setAttribute('color', new BufferAttribute(colors, 3));
+  geometry.setAttribute('detailCoord', new BufferAttribute(detail, 3));
   geometry.setIndex(new BufferAttribute(indices, 1));
   geometry.computeBoundingSphere();
 
@@ -112,7 +129,7 @@ export function buildPlanetTileMesh(address: PlanetTileAddress, surface: PlanetS
     geometry,
     centre,
     triangles: quads * 2,
-    bytes: positions.byteLength + normals.byteLength + colors.byteLength + indices.byteLength,
+    bytes: positions.byteLength + normals.byteLength + colors.byteLength + detail.byteLength + indices.byteLength,
   };
 }
 
@@ -122,11 +139,21 @@ export class PlanetGlobe {
   readonly fallbackGroup = new Group();
   
   private readonly material: MeshBasicNodeMaterial;
+  /** Lit like the ground, for loose rocks lying on it. */
+  readonly rockMaterial: MeshBasicNodeMaterial;
   private readonly uSunDirectionRender = uniform(new Vector3(1, 0, 0));
+  /** The same sun in body-fixed axes, where the surface normals and detail live. */
+  private readonly uSunDirectionBody = uniform(new Vector3(1, 0, 0));
+  private readonly uDetailStrength = uniform(1);
   private readonly uTileOpacity = uniform(1);
-  
+
   private readonly tiles = new Map<string, Mesh>();
   private requiredKeys?: ReadonlySet<string>;
+  /** Coarse faces built so far; kept after release so a returning body never builds them again. */
+  private fallbackFaces: PlanetTileMesh[] = [];
+  private fallbackSteps?: Generator<void, PlanetTileMesh>;
+  private fallbackSurface?: PlanetSurfaceGenerator;
+  private readonly inverseOrientation = new Quaternion();
 
   constructor(bodyId: string) {
     this.volumeMask=new PlanetVolumeSurfaceMask(bodyId);
@@ -146,10 +173,26 @@ export class PlanetGlobe {
       polygonOffsetUnits: 1,
     });
 
-    const sunDotNormal = normalWorld.dot(this.uSunDirectionRender);
-    const lit = attribute('color', 'vec3').mul(planetDirectLightNode(sunDotNormal));
-    this.material.colorNode = lit;
+    const style = planetDetailStyle(bodyId);
+    this.material.colorNode = Fn(() => {
+      const detail = planetDetailNode(style, this.uDetailStrength).toVar();
+      const normal = detailNormalNode(attribute('normal', 'vec3'), detail.xyz, style.relief);
+      return attribute('color', 'vec3').mul(detail.w).mul(planetDirectLightNode(normal.dot(this.uSunDirectionBody)));
+    })();
     this.material.opacityNode = this.uTileOpacity;
+
+    // Instance colours multiply the node colour, so the node carries only the light.
+    this.rockMaterial = new MeshBasicNodeMaterial({ fog: false });
+    this.rockMaterial.colorNode = vec3(planetDirectLightNode(normalWorld.dot(this.uSunDirectionRender)));
+  }
+
+  /** 0 turns the close-range surface detail off, 1 draws it fully. */
+  set detailStrength(strength: number) { this.uDetailStrength.value = Math.max(0, Math.min(1, strength)); }
+  get detailStrength(): number { return this.uDetailStrength.value; }
+
+  private updateBodySun(): void {
+    this.uSunDirectionBody.value.copy(this.uSunDirectionRender.value)
+      .applyQuaternion(this.inverseOrientation.copy(this.root.quaternion).invert());
   }
 
   set visible(visible: boolean) { this.root.visible = visible; }
@@ -169,12 +212,37 @@ export class PlanetGlobe {
   get fallbackReady(): boolean { return this.fallbackGroup.children.length === 6; }
   get opacity(): number { return this.uTileOpacity.value; }
 
-  /** Created only for the active physical body, never for every registered provider shell. */
-  ensureFallback(surface: PlanetSurfaceGenerator): void {
-    if (this.fallbackReady) return;
+  /**
+   * Advances the coarse planet's geometry by whole vertex rows until `budgetMs` is spent (at least
+   * one row per call). Nothing is attached to the scene. Returns true once all six faces exist.
+   */
+  prepareFallback(surface: PlanetSurfaceGenerator, budgetMs = Number.POSITIVE_INFINITY): boolean {
+    if (this.fallbackSurface !== surface) {
+      this.discardFallbackGeometry();
+      this.fallbackSurface = surface;
+    }
+    const deadline = performance.now() + budgetMs;
+    while (this.fallbackFaces.length < 6) {
+      this.fallbackSteps ??= planetTileSteps(planetTile(surface.body.id, this.fallbackFaces.length as 0, 0, 0, 0), surface,
+        false, PLANET_FALLBACK_INSET_M, surface.coarseResolution);
+      const step = this.fallbackSteps.next();
+      if (step.done) {
+        this.fallbackFaces.push(step.value);
+        this.fallbackSteps = undefined;
+      }
+      if (this.fallbackFaces.length < 6 && performance.now() >= deadline) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Attached only for the active physical body, never for every registered provider shell. With a
+   * finite budget the faces appear together, once the last one is built.
+   */
+  ensureFallback(surface: PlanetSurfaceGenerator, budgetMs = Number.POSITIVE_INFINITY): void {
+    if (this.fallbackReady || !this.prepareFallback(surface, budgetMs)) return;
     for (let face = 0; face < 6; face++) {
-      const tile = buildPlanetTileMesh(planetTile(surface.body.id, face as 0, 0, 0, 0), surface, false,
-        PLANET_FALLBACK_INSET_M, surface.coarseResolution);
+      const tile = this.fallbackFaces[face];
       const mesh = new Mesh(tile.geometry, this.material);
       this.volumeMask.attach(mesh,tile.centre);
       mesh.name = `${surface.body.id}-fallback-face-${face}`;
@@ -187,9 +255,18 @@ export class PlanetGlobe {
     }
   }
 
+  /** Takes the coarse planet out of the scene; its geometry stays for the next approach. */
   releaseFallback(): void {
-    for (const child of this.fallbackGroup.children) {this.volumeMask.detach(child as Mesh);(child as Mesh).geometry.dispose();}
+    for (const child of this.fallbackGroup.children) this.volumeMask.detach(child as Mesh);
     this.fallbackGroup.clear();
+  }
+
+  private discardFallbackGeometry(): void {
+    this.releaseFallback();
+    for (const face of this.fallbackFaces) face.geometry.dispose();
+    this.fallbackFaces = [];
+    this.fallbackSteps = undefined;
+    this.fallbackSurface = undefined;
   }
 
   /** Retired parent/child cuts must not draw on top of the new cut while the scheduler evicts them. */
@@ -219,10 +296,12 @@ export class PlanetGlobe {
 
   setOrientation(orientationScene: Quat): void {
     this.root.quaternion.set(orientationScene[0], orientationScene[1], orientationScene[2], orientationScene[3]);
+    this.updateBodySun();
   }
 
   setSunDirection(directionRender: Vec3): void {
     this.uSunDirectionRender.value.set(directionRender[0], directionRender[1], directionRender[2]);
+    this.updateBodySun();
   }
 
   add(key: string, mesh: PlanetTileMesh): void {
@@ -247,8 +326,9 @@ export class PlanetGlobe {
 
   dispose(): void {
     this.volumeMask.dispose();
-    this.releaseFallback();
+    this.discardFallbackGeometry();
     this.material.dispose();
+    this.rockMaterial.dispose();
     for (const tile of this.tiles.values()) {
       tile.geometry.dispose();
     }

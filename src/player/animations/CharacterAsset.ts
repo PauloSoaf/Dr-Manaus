@@ -16,9 +16,14 @@ export interface CharacterAsset {
 let sourcePromise: ReturnType<GLTFLoader['loadAsync']> | undefined;
 const plain = (name: string) => name.replace(/[.\s_-]/g, '').toLowerCase();
 
-export async function loadCharacterAsset(): Promise<CharacterAsset> {
+/** The hero GLB as loaded (shared, never mutated): pedestrians clone their male body from it. */
+export function loadCharacterSource(): ReturnType<GLTFLoader['loadAsync']> {
   sourcePromise ??= new GLTFLoader().loadAsync(PLAYER_CHARACTER_URL);
-  const source = await sourcePromise;
+  return sourcePromise;
+}
+
+export async function loadCharacterAsset(): Promise<CharacterAsset> {
+  const source = await loadCharacterSource();
   const scene = cloneSkeleton(source.scene) as Group;
   scene.name = 'DR Manaus · native Quaternius character';
   const skinnedMeshes: SkinnedMesh[] = [];

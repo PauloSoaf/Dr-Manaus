@@ -3,7 +3,7 @@ import type { SpatialPose } from '../spatial/SpatialPose';
 import type { Vec3 } from '../spatial/units';
 import type { StreamingBudget } from '../streaming/StreamingBudget';
 import type { ActiveTile, TileDemand, TilePayload } from '../streaming/TileDemand';
-import type { UniverseAddress } from '../spatial/UniverseAddress';
+import type { UniverseAddress, CosmologicalAddress } from '../spatial/UniverseAddress';
 
 /** Where the player is and what they are doing, in logical terms. */
 export interface SpatialContext {
@@ -14,6 +14,7 @@ export interface SpatialContext {
   readonly altitudeM?: number;
   readonly bodyId?: string;
   readonly address: UniverseAddress;
+  readonly cosmological?: CosmologicalAddress;
 }
 
 export interface StreamingContext {
@@ -30,6 +31,7 @@ export interface StreamingContext {
     readonly detailFactor: number;
   };
   readonly budget: StreamingBudget;
+  readonly cosmological?: CosmologicalAddress;
 }
 
 /** What a provider claims to supply, and how authoritative it is about it. */

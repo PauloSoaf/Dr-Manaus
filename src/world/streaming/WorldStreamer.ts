@@ -1,11 +1,13 @@
-import { BoxGeometry, EdgesGeometry, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4, Vector3 } from 'three/webgpu';
+import { Box3, BoxGeometry, EdgesGeometry, Frustum, Group, InstancedMesh, LineBasicMaterial, LineSegments, Matrix4, Vector3 } from 'three/webgpu';
 import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
-import { ChunkState, chunkKey, type Chunk } from '../chunks/Chunk';
-import { ChunkMeshes } from '../chunks/ChunkMeshes';
-import { planChunks, type ChunkDemand } from './ChunkPriority';
-import { GenerationPool } from './GenerationPool';
+import { ChunkState, chunkKey, defaultChunkGenerationContext, createRegionId, type Chunk, type ChunkGenerationContext } from '../chunks/Chunk';
+import { ChunkMeshes, type ChunkCullBounds } from '../chunks/ChunkMeshes';
+import { planChunks, streamingReach, type ChunkDemand, type PositionLike } from './ChunkPriority';
+import { chunkWorkerCount, GenerationPool } from './GenerationPool';
+import { StreamingDiagnostics } from './StreamingDiagnostics';
 import { generateChunk } from '../chunks/BuildingGenerator';
+import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 
 const PREPARE_TIMEOUT_MS = 20_000;
 /** Shared scratch matrix: collapsing a building must not allocate mid-rampage. */
@@ -16,12 +18,15 @@ export class WorldStreamer {
   private readonly active = new Set<string>();
   private readonly pinned = new Set<string>();
   private readonly meshes = new ChunkMeshes();
-  private readonly generators = new GenerationPool(Math.min(2, WORLD.maxRequests));
+  private readonly generators = new GenerationPool(chunkWorkerCount());
+  readonly diagnostics = new StreamingDiagnostics();
+  private plannedRadius: number = WORLD.detailRadius;
   private readonly debugRoot = new Group();
   private readonly boundsGeometry: EdgesGeometry;
   private readonly boundsMaterial = new LineBasicMaterial({ color: 0x6cf2d1, transparent: true, opacity: .6 });
   private readonly focus = new Vector3();
   private demands: ChunkDemand[] = [];
+  private demanded = new Set<string>();
   private wanted = new Set<string>();
   private detailRadius: number = WORLD.detailRadius;
   private inFlight = 0;
@@ -30,6 +35,7 @@ export class WorldStreamer {
   private measuredMs = 0;
   private colliderList: Collider[] = [];
   private disposed = false;
+  private clearRevision = 0;
   private drawBounds = false;
   private debugDirty = false;
   private generationError: Error | null = null;
@@ -38,11 +44,96 @@ export class WorldStreamer {
   private readonly destroyed = new Set<string>();
   private readonly destroyedLocations = new Map<string, Collider>();
   private revision = 0;
+  private activeContext: ChunkGenerationContext = defaultChunkGenerationContext();
+  private cutoutRevision = '';
+  private cutout: ((x: number, y: number, z: number) => boolean) | null = null;
+
+  /**
+   * Relief tiles must not cover space a published volume replacement owns. `hidden` tests points
+   * in the surface frame; a new revision string re-masks every resident tile.
+   */
+  setGroundCutout(revision: string, hidden: ((x: number, y: number, z: number) => boolean) | null): void {
+    if (revision === this.cutoutRevision) return;
+    this.cutoutRevision = revision;
+    this.cutout = hidden;
+    for (const chunk of this.records.values()) this.applyCutout(chunk);
+  }
+
+  private applyCutout(chunk: Chunk): void {
+    if (!chunk.group) return;
+    const hidden = this.cutout, originX = chunk.cx * WORLD.chunkSize, originZ = chunk.cz * WORLD.chunkSize;
+    ChunkMeshes.maskGround(chunk.group, hidden && ((x, y, z) => hidden(originX + x, y, originZ + z)));
+  }
+
+  get generationContext(): Readonly<ChunkGenerationContext> {
+    return this.activeContext;
+  }
+
+  setGenerationContext(context: Partial<ChunkGenerationContext>): void {
+    this.setRegion(context, false);
+  }
+
+  /**
+   * Sets the active geographic region for chunk generation.
+   * If the region ID or its surface anchor changes (or forceClear is true), all existing cached
+   * chunks and in-flight queue jobs are atomically purged and generationVersion increments.
+   */
+  setRegion(context: Partial<ChunkGenerationContext>, forceClear = false): boolean {
+    const bodyId = context.bodyId ?? this.activeContext.bodyId;
+    const isManaus = context.isManaus ?? this.activeContext.isManaus;
+    const latDeg = context.latDeg ?? this.activeContext.latDeg;
+    const lonDeg = context.lonDeg ?? this.activeContext.lonDeg;
+    const regionId = context.regionId ?? createRegionId(bodyId, isManaus, latDeg, lonDeg);
+
+    // Chunks are expressed in the tangent frame at the anchor: a nearby re-landing can keep the
+    // rounded region id while moving the frame by hundreds of metres.
+    const anchorMoved = !isManaus && (Math.abs(latDeg - this.activeContext.latDeg) > 1e-7
+      || Math.abs(lonDeg - this.activeContext.lonDeg) > 1e-7);
+    const regionChanged = forceClear || regionId !== this.activeContext.regionId || anchorMoved;
+
+    if (regionChanged) {
+      const nextVersion = this.activeContext.generationVersion + 1;
+      this.activeContext = {
+        ...this.activeContext,
+        ...context,
+        bodyId,
+        isManaus,
+        latDeg,
+        lonDeg,
+        regionId,
+        generationVersion: nextVersion,
+      };
+
+      // Atomic cache clear & queue purge
+      for (const chunk of this.records.values()) if (chunk.state === ChunkState.REQUESTED) this.diagnostics.count('cancelled');
+      this.generators.clearQueue();
+      this.clear();
+      this.diagnostics.startRegion(performance.now());
+
+      // Synchronize static contexts & ChunkMeshes
+      BuildingGeneratorContext.activeOrigin = {
+        latDeg: this.activeContext.latDeg,
+        lonDeg: this.activeContext.lonDeg,
+        isManaus: this.activeContext.isManaus,
+        bodyId: this.activeContext.bodyId,
+      };
+      ChunkMeshes.isLocalManausActive = this.activeContext.isManaus;
+      ChunkMeshes.activeSolvent = this.activeContext.bodyId === 'thalassa' || this.activeContext.surfaceType === 'megawave-ocean'
+        ? 'megawave-ocean'
+        : 'terrestrial-ocean';
+
+      return true;
+    }
+
+    this.activeContext = { ...this.activeContext, ...context };
+    return false;
+  }
 
   constructor(private readonly root: Group) {
     this.debugRoot.name = 'chunk-boundaries'; this.debugRoot.visible = false; root.add(this.debugRoot);
     const box = new BoxGeometry(WORLD.chunkSize, 50, WORLD.chunkSize);
     this.boundsGeometry = new EdgesGeometry(box); box.dispose();
+    this.diagnostics.startRegion(performance.now());
   }
   async initialize(): Promise<void> { await this.prepare(new Vector3(WORLD.spawn.x, WORLD.spawn.y, WORLD.spawn.z)); }
 
@@ -83,6 +174,59 @@ export class WorldStreamer {
     }
   }
   get activeKeys(): ReadonlySet<string> { return this.active; }
+  /** Radius the quality settings ask to draw in detail around a player at rest. */
+  get detailRadiusM(): number { return this.detailRadius; }
+  /** Radius of the latest plan's detail disk; it shrinks when speed outruns activation. */
+  get plannedRadiusM(): number { return this.plannedRadius; }
+  get workerCount(): number { return this.generators.workerCount; }
+
+  /**
+   * Largest radius up to `limitM`, in half-chunk steps, whose whole disk resident tiles draw.
+   * A distant representation keeps drawing everything outside it, so nothing disappears before
+   * its replacement exists.
+   */
+  coveredSurfaceRadiusM(x: number, z: number, limitM: number): number {
+    const step = WORLD.chunkSize / 2;
+    for (let radius = limitM; radius >= step; radius -= step) {
+      if (this.coversSurfaceDisk(x, z, radius)) return radius;
+    }
+    return 0;
+  }
+
+  /** Resident ocean meshes in the current region, independent of view culling. */
+  coversOceanDisk(x: number, z: number, radiusM: number): boolean {
+    const surface = this.activeContext.surfaceType;
+    if (surface !== 'ocean' && surface !== 'megawave-ocean') return false;
+    return this.coversDiskWith(x, z, radiusM, group => !!group.getObjectByName('ocean-surface')?.visible);
+  }
+
+  /**
+   * Whether resident tiles of the current region draw the whole disk: open water, or relief with
+   * its own wet cells. Used before a distant representation retires its water under them.
+   */
+  coversSurfaceDisk(x: number, z: number, radiusM: number): boolean {
+    return this.coversDiskWith(x, z, radiusM, group =>
+      !!(group.getObjectByName('forest-ground') ?? group.getObjectByName('ocean-surface')));
+  }
+
+  private coversDiskWith(x: number, z: number, radiusM: number, draws: (group: Group) => boolean): boolean {
+    if (!Number.isFinite(x) || !Number.isFinite(z) || !(radiusM > 0 && Number.isFinite(radiusM))) return false;
+    const size = WORLD.chunkSize;
+    const minX = Math.floor((x - radiusM) / size), maxX = Math.ceil((x + radiusM) / size) - 1;
+    const minZ = Math.floor((z - radiusM) / size), maxZ = Math.ceil((z + radiusM) / size) - 1;
+    if (maxX - minX + 1 > this.active.size || maxZ - minZ + 1 > this.active.size ||
+        ![minX, maxX, minZ, maxZ].every(Number.isSafeInteger)) return false;
+    const radiusSq = radiusM * radiusM;
+    for (let cz = minZ; cz <= maxZ; cz++) for (let cx = minX; cx <= maxX; cx++) {
+      const dx = Math.max(cx * size - x, 0, x - (cx + 1) * size);
+      const dz = Math.max(cz * size - z, 0, z - (cz + 1) * size);
+      if (dx * dx + dz * dz >= radiusSq) continue;
+      const chunk = this.records.get(chunkKey(cx, cz, this.activeContext.regionId));
+      if (chunk?.state !== ChunkState.ACTIVE || !chunk.group || chunk.group.parent !== this.root || !draws(chunk.group)) return false;
+    }
+    return true;
+  }
+
   get destroyedIds(): ReadonlySet<string> { return this.destroyed; }
   get destroyedBounds(): ReadonlyMap<string, Collider> { return this.destroyedLocations; }
   get destructionRevision(): number { return this.revision; }
@@ -97,32 +241,90 @@ export class WorldStreamer {
     return { active: this.active.size, cached, queued, streamMs: this.measuredMs, loadedMB: bytes / 1048576 + .4 };
   }
 
-  update(position: Vector3, velocity: Vector3, dt: number): void {
+  update(position: Vector3, velocity: Vector3, dt: number, cameraLookDirection?: PositionLike): void {
     if (this.disposed) return;
     this.clock += dt; this.cadence += dt;
     const moved = this.focus.distanceToSquared(position) > 32 * 32;
     if (this.cadence > .14 || moved) {
       this.cadence = 0; this.focus.copy(position);
-      this.demands = planChunks(position, velocity, this.detailRadius);
+      this.plannedRadius = streamingReach(Math.hypot(velocity.x, velocity.z), this.detailRadius).radius;
+      this.demands = planChunks(position, velocity, this.detailRadius, cameraLookDirection);
       this.reconcile();
     }
     this.pump();
   }
 
+  private readonly _scratchCenter = new Vector3();
+
+  /**
+   * GTA / RAGE-style hierarchical chunk frustum culling.
+   * Tests each active chunk's world-transformed bounding box against the camera frustum.
+   * Chunks within safetyRadiusM stay visible to prevent popping under the player.
+   * When chunk.group.visible is false, Three.js skips all InstancedMesh draw calls and matrix evaluations.
+   */
+  cullFrustum(frustum: Frustum, cameraPos: Vector3, safetyRadiusM = 72): { visible: number; culled: number } {
+    let visibleCount = 0;
+    let culledCount = 0;
+    const safetySq = safetyRadiusM * safetyRadiusM;
+
+    // Only for groups without measured bounds. The solvent alone says nothing about a chunk: the
+    // terrestrial ocean is the default even while every tile on screen is dry land.
+    const isMegawave = this.activeContext.bodyId === 'thalassa' || this.activeContext.surfaceType === 'megawave-ocean' || ChunkMeshes.activeSolvent === 'megawave-ocean';
+    const isOcean = isMegawave || this.activeContext.surfaceType === 'ocean';
+    const fallback: ChunkCullBounds = isMegawave ? { minY: -350, maxY: 350, marginXZ: 180 }
+      : isOcean ? { minY: -30, maxY: 45, marginXZ: 20 } : { minY: -50, maxY: 250, marginXZ: 0 };
+
+    for (const key of this.active) {
+      const chunk = this.records.get(key);
+      if (!chunk || !chunk.group) continue;
+
+      if (!chunk.worldBoundingBox) {
+        chunk.worldBoundingBox = new Box3();
+      }
+      chunk.group.updateMatrixWorld(true);
+      // Measured from the geometry the chunk draws: relief height, trees, buildings and waves.
+      const { minY, maxY, marginXZ } = (chunk.group.userData.cullBounds as ChunkCullBounds | undefined) ?? fallback;
+      chunk.worldBoundingBox.min.set(-marginXZ, minY, -marginXZ);
+      chunk.worldBoundingBox.max.set(WORLD.chunkSize + marginXZ, maxY, WORLD.chunkSize + marginXZ);
+      chunk.worldBoundingBox.applyMatrix4(chunk.group.matrixWorld);
+
+      chunk.worldBoundingBox.getCenter(this._scratchCenter);
+      const distSq = this._scratchCenter.distanceToSquared(cameraPos);
+
+      if (distSq <= safetySq) {
+        chunk.group.visible = true;
+        visibleCount++;
+      } else {
+        const inFrustum = frustum.intersectsBox(chunk.worldBoundingBox);
+        chunk.group.visible = inFrustum;
+        if (inFrustum) {
+          visibleCount++;
+        } else {
+          culledCount++;
+        }
+      }
+    }
+
+    return { visible: visibleCount, culled: culledCount };
+  }
+
   /** Teleport waits for a 3x3 collision-safe neighbourhood, even before the render loop starts. */
   async prepare(position: Vector3): Promise<void> {
+    const clearRevision = this.clearRevision;
     this.generationError = null;
     const deadline = performance.now() + PREPARE_TIMEOUT_MS;
     const cx = Math.floor(position.x / WORLD.chunkSize), cz = Math.floor(position.z / WORLD.chunkSize);
     const minimum: string[] = [];
     for (let z = -1; z <= 1; z++) for (let x = -1; x <= 1; x++) {
-      const key = chunkKey(cx + x, cz + z); minimum.push(key); this.pinned.add(key);
+      const key = chunkKey(cx + x, cz + z, this.activeContext.regionId); minimum.push(key); this.pinned.add(key);
       this.ensure({ key, cx: cx + x, cz: cz + z, priority: Math.hypot(x, z) - 1000, immediate: true });
     }
-    this.focus.copy(position); this.demands = planChunks(position, { x: 0, z: 0 }, this.detailRadius);
+    this.focus.copy(position); this.plannedRadius = this.detailRadius;
+    this.demands = planChunks(position, { x: 0, z: 0 }, this.detailRadius);
     this.reconcile();
     try {
-      while (!this.disposed && minimum.some(key => this.records.get(key)?.state !== ChunkState.ACTIVE)) {
+      while (!this.disposed && clearRevision === this.clearRevision &&
+             minimum.some(key => this.records.get(key)?.state !== ChunkState.ACTIVE)) {
         const generationError = this.generationError as Error | null;
         if (generationError) {
           throw new Error(`Falha ao gerar chunks próximos de ${Math.round(position.x)}, ${Math.round(position.z)}: ${generationError.message}`);
@@ -134,17 +336,20 @@ export class WorldStreamer {
         await new Promise<void>(resolve => setTimeout(resolve, 8));
       }
       if (this.disposed) throw new Error('World streamer was disposed while preparing the destination.');
+      if (clearRevision !== this.clearRevision) throw new Error('World region changed while preparing the destination.');
     } finally {
-      for (const key of minimum) this.pinned.delete(key);
+      if (clearRevision === this.clearRevision) for (const key of minimum) this.pinned.delete(key);
     }
   }
 
   private ensure(demand: ChunkDemand): Chunk {
-    let chunk = this.records.get(demand.key);
+    const key = chunkKey(demand.cx, demand.cz, this.activeContext.regionId);
+    let chunk = this.records.get(key);
     if (!chunk) {
-      chunk = { key: demand.key, cx: demand.cx, cz: demand.cz, state: ChunkState.UNLOADED,
+      chunk = { key, cx: demand.cx, cz: demand.cz, state: ChunkState.UNLOADED,
         priority: demand.priority, touched: this.clock, colliders: [], bytes: 0 };
       this.records.set(chunk.key, chunk); chunk.state = ChunkState.REQUESTED;
+      this.diagnostics.count('requested');
     }
     chunk.priority = this.pinned.has(chunk.key) ? -1000 + demand.priority * .01 : demand.priority;
     chunk.touched = this.clock; return chunk;
@@ -153,10 +358,18 @@ export class WorldStreamer {
   private reconcile(): void {
     const nextWanted = new Set(this.pinned);
     for (const demand of this.demands) {
-      if (demand.immediate && nextWanted.size < WORLD.maxActiveChunks) nextWanted.add(demand.key);
+      const key = chunkKey(demand.cx, demand.cz, this.activeContext.regionId);
+      if (demand.immediate && nextWanted.size < WORLD.maxActiveChunks) nextWanted.add(key);
       this.ensure(demand);
     }
     this.wanted = nextWanted;
+    const now = performance.now();
+    for (const key of nextWanted) {
+      const chunk = this.records.get(key);
+      if (chunk && chunk.state !== ChunkState.ACTIVE && chunk.wantedAt === undefined) {
+        chunk.wantedAt = now; chunk.cacheHit = !!chunk.payload;
+      }
+    }
     let changed = false;
     for (const key of this.active) {
       const chunk = this.records.get(key)!;
@@ -170,9 +383,13 @@ export class WorldStreamer {
       const chunk = this.records.get(key);
       if (chunk?.state === ChunkState.CACHED && chunk.payload) chunk.state = ChunkState.READY;
     }
-    const demanded = new Set(this.demands.map(demand => demand.key));
+    this.demanded = new Set(this.demands.map(demand => chunkKey(demand.cx, demand.cz, this.activeContext.regionId)));
     for (const chunk of this.records.values()) {
-      if (chunk.state === ChunkState.REQUESTED && !demanded.has(chunk.key) && !this.pinned.has(chunk.key)) this.records.delete(chunk.key);
+      if (!nextWanted.has(chunk.key)) chunk.wantedAt = undefined;
+      // Backpressure: work nobody needs any more never reaches a worker.
+      if (chunk.state === ChunkState.REQUESTED && !this.demanded.has(chunk.key) && !this.pinned.has(chunk.key)) {
+        this.records.delete(chunk.key); this.diagnostics.count('cancelled');
+      }
     }
     this.evict(); if (changed) this.refreshColliders();
   }
@@ -182,20 +399,33 @@ export class WorldStreamer {
     const requests = [...this.records.values()].filter(chunk => chunk.state === ChunkState.REQUESTED).sort((a, b) => a.priority - b.priority);
     while (this.inFlight < WORLD.maxRequests && requests.length) {
       const chunk = requests.shift()!; chunk.state = ChunkState.LOADING; this.inFlight++;
-      void this.generators.generate(chunk.cx, chunk.cz).then(payload => {
+      chunk.dispatchedAt = performance.now();
+      if (chunk.wantedAt !== undefined) this.diagnostics.sample('queueWait', chunk.dispatchedAt - chunk.wantedAt);
+      const requestVersion = this.activeContext.generationVersion;
+      const requestRegion = this.activeContext.regionId;
+      void this.generators.generate(chunk.cx, chunk.cz, this.activeContext).then(payload => {
         this.inFlight--;
-        if (this.disposed || !this.records.has(chunk.key)) return;
+        if (this.disposed) return;
+        const payloadVersion = payload.generationVersion ?? requestVersion;
+        const payloadRegion = payload.regionId ?? requestRegion;
+        if (payloadVersion !== this.activeContext.generationVersion || payloadRegion !== this.activeContext.regionId
+            || this.records.get(chunk.key) !== chunk) {
+          this.diagnostics.count('discarded');
+          return;
+        }
+        this.diagnostics.count('generated');
+        this.diagnostics.sample('generation', performance.now() - chunk.dispatchedAt!);
         chunk.payload = payload; chunk.bytes = payload.buildings.byteLength + payload.trees.byteLength;
         chunk.state = this.wanted.has(chunk.key) || this.pinned.has(chunk.key) ? ChunkState.READY : ChunkState.CACHED;
         this.evict();
       }).catch(error => {
         this.inFlight--;
         if (this.disposed) return;
+        if (this.records.get(chunk.key) !== chunk) { this.diagnostics.count('discarded'); return; }
+        this.diagnostics.count('failed');
         this.generationError = error instanceof Error ? error : new Error(String(error));
-        if (this.records.get(chunk.key) === chunk) {
-          chunk.state = ChunkState.UNLOADED;
-          this.records.delete(chunk.key);
-        }
+        chunk.state = ChunkState.UNLOADED;
+        this.records.delete(chunk.key);
       });
     }
     const ready = [...this.records.values()].filter(chunk => chunk.state === ChunkState.READY).sort((a, b) => a.priority - b.priority);
@@ -211,10 +441,13 @@ export class WorldStreamer {
         victim.group?.removeFromParent(); victim.state = ChunkState.CACHED; this.active.delete(victim.key);
       }
       if (!chunk.group && chunk.payload) {
+        const buildStart = performance.now();
         const built = this.meshes.create(chunk.payload);
         chunk.group = built.group; chunk.colliders = built.colliders; chunk.bytes = built.bytes;
+        if (this.cutout) this.applyCutout(chunk);
         if (this.destroyed.size) for (const collider of built.colliders) if (this.destroyed.has(collider.id ?? '')) this.collapse(chunk, collider.id!);
         chunk.colliders = chunk.colliders.filter(collider => !this.destroyed.has(collider.id ?? ''));
+        this.diagnostics.sample('build', performance.now() - buildStart);
       }
       if (chunk.group && this.replacesChunk?.(chunk.cx, chunk.cz)) {
         this.suppressProceduralGroup(chunk.group);
@@ -222,11 +455,33 @@ export class WorldStreamer {
       }
       if (chunk.group) this.root.add(chunk.group);
       chunk.state = ChunkState.ACTIVE; chunk.touched = this.clock; this.active.add(chunk.key); changed = true; activated++;
+      this.diagnostics.count('activated');
+      if (chunk.wantedAt !== undefined) {
+        this.diagnostics.sample('latency', performance.now() - chunk.wantedAt);
+        if (chunk.cacheHit) this.diagnostics.count('reused');
+        chunk.wantedAt = undefined;
+      }
     }
-    if (changed) this.refreshColliders();
+    if (changed) {
+      this.refreshColliders();
+      if (this.diagnostics.awaitingCoverage) this.measureCoverage();
+    }
     this.evict();
     if (this.drawBounds && this.debugDirty) this.refreshDebug();
     this.measuredMs = this.measuredMs * .85 + (performance.now() - start) * .15;
+  }
+
+  /** Records when the current region first draws the ground around the focus, then every wanted tile. */
+  private measureCoverage(): void {
+    const { x, z } = this.focus;
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    const cx = Math.floor(x / WORLD.chunkSize), cz = Math.floor(z / WORLD.chunkSize);
+    const drawn = (key: string) => this.records.get(key)?.state === ChunkState.ACTIVE;
+    let physical = true;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      physical &&= drawn(chunkKey(cx + dx, cz + dz, this.activeContext.regionId));
+    }
+    this.diagnostics.recordCoverage(performance.now(), physical, physical && [...this.wanted].every(drawn));
   }
 
   /**
@@ -236,12 +491,15 @@ export class WorldStreamer {
   destroy(colliderId: string): boolean {
     const marker = colliderId.indexOf('/building/') >= 0 ? colliderId.indexOf('/building/') : colliderId.indexOf('/tree/');
     if (marker <= 0 || colliderId.startsWith('hlod:') || this.destroyed.has(colliderId)) return false;
-    const key = colliderId.slice(0, marker), parts = key.split(',').map(Number);
+    const key = colliderId.slice(0, marker);
+    const sep = key.lastIndexOf('::');
+    const coordStr = sep >= 0 ? key.slice(sep + 2) : key;
+    const parts = coordStr.split(',').map(Number);
     if (parts.length !== 2 || !parts.every(Number.isInteger)) return false;
     const chunk = this.records.get(key);
     // A medium proxy may be hit before detailed streaming arrives; its deterministic record owns
     // the same id, so the destruction can be recorded without loading a detailed neighborhood.
-    const payload = chunk?.payload ?? generateChunk(parts[0], parts[1]);
+    const payload = chunk?.payload ?? generateChunk(parts[0], parts[1], this.activeContext);
     const bounds = ChunkMeshes.collider(payload, colliderId);
     if (!bounds) return false;
     this.destroyed.add(colliderId);
@@ -308,8 +566,10 @@ export class WorldStreamer {
   }
 
   private evict(): void {
+    // Chunks the current plan no longer asks for go first, oldest first; then the least urgent.
     const cached = [...this.records.values()].filter(chunk => chunk.state === ChunkState.CACHED)
-      .sort((a, b) => a.touched - b.touched || b.priority - a.priority);
+      .sort((a, b) => Number(this.demanded.has(a.key)) - Number(this.demanded.has(b.key))
+        || a.touched - b.touched || b.priority - a.priority);
     while (cached.length > WORLD.maxCachedChunks) {
       const chunk = cached.shift()!; if (this.pinned.has(chunk.key)) continue;
       chunk.state = ChunkState.EVICTING;
@@ -329,6 +589,20 @@ export class WorldStreamer {
       bounds.position.set((chunk.cx + .5) * WORLD.chunkSize, 25, (chunk.cz + .5) * WORLD.chunkSize); this.debugRoot.add(bounds);
     }
     this.debugDirty = false;
+  }
+  clear(): void {
+    this.clearRevision++;
+    for (const chunk of this.records.values()) if (chunk.group) this.meshes.disposeChunk(chunk.group);
+    this.records.clear();
+    this.active.clear();
+    this.demanded.clear();
+    this.wanted.clear();
+    this.pinned.clear();
+    this.colliderList.length = 0;
+    this.focus.set(Infinity, Infinity, Infinity);
+    this.cadence = 1;
+    this.debugDirty = true;
+    this.debugRoot.clear();
   }
   setDetailRadius(radius: number): void { this.detailRadius = Math.max(WORLD.chunkSize, radius); this.cadence = 1; }
   setNight(enabled: boolean): void { this.meshes.setNight(enabled); }

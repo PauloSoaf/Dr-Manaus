@@ -24,6 +24,7 @@ export class ProceduralSystemRuntime implements CelestialSystemRuntime {
   private epochS = 0;
   public readonly bodies: readonly CelestialBody[];
   private readonly byId = new Map<string, CelestialBody>();
+  readonly universeSeed?: bigint;
 
   /**
    * Positions a generated system from the elements its generator wrote on each body.
@@ -34,7 +35,8 @@ export class ProceduralSystemRuntime implements CelestialSystemRuntime {
    * sequence, so the orbit a planet was given and the orbit it was drawn in were unrelated -- and
    * a body whose parent was never resolved fell back to the origin.
    */
-  constructor(public readonly system: ProceduralSystem, epochS = 0) {
+  constructor(public readonly system: ProceduralSystem, epochS = 0, universeSeed?: bigint) {
+    this.universeSeed = universeSeed;
     this.bodies = system.bodies;
     for (const body of this.bodies) this.byId.set(body.id, body);
     this.update(epochS);

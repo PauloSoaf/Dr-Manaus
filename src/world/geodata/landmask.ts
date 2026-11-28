@@ -99,6 +99,43 @@ export class LandMask {
     }
     return false;
   }
+
+  /**
+   * Exact Euclidean distance in meters from (x, z) to the nearest cell with opposite water/land state.
+   * Approaches 0.0m continuously at every cell boundary where `isWater(x, z)` transitions.
+   */
+  distanceToOpposite(x: number, z: number, maxCells = 6): number {
+    if (!this.ready || !Number.isFinite(x + z)) return 0;
+    const cx = Math.floor((x - this.originX) / this.cell);
+    const cz = Math.floor((z - this.originZ) / this.cell);
+    if (cx < 0 || cz < 0 || cx >= this.width || cz >= this.height) return 0;
+    const rowBytes = Math.ceil(this.width / 8);
+    const currentWater = ((this.bytes[cz * rowBytes + (cx >> 3)] >> (cx & 7)) & 1) === 1;
+    const maxDist = maxCells * this.cell;
+    let bestSq = maxDist * maxDist;
+
+    const r0 = Math.max(0, cz - maxCells);
+    const r1 = Math.min(this.height - 1, cz + maxCells);
+    const c0 = Math.max(0, cx - maxCells);
+    const c1 = Math.min(this.width - 1, cx + maxCells);
+
+    for (let row = r0; row <= r1; row++) {
+      const rowOffset = row * rowBytes;
+      const minZ = this.originZ + row * this.cell;
+      const dz = Math.max(minZ - z, 0, z - (minZ + this.cell));
+      const dzSq = dz * dz;
+      if (dzSq >= bestSq) continue;
+      for (let col = c0; col <= c1; col++) {
+        const isCellWater = ((this.bytes[rowOffset + (col >> 3)] >> (col & 7)) & 1) === 1;
+        if (isCellWater === currentWater) continue;
+        const minX = this.originX + col * this.cell;
+        const dx = Math.max(minX - x, 0, x - (minX + this.cell));
+        const dSq = dx * dx + dzSq;
+        if (dSq < bestSq) bestSq = dSq;
+      }
+    }
+    return Math.sqrt(bestSq);
+  }
 }
 
 /** One shared instance; `geodata` consults it and falls back to the generalized shoreline. */

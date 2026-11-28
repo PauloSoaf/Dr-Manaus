@@ -41,7 +41,8 @@ test('craters survive a round trip, and come back for the body they belong to', 
   const store = storeWith(backend);
   await store.hydrate();
 
-  store.saveCraters('earth', [crater(1), crater(2)]);
+  const shallow = { ...crater(2), radius: 2, depth: .9, profile: 'smooth' as const };
+  store.saveCraters('earth', [crater(1), shallow]);
   store.saveCraters({ bodyId: 'moon' }, [crater(3)]);
   store.discover('teatro');
   await store.flush();
@@ -49,6 +50,7 @@ test('craters survive a round trip, and come back for the body they belong to', 
   const reloaded = storeWith(backend);
   await reloaded.hydrate();
   assert.equal(reloaded.loadCraters('earth').length, 2);
+  assert.deepEqual(reloaded.loadCraters('earth'), [crater(1), shallow]);
   assert.equal(reloaded.loadCraters({ bodyId: 'moon' }).length, 1);
   assert.equal(reloaded.loadCraters('mars').length, 0, 'a body nobody touched has nothing');
   assert.equal(reloaded.hasDiscovered('teatro'), true);
