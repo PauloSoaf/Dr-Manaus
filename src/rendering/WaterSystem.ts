@@ -16,6 +16,7 @@ import {
 } from '../world/water/ManausHydrology';
 import { manausBathymetry } from '../world/water/ManausBathymetry';
 import { registerFluid, unregisterFluid, sampleFluid, type FluidHandle } from '../world/water/FluidRegistry';
+import { gerstnerAngularFrequency } from '../world/water/UniversalLiquidSystem';
 
 const surfaceService = new SurfaceFrameService('earth');
 
@@ -261,8 +262,7 @@ function createWaveUniforms(): WaterShaderUniforms {
     const dirX = w.direction[0] / len;
     const dirZ = w.direction[1] / len;
     const k = (2.0 * Math.PI) / w.wavelength;
-    const c = Math.sqrt(9.80665 / k);
-    const omega = w.speed * c;
+    const omega = gerstnerAngularFrequency(w);
     return {
       dir: uniform(new Vector2(dirX, dirZ)),
       k: uniform(k),
@@ -972,8 +972,7 @@ export class WaterSystem {
       const dirX = w.direction[0] / len;
       const dirZ = w.direction[1] / len;
       const k = (2.0 * Math.PI) / w.wavelength;
-      const c = Math.sqrt(9.80665 / k);
-      const omega = w.speed * c;
+      const omega = gerstnerAngularFrequency(w);
       const uH = this.shaderUniforms.harmonics[i];
       uH.dir.value.set(dirX, dirZ);
       uH.k.value = k;

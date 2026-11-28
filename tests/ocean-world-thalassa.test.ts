@@ -161,11 +161,14 @@ describe('UNIVERSAL-OCEAN: Planetary Oceans & Thalassa 500m Megawave Water World
     let minWaveY = Infinity;
     let maxWaveY = -Infinity;
 
-    for (let t = 0; t < 60; t += 5) {
-      for (let x = 0; x < 5000; x += 500) {
-        const y = bathymetry.sampleWaterSurface(x, 0, t);
-        if (y < minWaveY) minWaveY = y;
-        if (y > maxWaveY) maxWaveY = y;
+    // Megawaves take about a minute to pass, so crests are found by sweeping space, not by waiting.
+    for (let t = 0; t < 60; t += 20) {
+      for (let x = 0; x < 20_000; x += 100) {
+        for (let z = 0; z < 20_000; z += 500) {
+          const y = bathymetry.sampleWaterSurface(x, z, t);
+          if (y < minWaveY) minWaveY = y;
+          if (y > maxWaveY) maxWaveY = y;
+        }
       }
     }
 

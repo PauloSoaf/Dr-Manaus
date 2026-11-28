@@ -23,7 +23,7 @@ import {
   attribute, cameraPosition, color, cos, dot, float, max, mix,
   positionLocal, positionWorld, pow, sin, smoothstep, time, uniform, vec2, vec3
 } from 'three/tsl';
-import { WATER_WAVE_PROFILES, sampleGerstnerSpectrum, type LiquidSampleResult } from './UniversalLiquidSystem';
+import { WATER_WAVE_PROFILES, gerstnerAngularFrequency, sampleGerstnerSpectrum, type LiquidSampleResult } from './UniversalLiquidSystem';
 import { registerFluid, type FluidHandle } from './FluidRegistry';
 
 export interface SwimmingPoolOptions {
@@ -157,11 +157,10 @@ export class SwimmingPool {
     for (let i = 0; i < waves.length; i++) {
       const w = waves[i];
       const k = (2.0 * Math.PI) / w.wavelength;
-      const c = Math.sqrt(9.80665 / k);
       const amp = float(w.amplitude);
       const phase = dot(vec2(p.x, p.z), vec2(w.direction[0], w.direction[1]))
         .mul(k)
-        .sub(time.mul(w.speed * c));
+        .sub(time.mul(gerstnerAngularFrequency(w)));
       const sinP = sin(phase);
       const cosP = cos(phase);
 

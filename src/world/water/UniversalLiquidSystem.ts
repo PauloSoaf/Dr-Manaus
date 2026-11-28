@@ -253,15 +253,16 @@ export const WATER_WAVE_PROFILES: Readonly<Record<WaterWaveProfileId, readonly G
     { direction: [0.85, -0.52], amplitude: 15.0, wavelength: 950.0, speed: 1.40, steepness: 0.45 },
     { direction: [0.78, 0.62], amplitude: 5.0, wavelength: 320.0, speed: 1.80, steepness: 0.35 },
   ],
+  // Pool and cup speeds are multipliers on deep-water dispersion chosen to keep their earlier motion.
   SWIMMING_POOL: [
-    { direction: [0.707, 0.707], amplitude: 0.035, wavelength: 3.2, speed: 1.8, steepness: 0.25 },
-    { direction: [-0.60, 0.80], amplitude: 0.020, wavelength: 1.8, speed: 2.2, steepness: 0.22 },
-    { direction: [0.85, -0.52], amplitude: 0.012, wavelength: 0.9, speed: 2.9, steepness: 0.18 },
+    { direction: [0.707, 0.707], amplitude: 0.035, wavelength: 3.2, speed: 0.916732, steepness: 0.25 },
+    { direction: [-0.60, 0.80], amplitude: 0.020, wavelength: 1.8, speed: 0.630254, steepness: 0.22 },
+    { direction: [0.85, -0.52], amplitude: 0.012, wavelength: 0.9, speed: 0.415394, steepness: 0.18 },
   ],
   CUP_WATER: [
-    { direction: [1.0, 0.0], amplitude: 0.004, wavelength: 0.12, speed: 2.4, steepness: 0.20 },
-    { direction: [0.0, 1.0], amplitude: 0.0025, wavelength: 0.07, speed: 3.1, steepness: 0.18 },
-    { direction: [0.707, -0.707], amplitude: 0.0015, wavelength: 0.035, speed: 4.2, steepness: 0.15 },
+    { direction: [1.0, 0.0], amplitude: 0.004, wavelength: 0.12, speed: 0.045837, steepness: 0.20 },
+    { direction: [0.0, 1.0], amplitude: 0.0025, wavelength: 0.07, speed: 0.034537, steepness: 0.18 },
+    { direction: [0.707, -0.707], amplitude: 0.0015, wavelength: 0.035, speed: 0.023396, steepness: 0.15 },
   ],
   // Spectra below were previously inlined in getWaveSpectrumForSolvent (magma, methane) or silently
   // fell back to the freshwater spectrum (ammonia, brine). They now live with the other profiles.
@@ -337,6 +338,15 @@ function calcSmoothstep(edge0: number, edge1: number, x: number): number {
 }
 
 /**
+ * Deep-water dispersion in rad/s (GPU Gems, ch. 1: phase constant = speed · 2π/L, with the
+ * speed S = c = sqrt(g/k)), so ω = sqrt(g·k). `speed` is a unitless multiplier. CPU buoyancy and
+ * every water shader read the frequency from here.
+ */
+export function gerstnerAngularFrequency(wave: Pick<GerstnerWaveHarmonic, 'speed' | 'wavelength'>): number {
+  return wave.speed * Math.sqrt(9.80665 * (2.0 * Math.PI) / wave.wavelength);
+}
+
+/**
  * THE Gerstner evaluator. CPU consumers (Manaus physics, buoyancy, universal sampling, the fluid
  * registry) all call this one function, and the GPU shader unrolls the identical equation with the
  * same per-harmonic constants (see WaterSystem `createMaterial`).
@@ -365,11 +375,10 @@ export function sampleGerstnerSpectrum(
     const w = waves[i];
     const amp = w.amplitude * (i >= 2 ? highHarmonicFilter : 1);
     const k = (2.0 * Math.PI) / w.wavelength;
-    const c = Math.sqrt(9.80665 / k);
     const len = Math.hypot(w.direction[0], w.direction[1]) || 1.0;
     const dirX = w.direction[0] / len;
     const dirZ = w.direction[1] / len;
-    const theta = k * (dirX * x + dirZ * z) - w.speed * c * timeSec;
+    const theta = k * (dirX * x + dirZ * z) - gerstnerAngularFrequency(w) * timeSec;
     const cosTheta = Math.cos(theta);
     const sinTheta = Math.sin(theta);
     const qAmp = (w.steepness > 0 && w.amplitude > 1e-8) ? (w.steepness / (k * count)) * (i >= 2 ? highHarmonicFilter : 1) : 0;
@@ -446,11 +455,10 @@ export function createUniversalLiquidMaterial(solvent: LiquidSolventType): MeshS
   for (let i = 0; i < count; i++) {
     const w = waves[i];
     const k = (2.0 * Math.PI) / w.wavelength;
-    const c = Math.sqrt(9.80665 / k);
     const amp = i >= 2 ? float(w.amplitude).mul(near) : float(w.amplitude);
     const phase = dot(vec2(stableWp.x, stableWp.z), vec2(w.direction[0], w.direction[1]))
       .mul(k)
-      .sub(universalLiquidTime.mul(w.speed * c));
+      .sub(universalLiquidTime.mul(gerstnerAngularFrequency(w)));
 
     const sinP = sin(phase);
     const cosP = cos(phase);

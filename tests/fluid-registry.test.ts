@@ -18,7 +18,8 @@ function oracle(waves: readonly GerstnerWaveHarmonic[], x: number, z: number, t:
   const count = waves.length;
   waves.forEach((w, i) => {
     const amp = w.amplitude * (i >= 2 ? near : 1);
-    const k = 2 * Math.PI / w.wavelength, omega = w.speed * Math.sqrt(9.80665 / k);
+    // Deep-water dispersion: ω = sqrt(g·k) in rad/s, scaled by the profile's speed multiplier.
+    const k = 2 * Math.PI / w.wavelength, omega = w.speed * Math.sqrt(9.80665 * k);
     const L = Math.hypot(w.direction[0], w.direction[1]);
     const dx = w.direction[0] / L, dz = w.direction[1] / L;
     const th = k * (dx * x + dz * z) - omega * t;
