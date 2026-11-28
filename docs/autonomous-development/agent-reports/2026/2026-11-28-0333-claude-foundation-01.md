@@ -106,7 +106,7 @@ F01-15 e F01-16 em [KNOWN-ISSUES](../../KNOWN-ISSUES.md): material por tile (hip
 
 ## Push e CI
 
-Publicado em `origin/feat/universe-map` sem force push. CI no [CI-HISTORY](../../CI-HISTORY.md).
+Publicado em `origin/feat/universe-map` sem force push. CI SUCCESS no push e no PR de `683a599` ([run 46123306748](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46123306748)), registrado no [CI-HISTORY](../../CI-HISTORY.md). O commit que registra esse resultado vem depois do SHA validado.
 
 ## Pendências e próximas ações
 

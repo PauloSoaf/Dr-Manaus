@@ -11,6 +11,8 @@
 | 2026-11-28 | Claude | FOUNDATION-01-CLAUDE-001 | FOUNDATION-01 | `a3a5a90647ad89cbf707c10ed4904b210aa76647` | Validation (push e PR) | SUCCESS | [46106262696](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46106262696), [46106267732](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46106267732) |
 | 2026-11-28 | Claude | FOUNDATION-01-CLAUDE-001 | FOUNDATION-01 | `c6318e76ae923da97559b8054c482899f4ed1ec8` (handoff) | Validation (push e PR) | SUCCESS | [46119424945](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46119424945), [46119428960](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46119428960) |
 | 2026-11-28 | Claude | F01-HOTFIX-002-CLAUDE-001 | F01-HOTFIX-002 | `3262e18285c78cba9b799151159f510a5d41cd71` | Validation (push) | SUCCESS | [46119814061](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46119814061) |
+| 2026-11-28 | Claude | FOUNDATION-01-CLAUDE-002 | FOUNDATION-01 | `4a91ff2` (hotfix integrado por fast-forward) | Validation (push e PR) | SUCCESS | [46121781998](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46121781998), [46121785922](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46121785922) |
+| 2026-11-28 | Claude | FOUNDATION-01-CLAUDE-002 | FOUNDATION-01 | `683a5998032b5a6707010683d5a0d7a3a6993975` | Validation (push e PR) | SUCCESS | [46123306748](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46123306748), [46123311083](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46123311083) |
 
 O handoff documental é posterior ao SHA de implementação validado. Os registros históricos seguem abaixo.
 
