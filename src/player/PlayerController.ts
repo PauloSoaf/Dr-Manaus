@@ -847,6 +847,19 @@ export class PlayerController {
     this.titanSupport.reset();
   }
 
+  /**
+   * The same physical place expressed in another surface frame: motion and state carry on. Unlike
+   * a teleport, nothing is reset beyond what refers to old coordinates.
+   */
+  rebaseSurface(position: Vector3, velocity: Vector3): void {
+    this.position.copy(position);
+    this.velocity.copy(velocity);
+    this.model.position.copy(position);
+    this.submersion = manausBathymetry.evaluateSubmersion(position, 1.8 * this.size, this.liquidTimeSec);
+    this.pendingImpact = null;
+    this.titanSupport.reset();
+  }
+
   /** A normal travel return continues toward the terrain under the active body's gravity. */
   beginSurfaceApproach(): void {
     const floor = PhysicsWorld.terrainHeight(this.position.x, this.position.z, 0.32 * this.size);

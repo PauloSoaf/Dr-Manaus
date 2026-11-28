@@ -117,6 +117,7 @@ import type { ImpactResult } from '../player/combat/MeteorImpact';
 import { impactCategory, impactKind } from '../world/destruction/ImpactCategories';
 import { ManausSubsystem } from '../world/providers/ManausSubsystem';
 import { PLANET_LOADING, RockyPlanetProvider } from '../world/providers/RockyPlanetProvider';
+import { followSurface } from '../world/spatial/SurfaceFollow';
 import { createPlanetProviders } from '../world/providers/PlanetProviderRegistry';
 import { bodyProfile, bodyArrivalPolicy, supportsLanding, PHOTOSPHERE_GAMEPLAY_GRAVITY_MPS2 } from '../world/celestial/CelestialBodyProfile';
 import { NavigationTargetState, celestialLockCandidates, cycleNavigationTarget, type NavigationLock } from '../world/travel/NavigationLock';
@@ -1090,6 +1091,7 @@ export class Game {
       this.motionTrace?.mark('surface-return');
       this.finishSurfaceReturn(this.universe.telemetry.dominantBody);
     }
+    this.followEarthSurface();
     this.bindSurfacePhysics();
     const local = !this.universalTravelController?.active && this.travelDomain.localPhysicsActive;
     this.camera.inSpace = !local;
@@ -3054,6 +3056,19 @@ export class Game {
     this.syncLocalRenderOrigin();
     this.camera.inSpace = false;
     this.hud.notify(`Aproximação · ${this.universe.activeSystem.bodies.find(body => body.id === targetBody)?.name ?? targetBody}`);
+  }
+
+  /**
+   * Moves the local Earth frame under a player who flew or walked far, keeping place, height above
+   * the ground, velocity and view. Vehicles stay in the frame they started in.
+   */
+  private followEarthSurface(): void {
+    if (FEATURES.curvedManaus || this.universalTravelController?.active || !this.travelDomain.localPhysicsActive) return;
+    if (this.universe.navigationState.bodyId !== 'earth' || this.vehicle?.isOccupied) return;
+    this.bindSurfacePhysics();
+    const move = followSurface({ universe: this.universe, player: this.player, camera: this.camera,
+      bindPhysics: () => this.bindSurfacePhysics() });
+    if (move) this.motionTrace?.mark('surface-follow');
   }
 
   private syncLocalRenderOrigin(): void {

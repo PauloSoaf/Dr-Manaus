@@ -610,6 +610,19 @@ export class UniverseRuntime {
   }
 
   /**
+   * Moves the player into another surface frame of the same body, with the pose, velocity and view
+   * already expressed in it. The physical place does not change.
+   */
+  rebaseSurfaceFrame(frameId: string, position: Vec3, velocity: Vec3, viewForward: Vec3): void {
+    this.setPlayerPose(frameId, position);
+    for (let axis = 0; axis < 3; axis++) this.velocity[axis] = finite(velocity[axis]);
+    this.setViewForward(viewForward);
+    this.floatingOrigin.reset(this.playerPose);
+    this.renderSpace.setOrigin(createRenderOrigin(frameId, this.playerPose.position, this.playerPose.orientation, this.timeS));
+    this.scheduler.invalidate();
+  }
+
+  /**
    * Changes the player's local reference frame to the given body and updates their local coordinates.
    * Returns the new local coordinates so the PlayerController can be teleported there.
    */
