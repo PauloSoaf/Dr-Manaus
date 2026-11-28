@@ -111,6 +111,7 @@ import { PlanetVolumeTerrainProvider } from '../world/planet/volume/PlanetVolume
 import { PlanetVolumeCollisionProvider } from '../world/planet/volume/PlanetVolumeCollisionProvider';
 import { MANAUS_COVERAGE } from '../world/providers/EarthProvider';
 import { bodyFixedToGeodetic } from '../world/planet/PlanetBody';
+import { planetBodyFromCelestial } from '../world/planet/PlanetBodyAdapter';
 import type { CelestialImpactEvent } from '../world/travel/CelestialImpactEvent';
 import type { ImpactResult } from '../player/combat/MeteorImpact';
 import { impactCategory, impactKind } from '../world/destruction/ImpactCategories';
@@ -260,6 +261,7 @@ export class Game {
         this.streamer.setRegion(region);
         this.hlod.clear();
       },
+      bindDestinationPhysics: () => this.bindSurfacePhysics(),
       onTeleported: () => {
         this.releaseVehicleControl();
         this.motionTrace?.mark('universal-teleport');
@@ -483,6 +485,7 @@ export class Game {
   readonly photosphereGround = new PhotosphereGroundVisual();
   private readonly surfaceTerrains = new Map<string, PlanetTerrainProvider>();
   private physicsDomain = 'manaus';
+  private physicsFrame = '';
   private volumePhysicsGeneration = -1;
   /** The generalized flat backdrop. It stands down once the globe becomes the ground. */
   private readonly flatTerrain: import('three/webgpu').Group;
@@ -807,6 +810,10 @@ export class Game {
           return false;
         }
         if (res.kind === 'local-collider' && res.localDestination) {
+          // A city point seen from another frame needs the full frame change, not a local blink.
+          if (res.frameId && res.frameId !== this.universe.player.frame) {
+            return (await this.universalTeleport.teleport(res.localDestination)).success;
+          }
           await this.powers.teleportTo(res.localDestination);
           return true;
         }
@@ -1093,14 +1100,16 @@ export class Game {
       currentLonDeg = -60.0234;
       currentSurfaceType = 'terrestrial';
     } else if (isLocalThalassa) {
-      currentLatDeg = 0;
-      currentLonDeg = 0;
+      const anchor = this.surfaceAnchorDeg('thalassa');
+      currentLatDeg = anchor?.latDeg ?? 0;
+      currentLonDeg = anchor?.lonDeg ?? 0;
       currentSurfaceType = 'megawave-ocean';
     } else if (isLocalEarth) {
-      // Keep the stable fixed ENU anchor coordinates from BuildingGeneratorContext.activeOrigin,
-      // never polling playerGeodetic() every frame which would cause the geographic anchor to drift
-      currentLatDeg = BuildingGeneratorContext.activeOrigin.latDeg;
-      currentLonDeg = BuildingGeneratorContext.activeOrigin.lonDeg;
+      // The anchor of the collision frame, never the moving player position: streamed terrain
+      // must be generated in exactly the frame physics uses.
+      const anchor = this.surfaceAnchorDeg('earth');
+      currentLatDeg = anchor?.latDeg ?? BuildingGeneratorContext.activeOrigin.latDeg;
+      currentLonDeg = anchor?.lonDeg ?? BuildingGeneratorContext.activeOrigin.lonDeg;
       const isLand = isLandAt(currentLatDeg * (Math.PI / 180), currentLonDeg * (Math.PI / 180));
       currentSurfaceType = isLand ? 'terrestrial' : 'ocean';
     } else {
@@ -3023,6 +3032,25 @@ export class Game {
     };
   }
 
+  /** The player's surface frame on a body: its landing ENU or a teleport site. */
+  private surfaceFrameOf(bodyId: string): string | undefined {
+    const id = this.universe.player.frame;
+    if (!this.universe.frames.has(id)) return undefined;
+    const frame = this.universe.frames.get(id);
+    return frame.kind === 'surface-enu' && frame.parentId === `${bodyId}/fixed` ? id : undefined;
+  }
+
+  /** Geodetic anchor of the surface frame in use, so streamed terrain matches the collision frame. */
+  private surfaceAnchorDeg(bodyId: string): { latDeg: number; lonDeg: number } | undefined {
+    const frameId = this.surfaceFrameOf(bodyId);
+    const celestial = this.universe.activeSystem.bodies.find(candidate => candidate.id === bodyId);
+    const model = bodyId === 'earth' ? EARTH : celestial && planetBodyFromCelestial(celestial);
+    if (!frameId || !model) return undefined;
+    const [xM, yM, zM] = this.universe.frames.get(frameId).originInParent;
+    const anchor = bodyFixedToGeodetic(model, { xM, yM, zM });
+    return { latDeg: anchor.latRad * (180 / Math.PI), lonDeg: anchor.lonRad * (180 / Math.PI) };
+  }
+
   private bindSurfacePhysics(): void {
     const bodyId = this.universe.navigationState.bodyId;
     if (bodyId && (this.save?.isBodyRuptured(bodyId) || this.planetaryRupturePresentation?.isRuptured(bodyId))) {
@@ -3036,12 +3064,16 @@ export class Game {
     const provider = bodyId ? this.surfaceProvider(bodyId) : undefined;
     const body = this.universe.activeSystem.bodies.find(b => b.id === bodyId), surface = provider?.surface ?? (body && surfaceForBody(body));
     const isPhotosphere = bodyId === 'sun' || (body && bodyProfile(body).landingMode === 'photosphere');
+    // Landing frames and teleport sites are both surface frames of the body.
+    const surfaceFrame = bodyId ? this.surfaceFrameOf(bodyId) : undefined;
     const domain = this.manausSimulationActive ? 'manaus' :
-      this.travelDomain.localPhysicsActive && (surface || isPhotosphere) && this.universe.player.frame === `${bodyId}/local-enu` ? bodyId! : 'space';
+      this.travelDomain.localPhysicsActive && (surface || isPhotosphere) && surfaceFrame ? bodyId! : 'space';
+    const frameKey = domain === 'manaus' || domain === 'space' ? '' : surfaceFrame!;
     const replacementGeneration = this.universe.volume.replacement.generation;
-    if (domain === this.physicsDomain && replacementGeneration === this.volumePhysicsGeneration) return;
+    if (domain === this.physicsDomain && frameKey === (this.physicsFrame ?? '') && replacementGeneration === this.volumePhysicsGeneration) return;
     this.volumePhysicsGeneration = replacementGeneration;
     this.physicsDomain = domain;
+    this.physicsFrame = frameKey;
     this.colliders.length = 0;
     this.curvedColliders.length = 0;
     this.attackBoxes.length = 0;
@@ -3058,15 +3090,15 @@ export class Game {
       this.district = 'FOTOSFERA';
     } else if (surface && domain !== 'space') {
       let terrain = this.surfaceTerrains.get(domain);
-      if (!terrain) {
+      if (!terrain || terrain.frameId !== frameKey) {
         // The Earth collides with its seabed under the water, not with the sea surface.
-        terrain = new PlanetTerrainProvider(this.universe.frames, surface.body, localGroundSurface(surface));
+        terrain = new PlanetTerrainProvider(this.universe.frames, surface.body, localGroundSurface(surface), frameKey);
         this.surfaceTerrains.set(domain, terrain);
       }
       PhysicsWorld.setTerrain(new PlanetVolumeTerrainProvider(terrain, this.universe.volume.replacement,
-        this.universe.frames, domain, `${domain}/fixed`, `${domain}/local-enu`));
+        this.universe.frames, domain, `${domain}/fixed`, frameKey));
       const volume = new PlanetVolumeCollisionProvider(this.universe.volume.collisionCache, this.universe.frames,
-        domain, `${domain}/fixed`, `${domain}/local-enu`);
+        domain, `${domain}/fixed`, frameKey);
       PhysicsWorld.setVolumeCollision(this.universe.volume.replacement.bodyId === domain ? volume : null);
       this.universe.volume.setCollisionDiagnostics(volume.metrics);
       this.player.setSurfaceGravity(surfaceGravityMps2(surface.body));

@@ -52,8 +52,8 @@ export class WorldStreamer {
 
   /**
    * Sets the active geographic region for chunk generation.
-   * If the region ID changes (or forceClear is true), all existing cached chunks
-   * and in-flight queue jobs are atomically purged and generationVersion increments.
+   * If the region ID or its surface anchor changes (or forceClear is true), all existing cached
+   * chunks and in-flight queue jobs are atomically purged and generationVersion increments.
    */
   setRegion(context: Partial<ChunkGenerationContext>, forceClear = false): boolean {
     const bodyId = context.bodyId ?? this.activeContext.bodyId;
@@ -62,7 +62,11 @@ export class WorldStreamer {
     const lonDeg = context.lonDeg ?? this.activeContext.lonDeg;
     const regionId = context.regionId ?? createRegionId(bodyId, isManaus, latDeg, lonDeg);
 
-    const regionChanged = forceClear || regionId !== this.activeContext.regionId;
+    // Chunks are expressed in the tangent frame at the anchor: a nearby re-landing can keep the
+    // rounded region id while moving the frame by hundreds of metres.
+    const anchorMoved = !isManaus && (Math.abs(latDeg - this.activeContext.latDeg) > 1e-7
+      || Math.abs(lonDeg - this.activeContext.lonDeg) > 1e-7);
+    const regionChanged = forceClear || regionId !== this.activeContext.regionId || anchorMoved;
 
     if (regionChanged) {
       const nextVersion = this.activeContext.generationVersion + 1;

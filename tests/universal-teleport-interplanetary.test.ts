@@ -7,7 +7,10 @@ import { UniversalTeleportService } from '../src/world/travel/UniversalTeleportS
 import { MANAUS_FRAME_ID } from '../src/world/spatial/ManausFrameAdapter';
 import type { CelestialBody } from '../src/world/celestial/CelestialBody';
 import { referenceFrame } from '../src/world/spatial/ReferenceFrame';
-import { cloneVec3 } from '../src/world/spatial/units';
+import { cloneVec3, degToRad, radToDeg } from '../src/world/spatial/units';
+import { surfaceForBody } from '../src/world/planet/BodySurfaceFactory';
+import { PlanetTerrainProvider } from '../src/world/planet/PlanetTerrainProvider';
+import { bodyFixedToGeodetic } from '../src/world/planet/PlanetBody';
 
 function setupInterplanetaryTestEnvironment() {
   const universe = new UniverseRuntime();
@@ -93,7 +96,18 @@ test('T_VIVO10_01_MARS_SURFACE_TELEPORT: Direct surface arrival on Mars with dyn
   assert.ok(universe.frames.has(expectedFrame), 'Dynamic Mars surface frame must be registered');
   assert.equal(universe.player.frame, expectedFrame, 'Player must be bound to Mars surface frame');
   assert.equal(universe.address.bodyId, 'mars', 'Cosmic address bodyId must be mars');
-  assert.equal(player.position.y, 2.0, 'Player Y must match requested safe altitude');
+  // The requested altitude is height above the ground at the anchor, not above the ellipsoid:
+  // Gusev crater lies kilometres below the reference radius.
+  const surface = surfaceForBody(universe.activeSystem.bodies.find(body => body.id === 'mars')!)!;
+  const ground = new PlanetTerrainProvider(universe.frames, surface.body, surface, expectedFrame).heightAt(0, 0);
+  assert.ok(Math.abs(player.position.y - (ground + 2.0)) < 1e-3, `player ${player.position.y} must stand 2 m above ground ${ground}`);
+  // The frame sits at the requested coordinate with local up along the body's vertical.
+  const anchor = universe.frames.convertPosition(expectedFrame, 'mars/fixed', [0, 0, 0]);
+  const geodetic = bodyFixedToGeodetic(surface.body, { xM: anchor[0], yM: anchor[1], zM: anchor[2] });
+  assert.ok(Math.abs(radToDeg(geodetic.latRad) + 14.5684) < 1e-6 && Math.abs(radToDeg(geodetic.lonRad) - 175.4729) < 1e-6);
+  const up = universe.frames.convertDirection(expectedFrame, 'mars/fixed', [0, 1, 0]);
+  const radial = anchor.map(v => v / Math.hypot(...anchor));
+  assert.ok(up[0] * radial[0] + up[1] * radial[1] + up[2] * radial[2] > Math.cos(degToRad(.5)), 'local up follows the vertical');
   assert.equal(player.velocity.x, 0);
   assert.equal(player.velocity.y, 0);
   assert.equal(player.velocity.z, 0);

@@ -19,15 +19,12 @@ import {
   intersectEarthWGS84,
   intersectMoonSurface,
   intersectMarsSurface,
-  MOON_RADIUS_M,
-  MARS_RADIUS_EQUATORIAL_M,
 } from '../spatial/AnalyticalSurfaceIntersection';
 import { pickCelestialBodyFromRay } from './CelestialAngularPicker';
 import { BuildingGeneratorContext } from '../chunks/BuildingGenerator';
 import { PhysicsWorld } from '../../physics/PhysicsWorld';
 import { referenceFrame } from '../spatial/ReferenceFrame';
 import { enuBasis } from '../spatial/ENU';
-import { geodeticToEcef } from '../spatial/ECEF';
 import {
   quatFromBasis,
   degToRad,
@@ -47,6 +44,12 @@ import { UniversalTargetCatalog, SOLAR_TARGET_ADDRESS } from './UniversalTargetC
 import { UniversalTargetResolver } from './UniversalTargetResolver';
 import { resolveCosmologicalAnchorArrival } from '../cosmology/CosmologicalNavigation';
 import { schwarzschildRadiusM } from '../celestial/BlackHoleDescriptor';
+import { surfaceForBody } from '../planet/BodySurfaceFactory';
+import { localGroundSurface } from '../planet/EarthSurface';
+import { PlanetTerrainProvider } from '../planet/PlanetTerrainProvider';
+import { earthSolidGroundAt, EARTH_WET_TOLERANCE_M } from '../planet/EarthElevation';
+import { EARTH, bodyGeodeticToFixed } from '../planet/PlanetBody';
+import { planetBodyFromCelestial } from '../planet/PlanetBodyAdapter';
 import type { Collider } from '../../core/types';
 
 export const LOCAL_AIM_RAYCAST_M = 2500;
@@ -71,6 +74,8 @@ export interface UniversalTeleportServiceContext {
   targetCatalog?: UniversalTargetCatalog;
   targetResolver?: UniversalTargetResolver;
   onTeleported?: () => void;
+  /** Rebinds physics to the surface frame just committed, before any ground query uses it. */
+  bindDestinationPhysics?: () => void;
   onRegionChange?: (context: {
     bodyId: string;
     latDeg: number;
@@ -94,6 +99,8 @@ export interface TeleportResolution {
   readonly displayName: string;
   readonly target?: TeleportTarget;
   readonly localDestination?: Vector3;
+  /** The frame `localDestination` is expressed in. */
+  readonly frameId?: string;
 }
 
 export interface TeleportResult {
@@ -144,6 +151,7 @@ export class UniversalTeleportService {
         kind: 'local-collider',
         displayName: 'Superfície local',
         localDestination: dest,
+        frameId: this.context.universe.player.frame,
       };
     }
 
@@ -177,6 +185,7 @@ export class UniversalTeleportService {
             kind: 'local-collider',
             displayName: `Manaus (${latDeg.toFixed(3)}°, ${lonDeg.toFixed(3)}°)`,
             localDestination: new Vector3(legacyPoint[0], legacyPoint[1] + 2.0, legacyPoint[2]),
+            frameId: MANAUS_FRAME_ID,
           };
         }
 
@@ -486,9 +495,9 @@ export class UniversalTeleportService {
     await this.context.prepareManaus?.(destination);
     if (signal.aborted) throw new Error('Teleporte abortado');
 
-    const colliders = this.context.getColliders?.() ?? [];
-    const playerSize = this.context.player.size ?? 1.0;
-    const safe = PhysicsWorld.safeLanding(destination, colliders, 0.34 * playerSize, 2.1 * playerSize);
+    // Arriving from another surface, the bound ground still belongs to the origin. Commit the
+    // city frame and rebind before asking where the ground is.
+    const arrivingFromElsewhere = this.context.universe.player.frame !== MANAUS_FRAME_ID;
 
     // Atomic commit
     BuildingGeneratorContext.activeOrigin = {
@@ -497,6 +506,13 @@ export class UniversalTeleportService {
       isManaus: true,
     };
     this.context.travelDomain.reset();
+    if (arrivingFromElsewhere) {
+      this.context.universe.setPlayerPose(MANAUS_FRAME_ID, [destination.x, destination.y, destination.z]);
+      this.context.bindDestinationPhysics?.();
+    }
+    const colliders = this.context.getColliders?.() ?? [];
+    const playerSize = this.context.player.size ?? 1.0;
+    const safe = PhysicsWorld.safeLanding(destination, colliders, 0.34 * playerSize, 2.1 * playerSize);
     this.context.universe.setPlayerPose(MANAUS_FRAME_ID, [safe.x, safe.y, safe.z]);
     this.context.player.teleport(safe);
     this.context.player.velocity.set(0, 0, 0);
@@ -534,18 +550,20 @@ export class UniversalTeleportService {
             isManaus: false,
             bodyId: 'earth',
           };
+          const offshore = earthSolidGroundAt(degToRad(target.latDeg), degToRad(target.lonDeg)) < -EARTH_WET_TOLERANCE_M;
           this.context.onRegionChange?.({
             bodyId: 'earth',
             latDeg: target.latDeg,
             lonDeg: target.lonDeg,
             isManaus: false,
-            surfaceType: 'ocean',
+            surfaceType: offshore ? 'ocean' : 'terrestrial',
           });
           const frameId = this.ensureDynamicSurfaceFrame('earth', target.latDeg, target.lonDeg);
+          const arrivalY = this.arrivalHeight('earth', frameId, target.altitudeM);
 
           // Atomic commit for arbitrary Earth coordinates
           travelDomain.reset();
-          const targetPos: Vec3 = [0, target.altitudeM, 0];
+          const targetPos: Vec3 = [0, arrivalY, 0];
           universe.setPlayerPose(frameId, targetPos);
           universe.address = {
             galaxyId: 'milky_way',
@@ -555,7 +573,7 @@ export class UniversalTeleportService {
             childFrame: frameId,
           };
           universe.floatingOrigin.reset(universe.player);
-          this.context.player.teleport({ x: 0, y: target.altitudeM, z: 0 });
+          this.context.player.teleport({ x: 0, y: arrivalY, z: 0 });
           this.context.player.velocity.set(0, 0, 0);
 
           return {
@@ -566,45 +584,7 @@ export class UniversalTeleportService {
           };
         }
 
-        if (bodyId === 'moon') {
-          if (!universe.frames.has('moon/fixed')) {
-            const moonBody = universe.activeSystem.bodies.find(b => b.id === 'moon');
-            if (moonBody && universe.frames.has(moonBody.frameId)) {
-              universe.frames.register(referenceFrame({
-                id: 'moon/fixed',
-                parentId: moonBody.frameId,
-                kind: 'body-fixed',
-                label: 'moon (fixo)',
-              }));
-            } else {
-              throw new Error('Frame lunar indisponível.');
-            }
-          }
-
-          travelDomain.reset();
-          const moonRadius = MOON_RADIUS_M;
-          const targetPos: Vec3 = [0, moonRadius + target.altitudeM, 0];
-          universe.setPlayerPose('moon/fixed', targetPos);
-          universe.address = {
-            galaxyId: 'milky_way',
-            sector: sectorIndex(0n, 0n, 0n),
-            systemId: 'sol',
-            bodyId: 'moon',
-            childFrame: 'moon/fixed',
-          };
-          universe.floatingOrigin.reset(universe.player);
-          this.context.player.teleport({ x: 0, y: target.altitudeM, z: 0 });
-          this.context.player.velocity.set(0, 0, 0);
-
-          return {
-            success: true,
-            message: `Chegada à superfície da Lua`,
-            target,
-            transitionKind: 'local',
-          };
-        }
-
-        // Mars and all procedural or other celestial bodies
+        // The Moon, Mars, procedural and every other celestial body
         if (target.systemId && target.systemId !== universe.address.systemId && this.context.prepareSystem) {
           const navTarget = createUniversalTarget({
             kind: 'body',
@@ -629,8 +609,7 @@ export class UniversalTeleportService {
           throw new Error(`Corpo celeste "${bodyId}" não encontrado no sistema.`);
         }
 
-        const radiusM = body.equatorialRadiusM || (bodyId === 'mars' ? MARS_RADIUS_EQUATORIAL_M : 3_000_000);
-        const frameId = this.ensureDynamicSurfaceFrame(bodyId, target.latDeg, target.lonDeg, radiusM);
+        const frameId = this.ensureDynamicSurfaceFrame(bodyId, target.latDeg, target.lonDeg);
         BuildingGeneratorContext.activeOrigin = {
           latDeg: target.latDeg,
           lonDeg: target.lonDeg,
@@ -645,9 +624,9 @@ export class UniversalTeleportService {
           surfaceType: bodyId === 'thalassa' ? 'megawave-ocean' : 'barren',
         });
 
+        const arrivalY = this.arrivalHeight(bodyId, frameId, target.altitudeM);
         travelDomain.reset();
-        const safeAlt = Math.max(1.0, Number.isFinite(target.altitudeM) ? target.altitudeM : 2.0);
-        const targetPos: Vec3 = [0, safeAlt, 0];
+        const targetPos: Vec3 = [0, arrivalY, 0];
         universe.setPlayerPose(frameId, targetPos);
         universe.address = {
           galaxyId: target.galaxyId ?? universe.address.galaxyId,
@@ -657,7 +636,7 @@ export class UniversalTeleportService {
           childFrame: frameId,
         };
         universe.floatingOrigin.reset(universe.player);
-        this.context.player.teleport({ x: 0, y: safeAlt, z: 0 });
+        this.context.player.teleport({ x: 0, y: arrivalY, z: 0 });
         this.context.player.velocity.set(0, 0, 0);
 
         return {
@@ -847,15 +826,30 @@ export class UniversalTeleportService {
   }
 
   /**
+   * The requested altitude is height above the ground, or above the sea over water. Surface
+   * frames are anchored on the reference ellipsoid, so the relief under the anchor is added.
+   */
+  private arrivalHeight(bodyId: string, frameId: string, altitudeM: number): number {
+    const clearance = Math.max(1, Number.isFinite(altitudeM) ? altitudeM : 2);
+    const body = this.context.universe.activeSystem.bodies.find(b => b.id === bodyId);
+    const surface = body && surfaceForBody(body);
+    if (!surface) return clearance;
+    const { frames } = this.context.universe;
+    const ground = new PlanetTerrainProvider(frames, surface.body, localGroundSurface(surface), frameId).heightAt(0, 0);
+    if (!Number.isFinite(ground)) return clearance;
+    // An ocean's drawn surface is sea level; its solid ground lies below it.
+    const anchor = frames.convertPosition(frameId, `${bodyId}/fixed`, [0, 0, 0]);
+    const radius = Math.hypot(...anchor) || 1;
+    const drawn = surface.heightAt([anchor[0] / radius, anchor[1] / radius, anchor[2] / radius]);
+    const offshore = ground < -EARTH_WET_TOLERANCE_M && (bodyId === 'earth' || (drawn <= 0.05 && drawn > ground + 0.5));
+    return (offshore ? 0 : ground) + clearance;
+  }
+
+  /**
    * Generates or retrieves an ENU surface reference frame at arbitrary celestial geodetic coordinates.
    * Enforces bounded memory by evicting older dynamic frames from the ReferenceFrameGraph.
    */
-  private ensureDynamicSurfaceFrame(
-    bodyId: string,
-    latDeg: number,
-    lonDeg: number,
-    equatorialRadiusM = 6378137,
-  ): string {
+  private ensureDynamicSurfaceFrame(bodyId: string, latDeg: number, lonDeg: number): string {
     const frameId = `${bodyId}/surface/${latDeg.toFixed(4)}_${lonDeg.toFixed(4)}`;
     const { frames } = this.context.universe;
 
@@ -869,78 +863,28 @@ export class UniversalTeleportService {
       frames.remove(oldest);
     }
 
-    if (bodyId === 'earth') {
-      const anchorEcef = geodeticToEcef({
-        latRad: degToRad(latDeg),
-        lonRad: degToRad(lonDeg),
-        heightM: 0,
-      });
-
-      const basis = enuBasis({
-        latRad: degToRad(latDeg),
-        lonRad: degToRad(lonDeg),
-        heightM: 0,
-      });
-
-      const south = scaleVec3(cloneVec3(basis.north), -1, [0, 0, 0]);
-      const rotationToParent = quatFromBasis(cloneVec3(basis.east), cloneVec3(basis.up), south);
-
-      frames.register(
-        referenceFrame({
-          id: frameId,
-          parentId: EARTH_FIXED_FRAME_ID,
-          kind: 'surface-enu',
-          originInParent: [anchorEcef.xM, anchorEcef.yM, anchorEcef.zM],
-          rotationToParent,
-          label: `Terra (${latDeg.toFixed(2)}°, ${lonDeg.toFixed(2)}°)`,
-        }),
-      );
-    } else {
-      const fixedFrameId = `${bodyId}/fixed`;
-      if (!frames.has(fixedFrameId)) {
-        const body = this.context.universe.activeSystem.bodies.find(b => b.id === bodyId);
-        const parentId = body && frames.has(body.frameId) ? body.frameId : this.context.universe.activeSystem.systemFrameId;
-        frames.register(
-          referenceFrame({
-            id: fixedFrameId,
-            parentId,
-            kind: 'body-fixed',
-            label: `${bodyId} (fixo)`,
-          }),
-        );
-      }
-
-      const latRad = degToRad(latDeg);
-      const lonRad = degToRad(lonDeg);
-      const cosLat = Math.cos(latRad);
-      const sinLat = Math.sin(latRad);
-      const cosLon = Math.cos(lonRad);
-      const sinLon = Math.sin(lonRad);
-
-      const x = equatorialRadiusM * cosLat * cosLon;
-      const y = equatorialRadiusM * sinLat;
-      const z = equatorialRadiusM * cosLat * sinLon;
-
-      const basis = enuBasis({
-        latRad,
-        lonRad,
-        heightM: 0,
-      });
-
-      const south = scaleVec3(cloneVec3(basis.north), -1, [0, 0, 0]);
-      const rotationToParent = quatFromBasis(cloneVec3(basis.east), cloneVec3(basis.up), south);
-
-      frames.register(
-        referenceFrame({
-          id: frameId,
-          parentId: fixedFrameId,
-          kind: 'surface-enu',
-          originInParent: [x, y, z],
-          rotationToParent,
-          label: `${bodyId} (${latDeg.toFixed(2)}°, ${lonDeg.toFixed(2)}°)`,
-        }),
-      );
+    const celestial = this.context.universe.activeSystem.bodies.find(b => b.id === bodyId);
+    const model = bodyId === 'earth' ? EARTH : celestial && planetBodyFromCelestial(celestial);
+    if (!model) throw new Error(`Corpo celeste "${bodyId}" não encontrado no sistema.`);
+    const fixedFrameId = bodyId === 'earth' ? EARTH_FIXED_FRAME_ID : `${bodyId}/fixed`;
+    if (!frames.has(fixedFrameId)) {
+      const parentId = celestial && frames.has(celestial.frameId) ? celestial.frameId : this.context.universe.activeSystem.systemFrameId;
+      frames.register(referenceFrame({ id: fixedFrameId, parentId, kind: 'body-fixed', label: `${bodyId} (fixo)` }));
     }
+
+    // The same anchor convention as UniverseRuntime.handoffTo, on the body's own ellipsoid.
+    const anchor = { latRad: degToRad(latDeg), lonRad: degToRad(lonDeg), heightM: 0 };
+    const anchorFixed = bodyGeodeticToFixed(model, anchor);
+    const basis = enuBasis(anchor);
+    const south = scaleVec3(cloneVec3(basis.north), -1, [0, 0, 0]);
+    frames.register(referenceFrame({
+      id: frameId,
+      parentId: fixedFrameId,
+      kind: 'surface-enu',
+      originInParent: [anchorFixed.xM, anchorFixed.yM, anchorFixed.zM],
+      rotationToParent: quatFromBasis(cloneVec3(basis.east), cloneVec3(basis.up), south),
+      label: bodyId === 'earth' ? `Terra (${latDeg.toFixed(2)}°, ${lonDeg.toFixed(2)}°)` : `${bodyId} (${latDeg.toFixed(2)}°, ${lonDeg.toFixed(2)}°)`,
+    }));
 
     this.dynamicFrames.push(frameId);
     return frameId;
