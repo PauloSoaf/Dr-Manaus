@@ -12,6 +12,7 @@ import { HitStopSystem } from '../combat/HitStopSystem';
 import { CombatSystem } from '../combat/CombatSystem';
 import { IMPACT } from '../combat/MeteorImpact';
 import { TeleportSystem } from '../../world/spatial/TeleportSystem';
+import { powerExcavation, type ExcavationFootprint } from '../../world/destruction/ExcavationFootprint';
 
 export interface PowerHooks {
   targets: () => readonly Target[];
@@ -28,7 +29,7 @@ export interface PowerHooks {
    * Optional. Structural damage in a blast radius around a world point; returns how many
    * buildings collapsed. Absent, every power behaves exactly as it did before destruction.
    */
-  damage?: (point: Vector3, radius: number, amount: number, deform?: number) => number;
+  damage?: (point: Vector3, radius: number, amount: number, excavation?: ExcavationFootprint | 0) => number;
   impact?: (point: Vector3, footprint: import('../combat/MeteorImpact').ImpactResult) => number;
   /** City crater/debris visuals require an active deformable surface. */
   canDeformSurface?: () => boolean;
@@ -66,6 +67,8 @@ export class PowerSystem {
   private meleePending: { kind: 'punch' | 'kick'; time: number } | null = null;
   laserActive = false;
   private laserTick = 0;
+  private laserExposureS = 0;
+  private readonly laserContact = new Vector3();
   private readonly laser = new Mesh(new CylinderGeometry(1, 1, 1, 8), new MeshBasicMaterial({ color: 0xdffff8, toneMapped: false }));
   private readonly laserGlow = new Mesh(new CylinderGeometry(1, 1, 1, 10), new MeshBasicMaterial({ color: 0x25e9ff, transparent: true, opacity: .28, blending: AdditiveBlending, depthWrite: false, toneMapped: false }));
   private readonly laserImpact = new Mesh(new SphereGeometry(1, 12, 8), new MeshBasicMaterial({ color: 0xaaffee, transparent: true, opacity: .8, blending: AdditiveBlending, depthWrite: false, toneMapped: false }));
@@ -459,7 +462,9 @@ export class PowerSystem {
     const blastRadius = (isKinetic ? 6.5 : isMeteor ? 5.0 : (kind === 'kick' ? 2.8 : 2.0)) * size * speedRadiusFactor;
 
     if (target) this.hooks.hit(target.id, damageAmount);
-    this.hooks.damage?.(this.aimPoint, blastRadius, damageAmount);
+    const cut = !target && hit?.collider === null && (isKinetic || isMeteor)
+      ? powerExcavation('kinetic', size) : undefined;
+    this.hooks.damage?.(this.aimPoint, blastRadius, damageAmount, cut);
 
     if (isKinetic) {
       this.effects.wave(this.aimPoint, 24 * size);
@@ -586,7 +591,10 @@ export class PowerSystem {
   private updateLaser(dt: number): void {
     this.laser.visible = this.laserActive && this.input.enabled && !this.teleporting;
     this.laserGlow.visible = this.laser.visible; this.laserImpact.visible = false; this.laserRing.visible = false;
-    if (!this.laser.visible) return;
+    if (!this.laser.visible) {
+      this.laserExposureS = 0;
+      return;
+    }
     const cosmicTarget = this.acquireTarget(2_500_000);
     const isCosmic = cosmicTarget !== null && cosmicTarget.radius >= 10000;
     const reach = isCosmic ? Math.min(2_500_000, cosmicTarget.position.distanceTo(this.player.position) + cosmicTarget.radius * 1.5) : Math.max(1600, this.player.size * 24);
@@ -618,11 +626,23 @@ export class PowerSystem {
       this.laserRing.scale.setScalar(Math.max(0.8, width * 6) * (1 + (this.time * 3) % 1));
       (this.laserRing.material as MeshBasicMaterial).opacity = 0.7 * (1 - (this.time * 3) % 1);
     }
+    const cuttingGround = hit?.collider === null;
+    if (cuttingGround) {
+      const shift = Math.hypot(this.aimPoint.x - this.laserContact.x, this.aimPoint.z - this.laserContact.z);
+      if (this.laserExposureS === 0 || shift > Math.pow(this.player.size, .7) * 0.55) {
+        this.laserExposureS = 0;
+        this.laserContact.copy(this.aimPoint);
+      }
+      this.laserExposureS = Math.min(1, this.laserExposureS + dt);
+    } else {
+      this.laserExposureS = 0;
+    }
     this.player.powerPose('energy', 0.15);
     this.laserTick -= dt;
     if (this.laserTick <= 0) {
       this.laserTick = 0.1;
-      if (hit) this.hooks.damage?.(this.aimPoint, 6 * Math.pow(this.player.size, 0.7), 150000 * this.player.size);
+      if (hit) this.hooks.damage?.(this.aimPoint, 6 * Math.pow(this.player.size, 0.7), 150000 * this.player.size,
+        cuttingGround ? powerExcavation('laser', this.player.size, this.laserExposureS) : undefined);
       const target = isCosmic ? cosmicTarget : this.acquireTarget(Math.max(1600, this.player.size * 24));
       if (target && (isCosmic || target.position.distanceTo(this.aimPoint) < target.radius + 3)) {
         this.hooks.hit(target.id, 150000 * this.player.size);
@@ -655,7 +675,8 @@ export class PowerSystem {
     } else {
       // aimBeam already resolved the hit from the hand.
       // Only a beam that actually lands on a surface can cut into it; a shot at the sky does not.
-      if (surface) collapsed = this.hooks.damage?.(this.aimPoint, DESTRUCTION.beamRadius * Math.pow(power, 0.7), DESTRUCTION.beamDamage * power) ?? 0;
+      if (surface) collapsed = this.hooks.damage?.(this.aimPoint, DESTRUCTION.beamRadius * Math.pow(power, 0.7), DESTRUCTION.beamDamage * power,
+        surface.collider === null ? powerExcavation('energy', power) : undefined) ?? 0;
     }
     const beamThickness = isCosmic ? Math.max(DESTRUCTION.beamThickness, 8.0) : Math.pow(power, 0.6) * DESTRUCTION.beamThickness;
     this.effects.beam(this.emission, this.aimPoint, beamThickness, 0x89ffe1, surface ? 1 : 0);
@@ -686,7 +707,8 @@ export class PowerSystem {
       // The outer wave throws props; only its inner core disintegrates them.
       if (distance < radius && (target.kind === 'anomaly' || target.kind === 'creature' || distance < radius * 0.35)) this.hooks.hit(target.id, 2500000 * Math.sqrt(this.player.size));
     }
-    const levelled = this.hooks.damage?.(this.player.position, radius, DESTRUCTION.shockwaveDamage * this.player.size) ?? 0;
+    const levelled = this.hooks.damage?.(this.player.position, radius, DESTRUCTION.shockwaveDamage * this.player.size,
+      powerExcavation('shockwave', this.player.size)) ?? 0;
     this.hooks.sound('shockwave');
     window.dispatchEvent(new CustomEvent('drmanaus-shake', { detail: (0.7 + Math.min(1.1, levelled * 0.12)) * Math.sqrt(this.player.size) }));
     this.hooks.notify(levelled > 0 ? `Onda de choque · ${levelled} ${levelled === 1 ? 'estrutura arrasada' : 'estruturas arrasadas'}.` : 'Onda de choque · matéria repelida.');

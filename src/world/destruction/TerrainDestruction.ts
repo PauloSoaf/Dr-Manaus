@@ -1,10 +1,11 @@
 import {
-  Box3, BufferAttribute, BufferGeometry, DataTexture, DoubleSide, DynamicDrawUsage, Group, LinearFilter,
-  Material, Mesh, MeshBasicMaterial, MeshBasicNodeMaterial, MeshStandardMaterial, MeshStandardNodeMaterial,
+  Box3, BufferAttribute, BufferGeometry, DataTexture, DoubleSide, DynamicDrawUsage, Group, NearestFilter,
+  Material, Matrix4, Mesh, MeshBasicMaterial, MeshBasicNodeMaterial, MeshStandardMaterial, MeshStandardNodeMaterial,
   RGBAFormat, Sphere, Vector2, Vector3, type Node, type Object3D,
 } from 'three/webgpu';
-import { bool, positionWorld, texture, uniform } from 'three/tsl';
+import { bool, positionWorld, texture, uniform, vec4 } from 'three/tsl';
 import type { TerrainProvider } from '../../physics/PhysicsWorld';
+import type { ExcavationFootprint } from './ExcavationFootprint';
 import { mutationStore } from '../persistence/WorldMutationStore';
 import { manausBathymetry } from '../water/ManausBathymetry';
 
@@ -14,7 +15,7 @@ export const TERRAIN_DAMAGE = {
 } as const;
 const GRID = TERRAIN_DAMAGE.cells + 1;
 const DEPTH_QUANTUM = 20 / 255;
-export interface CraterRecord { id: number; x: number; z: number; radius: number; depth: number; order: number }
+export interface CraterRecord { id: number; x: number; z: number; radius: number; depth: number; order: number; profile?: 'smooth' }
 type GroundMaterial = MeshStandardNodeMaterial | MeshBasicNodeMaterial;
 export type TerrainSurfaceKind = 'sheet' | 'road' | 'plaza' | 'band';
 
@@ -52,7 +53,7 @@ export class TerrainDestruction implements TerrainProvider {
   private readonly geometry = new BufferGeometry();
   private readonly earth = new MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 1, metalness: 0, side: DoubleSide });
   private readonly mask = new DataTexture(this.pixels, GRID, GRID, RGBAFormat);
-  private readonly uOrigin = uniform(new Vector3());
+  private readonly worldToTerrain = uniform(new Matrix4());
   private readonly uMinimum = uniform(new Vector2(-TERRAIN_DAMAGE.span / 2, -TERRAIN_DAMAGE.span / 2));
   private readonly references = new Map<Material, number>();
   private readonly replacementsSheet = new Map<Material, GroundMaterial>();
@@ -76,7 +77,7 @@ export class TerrainDestruction implements TerrainProvider {
 
   constructor(root: Group) {
     this.group.name = 'destructible-earth'; root.add(this.group);
-    this.mask.name = 'terrain-crater-height-mask'; this.mask.minFilter = LinearFilter; this.mask.magFilter = LinearFilter;
+    this.mask.name = 'terrain-crater-cell-mask'; this.mask.minFilter = NearestFilter; this.mask.magFilter = NearestFilter;
     this.mask.generateMipmaps = false; this.mask.flipY = false; this.mask.needsUpdate = true;
     this.geometry.setAttribute('position', new BufferAttribute(this.positions, 3).setUsage(DynamicDrawUsage));
     this.geometry.setAttribute('normal', new BufferAttribute(this.normals, 3).setUsage(DynamicDrawUsage));
@@ -121,13 +122,33 @@ export class TerrainDestruction implements TerrainProvider {
     // A blast above roofs must not punch the ground many metres underneath it.
     if (point.y > r * .55 + 2 || point.y < -TERRAIN_DAMAGE.depthMax - 3) return false;
     const depth = Math.min(TERRAIN_DAMAGE.depthMax, Math.max(3, requestedDepth === undefined ? r * .36 + Math.sqrt(damage) * .32 : finite(requestedDepth)));
-    const nearby = this.records.find(record => (record.x - point.x) ** 2 + (record.z - point.z) ** 2 < Math.max(2.2, r * .35) ** 2);
+    return this.recordCrater(point, r, depth);
+  }
+
+  excavateAt(point: Vector3, footprint: ExcavationFootprint): boolean {
+    const { radiusM, depthM } = footprint;
+    if (this.disposed || !Number.isFinite(point.x + point.y + point.z + radiusM + depthM) ||
+        radiusM <= 0 || depthM <= 0) return false;
+    return this.recordCrater(point, Math.min(TERRAIN_DAMAGE.radiusMax, radiusM),
+      Math.min(TERRAIN_DAMAGE.depthMax, depthM), 'smooth');
+  }
+
+  private recordCrater(point: Vector3, r: number, depth: number, profile?: CraterRecord['profile']): boolean {
+    const mergeRadius = profile === 'smooth' ? r * .55 : Math.max(2.2, r * .35);
+    const nearby = this.records.find(record => record.profile === profile &&
+      (record.x - point.x) ** 2 + (record.z - point.z) ** 2 < mergeRadius ** 2);
     if (nearby) {
-      nearby.radius = Math.min(TERRAIN_DAMAGE.radiusMax, Math.cbrt(nearby.radius ** 3 + r ** 3));
-      nearby.depth = Math.min(TERRAIN_DAMAGE.depthMax, Math.cbrt(nearby.depth ** 3 + depth ** 3));
+      if (profile === 'smooth') {
+        if (nearby.radius >= r && nearby.depth >= depth) return false;
+        nearby.radius = Math.max(nearby.radius, r);
+        nearby.depth = Math.max(nearby.depth, depth);
+      } else {
+        nearby.radius = Math.min(TERRAIN_DAMAGE.radiusMax, Math.cbrt(nearby.radius ** 3 + r ** 3));
+        nearby.depth = Math.min(TERRAIN_DAMAGE.depthMax, Math.cbrt(nearby.depth ** 3 + depth ** 3));
+      }
       nearby.order = ++this.revision;
     } else {
-      this.records.push({ id: this.nextId++, x: point.x, z: point.z, radius: r, depth, order: ++this.revision });
+      this.records.push({ id: this.nextId++, x: point.x, z: point.z, radius: r, depth, order: ++this.revision, profile });
     }
     if (this.records.length > TERRAIN_DAMAGE.maxStored) {
       let victim = 0, maxDistSq = -1;
@@ -158,9 +179,11 @@ export class TerrainDestruction implements TerrainProvider {
   }
   reconstruct(point: Vector3, radius: number): number { return this.restoreAt(point, radius); }
 
-  update(player: Vector3, origin: Vector3): void {
+  update(player: Vector3, _origin: Vector3): void {
     if (this.disposed) return;
-    this.focus.copy(player); this.uOrigin.value.copy(origin);
+    this.focus.copy(player);
+    this.group.updateWorldMatrix(true, false);
+    this.worldToTerrain.value.copy(this.group.matrixWorld).invert();
     const x = Math.round(finite(player.x) / TERRAIN_DAMAGE.recenterStep) * TERRAIN_DAMAGE.recenterStep;
     const z = Math.round(finite(player.z) / TERRAIN_DAMAGE.recenterStep) * TERRAIN_DAMAGE.recenterStep;
     if (x !== this.centerX || z !== this.centerZ) { this.centerX = x; this.centerZ = z; this.dirty = true; }
@@ -217,16 +240,22 @@ export class TerrainDestruction implements TerrainProvider {
     const cache = mode === 'sheet' ? this.replacementsSheet : this.replacementsBand;
     let material = cache.get(original); if (material) return material;
     material = original instanceof MeshBasicMaterial || original instanceof MeshBasicNodeMaterial ? new MeshBasicNodeMaterial() : new MeshStandardNodeMaterial();
-    material.copy(original); material.name = `${original.name || original.type}:crater-${mode}`;
-    const global = positionWorld.add(this.uOrigin);
+    material.copy(original);
+    if (original instanceof MeshStandardMaterial) {
+      MeshStandardMaterial.prototype.copy.call(material as unknown as MeshStandardMaterial, original);
+    } else if (original instanceof MeshBasicMaterial) {
+      MeshBasicMaterial.prototype.copy.call(material as unknown as MeshBasicMaterial, original);
+    }
+    material.name = `${original.name || original.type}:crater-${mode}`;
+    const global = this.worldToTerrain.mul(vec4(positionWorld, 1)).xyz;
     const cell = global.xz.sub(this.uMinimum).div(this.uStep);
-    const uv = cell.add(.5).div(GRID);
-    const maskDepth = texture(this.mask, uv).r;
-    const inside = cell.x.greaterThanEqual(0).and(cell.x.lessThanEqual(TERRAIN_DAMAGE.cells))
-      .and(cell.y.greaterThanEqual(0)).and(cell.y.lessThanEqual(TERRAIN_DAMAGE.cells));
+    const uv = cell.floor().add(.5).div(GRID);
+    const covered = texture(this.mask, uv).r.greaterThan(.5);
+    const inside = cell.x.greaterThanEqual(0).and(cell.x.lessThan(TERRAIN_DAMAGE.cells))
+      .and(cell.y.greaterThanEqual(0)).and(cell.y.lessThan(TERRAIN_DAMAGE.cells));
     const cutCondition = mode === 'sheet'
-      ? inside.and(maskDepth.greaterThan(.0001))
-      : inside.and(global.y.greaterThanEqual(TERRAIN_DAMAGE.surfaceMinY).and(global.y.lessThanEqual(TERRAIN_DAMAGE.surfaceMaxY))).and(maskDepth.greaterThan(.0001));
+      ? inside.and(covered)
+      : inside.and(global.y.greaterThanEqual(TERRAIN_DAMAGE.surfaceMinY).and(global.y.lessThanEqual(TERRAIN_DAMAGE.surfaceMaxY))).and(covered);
     const intact = cutCondition.not();
     material.maskNode = material.maskNode ? bool(material.maskNode as Node<'bool'>).and(intact) : intact;
     material.maskShadowNode = material.maskShadowNode ? bool(material.maskShadowNode as Node<'bool'>).and(intact) : intact;
@@ -262,11 +291,11 @@ export class TerrainDestruction implements TerrainProvider {
         const radial = Math.max(0, 1 - distance2 / (crater.radius * crater.radius));
         // Quantization is shared by the mask, vertices and collision height: no hidden floor.
         // A broad cavity with a steep exposed edge reads as excavation even from ground level.
-        const profile = 1 - (1 - radial) ** 4;
+        const profile = crater.profile === 'smooth' ? radial ** 2 : 1 - (1 - radial) ** 4;
         const depth = Math.round(crater.depth * profile / DEPTH_QUANTUM);
         const index = z * GRID + x;
         if (depth * DEPTH_QUANTUM <= -this.heights[index]) continue;
-        this.pixels[index * 4] = 255; this.heights[index] = -depth * DEPTH_QUANTUM;
+        this.heights[index] = -depth * DEPTH_QUANTUM;
       }
     }
     lowX = Math.max(0, lowX - 1); lowZ = Math.max(0, lowZ - 1); highX = Math.min(GRID - 1, highX + 1); highZ = Math.min(GRID - 1, highZ + 1);
@@ -299,6 +328,8 @@ export class TerrainDestruction implements TerrainProvider {
     for (let z = lowZ; z < highZ; z++) for (let x = lowX; x < highX; x++) {
       const a = z * GRID + x, b = a + 1, d = a + GRID, c = d + 1;
       if (this.heights[a] === 0 && this.heights[b] === 0 && this.heights[c] === 0 && this.heights[d] === 0) continue;
+      // The original surface is cut only for cells with both replacement triangles.
+      this.pixels[a * 4] = 255;
       this.indices[count++] = a; this.indices[count++] = d; this.indices[count++] = b;
       this.indices[count++] = b; this.indices[count++] = d; this.indices[count++] = c;
     }

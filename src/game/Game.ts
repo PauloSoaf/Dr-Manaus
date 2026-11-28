@@ -37,6 +37,7 @@ import { manausBathymetry } from '../world/water/ManausBathymetry';
 import { FluvialVesselSystem } from '../world/traffic/FluvialVesselSystem';
 import { VehicleController, type VehicleType } from '../player/vehicles/VehicleController';
 import { RuntimeMotionTrace } from './RuntimeMotionTrace';
+import { powerExcavation, type ExcavationFootprint } from '../world/destruction/ExcavationFootprint';
 import { PortalSystem } from '../world/spatial/PortalSystem';
 import { CosmicNebulaeSystem } from '../world/sky/CosmicNebulaeSystem';
 import { HLODSystem, DynamicHLODNode } from '../world/spatial/HLODSystem';
@@ -794,27 +795,8 @@ export class Game {
         this.population.impulse(flat, radius, force); this.traffic?.impulse(flat, radius, force); this.camera.shake(.45);
       },
       impact: (point, footprint) => this.applyLocalImpact(point, footprint),
-      damage: (point, radius, amount, deform) => {
-        let count = 0;
-        if (this.manausSimulationActive) {
-          count += this.destruction.damageAt(point, radius, amount, deform);
-        }
-        count += this.alienFlora.destroyInRadius(point, radius);
-        count += this.alienFauna.damageInRadius(point, radius, amount, 25);
-        count += this.alienSettlements.damageInRadius(point, radius, amount);
-        count += this.cosmicRuins.damageInRadius(point, radius, amount);
-        if (!this.manausSimulationActive && (deform || amount >= 5000)) {
-          const bodyId = this.universe.telemetry.dominantBody;
-          const body = this.universe.activeSystem?.bodies.find(b => b.id === bodyId);
-          if (body && body.frameId) {
-            const currentFrame = this.universe.player.frame;
-            const centerBF = this.universe.frames.convertPosition(currentFrame, body.frameId, [point.x, point.y, point.z]);
-            this.planetExcavation.carveSphere(bodyId, centerBF, Math.min(radius, 250));
-            count += 1;
-          }
-        }
-        return count;
-      }, prepare: destination => { if (!this.manausSimulationActive) return Promise.resolve(); const flat = FEATURES.curvedManaus && this.travelDomain.localPhysicsActive ? this.surfaceService.renderLocalToLegacyPoint(destination.x, destination.y, destination.z) : destination; return this.streamer.prepare(flat); }, notify: message => this.hud.notify(message), sound: name => this.audio?.play(name), getOrigin: () => this.renderOriginVec, getColliders: () => this.activePhysicsColliders, getAttackColliders: (point, radius) => this.attackColliders(point, radius),
+      damage: (point, radius, amount, excavation) => this.applyPowerDamage(point, radius, amount, excavation),
+      prepare: destination => { if (!this.manausSimulationActive) return Promise.resolve(); const flat = FEATURES.curvedManaus && this.travelDomain.localPhysicsActive ? this.surfaceService.renderLocalToLegacyPoint(destination.x, destination.y, destination.z) : destination; return this.streamer.prepare(flat); }, notify: message => this.hud.notify(message), sound: name => this.audio?.play(name), getOrigin: () => this.renderOriginVec, getColliders: () => this.activePhysicsColliders, getAttackColliders: (point, radius) => this.attackColliders(point, radius),
       universalTeleport: async (rayOrigin, rayDirection) => {
         const res = this.universalTeleport.resolveFromAim(rayOrigin, rayDirection);
         if (!res) {
@@ -1708,7 +1690,7 @@ export class Game {
     if (manaus) {
       this.discoveryTime += dt; if (this.discoveryTime > .5) { this.discoveryTime = 0; for (const landmark of LANDMARKS) if (Math.hypot(landmark.x - this.player.position.x, landmark.z - this.player.position.z) < Math.max(240, landmark.radius) && this.save.discover(landmark.id)) { this.hud.notify(`LUGAR DESCOBERTO · ${landmark.shortName}`); this.audio?.play('discovery'); } this.streamer.setNight(this.atmosphere.time === 'Night'); this.realCity.setNight(this.atmosphere.time === 'Night'); this.realCity.syncProceduralVisibility(); this.updateDistrict(); }
     }
-    if (manaus) { this.terrain.update(this.player.position, this.renderOriginVec); this.forest.update(this.player.position); }
+    if (manaus) { this.terrain.update(this.localTerrainPosition(this.player.position), this.renderOriginVec); this.forest.update(this.player.position); }
     if (!this.universalTravelController?.active) {
       this.bindSurfacePhysics();
       this.volumeRenderer.update();
@@ -1876,7 +1858,10 @@ export class Game {
       this.foot.copy(this.player.position); this.foot.x += Math.cos(angle) * side * .112 * size; this.foot.z -= Math.sin(angle) * side * .112 * size;
       const floor = PhysicsWorld.terrainHeight(this.foot.x, this.foot.z);
       const supported = this.foot.y <= floor + Math.max(2, size * .08) || activeColliders.some(c => Math.abs(c.x - this.foot.x) < c.width / 2 + size * .1 && Math.abs(c.z - this.foot.z) < c.depth / 2 + size * .1 && Math.abs(c.y + c.height / 2 - this.foot.y) < Math.max(2, size * .08));
-      if (supported) this.destruction.damageAt(this.foot, Math.max(2, size * .18), 100000);
+      if (supported) {
+        this.destruction.damageAt(this.foot, Math.max(2, size * .18), 100000);
+        this.excavatePowerContact(this.foot, powerExcavation('stomp', size));
+      }
     }
   }
   getAllTargets(): readonly Target[] {
@@ -1938,6 +1923,55 @@ export class Game {
       return this.terrain.damageAt(flat, radius, damage, depth);
     },
   };
+  private applyPowerDamage(point: Vector3, radius: number, amount: number, excavation?: ExcavationFootprint | 0): number {
+    let count = this.manausSimulationActive ? this.destruction.damageAt(point, radius, amount) : 0;
+    count += this.alienFlora.destroyInRadius(point, radius);
+    count += this.alienFauna.damageInRadius(point, radius, amount, 25);
+    count += this.alienSettlements.damageInRadius(point, radius, amount);
+    count += this.cosmicRuins.damageInRadius(point, radius, amount);
+    if (excavation) this.excavatePowerContact(point, excavation);
+    return count;
+  }
+
+  private excavatePowerContact(point: Vector3, cut: ExcavationFootprint): void {
+    if (!this.travelDomain.localPhysicsActive ||
+        !Number.isFinite(point.x + point.y + point.z + cut.radiusM + cut.depthM) ||
+        cut.radiusM <= 0 || cut.depthM <= 0) return;
+    const floor = PhysicsWorld.terrainHeight(point.x, point.z);
+    const tolerance = Math.max(.65, Math.min(8, cut.radiusM * .18));
+    if (!Number.isFinite(floor) || Math.abs(point.y - floor) > tolerance) return;
+    if (this.manausSimulationActive) {
+      const local = this.localTerrainPosition(point);
+      this.terrain.excavateAt(local, cut);
+      return;
+    }
+    const bodyId = this.physicsDomain;
+    const pristine = this.surfaceTerrains.get(bodyId);
+    if (!pristine || bodyId !== this.universe.navigationState.bodyId) return;
+    const base = pristine.heightAt(point.x, point.z);
+    if (!Number.isFinite(base)) return;
+    const frame = this.universe.player.frame, fixedFrame = `${bodyId}/fixed`;
+    const depth = Math.min(cut.depthM, 200);
+    const radius = Math.min(250, Math.max(depth, (cut.radiusM ** 2 + depth ** 2) / (2 * depth)));
+    // Place the cap against unmodified ground so repeated hits cannot deepen it indefinitely.
+    const depthProbe = this.universe.frames.convertPosition(frame, fixedFrame, [point.x, base - depth * .995, point.z]);
+    const edits = this.universe.volume.edits;
+    if (edits.queryPoint(bodyId, depthProbe).some(edit =>
+      edit.type === 'subtract-sphere' && Math.hypot(...depthProbe.map((v, i) => v - edit.centerBodyFixedM[i])) <= edit.radiusM)) return;
+    const center = this.universe.frames.convertPosition(frame, fixedFrame, [point.x, base + radius - depth, point.z]);
+    edits.subtractSphere({ bodyId, centerBodyFixedM: center, radiusM: radius, impact: {
+      surfaceContactBodyFixedM: this.universe.frames.convertPosition(frame, fixedFrame, [point.x, base, point.z]),
+      surfaceNormalBodyFixed: this.universe.frames.convertDirection(frame, fixedFrame, [0, 1, 0]),
+      craterRadiusM: Math.sqrt(2 * radius * depth - depth ** 2),
+      craterDepthM: depth,
+    } });
+  }
+
+  private localTerrainPosition(position: Vector3): Vector3 {
+    return FEATURES.curvedManaus && this.travelDomain.localPhysicsActive
+      ? this.surfaceService.renderLocalToLegacyPoint(position.x, position.y, position.z) : position;
+  }
+
   /** Local Manaus authority and planetary celestial surface impact handling. */
   applyLocalImpact(point: Vector3, footprint: ImpactResult): number {
     if (this.manausSimulationActive) {

@@ -127,7 +127,7 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
   const curved = localManausPresentationMode() === 'curved';
 
   function emitLandQuad(x0: number, z0: number, x1: number, z1: number) {
-    for (const [px, pz] of [[x0, z0], [x1, z0], [x1, z1], [x0, z0], [x1, z1], [x0, z1]] as const) {
+    for (const [px, pz] of [[x0, z0], [x1, z1], [x1, z0], [x0, z0], [x0, z1], [x1, z1]] as const) {
       if (curved) {
         const pt = surfaceService.legacyPointToRenderLocal(px, MANAUS_GROUND_COVER_Y, pz);
         landPos.push(pt.x, pt.y, pt.z);
@@ -200,11 +200,11 @@ function buildGroundAndRiverbed(): { groundCover: Mesh; riverbed: Mesh } {
 
   function emitRiverbedQuad(x0: number, z0: number, x1: number, z1: number) {
     emitRiverbedVertex(x0, z0);
+    emitRiverbedVertex(x1, z1);
     emitRiverbedVertex(x1, z0);
-    emitRiverbedVertex(x1, z1);
     emitRiverbedVertex(x0, z0);
-    emitRiverbedVertex(x1, z1);
     emitRiverbedVertex(x0, z1);
+    emitRiverbedVertex(x1, z1);
   }
 
   /**
@@ -414,7 +414,11 @@ export function setTerrainOpacity(terrain: Group, opacity: number): void {
   for (const child of terrain.children) {
     if ((child as Mesh).material) {
       const mat = (child as Mesh).material as MeshStandardMaterial;
-      if (mat.transparent !== transparent) mat.transparent = transparent;
+      if (mat.transparent !== transparent) {
+        mat.transparent = transparent;
+        mat.needsUpdate = true;
+      }
+      mat.depthWrite = !transparent;
       if (mat.opacity !== opacity) mat.opacity = opacity;
     }
   }
