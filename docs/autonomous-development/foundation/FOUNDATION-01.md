@@ -47,6 +47,20 @@ O limite de integração e o orçamento de recuperação seguem [Fix Your Timest
 
 `celestialRoot` pertence à apresentação celeste. `planetaryRoot` agrupa os provedores de corpos. `manausAuthoredRoot` conserva a âncora terrestre. `activeProceduralSurfaceRoot` abriga chunks e oceano no ENU da região. `actorRoot` recebe jogadores e atores com origem inversa. `activePlanetaryLifeRoot` agrega vida no domínio ativo. Visibilidade não define o conjunto de colisores. Os testes de rebase já existentes cobrem transformação, ondas e separação de raízes. Falta integrar voo e natação ao teste multieixos com transições reais.
 
+## Solo, água e referenciais fora de Manaus
+
+Entregue pela sessão [FOUNDATION-01-CLAUDE-001](../agent-reports/2026/2026-11-27-2306-claude-foundation-01.md). Decisões: [ADR-FOUNDATION-004 a 006](../ARCHITECTURE-DECISIONS.md).
+
+| Contrato | Autoridade | Verificação |
+| --- | --- | --- |
+| Solo jogável da Terra | `EarthGroundSurface` + `LocalSurface.verticalSurfaceHeight`: terra com relevo, praia, plataforma rasa e leito de −250 m. Globo, órbita e volume continuam em `EarthSurfaceGenerator`. | `foundation-earth-surface.test.ts` |
+| Chão desenhado | Chunks da Terra amostram o mesmo solver (9×9), com árvores e colisores no solo, água só nas células molhadas e recorte sob volumes publicados. | `foundation-ground-chunks.test.ts` |
+| Nível do mar | Elipsoide (`localSeaLevelY`). Batimetria, ondas, água dos chunks e horizonte oceânico acompanham a curvatura. | Idem |
+| Água e flutuação | Leito igual ao colisor. Ondas com ω = speed·√(g·k) em CPU e GPU. | `foundation-water-dispersion.test.ts`, nado e praia em `foundation-earth-surface.test.ts` |
+| Teleporte de superfície | Frame `surface-enu` do corpo, âncora no elipsoide do corpo, altitude acima do solo ou do mar, física religada antes de consultar o chão. | `foundation-teleport-binding.test.ts` |
+| Região de streaming | Âncora lida do frame físico. Âncora nova regenera os chunks mesmo com o mesmo id regional. | Idem |
+| Culling | Limites medidos da geometria (relevo, árvores, prédios, ondas). Os limites do solvente só valem quando não há medição. | Mutação confirmou que o teste falha com os limites antigos |
+
 ## Streaming e recursos
 
 `WorldStreamer` separa solicitado, carregando, pronto, ativo e cache. Cobertura próxima para água exige, em cada célula que intersecta o disco de 384 m no centro do clipmap, chunk ativo da região certa, anexado à raiz e com malha oceânica. Culling momentâneo por câmera fica fora do cálculo de residência. Região parcial ou nova mantém o cap. Sobreposição transitória e a costura entre os anéis exigem inspeção gráfica.
@@ -59,14 +73,26 @@ Uma preparação iniciada antes de `clear()` falha quando a região é substitu�
 
 | Gate | Evidência atual |
 | --- | --- |
-| A–C: tempo, colisão, água | Laboratório cobre caminhada, parede, salto, wading e flutuação. Falta percurso físico contínuo de margem, rampa e escadas. |
-| D–E: rebase e domínio | Testes espaciais existentes. Falta cenário cruzado com câmera e múltiplos rebases durante voo e natação. |
+| A–C: tempo, colisão, água | Laboratório cobre caminhada, parede, salto, wading e flutuação. Percursos contínuos de margem, rampa e escadas (CODEX-003). Mergulho, praia e leito no oceano fora de Manaus (CLAUDE-001). |
+| D–E: rebase e domínio | `foundation-continuity.test.ts` cruza câmera, múltiplos rebases em voo e natação no rio (sessão CODEX-003). Teleporte entre Terra, Lua, Marte e volta a Manaus em `foundation-teleport-binding.test.ts`. |
 | F: deslocamento autorizado | Diagnóstico opt-in separa posição lógica, pose visual, câmera, origem, eventos e correções de colisão por subpasso. Teste headless cobre posse, piloto, desembarque aéreo e tecla E fora de alcance. Falta validar a apresentação em jogo. |
-| G: recursos | Cancelamento e reentrada validados no streamer. Falta medição prolongada. |
+| G: recursos | Cancelamento e reentrada validados no streamer. Geometrias próprias dos chunks de relevo são descartadas na evicção. Falta medição prolongada. |
 | H: cobertura | Teste real de preparo parcial, cobertura completa e região nova. Falta inspeção gráfica da costura. |
-| I–J: regressão | Tipagem, 2.032 testes, 639 regressões e build passaram no checkout limpo de `d89fccc`. Veja o [CI por SHA](../CI-HISTORY.md). |
+| I–J: regressão | `439c7e1`: tipagem, 2.065 testes, 639 regressões e build aprovados. Veja o [CI por SHA](../CI-HISTORY.md). |
 
 Veredito parcial: `VISUAL_VALIDATION_PENDING`. O checkpoint continua aberto. Testes automatizados de navegador omitidos pela política da fase. Homologação manual e o restante dos critérios precedem FOUNDATION-02.
+
+Limitações desta rodada: o horizonte terrestre contínuo é tratado no F01-HOTFIX-002. Sem ele, fora de Manaus e abaixo de 8 km só os chunks próximos têm terreno. Não há reancoragem do ENU em voos longos. As demais pendências estão em [KNOWN-ISSUES](../KNOWN-ISSUES.md).
+
+## Roteiro manual de solo, teleporte e água
+
+Abra o jogo, aperte **F12** e use o console. Cada comando é um teleporte. Se chegar voando, aperte **F** para descer.
+
+1. `await __DR_MANAUS__.universalTeleport.teleport('-15.7939, -47.8828')` (Brasília): o personagem deve pousar no chão visível, entre árvores plantadas no solo. Antes, flutuava sem gravidade.
+2. `await __DR_MANAUS__.universalTeleport.teleport('10, -35')` (Atlântico): flutue sem alternar de pose, mergulhe com **Ctrl** e volte à tona.
+3. `await __DR_MANAUS__.universalTeleport.teleport('-16.5, -68.15')` (La Paz, 3.640 m) e depois `await __DR_MANAUS__.universalTeleport.teleport(__DR_MANAUS__.player.position.clone().set(38, 2.2, 12))`: deve voltar ao Largo no nível do chão.
+4. `await __DR_MANAUS__.universalTeleport.teleport({kind:'surface-geodetic',galaxyId:'milky_way',systemId:'sol',bodyId:'moon',latDeg:0.674,lonDeg:23.47,altitudeM:2})`: chegada na superfície lunar com gravidade fraca.
+5. Em Manaus, olhe o Rio Negro e entre na água. As ondas agora são lentas e contínuas, em vez de tremer várias vezes por segundo.
 
 O [F01-HOTFIX-001](../agent-reports/2026/2026-11-27-2131-f01-hotfix-001.md) trata em branch paralela as regressões de câmera, malha do terreno e escavação. A integração depende da validação visual e da revisão contra a sprint.
 

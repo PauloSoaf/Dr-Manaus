@@ -30,6 +30,43 @@ Em Manaus, a fase local escolhe o veículo ou o personagem. Veículo ocupado pub
 
 O diagnóstico opcional guarda 240 quadros com fontes de movimento e correções físicas por subpasso. A integração de caminhadas, natação, voo e rebase continua separada. Reavaliar quando veículos tiverem representação e colisão próprias em órbita ou outras superfícies.
 
+### ADR-FOUNDATION-004 — Uma autoridade para o solo local da Terra fora de Manaus
+
+Aceita em 2026-11-27 por Claude (`claude-sonnet-5-5`), sessão `FOUNDATION-01-CLAUDE-001`, checkpoint FOUNDATION-01.
+
+- **Contexto.** Fora de Manaus, a física resolvia o relevo ETOPO5 no referencial ENU (`PlanetTerrainProvider`). Os chunks desenhavam um plano em y=0,02, e a batimetria declarava leito a −250 m.
+- **Problema.** Medido com código de produção: chão invisível a 972 m em Brasília e 3.641 m em La Paz. No Atlântico a colisão era sólida no nível do mar, e o jogador alternava entre `Falling`, `Swimming` e `Grounded` sem conseguir mergulhar (WATER-P0-010).
+- **Alternativas.** (a) Achatar a física no plano dos chunks: perderia relevo e curvatura e divergiria do globo. (b) Dar `solidHeightAt` ao `EarthSurfaceGenerator`: quebraria a fidelidade das crateras volumétricas e o dano orbital, que usam a superfície desenhada. (c) Separar a superfície desenhada do chão jogável.
+- **Decisão.** (c). `LocalSurface.ts` contém o único solver vertical, usado por `PlanetTerrainProvider`, pelos chunks no worker, pela batimetria e pelas representações distantes. `EarthGroundSurface` define o chão jogável: relevo em terra, praia, plataforma rasa (≈2%) e leito de −250 m, contínuo pela fração bilinear da máscara de terra (igual à máscara nos centros dos pixels). `EarthSurfaceGenerator` fica intacto para globo, órbita e volume. O nível do mar é o elipsoide (`localSeaLevelY`), e água, chunks e horizonte oceânico o seguem.
+- **Referências.** WGS84 e convenção radial de `planetSurfaceRadius`, já usada pelo globo (`ADR-003`).
+- **Consequências.** Chunks com malha própria 9×9, cores por vértice, saias, água só nas células molhadas e limites de culling medidos da geometria. O worker continua sem Three.js (teste dedicado). Cerca de 81 resoluções verticais por chunk de terra.
+- **Riscos.** Nas faixas costeiras, a escavação volumétrica (superfície desenhada) pode divergir do chão jogável. Marcas de queimado continuam relativas a y=0. A resolução da máscara (~39 km) limita o detalhe da costa.
+- **Impacto.** SPEC-01 P0.10 passa a valer na colisão. HOTFIX-002 reaproveita a mesma autoridade.
+- **Revisão.** Reavaliar ao curvar Manaus, ao adotar DEM de maior resolução ou ao ancorar de novo o ENU durante voos longos.
+
+### ADR-FOUNDATION-005 — Referenciais de superfície vinculáveis e chegada no solo real
+
+Aceita em 2026-11-27 por Claude (`claude-sonnet-5-5`), sessão `FOUNDATION-01-CLAUDE-001`, checkpoint FOUNDATION-01.
+
+- **Contexto.** O teleporte registra `<corpo>/surface/<lat>_<lon>`, mas `bindSurfacePhysics` aceitava apenas `<corpo>/local-enu`.
+- **Problema.** Teleportes fora de Manaus ficavam no domínio `space` (gravidade 0). Âncoras não terrestres usavam coordenadas Y-up: Marte chegava a 27° do pedido com a vertical inclinada 26,8°, e a Lua ia ao centro no primeiro quadro. A altitude era relativa ao elipsoide. A volta a Manaus calculava o pouso no relevo de origem (La Paz → 3.641 m acima do spawn).
+- **Alternativas.** Renomear os frames de teleporte para `local-enu` (quebra contratos testados como `T_U7_09`), ou vincular qualquer frame `surface-enu` cujo pai seja o `fixed` do corpo.
+- **Decisão.** Vincular qualquer frame de superfície do corpo ativo. O cache de provedores é recriado quando o frame muda. Todas as âncoras usam o elipsoide do próprio corpo, como `handoffTo`. A altitude pedida é acima do solo, ou do mar sobre água. A volta para Manaus grava o frame e religa a física antes do `safeLanding`. A mira informa em qual frame está o destino. O streaming usa a âncora do frame físico, e uma âncora nova regenera os chunks mesmo com o mesmo id regional.
+- **Consequências.** `T_VIVO10_01` deixou de exigir altitude relativa ao elipsoide e passou a verificar local pedido, vertical e 2 m acima do solo.
+- **Riscos.** Não há reancoragem do ENU durante voos longos. As representações seguem a curvatura, mas o referencial permanece o do pouso.
+- **Revisão.** Ao implementar reancoragem ou persistir frames dinâmicos entre sessões.
+
+### ADR-FOUNDATION-006 — Dispersão de águas profundas nas ondas Gerstner
+
+Aceita em 2026-11-27 por Claude (`claude-sonnet-5-5`), sessão `FOUNDATION-01-CLAUDE-001`, checkpoint FOUNDATION-01.
+
+- **Contexto.** CPU e shaders compartilhavam a fase `k·x − speed·√(g/k)·t`.
+- **Problema.** `√(g/k)` é velocidade de fase em m/s, não frequência angular. Medido antes da correção: a superfície do oceano terrestre chegava a 56,6 m/s, e a das megaondas de Thalassa a 17.494 m/s. A flutuação não tinha como acompanhar.
+- **Decisão.** `gerstnerAngularFrequency` (ω = speed·√(g·k)) alimenta CPU, material universal, rio de Manaus e piscina. Piscina e copo tiveram `speed` recalculado para manter o movimento anterior.
+- **Referência.** NVIDIA GPU Gems, cap. 1 (φ = S·2π/L).
+- **Consequências.** Períodos físicos: ~8 s na ondulação de 160 m e ~54 s nas megaondas. O visual muda em Manaus e no oceano e precisa de homologação. O commit `d75419c` pode ser revertido isoladamente, mas a flutuação volta a oscilar no mar.
+- **Revisão.** Homologação visual da água (FOUNDATION-06).
+
 ### ADR-001: Floating Origin e Coordenadas Espaciais Hierárquicas
 - **Contexto:** O universo do DR-MANAUS se estende da escala milimétrica do chão de Manaus até a escala cosmológica de bilhões de anos-luz. Padrões comuns de `Vector3` de 32 bits (IEEE 754) sofrem perda severa de precisão além de 10.000 metros da origem.
 - **Decisão:**

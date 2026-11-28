@@ -52,6 +52,10 @@ Em conformidade estrita com o documento [MASTER-SPEC-AUDIT-PROTOCOL.md](file:///
 
 ## 3. Registro Histórico de Decisões e Correções
 
+- **2026-11-27 (FOUNDATION-01-CLAUDE-001), correções sobre linhas `VERIFIED`:**
+  - SPEC-01 P0.10: o leito de −250 m existia só na batimetria. Fora de Manaus, a colisão continuava sólida no nível do mar. Corrigido em `9712ced` (`EarthGroundSurface`), com teste de mergulho com o jogador de produção.
+  - SPEC-01 P0.07/P1.04: a fase Gerstner usava `speed·√(g/k)` (m/s) em vez de ω = `speed·√(g·k)` do GPU Gems, cap. 1. A concordância CPU/GPU não detectava o erro porque os dois lados compartilhavam a fórmula, e o oráculo de teste a copiava. Corrigido em `d75419c`.
+
 - **2026-11-26 (Sessão Atual)**:
   - Resolução dos 15 itens da auditoria adversarial do `PATCH-WATER-02-HOTFIX` (P0.01 a P0.11, P1.01 a P1.04).
   - Incorporação dos algoritmos centrais do **Crest Ocean System** (MIT, wave-harmonic/crest):
