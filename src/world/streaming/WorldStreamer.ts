@@ -31,6 +31,7 @@ export class WorldStreamer {
   private measuredMs = 0;
   private colliderList: Collider[] = [];
   private disposed = false;
+  private clearRevision = 0;
   private drawBounds = false;
   private debugDirty = false;
   private generationError: Error | null = null;
@@ -143,6 +144,29 @@ export class WorldStreamer {
     }
   }
   get activeKeys(): ReadonlySet<string> { return this.active; }
+
+  /** Resident ocean meshes in the current region, independent of view culling. */
+  coversOceanDisk(x: number, z: number, radiusM: number): boolean {
+    const surface = this.activeContext.surfaceType;
+    if ((surface !== 'ocean' && surface !== 'megawave-ocean') ||
+        !Number.isFinite(x) || !Number.isFinite(z) || !(radiusM > 0 && Number.isFinite(radiusM))) return false;
+    const size = WORLD.chunkSize;
+    const minX = Math.floor((x - radiusM) / size), maxX = Math.ceil((x + radiusM) / size) - 1;
+    const minZ = Math.floor((z - radiusM) / size), maxZ = Math.ceil((z + radiusM) / size) - 1;
+    if (maxX - minX + 1 > this.active.size || maxZ - minZ + 1 > this.active.size ||
+        ![minX, maxX, minZ, maxZ].every(Number.isSafeInteger)) return false;
+    const radiusSq = radiusM * radiusM;
+    for (let cz = minZ; cz <= maxZ; cz++) for (let cx = minX; cx <= maxX; cx++) {
+      const dx = Math.max(cx * size - x, 0, x - (cx + 1) * size);
+      const dz = Math.max(cz * size - z, 0, z - (cz + 1) * size);
+      if (dx * dx + dz * dz >= radiusSq) continue;
+      const chunk = this.records.get(chunkKey(cx, cz, this.activeContext.regionId));
+      if (chunk?.state !== ChunkState.ACTIVE || chunk.group?.parent !== this.root ||
+          !chunk.group.getObjectByName('ocean-surface')?.visible) return false;
+    }
+    return true;
+  }
+
   get destroyedIds(): ReadonlySet<string> { return this.destroyed; }
   get destroyedBounds(): ReadonlyMap<string, Collider> { return this.destroyedLocations; }
   get destructionRevision(): number { return this.revision; }
@@ -222,6 +246,7 @@ export class WorldStreamer {
 
   /** Teleport waits for a 3x3 collision-safe neighbourhood, even before the render loop starts. */
   async prepare(position: Vector3): Promise<void> {
+    const clearRevision = this.clearRevision;
     this.generationError = null;
     const deadline = performance.now() + PREPARE_TIMEOUT_MS;
     const cx = Math.floor(position.x / WORLD.chunkSize), cz = Math.floor(position.z / WORLD.chunkSize);
@@ -233,7 +258,8 @@ export class WorldStreamer {
     this.focus.copy(position); this.demands = planChunks(position, { x: 0, z: 0 }, this.detailRadius);
     this.reconcile();
     try {
-      while (!this.disposed && minimum.some(key => this.records.get(key)?.state !== ChunkState.ACTIVE)) {
+      while (!this.disposed && clearRevision === this.clearRevision &&
+             minimum.some(key => this.records.get(key)?.state !== ChunkState.ACTIVE)) {
         const generationError = this.generationError as Error | null;
         if (generationError) {
           throw new Error(`Falha ao gerar chunks próximos de ${Math.round(position.x)}, ${Math.round(position.z)}: ${generationError.message}`);
@@ -245,8 +271,9 @@ export class WorldStreamer {
         await new Promise<void>(resolve => setTimeout(resolve, 8));
       }
       if (this.disposed) throw new Error('World streamer was disposed while preparing the destination.');
+      if (clearRevision !== this.clearRevision) throw new Error('World region changed while preparing the destination.');
     } finally {
-      for (const key of minimum) this.pinned.delete(key);
+      if (clearRevision === this.clearRevision) for (const key of minimum) this.pinned.delete(key);
     }
   }
 
@@ -311,12 +338,10 @@ export class WorldStreamer {
         this.evict();
       }).catch(error => {
         this.inFlight--;
-        if (this.disposed) return;
+        if (this.disposed || this.records.get(chunk.key) !== chunk) return;
         this.generationError = error instanceof Error ? error : new Error(String(error));
-        if (this.records.get(chunk.key) === chunk) {
-          chunk.state = ChunkState.UNLOADED;
-          this.records.delete(chunk.key);
-        }
+        chunk.state = ChunkState.UNLOADED;
+        this.records.delete(chunk.key);
       });
     }
     const ready = [...this.records.values()].filter(chunk => chunk.state === ChunkState.READY).sort((a, b) => a.priority - b.priority);
@@ -455,6 +480,7 @@ export class WorldStreamer {
     this.debugDirty = false;
   }
   clear(): void {
+    this.clearRevision++;
     for (const chunk of this.records.values()) if (chunk.group) this.meshes.disposeChunk(chunk.group);
     this.records.clear();
     this.active.clear();

@@ -64,6 +64,7 @@ export class PlayerController {
   private megaNeedsBoostRelease = false;
   /** Seconds since the controller started, used only to time the arm key's double tap. */
   private armClockS = 0;
+  private liquidTimeSec = 0;
   private lastArmTapS = -Infinity;
   private targetSize = 1;
   private readonly desired = new Vector3();
@@ -269,10 +270,24 @@ export class PlayerController {
       ? 'interplanetary' : 'mega';
   }
 
-  update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0, simulationTimeSec = 0): void {
+  /** Ground and water use bounded substeps. Boosted travel keeps its swept frame contract. */
+  updateLocalFrame(dt: number, colliders: readonly Collider[], yaw: number, pitch: number, liquidTimeSec: number): void {
+    if (!Number.isFinite(dt) || dt <= 0) return;
+    dt = Math.min(0.06, dt);
+    const travel = this.isFlying || this.input.held('KeyB') || this.input.pressed('KeyF');
+    // Allow 0.2 ms of frame timestamp jitter around 60 Hz to avoid redundant collision sweeps.
+    const steps = travel ? 1 : Math.ceil(dt / (1 / 60 + 0.0002));
+    const stepDt = dt / steps;
+    for (let i = 1; i <= steps; i++) {
+      this.update(stepDt, colliders, yaw, pitch, liquidTimeSec - (steps - i) * stepDt);
+    }
+  }
+
+  update(dt: number, colliders: readonly Collider[], cameraYaw: number, cameraPitch = 0, liquidTimeSec?: number): void {
+    if (!Number.isFinite(dt) || dt <= 0) return;
     dt = Math.min(0.06, dt);
     this.armClockS += dt;
-    const waveTime = simulationTimeSec > 0 ? simulationTimeSec : this.armClockS;
+    this.liquidTimeSec = liquidTimeSec ?? this.armClockS;
     if (this.lastHitTimer > 0) {
       this.lastHitTimer -= dt;
     } else if (this.shield < this.maxShield) {
@@ -292,7 +307,7 @@ export class PlayerController {
     const isB = this.input.held('KeyB');
     if (!isB) this.megaNeedsBoostRelease = false;
     const wasSwimming = this.state === 'Swimming';
-    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, waveTime);
+    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.liquidTimeSec);
 
     // Descending cosmic flight that reaches the river surface (outside the take-off grace window,
     // not climbing with Space, not mid-slam) splashes down into Swimming instead of flying through
@@ -505,7 +520,7 @@ export class PlayerController {
     );
 
     // Re-evaluate submersion at post-move coordinates with hysteresis
-    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, waveTime);
+    this.submersion = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.liquidTimeSec);
     const postDepthThreshold = (wasSwimming || isSwimming) ? swimDepthStay : swimDepthEnter;
     const postSurfaceMargin = (wasSwimming || isSwimming) ? swimSurfaceStay : swimSurfaceEnter;
     const nowDeepWater = this.waterVolumeActive && this.submersion.inWater && this.submersion.totalWaterDepthM >= postDepthThreshold;
@@ -621,7 +636,7 @@ export class PlayerController {
       this.velocity.set(0, 5, 0);
       this.position.y += wasInWater ? 0.35 : 0.18;
     } else {
-      const sub = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.armClockS);
+      const sub = manausBathymetry.evaluateSubmersion(this.position, 1.8 * this.size, this.liquidTimeSec);
       if (this.waterVolumeActive && sub.inWater && sub.totalWaterDepthM >= 1.15 * this.size && this.position.y <= sub.surfaceY + 0.05) {
         this.state = 'Swimming';
         this.armedTier = 'none';
@@ -749,7 +764,7 @@ export class PlayerController {
     this.armedTier = 'none';
     this.speedMode = 'normal';
     this.model.position.copy(position);
-    this.submersion = manausBathymetry.evaluateSubmersion(position, 1.8 * this.size, this.armClockS);
+    this.submersion = manausBathymetry.evaluateSubmersion(position, 1.8 * this.size, this.liquidTimeSec);
     if (this.waterVolumeActive && this.submersion.inWater && position.y <= this.submersion.surfaceY + 0.5) {
       const isDeep = this.submersion.totalWaterDepthM >= 1.15 * this.size;
       this.state = isDeep ? 'Swimming' : 'Grounded';

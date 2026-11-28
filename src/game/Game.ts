@@ -181,8 +181,8 @@ export class Game {
   private readonly _frustum = new Frustum();
   private readonly _cameraLookDir = new Vector3();
   private cullingStats = { chunksVisible: 0, chunksCulled: 0, tilesVisible: 0, tilesCulled: 0 };
-  private readonly playerPrevPosition = new Vector3();
-  private readonly vehiclePrevPosition = new Vector3();
+  private readonly playerStepStart = new Vector3();
+  private readonly vehicleStepStart = new Vector3();
   private hijackedTraffic = false;
   private readonly activeThrownObjects: Array<{ pos: Vector3; vel: Vector3; slot?: number; life: number }> = [];
   readonly population: PopulationManager; readonly missions: MissionManager; readonly powers: PowerSystem; readonly destruction: DestructionSystem; traffic?: TrafficSystem; readonly audio = new AudioManager(); readonly hud: HUD; readonly quality: QualityManager;
@@ -1167,11 +1167,13 @@ export class Game {
     if (manaus) this.updateStomps(dt);
     if (manaus && this.stressRoute.length) this.updateStress(dt);
     else if (local) {
-      this.player.update(dt, this.activePhysicsColliders, this.camera.yaw, this.camera.pitch, timeSecNow);
+      // Portal sweeps cover this movement step, excluding teleports between frames.
+      this.playerStepStart.copy(this.player.position);
+      this.player.updateLocalFrame(dt, this.activePhysicsColliders, this.camera.yaw, this.camera.pitch, timeSecNow);
       this.recordSurfaceReturnStep();
       if (this.portals) {
         const crossing = this.portals.checkCrossing(
-          this.playerPrevPosition,
+          this.playerStepStart,
           this.player.position,
           this.player.velocity,
           this.player.model.quaternion,
@@ -1180,12 +1182,12 @@ export class Game {
         if (crossing) {
           this.player.position.copy(crossing.newPosition);
           this.player.velocity.copy(crossing.newVelocity);
+          this.player.model.position.copy(crossing.newPosition);
           this.player.model.quaternion.copy(crossing.newQuaternion);
           this.audio?.play('teleport');
           this.hud.notify(`Travessia dimensional concluída: ${crossing.targetPortalId}`);
         }
       }
-      this.playerPrevPosition.copy(this.player.position);
     }
     else {
       const simSpeed = this.currentGameplaySpeedMps();
@@ -1346,8 +1348,7 @@ export class Game {
         0,
         planetRadiusM
       );
-      const hasNearChunks = isPlanetarySurface && (this.streamer.activeKeys.size > 0);
-      this.oceanHorizon.update(this.player.position, isOceanDomain && (local || isPlanetarySurface), hasNearChunks);
+      this.oceanHorizon.update(this.player.position, isOceanDomain && local, isPlanetarySurface && this.streamer);
     }
     // Real dt, never worldDt: the high-speed ram must match the distance actually flown.
     if (manaus || isPlanetarySurface) {
@@ -1360,11 +1361,12 @@ export class Game {
         : this.player.position;
       this.traffic?.update(worldDt, updatedLegacyPos); this.lap('traffic');
       this.vessels.update(worldDt, performance.now() * 0.001, updatedLegacyPos.x, updatedLegacyPos.z);
+      if (this.vehicle?.isOccupied) this.vehicleStepStart.copy(this.vehicle.position);
       this.vehicle?.update(worldDt, this.input, updatedLegacyPos, this.colliders);
       if (this.vehicle?.isOccupied) {
         if (this.portals) {
           const vCrossing = this.portals.checkCrossing(
-            this.vehiclePrevPosition,
+            this.vehicleStepStart,
             this.vehicle.position,
             this.vehicle.velocity,
             this.vehicle.quaternion,
@@ -1377,7 +1379,6 @@ export class Game {
             this.audio?.play('teleport');
             this.hud.notify(`Veículo atravessou o portal dimensional: ${vCrossing.targetPortalId}`);
           }
-          this.vehiclePrevPosition.copy(this.vehicle.position);
         }
         this.player.position.copy(this.vehicle.position);
         this.player.velocity.copy(this.vehicle.velocity);

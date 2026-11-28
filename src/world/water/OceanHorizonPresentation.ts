@@ -9,7 +9,7 @@
  * - Material configured with DoubleSide for correct top-down and underwater viewing.
  * - Clear LOD ownership: outer ring mesh starts at R_inner = 384m (matching near chunk streaming boundary),
  *   completely eliminating geometric overlap and z-fighting with near chunk water.
- * - Inner cap mesh (0..384m) can be toggled when chunk streaming is inactive (e.g. planetary entry / open ocean).
+ * - Inner cap mesh (0..384m) stays active until the streamed meshes cover its footprint.
  * - Spherical planetary curvature drop delta_y = -d^2 / (2 * R_planet) baked into ring vertices so the ocean
  *   naturally curves over the true planetary horizon into space/sky without an abrupt planar edge.
  * - Invariant under floating origin rebases: follows camera position horizontally in render-local space.
@@ -23,10 +23,14 @@ const CHUNK_TRANSITION_RADIUS_M = 384.0;
 const EARTH_RADIUS_M = 6_371_000.0;
 const THALASSA_RADIUS_M = 5_800_000.0;
 
+interface OceanCoverageSource {
+  coversOceanDisk(x: number, z: number, radiusM: number): boolean;
+}
+
 export class OceanHorizonPresentation {
   readonly group = new Group();
-  private readonly outerMesh: Mesh;
-  private readonly innerCapMesh: Mesh;
+  private readonly outerMesh: Mesh<BufferGeometry, ReturnType<typeof createUniversalLiquidMaterial>>;
+  private readonly innerCapMesh: Mesh<BufferGeometry, ReturnType<typeof createUniversalLiquidMaterial>>;
   private currentSolvent: LiquidSolventType = 'terrestrial-ocean';
   private currentElevation = 0;
   private planetRadiusM = EARTH_RADIUS_M;
@@ -48,7 +52,6 @@ export class OceanHorizonPresentation {
     this.innerCapMesh.name = 'ocean-horizon-inner-cap';
     this.innerCapMesh.frustumCulled = false;
     this.innerCapMesh.receiveShadow = false;
-    this.innerCapMesh.visible = false; // By default near chunk meshes own 0..384m
 
     this.group.add(this.outerMesh);
     this.group.add(this.innerCapMesh);
@@ -59,8 +62,10 @@ export class OceanHorizonPresentation {
       this.currentSolvent = solvent;
       const newMat = createUniversalLiquidMaterial(solvent);
       newMat.side = DoubleSide;
+      const oldMat = this.outerMesh.material;
       this.outerMesh.material = newMat;
       this.innerCapMesh.material = newMat;
+      oldMat.dispose();
     }
     this.currentElevation = baseElevation;
     if (Math.abs(this.planetRadiusM - planetRadiusM) > 1000) {
@@ -73,7 +78,7 @@ export class OceanHorizonPresentation {
     this.innerCapMesh.visible = visible;
   }
 
-  update(cameraRenderLocalPos: Vector3, active: boolean, hasNearChunks = true): void {
+  update(surfacePosition: Vector3, active: boolean, coverage: OceanCoverageSource | boolean = false): void {
     this.group.visible = active;
     if (!active) return;
 
@@ -81,15 +86,17 @@ export class OceanHorizonPresentation {
     // Snap clipmap center to grid intervals so vertices remain stationary in world space
     // as the camera moves, preventing vertex crawling / edge swimming artifacts
     const gridSnap = 16.0;
-    const snappedX = Math.floor(cameraRenderLocalPos.x / gridSnap) * gridSnap;
-    const snappedZ = Math.floor(cameraRenderLocalPos.z / gridSnap) * gridSnap;
+    const snappedX = Math.floor(surfacePosition.x / gridSnap) * gridSnap;
+    const snappedZ = Math.floor(surfacePosition.z / gridSnap) * gridSnap;
 
     // Outer horizon follows camera horizontally at the target fluid surface elevation
     this.outerMesh.position.set(snappedX, this.currentElevation, snappedZ);
     this.innerCapMesh.position.set(snappedX, this.currentElevation, snappedZ);
 
-    // If near chunks are loaded, near chunks own 0..384m; inner cap is disabled to prevent overlap
-    this.innerCapMesh.visible = !hasNearChunks;
+    const covered = typeof coverage === 'boolean'
+      ? coverage
+      : coverage.coversOceanDisk(snappedX, snappedZ, CHUNK_TRANSITION_RADIUS_M);
+    this.innerCapMesh.visible = !covered;
   }
 
   private rebuildGeometries(): void {

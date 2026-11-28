@@ -267,9 +267,9 @@ export class ChunkMeshes {
     this.box.dispose(); this.roof.dispose(); this.trunk.dispose(); this.crown.dispose(); this.atlas.color?.dispose(); this.atlas.light?.dispose();
     this.facade.dispose(); this.roofMat.dispose(); this.pavement.dispose(); this.bark.dispose(); this.leaves.dispose();
     this.oceanGeometry.dispose();
-    if ('dispose' in this.oceanMaterial && typeof (this.oceanMaterial as any).dispose === 'function') {
-      (this.oceanMaterial as any).dispose();
-    }
+    this.oceanMaterial.dispose();
+    this.megawaveOceanGeometry.dispose();
+    this.megawaveOceanMaterial.dispose();
     this.forestGroundGeometry.dispose();
     this.forestGroundMaterial.dispose();
     this.desertGroundMaterial.dispose();
