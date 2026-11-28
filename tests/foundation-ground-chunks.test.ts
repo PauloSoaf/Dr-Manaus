@@ -13,6 +13,8 @@ import { WorldStreamer } from '../src/world/streaming/WorldStreamer';
 import { OceanHorizonPresentation } from '../src/world/water/OceanHorizonPresentation';
 import { manausBathymetry } from '../src/world/water/ManausBathymetry';
 import { earthSurfaceChart, localSeaLevelY } from '../src/world/planet/LocalSurface';
+import { earthGroundColor } from '../src/world/planet/EarthGroundPalette';
+import { EARTH_VEGETATION_MIN_M } from '../src/world/planet/EarthElevation';
 import { EARTH } from '../src/world/planet/PlanetBody';
 import { bindEarthSite, findEastCoast } from './helpers/earth-surface';
 
@@ -100,7 +102,7 @@ test('coastal chunks draw water only where the ground is under the curved sea, a
   const originX = mixed.cx * WORLD.chunkSize, originZ = mixed.cz * WORLD.chunkSize;
   for (let n = 0; n < mixed.trees.length / TREE_STRIDE; n++) {
     const x = mixed.trees[n * TREE_STRIDE], z = mixed.trees[n * TREE_STRIDE + 1];
-    assert.ok(mixed.treeBase![n] - localSeaLevelY(chart, EARTH, x, z) >= 1, 'no tree grows in the water');
+    assert.ok(mixed.treeBase![n] - localSeaLevelY(chart, EARTH, x, z) >= EARTH_VEGETATION_MIN_M - 1e-3, 'no tree grows in the water or on the beach strip');
   }
   const { group } = built(t, mixed);
   assert.ok(group.getObjectByName('forest-ground'));
@@ -122,6 +124,24 @@ test('coastal chunks draw water only where the ground is under the curved sea, a
   }
   // A full 24×24 water grid has 2304 quad vertices; a shoreline tile must need fewer.
   assert.ok(position.count > 0 && position.count < 24 * 24 * 4, `part of the tile is dry (${position.count})`);
+});
+
+test('coastal plains flattened by the coarse relief keep their forest and soil; sand stays by the water', t => {
+  const coastLon = findEastCoast(-8.05, -36.5, -33.5);
+  const site = bindEarthSite(-8.05, coastLon);
+  t.after(() => site.restore());
+  // Two kilometres inland the relief sits flat on the beach height for kilometres.
+  const plain = generateChunk(-16, 0, remote(-8.05, coastLon));
+  assert.ok(plain.ground!.every(height => Math.abs(height) < 1.5), 'fixture is a flat coastal plain');
+  assert.ok(plain.trees.length / TREE_STRIDE > 10, `plain grows ${plain.trees.length / TREE_STRIDE} trees`);
+  const colourAt = (aboveSeaM: number) => {
+    const colour = new Float32Array(3);
+    earthGroundColor(-8.05 * Math.PI / 180, (coastLon - .05) * Math.PI / 180, aboveSeaM, colour, 0, 'woodland', 0);
+    return colour;
+  };
+  const soil = colourAt(.6), sand = colourAt(.3);
+  assert.ok(soil[1] > soil[0], 'inland plain reads as soil and vegetation');
+  assert.ok(sand[0] > sand[1], 'the strip by the water reads as sand');
 });
 
 test('worker transfer keeps every relief buffer', () => {

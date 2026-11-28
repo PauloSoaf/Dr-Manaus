@@ -10,12 +10,9 @@ import { WORLD } from '../../core/config';
 import { earthSurfaceChart, localGeodetic, localSeaLevelY, localSurfaceY } from '../planet/LocalSurface';
 import { EARTH } from '../planet/PlanetBody';
 import { EarthGroundSurface } from '../planet/EarthSurface';
-import { EARTH_WET_TOLERANCE_M } from '../planet/EarthElevation';
+import { EARTH_VEGETATION_MIN_M, EARTH_WET_TOLERANCE_M } from '../planet/EarthElevation';
 import { earthGroundColor, earthTerrainBiome } from '../planet/EarthGroundPalette';
 import { GROUND_SEGMENTS, chunkKey, interpolateGroundHeight, type ChunkGenerationContext, type ChunkPayload } from './Chunk';
-
-/** Trees keep this far above the water line. */
-const TREE_CLEARANCE_M = 1;
 
 export function generateEarthTile(cx: number, cz: number, context: ChunkGenerationContext, random: () => number): ChunkPayload {
   const size = WORLD.chunkSize, n = GROUND_SEGMENTS, step = size / n, stride = n + 1;
@@ -58,7 +55,7 @@ export function generateEarthTile(cx: number, cz: number, context: ChunkGenerati
       const height = rainforest ? 16 + random() * 12 : 10 + random() * 8;
       const crown = rainforest ? 8 + random() * 4 : 5 + random() * 3;
       const base = interpolateGroundHeight(ground, px - originX, pz - originZ, size);
-      if (base - localSeaLevelY(chart, EARTH, px, pz) < TREE_CLEARANCE_M) continue;
+      if (base - localSeaLevelY(chart, EARTH, px, pz) < EARTH_VEGETATION_MIN_M) continue;
       trees.push(px, pz, height, crown, 0);
       treeBase.push(base);
     }

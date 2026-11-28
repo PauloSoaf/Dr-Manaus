@@ -8,7 +8,7 @@
  */
 import { RAD_TO_DEG } from '../spatial/units';
 import { classifyEarthBiome, classifyEarthLandBiome, type EarthBiome } from './EarthLandMask';
-import { EARTH_WET_TOLERANCE_M, valueNoise2D } from './EarthElevation';
+import { EARTH_VEGETATION_MIN_M, EARTH_WET_TOLERANCE_M, valueNoise2D } from './EarthElevation';
 
 export type EarthTerrainBiome = Extract<EarthBiome, 'rainforest' | 'desert' | 'ice' | 'woodland' | 'urban'>;
 
@@ -50,7 +50,8 @@ export function earthGroundColor(latRad: number, lonRad: number, aboveSeaM: numb
     return;
   }
   const base = BIOME[biome];
-  blend(out, offset, BEACH, base, biome === 'ice' ? 1 : ramp(1.2, 4, aboveSeaM));
+  // Sand by the water; from the vegetation line up, the biome's own soil.
+  blend(out, offset, BEACH, base, biome === 'ice' ? 1 : ramp(EARTH_VEGETATION_MIN_M - .1, EARTH_VEGETATION_MIN_M + .03, aboveSeaM));
   const current: Rgb = [out[offset], out[offset + 1], out[offset + 2]];
   if (biome !== 'ice' && aboveSeaM > ROCK_FROM_M) blend(out, offset, current, ROCK, ramp(ROCK_FROM_M, ROCK_FULL_M, aboveSeaM));
   if (aboveSeaM > SNOW_FROM_M) blend(out, offset, [out[offset], out[offset + 1], out[offset + 2]], SNOW, ramp(SNOW_FROM_M, SNOW_FULL_M, aboveSeaM));

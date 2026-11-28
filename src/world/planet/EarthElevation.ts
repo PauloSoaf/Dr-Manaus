@@ -133,6 +133,12 @@ export const EARTH_GROUND = {
 /** Sea-level tolerance: ground below this is under water. */
 export const EARTH_WET_TOLERANCE_M = 0.05;
 
+/**
+ * Ground at least this high is soil. The coarse relief flattens coastal plains onto the beach height
+ * for kilometres, so only the strip below it, next to the water, is bare sand.
+ */
+export const EARTH_VEGETATION_MIN_M = EARTH_GROUND.beachHeightM - 0.05;
+
 function smoothRamp(from: number, to: number, value: number): number {
   const t = Math.max(0, Math.min(1, (value - from) / (to - from)));
   return t * t * (3 - 2 * t);
