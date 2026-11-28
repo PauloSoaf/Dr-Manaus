@@ -20,6 +20,9 @@ import { sampleManausWater, type WaterSurfaceSample } from './ManausHydrology';
 import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 import { sampleUniversalLiquid, type LiquidSampleResult } from './UniversalLiquidSystem';
 import type { WaterFile } from '../../rendering/WaterSystem';
+import { earthSurfaceChart, localSeaLevelY, localSurfaceY, type LocalSurfaceChart } from '../planet/LocalSurface';
+import { EARTH } from '../planet/PlanetBody';
+import { EarthGroundSurface } from '../planet/EarthSurface';
 
 const _scratchLiquidSample: LiquidSampleResult = {
   height: 0.05,
@@ -157,6 +160,14 @@ class PolygonShoreIndex {
 export class ManausBathymetryService {
   private baseSurfaceY = MANAUS_RIVER_SURFACE_Y;
   private readonly polygonIndex = new PolygonShoreIndex();
+  private chart?: LocalSurfaceChart;
+
+  /** Tangent chart of the active Earth surface frame outside Manaus. */
+  private earthChart(): LocalSurfaceChart {
+    const { latDeg, lonDeg } = BuildingGeneratorContext.activeOrigin;
+    if (!this.chart || this.chart.latDeg !== latDeg || this.chart.lonDeg !== lonDeg) this.chart = earthSurfaceChart(latDeg, lonDeg);
+    return this.chart;
+  }
 
   /** Sets the active base water surface elevation (e.g. 0.12m when real water is active). */
   setBaseSurfaceY(y: number): void {
@@ -274,7 +285,8 @@ export class ManausBathymetryService {
       return -4000.0;
     }
     if (!BuildingGeneratorContext.activeOrigin.isManaus) {
-      return -250.0;
+      // The collision ground itself: same field, same solver, curvature included.
+      return localSurfaceY(this.earthChart(), EARTH, EarthGroundSurface, x, z, true);
     }
 
     const d = Math.max(0, this.sampleSignedShoreDistance(x, z));
@@ -330,7 +342,9 @@ export class ManausBathymetryService {
     }
     if (!BuildingGeneratorContext.activeOrigin.isManaus) {
       if (this.isWater(x, z)) {
-        return sampleUniversalLiquid(x, z, timeSec, 0.0, 'terrestrial-ocean', _scratchLiquidSample).height;
+        // Waves ride mean sea level, which sags below the tangent plane away from the anchor.
+        const seaLevel = localSeaLevelY(this.earthChart(), EARTH, x, z);
+        return sampleUniversalLiquid(x, z, timeSec, seaLevel, 'terrestrial-ocean', _scratchLiquidSample).height;
       }
       return 0;
     }

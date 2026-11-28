@@ -5,6 +5,7 @@ import {
 import osmRoads from './osm-roads.json';
 import { LAND_MASK, type LandMaskPayload } from './landmask';
 import { isLandAt } from '../planet/EarthLandMask';
+import { earthSolidGroundAt, EARTH_WET_TOLERANCE_M } from '../planet/EarthElevation';
 import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 import { enuBasis, enuToGeodetic } from '../spatial/ENU';
 import { degToRad } from '../spatial/units';
@@ -100,11 +101,16 @@ export function riverWidth(x: number): number { return 2900 + Math.max(0, x + 50
 export function isLand(x: number, z: number, context?: ChunkGenerationContext): boolean {
   const isManaus = context ? context.isManaus : BuildingGeneratorContext.activeOrigin.isManaus;
   if (!isManaus) {
+    // Only the Earth's coasts come from this data. Thalassa is ocean everywhere and the other
+    // worlds have no sea here.
+    const bodyId = (context ? context.bodyId : BuildingGeneratorContext.activeOrigin.bodyId) ?? 'earth';
+    if (bodyId !== 'earth') return bodyId !== 'thalassa';
     const latDeg = context ? context.latDeg : BuildingGeneratorContext.activeOrigin.latDeg;
     const lonDeg = context ? context.lonDeg : BuildingGeneratorContext.activeOrigin.lonDeg;
     const basis = enuBasis({ latRad: degToRad(latDeg), lonRad: degToRad(lonDeg), heightM: 0 });
     const geodetic = enuToGeodetic(basis, [x, -z, 0]);
-    return isLandAt(geodetic.latRad, geodetic.lonRad);
+    // The same ground the collision provider uses, so water and seabed can never disagree.
+    return earthSolidGroundAt(geodetic.latRad, geodetic.lonRad) >= -EARTH_WET_TOLERANCE_M;
   }
 
   // 1. The baked sub-meter river mask is the ground truth wherever it reaches

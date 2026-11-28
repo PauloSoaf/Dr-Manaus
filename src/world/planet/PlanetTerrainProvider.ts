@@ -2,8 +2,9 @@ import type { Vector3 } from 'three/webgpu';
 import type { TerrainProvider } from '../../physics/PhysicsWorld';
 import type { ReferenceFrameGraph } from '../spatial/ReferenceFrameGraph';
 import type { Vec3 } from '../spatial/units';
-import { polarRadiusM, type PlanetBody } from './PlanetBody';
-import { planetSurfaceRadius, type PlanetSurfaceGenerator } from './PlanetSurface';
+import type { PlanetBody } from './PlanetBody';
+import { planetSurfaceRadius, type PlanetSurfaceGenerator } from './PlanetSurfaceField';
+import { verticalSurfaceHeight } from './LocalSurface';
 
 /**
  * Local +Y terrain collision over the same ellipsoid and relief used by PlanetGlobe.
@@ -32,29 +33,8 @@ export class PlanetTerrainProvider implements TerrainProvider {
     if (!Number.isFinite(x) || !Number.isFinite(z)) return Number.NEGATIVE_INFINITY;
     const origin = this.frames.convertPosition(this.frameId, this.fixedFrameId, [x, 0, z]);
     const up = this.frames.convertDirection(this.frameId, this.fixedFrameId, [0, 1, 0]);
-    const a2 = this.body.semiMajorAxisM ** 2, b2 = polarRadiusM(this.body) ** 2;
-    const dot = (a: Vec3, b: Vec3) => (a[0] * b[0] + a[1] * b[1]) / a2 + a[2] * b[2] / b2;
-    const aa = dot(up, up), bb = 2 * dot(origin, up), cc = dot(origin, origin) - 1;
-    const discriminant = bb * bb - 4 * aa * cc;
-    // The tangent chart has no floor beyond the horizon. Never invent a plane there.
-    if (discriminant < 0) return Number.NEGATIVE_INFINITY;
-    let height = (-bb + Math.sqrt(discriminant)) / (2 * aa);
-
-    // Start at the exact ellipsoid intersection, then solve the shared relief surface along
-    // the local vertical. Sampling only the anchor's direction would miss both slopes and sag.
-    for (let i = 0; i < 12; i++) {
-      this.at(origin, up, height);
-      const error = this.clearance(this.point);
-      if (Math.abs(error) < 0.0001) return height;
-      this.at(origin, up, height + 0.5);
-      const above = this.clearance(this.point);
-      this.at(origin, up, height - 0.5);
-      const derivative = above - this.clearance(this.point);
-      if (derivative < 0.01) return Number.NEGATIVE_INFINITY;
-      height -= error / derivative;
-    }
-    this.at(origin, up, height);
-    return Math.abs(this.clearance(this.point)) < 0.01 ? height : Number.NEGATIVE_INFINITY;
+    // The shared solver: chunk meshes and water sampling evaluate exactly this surface.
+    return verticalSurfaceHeight(this.body, this.surface, origin, up, true);
   }
 
   /** Camera, teleport and horizontal collision rays use the same continuous ground surface. */

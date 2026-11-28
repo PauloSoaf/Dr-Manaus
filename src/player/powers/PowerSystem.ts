@@ -13,6 +13,8 @@ import { CombatSystem } from '../combat/CombatSystem';
 import { IMPACT } from '../combat/MeteorImpact';
 import { TeleportSystem } from '../../world/spatial/TeleportSystem';
 import { powerExcavation, type ExcavationFootprint } from '../../world/destruction/ExcavationFootprint';
+import { BuildingGeneratorContext } from '../../world/spatial/ActiveSurfaceOrigin';
+import { manausBathymetry } from '../../world/water/ManausBathymetry';
 
 export interface PowerHooks {
   targets: () => readonly Target[];
@@ -362,6 +364,7 @@ export class PowerSystem {
       await this.hooks.prepare(position);
       if (this.hooks.isVehicleOccupied?.()) return;
       const safe = PhysicsWorld.safeLanding(position, this.hooks.getColliders(), 0.34 * this.player.size, 2.1 * this.player.size);
+      this.floatOffshoreDestination(safe);
       this.player.teleport(safe);
       this.hooks.onTeleport?.();
       this.effects.burst(safe, 0x91ffe1, this.player.size, 48); this.effects.wave(safe, 13 * this.player.size);
@@ -372,6 +375,17 @@ export class PowerSystem {
     } finally {
       document.body.classList.remove('teleporting'); this.teleporting = false;
     }
+  }
+
+  /**
+   * Outside Manaus aim rays reach the seabed under the water, so an offshore destination below
+   * the surface arrives floating on it instead of hundreds of metres down.
+   */
+  private floatOffshoreDestination(safe: Vector3): void {
+    if (BuildingGeneratorContext.activeOrigin.isManaus) return;
+    const water = manausBathymetry.evaluateSubmersion(safe, 1.8 * this.player.size);
+    const floatY = water.surfaceY - 1.18 * this.player.size;
+    if (water.inWater && safe.y < floatY) safe.y = floatY;
   }
 
   private cameraRay(): void {

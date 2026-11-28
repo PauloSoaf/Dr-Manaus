@@ -1,7 +1,7 @@
 import payload from '../geodata/earth-elevation.json';
 import { RAD_TO_DEG } from '../spatial/units';
 import { meridionalRadius, metresPerRadianLongitude } from '../spatial/WGS84';
-import { classifyEarthSurface, EarthSurfaceClass } from './EarthLandMask';
+import { classifyEarthSurface, earthLandFraction, EarthSurfaceClass } from './EarthLandMask';
 
 /**
  * How high the ground is, globally.
@@ -114,6 +114,50 @@ export function elevationAt(latRad: number, lonRad: number): number {
   const top = sampleAt(x0, y0) * (1 - fx) + sampleAt(x0 + 1, y0) * fx;
   const bottom = sampleAt(x0, y0 + 1) * (1 - fx) + sampleAt(x0 + 1, y0 + 1) * fx;
   return top * (1 - fy) + bottom * fy;
+}
+
+/** Calibration of the solid ground used for local collision, water depth and nearby terrain. */
+export const EARTH_GROUND = {
+  /** Lowest dry ground, so coastal plains never share a plane with the sea. */
+  beachHeightM: 0.6,
+  /** Seabed of the open ocean: the depth the shared water bathymetry already declares. */
+  oceanFloorM: -250,
+  /** Land fraction at which inland relief is fully reached, and at which the shelf bottoms out. */
+  inlandFraction: 0.85,
+  offshoreFraction: 0.2,
+  /** Wading shelf just off the shore, about a 2% slope, before the sea floor falls away. */
+  nearShoreDepthM: 12,
+  nearShoreShare: 0.05,
+} as const;
+
+/** Sea-level tolerance: ground below this is under water. */
+export const EARTH_WET_TOLERANCE_M = 0.05;
+
+function smoothRamp(from: number, to: number, value: number): number {
+  const t = Math.max(0, Math.min(1, (value - from) / (to - from)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Solid ground relative to mean sea level.
+ *
+ * The drawn globe keeps `surfaceHeightAt`, where the ocean is its surface. Collision needs the
+ * ground under the water: dry land rises from a beach into the real relief, and water falls from
+ * the shore down a continuous shelf to the seabed. Continuous in latitude and longitude, so a
+ * coast is a walkable slope instead of a cliff or an invisible floor at sea level.
+ */
+export function earthSolidGroundAt(latRad: number, lonRad: number): number {
+  const fraction = earthLandFraction(latRad, lonRad);
+  const beach = EARTH_GROUND.beachHeightM;
+  if (fraction >= 0.5) {
+    const relief = Math.max(beach, elevationAt(latRad, lonRad) * RELIEF_EXAGGERATION);
+    return beach + (relief - beach) * smoothRamp(0.5, EARTH_GROUND.inlandFraction, fraction);
+  }
+  // How far down the underwater side of the coast: 0 at the shoreline contour, 1 offshore.
+  const offshore = (0.5 - fraction) / (0.5 - EARTH_GROUND.offshoreFraction);
+  const { nearShoreDepthM: shelf, nearShoreShare: share } = EARTH_GROUND;
+  const wading = beach - (beach + shelf) * Math.min(1, offshore / share);
+  return wading + (EARTH_GROUND.oceanFloorM + shelf) * smoothRamp(share, 1, offshore);
 }
 
 /**

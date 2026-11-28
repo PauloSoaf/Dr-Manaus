@@ -1,9 +1,9 @@
 import type { Vec3 } from '../spatial/units';
 import { directionToGeodetic } from './CubeSphere';
 import { surfaceColour, classifyEarthSurface, EarthSurfaceClass } from './EarthLandMask';
-import { surfaceHeightAt, hierarchicalElevationAt, surfaceNormalEnu } from './EarthElevation';
+import { surfaceHeightAt, hierarchicalElevationAt, surfaceNormalEnu, earthSolidGroundAt } from './EarthElevation';
 import { EARTH } from './PlanetBody';
-import type { PlanetSurfaceGenerator } from './PlanetSurface';
+import type { PlanetSurfaceGenerator } from './PlanetSurfaceField';
 
 export { EarthSurfaceClass };
 
@@ -41,3 +41,23 @@ export const EarthSurfaceGenerator: PlanetSurfaceGenerator & {
     return classifyEarthSurface(latRad, lonRad);
   },
 };
+
+/**
+ * The Earth that local gameplay stands on: dry relief and the seabed under the water.
+ *
+ * Collision, chunk terrain and water depth near the player use this surface. The drawn globe,
+ * orbital contact and the volume fields keep {@link EarthSurfaceGenerator}, where the ocean is
+ * the surface of the planet.
+ */
+export const EarthGroundSurface: PlanetSurfaceGenerator = {
+  ...EarthSurfaceGenerator,
+  solidHeightAt(direction: Vec3): number {
+    const { latRad, lonRad } = directionToGeodetic(direction);
+    return earthSolidGroundAt(latRad, lonRad);
+  },
+};
+
+/** The surface local physics collides with for a body surface. */
+export function localGroundSurface(surface: PlanetSurfaceGenerator): PlanetSurfaceGenerator {
+  return surface === EarthSurfaceGenerator ? EarthGroundSurface : surface;
+}

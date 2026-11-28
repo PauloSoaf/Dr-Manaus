@@ -88,6 +88,23 @@ function isLandPixel(x: number, y: number): boolean {
   return ((BITS[index >> 3] >> (index & 7)) & 1) === 1;
 }
 
+/**
+ * Bilinear land fraction over mask pixel centres: 1 inland, 0 at sea, 0.5 along the coast.
+ * At a pixel centre it equals `isLandAt`; between centres it turns the square pixel coast into a
+ * continuous contour that nearby terrain can follow without cliffs.
+ */
+export function earthLandFraction(latRad: number, lonRad: number): number {
+  if (!Number.isFinite(latRad) || !Number.isFinite(lonRad)) return 0;
+  const lonDeg = lonRad * RAD_TO_DEG;
+  const x = ((((lonDeg + 180) % 360) + 360) % 360) / 360 * mask.width - 0.5;
+  const y = (90 - latRad * RAD_TO_DEG) / 180 * mask.height - 0.5;
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const fx = x - x0, fy = y - y0;
+  const top = Number(isLandPixel(x0, y0)) * (1 - fx) + Number(isLandPixel(x0 + 1, y0)) * fx;
+  const bottom = Number(isLandPixel(x0, y0 + 1)) * (1 - fx) + Number(isLandPixel(x0 + 1, y0 + 1)) * fx;
+  return top * (1 - fy) + bottom * fy;
+}
+
 /** True for coastal/continental-shelf water pixels adjacent to land in the Natural Earth mask. */
 export function isCoastalShelfAt(latRad: number, lonRad: number): boolean {
   if (!Number.isFinite(latRad) || !Number.isFinite(lonRad)) return false;

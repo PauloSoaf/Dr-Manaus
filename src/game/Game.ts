@@ -130,6 +130,7 @@ import { EARTH, surfaceGravityMps2 } from '../world/planet/PlanetBody';
 import { PlanetTerrainProvider } from '../world/planet/PlanetTerrainProvider';
 import { planetSurfaceRadius } from '../world/planet/PlanetSurface';
 import { surfaceForBody } from '../world/planet/BodySurfaceFactory';
+import { localGroundSurface } from '../world/planet/EarthSurface';
 import { isLandAt } from '../world/planet/EarthLandMask';
 import { relativeSurfaceMotion, surfaceOutwardNormal } from '../world/travel/LandingCapture';
 import {
@@ -3058,7 +3059,8 @@ export class Game {
     } else if (surface && domain !== 'space') {
       let terrain = this.surfaceTerrains.get(domain);
       if (!terrain) {
-        terrain = new PlanetTerrainProvider(this.universe.frames, surface.body, surface);
+        // The Earth collides with its seabed under the water, not with the sea surface.
+        terrain = new PlanetTerrainProvider(this.universe.frames, surface.body, localGroundSurface(surface));
         this.surfaceTerrains.set(domain, terrain);
       }
       PhysicsWorld.setTerrain(new PlanetVolumeTerrainProvider(terrain, this.universe.volume.replacement,
