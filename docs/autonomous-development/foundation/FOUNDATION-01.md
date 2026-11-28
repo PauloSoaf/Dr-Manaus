@@ -78,11 +78,21 @@ Uma preparação iniciada antes de `clear()` falha quando a região é substitu�
 | F: deslocamento autorizado | Diagnóstico opt-in separa posição lógica, pose visual, câmera, origem, eventos e correções de colisão por subpasso. Teste headless cobre posse, piloto, desembarque aéreo e tecla E fora de alcance. Falta validar a apresentação em jogo. |
 | G: recursos | Cancelamento e reentrada validados no streamer. Geometrias próprias dos chunks de relevo são descartadas na evicção. Falta medição prolongada. |
 | H: cobertura | Teste real de preparo parcial, cobertura completa e região nova. Falta inspeção gráfica da costura. |
-| I–J: regressão | `439c7e1`: tipagem, 2.065 testes, 639 regressões e build aprovados. Veja o [CI por SHA](../CI-HISTORY.md). |
+| I–J: regressão | `a3a5a90`: tipagem, 2.067 testes e build aprovados; CI com as 639 regressões SUCCESS. Veja o [CI por SHA](../CI-HISTORY.md). |
 
 Veredito parcial: `VISUAL_VALIDATION_PENDING`. O checkpoint continua aberto. Testes automatizados de navegador omitidos pela política da fase. Homologação manual e o restante dos critérios precedem FOUNDATION-02.
 
 Limitações desta rodada: o horizonte terrestre contínuo é tratado no F01-HOTFIX-002. Sem ele, fora de Manaus e abaixo de 8 km só os chunks próximos têm terreno. Não há reancoragem do ENU em voos longos. As demais pendências estão em [KNOWN-ISSUES](../KNOWN-ISSUES.md).
+
+## Sessões, commits e CI
+
+| Sessão | Entrega | Commits | CI |
+| --- | --- | --- | --- |
+| CODEX-001 | Tempo, cobertura do oceano, laboratório | até `f13477c` | SUCCESS |
+| CODEX-002 | Condução e diagnóstico | até `d89fccc` | SUCCESS |
+| CODEX-003 (interrompida) | Tráfego e continuidade em rebase | `59a18b5`, `7884462` | validados no push da sessão seguinte |
+| CLAUDE-001 | Solo, água, teleporte e referenciais fora de Manaus | `046a9be` a `a3a5a90` | SUCCESS |
+| F01-HOTFIX-002 (paralela) | Streaming e horizonte terrestre | branch `fix/f01-global-terrain-streaming` | ver relatório na branch |
 
 ## Roteiro manual de solo, teleporte e água
 

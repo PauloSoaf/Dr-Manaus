@@ -6,6 +6,9 @@
 | 2026-11-27 | Codex | FOUNDATION-01-CODEX-001 | FOUNDATION-01 | `f13477cd0792985362c2b02b951c11b6e2a65383` | Validation (handoff) | SUCCESS | [46088836442](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46088836442) |
 | 2026-11-27 | Codex | FOUNDATION-01-CODEX-002 | FOUNDATION-01 | `d89fccccc68c06d4a1dd870209520eb82e9381c8` | Validation | SUCCESS | [46090108444](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46090108444) |
 | 2026-11-27 | Codex | F01-HOTFIX-001-CODEX-001 | F01-HOTFIX-001 | `68b5f90c1f71443fad8709d5b8e09c3f5e0c1cb2` | Validation | SUCCESS | [46094679683](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46094679683) |
+| 2026-11-27 | Claude | FOUNDATION-01-CLAUDE-001 | FOUNDATION-01 | `046a9be4b45aad0cdc5ec841b427d50ac5b3cec5` | Validation (push e PR) | SUCCESS | [46102541175](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46102541175), [46102545724](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46102545724) |
+| 2026-11-27 | Claude | FOUNDATION-01-CLAUDE-001 | FOUNDATION-01 | `439c7e1157c5ecd9192897f18f44e9b60505243d` | Validation (push e PR) | SUCCESS | [46104866472](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46104866472), [46104870194](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46104870194) |
+| 2026-11-28 | Claude | FOUNDATION-01-CLAUDE-001 | FOUNDATION-01 | `a3a5a90647ad89cbf707c10ed4904b210aa76647` | Validation (push e PR) | SUCCESS | [46106262696](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46106262696), [46106267732](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46106267732) |
 
 O handoff documental é posterior ao SHA de implementação validado. Os registros históricos seguem abaixo.
 

@@ -2,9 +2,10 @@
 
 ## Próxima sessão de FOUNDATION-01
 
-1. Conferir o feedback do [roteiro manual de condução](foundation/FOUNDATION-01.md#roteiro-manual-de-condução). Se houver salto, reproduzir com `?motionTrace=1` e comparar o evento de entrada/saída com qualquer rebase no mesmo quadro.
-2. Exercitar `UniverseRuntime.update` e `FloatingOrigin3D` com poses do laboratório, comparando a posição lógica, a distância câmera/jogador e a fase da água antes e depois de rebases X/Y/Z. Acrescentar percurso contínuo de margem, rampa, escadas e plataforma. Reavaliar o contrato após suspensão da aba.
-3. Homologar transições e costura da água manualmente, medir frame, memória e ciclo de vida em viagem repetida. Executar os gates e exigir o CI do SHA correspondente antes de aprovar. Manter FOUNDATION-02 em espera.
+1. Coletar o retorno da validação em jogo do `F01-HOTFIX-002` (branch `fix/f01-global-terrain-streaming`, relatório na própria branch). Se aprovado, integrar em `feat/universe-map` com `git merge --ff-only`, depois de confirmar que nenhuma outra sessão alterou os mesmos sistemas. Se houver defeito, corrigir na branch.
+2. Coletar o retorno dos roteiros de [solo, teleporte e água](foundation/FOUNDATION-01.md#roteiro-manual-de-solo-teleporte-e-água) e de [condução](foundation/FOUNDATION-01.md#roteiro-manual-de-condução). Para salto na condução, reproduzir com `?motionTrace=1`.
+3. Medir quadro, GPU, memória e ciclo de vida em viagem longa no equipamento do usuário. Reavaliar o contrato após suspensão da aba.
+4. Tratar a reancoragem do ENU em voo longo (F01-08) e a escolha entre registrar Thalassa no sistema ativo ou retirá-la do catálogo (F01-07). Manter FOUNDATION-02 em espera.
 
 Fila anterior preservada abaixo.
 
