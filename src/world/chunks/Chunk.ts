@@ -48,6 +48,11 @@ export interface Chunk {
   bytes: number;
   boundingBox?: Box3;
   worldBoundingBox?: Box3;
+  /** Set while the chunk is needed but not yet drawn, for the streaming latency measurement. */
+  wantedAt?: number;
+  /** Its payload already existed when it became needed. */
+  cacheHit?: boolean;
+  dispatchedAt?: number;
 }
 export interface ChunkGenerationContext {
   bodyId: string;

@@ -3,8 +3,9 @@ import { WORLD } from '../../core/config';
 import type { Collider } from '../../core/types';
 import { ChunkState, chunkKey, defaultChunkGenerationContext, createRegionId, type Chunk, type ChunkGenerationContext } from '../chunks/Chunk';
 import { ChunkMeshes, type ChunkCullBounds } from '../chunks/ChunkMeshes';
-import { planChunks, type ChunkDemand, type PositionLike } from './ChunkPriority';
-import { GenerationPool } from './GenerationPool';
+import { planChunks, streamingReach, type ChunkDemand, type PositionLike } from './ChunkPriority';
+import { chunkWorkerCount, GenerationPool } from './GenerationPool';
+import { StreamingDiagnostics } from './StreamingDiagnostics';
 import { generateChunk } from '../chunks/BuildingGenerator';
 import { BuildingGeneratorContext } from '../spatial/ActiveSurfaceOrigin';
 
@@ -17,12 +18,15 @@ export class WorldStreamer {
   private readonly active = new Set<string>();
   private readonly pinned = new Set<string>();
   private readonly meshes = new ChunkMeshes();
-  private readonly generators = new GenerationPool(Math.min(2, WORLD.maxRequests));
+  private readonly generators = new GenerationPool(chunkWorkerCount());
+  readonly diagnostics = new StreamingDiagnostics();
+  private plannedRadius: number = WORLD.detailRadius;
   private readonly debugRoot = new Group();
   private readonly boundsGeometry: EdgesGeometry;
   private readonly boundsMaterial = new LineBasicMaterial({ color: 0x6cf2d1, transparent: true, opacity: .6 });
   private readonly focus = new Vector3();
   private demands: ChunkDemand[] = [];
+  private demanded = new Set<string>();
   private wanted = new Set<string>();
   private detailRadius: number = WORLD.detailRadius;
   private inFlight = 0;
@@ -101,8 +105,10 @@ export class WorldStreamer {
       };
 
       // Atomic cache clear & queue purge
+      for (const chunk of this.records.values()) if (chunk.state === ChunkState.REQUESTED) this.diagnostics.count('cancelled');
       this.generators.clearQueue();
       this.clear();
+      this.diagnostics.startRegion(performance.now());
 
       // Synchronize static contexts & ChunkMeshes
       BuildingGeneratorContext.activeOrigin = {
@@ -127,6 +133,7 @@ export class WorldStreamer {
     this.debugRoot.name = 'chunk-boundaries'; this.debugRoot.visible = false; root.add(this.debugRoot);
     const box = new BoxGeometry(WORLD.chunkSize, 50, WORLD.chunkSize);
     this.boundsGeometry = new EdgesGeometry(box); box.dispose();
+    this.diagnostics.startRegion(performance.now());
   }
   async initialize(): Promise<void> { await this.prepare(new Vector3(WORLD.spawn.x, WORLD.spawn.y, WORLD.spawn.z)); }
 
@@ -167,8 +174,24 @@ export class WorldStreamer {
     }
   }
   get activeKeys(): ReadonlySet<string> { return this.active; }
-  /** Radius within which detailed chunks, and their real trees, are planned. */
+  /** Radius the quality settings ask to draw in detail around a player at rest. */
   get detailRadiusM(): number { return this.detailRadius; }
+  /** Radius of the latest plan's detail disk; it shrinks when speed outruns activation. */
+  get plannedRadiusM(): number { return this.plannedRadius; }
+  get workerCount(): number { return this.generators.workerCount; }
+
+  /**
+   * Largest radius up to `limitM`, in half-chunk steps, whose whole disk resident tiles draw.
+   * A distant representation keeps drawing everything outside it, so nothing disappears before
+   * its replacement exists.
+   */
+  coveredSurfaceRadiusM(x: number, z: number, limitM: number): number {
+    const step = WORLD.chunkSize / 2;
+    for (let radius = limitM; radius >= step; radius -= step) {
+      if (this.coversSurfaceDisk(x, z, radius)) return radius;
+    }
+    return 0;
+  }
 
   /** Resident ocean meshes in the current region, independent of view culling. */
   coversOceanDisk(x: number, z: number, radiusM: number): boolean {
@@ -224,6 +247,7 @@ export class WorldStreamer {
     const moved = this.focus.distanceToSquared(position) > 32 * 32;
     if (this.cadence > .14 || moved) {
       this.cadence = 0; this.focus.copy(position);
+      this.plannedRadius = streamingReach(Math.hypot(velocity.x, velocity.z), this.detailRadius).radius;
       this.demands = planChunks(position, velocity, this.detailRadius, cameraLookDirection);
       this.reconcile();
     }
@@ -295,7 +319,8 @@ export class WorldStreamer {
       const key = chunkKey(cx + x, cz + z, this.activeContext.regionId); minimum.push(key); this.pinned.add(key);
       this.ensure({ key, cx: cx + x, cz: cz + z, priority: Math.hypot(x, z) - 1000, immediate: true });
     }
-    this.focus.copy(position); this.demands = planChunks(position, { x: 0, z: 0 }, this.detailRadius);
+    this.focus.copy(position); this.plannedRadius = this.detailRadius;
+    this.demands = planChunks(position, { x: 0, z: 0 }, this.detailRadius);
     this.reconcile();
     try {
       while (!this.disposed && clearRevision === this.clearRevision &&
@@ -324,6 +349,7 @@ export class WorldStreamer {
       chunk = { key, cx: demand.cx, cz: demand.cz, state: ChunkState.UNLOADED,
         priority: demand.priority, touched: this.clock, colliders: [], bytes: 0 };
       this.records.set(chunk.key, chunk); chunk.state = ChunkState.REQUESTED;
+      this.diagnostics.count('requested');
     }
     chunk.priority = this.pinned.has(chunk.key) ? -1000 + demand.priority * .01 : demand.priority;
     chunk.touched = this.clock; return chunk;
@@ -337,6 +363,13 @@ export class WorldStreamer {
       this.ensure(demand);
     }
     this.wanted = nextWanted;
+    const now = performance.now();
+    for (const key of nextWanted) {
+      const chunk = this.records.get(key);
+      if (chunk && chunk.state !== ChunkState.ACTIVE && chunk.wantedAt === undefined) {
+        chunk.wantedAt = now; chunk.cacheHit = !!chunk.payload;
+      }
+    }
     let changed = false;
     for (const key of this.active) {
       const chunk = this.records.get(key)!;
@@ -350,9 +383,13 @@ export class WorldStreamer {
       const chunk = this.records.get(key);
       if (chunk?.state === ChunkState.CACHED && chunk.payload) chunk.state = ChunkState.READY;
     }
-    const demanded = new Set(this.demands.map(demand => chunkKey(demand.cx, demand.cz, this.activeContext.regionId)));
+    this.demanded = new Set(this.demands.map(demand => chunkKey(demand.cx, demand.cz, this.activeContext.regionId)));
     for (const chunk of this.records.values()) {
-      if (chunk.state === ChunkState.REQUESTED && !demanded.has(chunk.key) && !this.pinned.has(chunk.key)) this.records.delete(chunk.key);
+      if (!nextWanted.has(chunk.key)) chunk.wantedAt = undefined;
+      // Backpressure: work nobody needs any more never reaches a worker.
+      if (chunk.state === ChunkState.REQUESTED && !this.demanded.has(chunk.key) && !this.pinned.has(chunk.key)) {
+        this.records.delete(chunk.key); this.diagnostics.count('cancelled');
+      }
     }
     this.evict(); if (changed) this.refreshColliders();
   }
@@ -362,6 +399,8 @@ export class WorldStreamer {
     const requests = [...this.records.values()].filter(chunk => chunk.state === ChunkState.REQUESTED).sort((a, b) => a.priority - b.priority);
     while (this.inFlight < WORLD.maxRequests && requests.length) {
       const chunk = requests.shift()!; chunk.state = ChunkState.LOADING; this.inFlight++;
+      chunk.dispatchedAt = performance.now();
+      if (chunk.wantedAt !== undefined) this.diagnostics.sample('queueWait', chunk.dispatchedAt - chunk.wantedAt);
       const requestVersion = this.activeContext.generationVersion;
       const requestRegion = this.activeContext.regionId;
       void this.generators.generate(chunk.cx, chunk.cz, this.activeContext).then(payload => {
@@ -369,16 +408,21 @@ export class WorldStreamer {
         if (this.disposed) return;
         const payloadVersion = payload.generationVersion ?? requestVersion;
         const payloadRegion = payload.regionId ?? requestRegion;
-        if (payloadVersion !== this.activeContext.generationVersion || payloadRegion !== this.activeContext.regionId) {
+        if (payloadVersion !== this.activeContext.generationVersion || payloadRegion !== this.activeContext.regionId
+            || this.records.get(chunk.key) !== chunk) {
+          this.diagnostics.count('discarded');
           return;
         }
-        if (!this.records.has(chunk.key) || this.records.get(chunk.key) !== chunk) return;
+        this.diagnostics.count('generated');
+        this.diagnostics.sample('generation', performance.now() - chunk.dispatchedAt!);
         chunk.payload = payload; chunk.bytes = payload.buildings.byteLength + payload.trees.byteLength;
         chunk.state = this.wanted.has(chunk.key) || this.pinned.has(chunk.key) ? ChunkState.READY : ChunkState.CACHED;
         this.evict();
       }).catch(error => {
         this.inFlight--;
-        if (this.disposed || this.records.get(chunk.key) !== chunk) return;
+        if (this.disposed) return;
+        if (this.records.get(chunk.key) !== chunk) { this.diagnostics.count('discarded'); return; }
+        this.diagnostics.count('failed');
         this.generationError = error instanceof Error ? error : new Error(String(error));
         chunk.state = ChunkState.UNLOADED;
         this.records.delete(chunk.key);
@@ -397,11 +441,13 @@ export class WorldStreamer {
         victim.group?.removeFromParent(); victim.state = ChunkState.CACHED; this.active.delete(victim.key);
       }
       if (!chunk.group && chunk.payload) {
+        const buildStart = performance.now();
         const built = this.meshes.create(chunk.payload);
         chunk.group = built.group; chunk.colliders = built.colliders; chunk.bytes = built.bytes;
         if (this.cutout) this.applyCutout(chunk);
         if (this.destroyed.size) for (const collider of built.colliders) if (this.destroyed.has(collider.id ?? '')) this.collapse(chunk, collider.id!);
         chunk.colliders = chunk.colliders.filter(collider => !this.destroyed.has(collider.id ?? ''));
+        this.diagnostics.sample('build', performance.now() - buildStart);
       }
       if (chunk.group && this.replacesChunk?.(chunk.cx, chunk.cz)) {
         this.suppressProceduralGroup(chunk.group);
@@ -409,11 +455,33 @@ export class WorldStreamer {
       }
       if (chunk.group) this.root.add(chunk.group);
       chunk.state = ChunkState.ACTIVE; chunk.touched = this.clock; this.active.add(chunk.key); changed = true; activated++;
+      this.diagnostics.count('activated');
+      if (chunk.wantedAt !== undefined) {
+        this.diagnostics.sample('latency', performance.now() - chunk.wantedAt);
+        if (chunk.cacheHit) this.diagnostics.count('reused');
+        chunk.wantedAt = undefined;
+      }
     }
-    if (changed) this.refreshColliders();
+    if (changed) {
+      this.refreshColliders();
+      if (this.diagnostics.awaitingCoverage) this.measureCoverage();
+    }
     this.evict();
     if (this.drawBounds && this.debugDirty) this.refreshDebug();
     this.measuredMs = this.measuredMs * .85 + (performance.now() - start) * .15;
+  }
+
+  /** Records when the current region first draws the ground around the focus, then every wanted tile. */
+  private measureCoverage(): void {
+    const { x, z } = this.focus;
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    const cx = Math.floor(x / WORLD.chunkSize), cz = Math.floor(z / WORLD.chunkSize);
+    const drawn = (key: string) => this.records.get(key)?.state === ChunkState.ACTIVE;
+    let physical = true;
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      physical &&= drawn(chunkKey(cx + dx, cz + dz, this.activeContext.regionId));
+    }
+    this.diagnostics.recordCoverage(performance.now(), physical, physical && [...this.wanted].every(drawn));
   }
 
   /**
@@ -498,8 +566,10 @@ export class WorldStreamer {
   }
 
   private evict(): void {
+    // Chunks the current plan no longer asks for go first, oldest first; then the least urgent.
     const cached = [...this.records.values()].filter(chunk => chunk.state === ChunkState.CACHED)
-      .sort((a, b) => a.touched - b.touched || b.priority - a.priority);
+      .sort((a, b) => Number(this.demanded.has(a.key)) - Number(this.demanded.has(b.key))
+        || a.touched - b.touched || b.priority - a.priority);
     while (cached.length > WORLD.maxCachedChunks) {
       const chunk = cached.shift()!; if (this.pinned.has(chunk.key)) continue;
       chunk.state = ChunkState.EVICTING;
@@ -525,6 +595,7 @@ export class WorldStreamer {
     for (const chunk of this.records.values()) if (chunk.group) this.meshes.disposeChunk(chunk.group);
     this.records.clear();
     this.active.clear();
+    this.demanded.clear();
     this.wanted.clear();
     this.pinned.clear();
     this.colliderList.length = 0;

@@ -1,3 +1,4 @@
+import { WORLD } from '../../core/config';
 import { chunkSeed, generateChunk } from '../chunks/BuildingGenerator';
 import { defaultChunkGenerationContext, type ChunkGenerationContext, type ChunkPayload, type WorkerRequest, type WorkerResponse } from '../chunks/Chunk';
 
@@ -18,12 +19,24 @@ interface Slot {
 
 const WORKER_JOB_TIMEOUT_MS = 5000;
 
+/**
+ * Chunk generation workers for a machine: at least two, one more for each two spare logical cores
+ * beyond the main thread and renderer, and never more than the requests allowed in flight.
+ */
+export function chunkWorkerCount(logicalCores: number = globalThis.navigator?.hardwareConcurrency ?? 4): number {
+  const cores = Number.isFinite(logicalCores) ? logicalCores : 4;
+  return Math.max(2, Math.min(WORLD.maxRequests, Math.floor(cores / 2) - 1));
+}
+
 /** Worker output owns its transferred buffers; no copies or geometry objects cross threads. */
 export class GenerationPool {
   private slots: Slot[] = [];
   private sequence = 0;
   private queue: Job[] = [];
   private stopped = false;
+
+  /** Live workers; zero when generation falls back to the main thread. */
+  get workerCount(): number { return this.slots.length; }
 
   constructor(size: number) {
     if (typeof Worker === 'undefined') return;
