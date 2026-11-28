@@ -2,4 +2,4 @@
 
 | Sessão | Agente | Início (Manaus) | Encerramento | Checkpoint | HEAD inicial | HEAD de implementação | Resultado | Relatório |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| FOUNDATION-01-CODEX-001 | Codex | 2026-11-27T20:23:31-04:00 | — | FOUNDATION-01 | `8d94a86` | — | IN_PROGRESS | [Sessão](agent-reports/2026/2026-11-27-2023-codex-foundation-01.md) |
+| FOUNDATION-01-CODEX-001 | Codex | 2026-11-27T20:23:31-04:00 | 2026-11-27T20:36:15-04:00 | FOUNDATION-01 | `8d94a86` | `348e27b` | VISUAL_VALIDATION_PENDING | [Sessão](agent-reports/2026/2026-11-27-2023-codex-foundation-01.md) |

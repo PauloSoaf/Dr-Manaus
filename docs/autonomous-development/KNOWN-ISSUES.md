@@ -1,5 +1,14 @@
 # DR-MANAUS | Known Issues & Technical Debt Tracker
 
+## FOUNDATION-01
+
+| ID | Pendência | Severidade | Estado |
+| --- | --- | --- | --- |
+| F01-01 | Veículo ocupado e exceções de handoff ainda escrevem diretamente na posição do jogador. Falta registro causal e teste integrado. | P1 | Aberto |
+| F01-02 | Costura do oceano, sobreposição transitória, ausência de saltos visíveis e crescimento de memória exigem homologação. | Gate | VISUAL_VALIDATION_PENDING |
+| F01-03 | Rebase multieixos durante natação e voo, rampas/escadas, aba suspensa e trânsito universal ainda carecem de cenário integrado. | Gate | Aberto |
+| F01-04 | CT-08-04 e CT-08-06 falharam com alterações locais de tráfego preexistentes, preservadas fora dos commits da sessão. | Local | Aberto na árvore compartilhada |
+
 Este documento rastreia problemas não bloqueantes, pendências de homologação e dívidas técnicas mapeadas para tratamento posterior.
 
 | ID | Subsistema | Severidade | Descrição | Impacto / Mitigação | Status |

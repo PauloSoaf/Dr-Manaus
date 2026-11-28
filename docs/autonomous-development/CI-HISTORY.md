@@ -1,5 +1,11 @@
 # DR-MANAUS | CI History & Verification Log
 
+| Data (Manaus) | Agente | Sessão | Checkpoint | SHA validado | Workflow | Resultado | Link |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 2026-11-27 | Codex | FOUNDATION-01-CODEX-001 | FOUNDATION-01 | `348e27bbff769e0d1f6643020951dd2e5aa4edbf` | Validation | SUCCESS | [46088496601](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46088496601) |
+
+O handoff documental é posterior ao SHA de implementação validado. Os registros históricos seguem abaixo.
+
 Este documento rastreia os runs oficiais de validação do GitHub Actions no repositório `PauloSoaf/Dr-Manaus` na branch `feat/universe-map`.
 
 | Run ID | Commit SHA | Milestone | Testes Gerais | Regressões Permanentes | Status | Causa Raiz / Observações |

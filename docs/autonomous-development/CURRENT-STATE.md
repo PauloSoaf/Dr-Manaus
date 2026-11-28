@@ -2,7 +2,9 @@
 
 ## Checkpoint ativo
 
-`FOUNDATION-01` em execução na branch `feat/universe-map`. A sessão [FOUNDATION-01-CODEX-001](agent-reports/2026/2026-11-27-2023-codex-foundation-01.md) parte de `8d94a86`. As informações anteriores abaixo são históricas.
+`FOUNDATION-01` aberto na branch `feat/universe-map`. Código verificado e publicado em `348e27bbff769e0d1f6643020951dd2e5aa4edbf`. O checkout limpo passou em tipagem, regressões 639/639, testes 2.031/2.031 e build. O [CI por SHA](CI-HISTORY.md) e a [sessão FOUNDATION-01-CODEX-001](agent-reports/2026/2026-11-27-2023-codex-foundation-01.md) registram as evidências.
+
+O [mapa de runtime](foundation/FOUNDATION-01.md) cobre tempo, física, streaming e referência. O próximo passo é [rastrear descontinuidades e consolidar a autoridade do veículo](NEXT-ACTIONS.md). A homologação visual permanece pendente. As informações anteriores abaixo são históricas.
 
 - **Data/Hora:** 2026-11-13T16:10:00-04:00
 - **Branch Ativa:** `feat/universe-map`

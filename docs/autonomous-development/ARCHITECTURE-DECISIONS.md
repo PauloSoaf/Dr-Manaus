@@ -1,5 +1,21 @@
 # DR-MANAUS | Architecture Decision Records (ADRs)
 
+### ADR-FOUNDATION-001 — Subpassos locais e relógio do líquido
+
+Aceita em 2026-11-27 por Codex, sessão `FOUNDATION-01-CODEX-001`, checkpoint FOUNDATION-01.
+
+O passo único permite que caminhada, gravidade e flutuação dependam da duração do frame. O runtime precisa preservar o contrato de voo rápido, os eventos de input e o orçamento do streaming. Consideramos um acumulador de 60 Hz para o runtime inteiro, preservar apenas o delta variável e subdividir o movimento local. A opção local limita a integração de caminhada e natação a até quatro passos sem promover streaming ou câmera a sistemas de física fixa.
+
+O tempo da água é compartilhado entre as amostras locais e a apresentação. O relógio de comandos de voo continua independente. O resultado reduz a diferença entre taxas de quadros e mantém o limite de trabalho por frame. O estado continua discretizado, com custo extra de colisão em frames lentos. Reavaliar com perfil de custos, contato de alta velocidade e percurso de margem. [Referência de integração](https://gafferongames.com/post/fix_your_timestep/).
+
+### ADR-FOUNDATION-002 — Cobertura do clipmap por residência espacial
+
+Aceita em 2026-11-27 por Codex, sessão `FOUNDATION-01-CODEX-001`, checkpoint FOUNDATION-01.
+
+Um único chunk ativo deixava o interior do clipmap sem cobertura. A autoridade é a malha residente de cada célula oceânica que intercepta o disco, na geração ativa. O clipmap fornece a área consultada no mesmo centro usado pelo render. As alternativas de esconder por contagem global ou reconstruir todo o oceano foram descartadas por falta de evidência espacial e escopo, respectivamente.
+
+O fallback continua disponível com tiles parciais e retorna após troca de região. O cap pode coexistir com tiles parciais até completar a cobertura. Revisar a costura e a sobreposição in-game em FOUNDATION-01, com geometria definitiva condicionada às fases de mundo e água.
+
 Registro formal das decisões arquiteturais tomadas para garantir estabilidade, fidelidade física, desempenho e modularidade no projeto DR-MANAUS.
 
 ---

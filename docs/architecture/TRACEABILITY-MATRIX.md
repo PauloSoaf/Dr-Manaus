@@ -1,5 +1,7 @@
 # DR-MANAUS | MATRIZ DE RASTREABILIDADE MASTER
 
+O checkpoint de recuperação ativo é [FOUNDATION-01](../autonomous-development/foundation/FOUNDATION-01.md). Os estados de SPEC abaixo são evidências históricas e não representam aprovação da fase. A matriz do checkpoint reúne as novas evidências de tempo, autoridade física, cobertura e cancelamento.
+
 Documento arquitetural persistente de conformidade, rastreabilidade técnica e auditoria contínua entre SPECs, referências, código-fonte, funções, testes e homologação gráfica.
 
 Em conformidade estrita com o documento [MASTER-SPEC-AUDIT-PROTOCOL.md](file:///c:/Projetos/Dr-Manaus/docs/architecture/MASTER-SPEC-AUDIT-PROTOCOL.md).
