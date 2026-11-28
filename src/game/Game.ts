@@ -3459,6 +3459,14 @@ export class Game {
   private advancePlanetLoading(): void {
     for (const provider of this.planetProviders.values()) provider.advanceLoading(PLANET_LOADING.tileMs);
     for (const provider of this.planetProviders.values()) if (!provider.prewarm(PLANET_LOADING.prewarmMs)) break;
+    // Close-range detail: per-pixel craters everywhere, loose rocks only around the observer.
+    const underfoot = this.celestialController.physicalBodyId;
+    for (const [id, provider] of this.planetProviders) {
+      provider.globe.detailStrength = this.rendering.preset === 'Low' ? 0 : 1;
+      const body = id === underfoot ? this.universe.activeSystem.bodies.find(candidate => candidate.id === id) : undefined;
+      provider.updateSurfaceDetail(body ? this.universe.frames.convertPosition(
+        this.universe.activeSystem.systemFrameId, body.frameId, this.universe.playerSystemPositionM()) : null);
+    }
   }
 
   /** Chunk streaming measurements; only computed while the F3 panel is open. */

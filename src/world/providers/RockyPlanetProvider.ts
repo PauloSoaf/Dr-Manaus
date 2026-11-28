@@ -1,5 +1,6 @@
 import type { Object3D } from 'three/webgpu';
 import { PLANET_TILE_RESOLUTION, PlanetGlobe, buildPlanetTileMesh, planetTileSteps, type PlanetTileMesh } from '../planet/PlanetGlobe';
+import { PlanetRockScatter } from '../planet/PlanetRockScatter';
 import type { PlanetSurfaceGenerator } from '../planet/PlanetSurface';
 import { type PlanetBody, surfacePosition } from '../planet/PlanetBody';
 import { PlanetQuadtree } from '../planet/PlanetQuadtree';
@@ -92,6 +93,7 @@ export class RockyPlanetProvider implements WorldProvider {
   private readonly options: Required<Omit<RockyPlanetProviderOptions, 'renderSpace' | 'slices'>>
     & { renderSpace?: RenderSpaceService; slices?: PlanetLoadingSlices };
   private readonly denseJobs: DenseTileJob[] = [];
+  private rocks?: PlanetRockScatter;
   private centreM: Vec3 = [0, 0, 0];
   private distanceM = Number.POSITIVE_INFINITY;
   private streamingMode: 'off' | 'coarse' | 'surface' = 'off';
@@ -256,6 +258,22 @@ export class RockyPlanetProvider implements WorldProvider {
   }
 
   get pendingDenseTiles(): number { return this.denseJobs.length; }
+
+  get rockStats() { return this.rocks?.stats; }
+
+  /** Loose rocks around an observer on the ground; null when this body is not the one underfoot. */
+  updateSurfaceDetail(observerFixed: Vec3 | null): void {
+    if (!observerFixed || this.streamingMode !== 'surface' || !this.globe.visible) {
+      this.rocks?.hide();
+      return;
+    }
+    if (!this.rocks) {
+      this.rocks = new PlanetRockScatter(this.surface, this.globe.rockMaterial);
+      this.globe.root.add(this.rocks.group);
+    }
+    this.rocks.setExclusions(this.globe.volumeMask.replacementBounds);
+    this.rocks.update(observerFixed);
+  }
 
   setVisible(visible: boolean): void {
     this.globe.visible = visible;
@@ -467,6 +485,8 @@ export class RockyPlanetProvider implements WorldProvider {
   dispose(): void {
     for (const job of this.denseJobs.splice(0)) job.reject(new Error(`${this.id}: provider disposed`));
     this.setLandingPrefetch(undefined);
+    this.rocks?.dispose();
+    this.rocks = undefined;
     this.globe.dispose();
     this.globe.root.removeFromParent();
   }
