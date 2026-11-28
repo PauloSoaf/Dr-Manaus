@@ -1,6 +1,6 @@
 # FOUNDATION-01 — engine e runtime
 
-Objetivo: estabilizar tempo, referência e autoridade física sem avançar o conteúdo. Depende do [baseline](FOUNDATION-00.md), dos contratos existentes de domínio, de streaming e da regressão permanente. Sessão [FOUNDATION-01-CODEX-001](../agent-reports/2026/2026-11-27-2023-codex-foundation-01.md). Implementação `3d70525`, checkout reproduzível `348e27b`.
+Objetivo: estabilizar tempo, referência e autoridade física sem avançar o conteúdo. Depende do [baseline](FOUNDATION-00.md), dos contratos existentes de domínio, de streaming e da regressão permanente. A [sessão 001](../agent-reports/2026/2026-11-27-2023-codex-foundation-01.md) entregou tempo e cobertura. A [sessão 002](../agent-reports/2026/2026-11-27-2041-codex-foundation-01.md) entregou condução e diagnóstico em `d89fccc`.
 
 ## Ordem real de `Game.tick`
 
@@ -8,10 +8,10 @@ Objetivo: estabilizar tempo, referência e autoridade física sem avançar o con
 flowchart TD
   A["Timestamp, navegação e transição de domínio"] --> B["Vincular física, câmera de mira e região"]
   B --> C["Fase da água, cidade e coleta de colisores"]
-  C --> D["Stomp e movimento local / pose de trânsito"]
+  C --> D["Veículo ou personagem, com portal / pose de trânsito"]
   D --> E["Portal, universo, prefetch e streaming celeste"]
   E --> F["Raízes, floating origin, streaming local e oceano"]
-  F --> G["Destruição, tráfego, veículo, NPCs e missões"]
+  F --> G["Destruição, tráfego, veículo vazio, NPCs e missões"]
   G --> H["Câmera, apresentação celeste e poderes"]
   H --> I["Clima, água visual, culling e outros efeitos"]
   I --> J["Render, telemetria, HUD e limpeza de input"]
@@ -21,10 +21,10 @@ flowchart TD
 | --- | --- | --- |
 | Domínio e mira | `TravelDomain` decide partida/retorno. `bindSurfacePhysics` instala o provedor e gravidade. A câmera prepara ângulos para o controle. | `dt`. ENU ativo ou referencial baricêntrico do sistema. |
 | Água, cidade e colisores | Atualiza fase de água e dados de cidade. O seletor `activePhysicsColliders` separa geometria curva de Manaus e superfícies planetárias. | Água usa timestamp de frame. Cidade usa coordenadas legadas quando Manaus curva está ativa. |
-| Jogador local | Lê os controles e integra em `PlayerController`. `PhysicsWorld.move` escreve posição e velocidade durante sweep, contato de terreno e correção. A animação escreve no modelo. Portal escreve pose após o movimento. | `dt` subdividido para caminhada e natação. ENU ativo, sem subtrair origem visual. |
+| Movimento local | A pé, `PlayerController` e `PhysicsWorld.move` resolvem controles, sweep, terreno e correções. Montado, apenas `VehicleController` integra e o jogador copia o resultado. Portal aplica a pose antes de o universo consumir a posição. | `dt` subdividido para caminhada/natação. `worldDt` na condução. ENU ativo, sem subtrair origem visual. |
 | Universo e streaming | Universo lê posição/velocidade locais; em trânsito as integra fora do ENU. Prefetch e streaming celestial precedem o streaming local. | `dt` no universo local e voo no sistema. Trânsito universal recebe `rawDt`. |
 | Origem e camadas | `UniverseRuntime`/`RenderSpaceService` mantêm referenciais. `Game` espelha origem inversa nas raízes, no líquido e na câmera. Cidade autoral fica ancorada à superfície terrestre. | ENU lógico em precisão dupla e offsets relativos para render. |
-| Destruição e entidades | Rota de destruição usa distância efetivamente voada. Tráfego, barcos, veículo, destroços, população e missões usam tempo de mundo. Veículo ocupado ainda sobrescreve pose lógica depois da fase do jogador. | `dt` para destruição por voo, `worldDt` para entidades. Fase fluvial usa `performance.now()`. |
+| Destruição e entidades | Rota de destruição usa distância efetivamente voada pelo personagem. Veículo utiliza sua própria colisão e não aciona a destruição do personagem por velocidade. Tráfego, barcos, veículo vazio, destroços, população e missões usam tempo de mundo. | `dt` para destruição por voo, `worldDt` para entidades. Fase fluvial usa `performance.now()`. |
 | Apresentação e poderes | Câmera atualiza `globalPosition` e a matriz antes da mira dos poderes. Poderes podem alterar posição por teleporte. Atmosfera, VFX, culling e HUD leem a pose derivada. | `dt` para câmera, `dt/worldDt` nos poderes, `rawDt` nas transições visuais e medição. |
 | Render e input | Renderizador recebe cena e câmera. HUD publica estado, contatos e desempenho. `InputController.endFrame` limpa as bordas. | Uma execução por frame. |
 
@@ -42,7 +42,7 @@ O limite de integração e o orçamento de recuperação seguem [Fix Your Timest
 | --- | --- |
 | Posição, velocidade e estado em terra | `PlayerController.update` com solução de `PhysicsWorld`. Altura sólida vem do provedor ativo, incluindo terreno destruído e leito. Altura líquida só classifica natação/flutuação. A colisão atual usa volume conservador com sweep, altura do personagem e margem, além do provedor volumétrico quando ativo. |
 | Spawn, teleporte e retorno | `PlayerController.teleport`, `Game.finishSurfaceReturn`, serviço de teleporte e handoff galáctico. São correções explícitas. Portal de jogador e veículo usa segmento do próprio passo para excluir saltos entre frames. |
-| Exceções de autoridade | Stress route, saída de veículo e cópia do veículo ocupado gravam em `Game`. Ainda precisam de comando explícito e rastreabilidade. |
+| Exceções de autoridade | Stress route e handoffs de superfície têm eventos no diagnóstico. Entrada, condução e saída têm caminhos próprios. O desembarque limpa o estado anterior de movimento e conserva a altura e a velocidade do veículo. |
 | Rebase | Conversão de `ReferenceFrameGraph` e `RenderSpaceService` preserva pose lógica. `renderOriginVec` publica o offset. Câmera e animação operam na apresentação. |
 
 `celestialRoot` pertence à apresentação celeste. `planetaryRoot` agrupa os provedores de corpos. `manausAuthoredRoot` conserva a âncora terrestre. `activeProceduralSurfaceRoot` abriga chunks e oceano no ENU da região. `actorRoot` recebe jogadores e atores com origem inversa. `activePlanetaryLifeRoot` agrega vida no domínio ativo. Visibilidade não define o conjunto de colisores. Os testes de rebase já existentes cobrem transformação, ondas e separação de raízes. Falta integrar voo e natação ao teste multieixos com transições reais.
@@ -61,9 +61,16 @@ Uma preparação iniciada antes de `clear()` falha quando a região é substitu�
 | --- | --- |
 | A–C: tempo, colisão, água | Laboratório cobre caminhada, parede, salto, wading e flutuação. Falta percurso físico contínuo de margem, rampa e escadas. |
 | D–E: rebase e domínio | Testes espaciais existentes. Falta cenário cruzado com câmera e múltiplos rebases durante voo e natação. |
-| F: deslocamento autorizado | Origem do sweep de portal corrigida. Falta rastreamento por passo, com causa de cada correção. |
+| F: deslocamento autorizado | Diagnóstico opt-in separa posição lógica, pose visual, câmera, origem, eventos e correções de colisão por subpasso. Teste headless cobre posse, piloto, desembarque aéreo e tecla E fora de alcance. Falta validar a apresentação em jogo. |
 | G: recursos | Cancelamento e reentrada validados no streamer. Falta medição prolongada. |
 | H: cobertura | Teste real de preparo parcial, cobertura completa e região nova. Falta inspeção gráfica da costura. |
-| I–J: regressão | Tipagem, 2.031 testes, 639 regressões e build passaram no checkout limpo, com CI aprovado no SHA `348e27b`. |
+| I–J: regressão | Tipagem, 2.032 testes, 639 regressões e build passaram no checkout limpo de `d89fccc`. Veja o [CI por SHA](../CI-HISTORY.md). |
 
-Veredito parcial: `VISUAL_VALIDATION_PENDING`. O checkpoint continua aberto. Testes automatizados de navegador omitidos pela política da fase. Homologação manual e o restante dos critérios precedem FOUNDATION-02. [CI do código validado](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46088496601).
+Veredito parcial: `VISUAL_VALIDATION_PENDING`. O checkpoint continua aberto. Testes automatizados de navegador omitidos pela política da fase. Homologação manual e o restante dos critérios precedem FOUNDATION-02.
+
+## Roteiro manual de condução
+
+1. Abra a prévia local da sessão em `http://127.0.0.1:9998/?motionTrace=1`. Aproxime-se de um carro até aparecer **E · Pilotar**. Em terra, **V** alterna os veículos e posiciona o selecionado à frente.
+2. Entre com **E**, acelere com **W**, vire e freie com **Espaço**. Pare e saia com **E**. O personagem deve aparecer ao lado, e depois voltar a andar e pular normalmente. Observe a câmera na entrada e na saída.
+3. Entre de novo, use **V** até **SAUCER** e segure **Espaço** para subir um pouco. Solte e pressione **E**. O personagem deve aparecer à altura do veículo e cair daí.
+4. Se houver salto, registre a tecla, o tipo de veículo e o que mudou de posição primeiro. O diagnóstico em `window.__DR_MANAUS__.motionTrace.snapshot()` guarda os últimos 240 quadros e está disponível apenas na URL acima.

@@ -20,6 +20,16 @@ Registro formal das decisões arquiteturais tomadas para garantir estabilidade, 
 
 ---
 
+### ADR-FOUNDATION-003 — Movimento com veículo ocupado
+
+Aceita em 2026-11-27 por Codex, sessão `FOUNDATION-01-CODEX-002`, checkpoint FOUNDATION-01.
+
+O controle pessoal avançava física, consumia comandos e publicava uma pose ao universo antes de o veículo sobrescrevê-la. Consideramos travar apenas as teclas do personagem, anexar a posse à física de personagem e selecionar uma única fonte de movimento no tick. O último caminho separa controles pessoais dos de condução e permite que universo, câmera e streaming leiam a mesma pose.
+
+Em Manaus, a fase local escolhe o veículo ou o personagem. Veículo ocupado publica pose, velocidade e amostra do líquido, enquanto o controle pessoal mantém somente os vitais. Portais aplicam a pose do veículo ao modelo e à orientação no mesmo passo. Desembarque preserva altitude e momento, consulta colisão dos dois lados e aguarda espaço se ambos estiverem bloqueados. Veículos locais permanecem em Manaus durante handoffs. Teleporte universal bem-sucedido encerra a ocupação, inclusive quando o destino fica na mesma região.
+
+O diagnóstico opcional guarda 240 quadros com fontes de movimento e correções físicas por subpasso. A integração de caminhadas, natação, voo e rebase continua separada. Reavaliar quando veículos tiverem representação e colisão próprias em órbita ou outras superfícies.
+
 ### ADR-001: Floating Origin e Coordenadas Espaciais Hierárquicas
 - **Contexto:** O universo do DR-MANAUS se estende da escala milimétrica do chão de Manaus até a escala cosmológica de bilhões de anos-luz. Padrões comuns de `Vector3` de 32 bits (IEEE 754) sofrem perda severa de precisão além de 10.000 metros da origem.
 - **Decisão:**

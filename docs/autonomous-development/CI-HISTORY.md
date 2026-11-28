@@ -3,6 +3,8 @@
 | Data (Manaus) | Agente | Sessão | Checkpoint | SHA validado | Workflow | Resultado | Link |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-11-27 | Codex | FOUNDATION-01-CODEX-001 | FOUNDATION-01 | `348e27bbff769e0d1f6643020951dd2e5aa4edbf` | Validation | SUCCESS | [46088496601](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46088496601) |
+| 2026-11-27 | Codex | FOUNDATION-01-CODEX-001 | FOUNDATION-01 | `f13477cd0792985362c2b02b951c11b6e2a65383` | Validation (handoff) | SUCCESS | [46088836442](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46088836442) |
+| 2026-11-27 | Codex | FOUNDATION-01-CODEX-002 | FOUNDATION-01 | `d89fccccc68c06d4a1dd870209520eb82e9381c8` | Validation | SUCCESS | [46090108444](https://github.com/PauloSoaf/Dr-Manaus/actions/runs/46090108444) |
 
 O handoff documental é posterior ao SHA de implementação validado. Os registros históricos seguem abaixo.
 

@@ -2,10 +2,9 @@
 
 ## Próxima sessão de FOUNDATION-01
 
-1. Acrescentar diagnóstico opt-in por passo, com pose anterior/posterior, correções e domínio/origem. Começar pelos escritores de veículo, portal e handoff identificados em `Game.tick`.
-2. Garantir uma autoridade por passo quando o veículo está ocupado e exercitar entrada/saída e teleporte explícito no laboratório de produção.
-3. Estender o laboratório com rampa, escadas, plataforma e percurso de margem. Testar rebases em X/Y/Z durante voo e natação e reavaliar o contrato após suspensão da aba.
-4. Homologar transições e costura da água manualmente, medir frame, memória e ciclo de vida em viagem repetida. Executar os gates e exigir o CI do SHA correspondente antes de aprovar. Manter FOUNDATION-02 em espera.
+1. Conferir o feedback do [roteiro manual de condução](foundation/FOUNDATION-01.md#roteiro-manual-de-condução). Se houver salto, reproduzir com `?motionTrace=1` e comparar o evento de entrada/saída com qualquer rebase no mesmo quadro.
+2. Exercitar `UniverseRuntime.update` e `FloatingOrigin3D` com poses do laboratório, comparando a posição lógica, a distância câmera/jogador e a fase da água antes e depois de rebases X/Y/Z. Acrescentar percurso contínuo de margem, rampa, escadas e plataforma. Reavaliar o contrato após suspensão da aba.
+3. Homologar transições e costura da água manualmente, medir frame, memória e ciclo de vida em viagem repetida. Executar os gates e exigir o CI do SHA correspondente antes de aprovar. Manter FOUNDATION-02 em espera.
 
 Fila anterior preservada abaixo.
 
