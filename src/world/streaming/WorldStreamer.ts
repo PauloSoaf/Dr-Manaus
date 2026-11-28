@@ -171,8 +171,21 @@ export class WorldStreamer {
   /** Resident ocean meshes in the current region, independent of view culling. */
   coversOceanDisk(x: number, z: number, radiusM: number): boolean {
     const surface = this.activeContext.surfaceType;
-    if ((surface !== 'ocean' && surface !== 'megawave-ocean') ||
-        !Number.isFinite(x) || !Number.isFinite(z) || !(radiusM > 0 && Number.isFinite(radiusM))) return false;
+    if (surface !== 'ocean' && surface !== 'megawave-ocean') return false;
+    return this.coversDiskWith(x, z, radiusM, group => !!group.getObjectByName('ocean-surface')?.visible);
+  }
+
+  /**
+   * Whether resident tiles of the current region draw the whole disk: open water, or relief with
+   * its own wet cells. Used before a distant representation retires its water under them.
+   */
+  coversSurfaceDisk(x: number, z: number, radiusM: number): boolean {
+    return this.coversDiskWith(x, z, radiusM, group =>
+      !!(group.getObjectByName('forest-ground') ?? group.getObjectByName('ocean-surface')));
+  }
+
+  private coversDiskWith(x: number, z: number, radiusM: number, draws: (group: Group) => boolean): boolean {
+    if (!Number.isFinite(x) || !Number.isFinite(z) || !(radiusM > 0 && Number.isFinite(radiusM))) return false;
     const size = WORLD.chunkSize;
     const minX = Math.floor((x - radiusM) / size), maxX = Math.ceil((x + radiusM) / size) - 1;
     const minZ = Math.floor((z - radiusM) / size), maxZ = Math.ceil((z + radiusM) / size) - 1;
@@ -184,8 +197,7 @@ export class WorldStreamer {
       const dz = Math.max(cz * size - z, 0, z - (cz + 1) * size);
       if (dx * dx + dz * dz >= radiusSq) continue;
       const chunk = this.records.get(chunkKey(cx, cz, this.activeContext.regionId));
-      if (chunk?.state !== ChunkState.ACTIVE || chunk.group?.parent !== this.root ||
-          !chunk.group.getObjectByName('ocean-surface')?.visible) return false;
+      if (chunk?.state !== ChunkState.ACTIVE || !chunk.group || chunk.group.parent !== this.root || !draws(chunk.group)) return false;
     }
     return true;
   }

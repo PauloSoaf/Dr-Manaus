@@ -132,7 +132,9 @@ import { PlanetTerrainProvider } from '../world/planet/PlanetTerrainProvider';
 import { planetSurfaceRadius } from '../world/planet/PlanetSurface';
 import { surfaceForBody } from '../world/planet/BodySurfaceFactory';
 import { localGroundSurface } from '../world/planet/EarthSurface';
-import { isLandAt } from '../world/planet/EarthLandMask';
+import { earthSurfaceChart, localGeodetic, localSeaLevelY, type LocalSurfaceChart } from '../world/planet/LocalSurface';
+import { earthSolidGroundAt, EARTH_WET_TOLERANCE_M } from '../world/planet/EarthElevation';
+import { EarthHorizonPresentation } from '../world/lod/EarthHorizonPresentation';
 import { relativeSurfaceMotion, surfaceOutwardNormal } from '../world/travel/LandingCapture';
 import {
   type LandingBody, LANDING_POLICY, PlanetaryLandingIntent, landingCaptureRangeM, landingEtaS,
@@ -178,6 +180,9 @@ export class Game {
   readonly worldRoot = this.manausAuthoredRoot;
   readonly planetRoot = this.planetaryRoot;
   readonly oceanHorizon: OceanHorizonPresentation;
+  /** Distant terrain and sea around the player on the Earth outside Manaus. */
+  readonly earthHorizon: EarthHorizonPresentation;
+  private classificationChart?: LocalSurfaceChart;
   readonly airportGroup: Group;
   private readonly renderOriginVec = new Vector3(); readonly player: PlayerController; readonly input: InputController; readonly camera: CameraController;
   readonly streamer: WorldStreamer; readonly hlod: HLODManager; readonly realCity: RealCityLayer; readonly landmarks: LandmarkManager; readonly geoDebug: GeoDebug; readonly largo: LargoDistrict; readonly atmosphere: Atmosphere; readonly space: SpaceLayer; readonly speedVfx: SpeedVFX; readonly weather: WeatherSystem; readonly water: WaterSystem; readonly vessels: FluvialVesselSystem; readonly vehicle: VehicleController; readonly portals: PortalSystem; readonly cosmicNebulae: CosmicNebulaeSystem; readonly hlodSystem: HLODSystem;
@@ -500,7 +505,7 @@ export class Game {
   private stompTimer = 0; private readonly foot = new Vector3(); private readonly surfaceService = new SurfaceFrameService('earth');
   private bounds = false; private lod = false; private culling?: CameraHelper; private spaceFactor = 0;
   /** Exponentially smoothed per-system frame cost, in milliseconds. Drives the F3 panel. */
-  readonly profile: Record<string, number> = { realCity: 0, colliders: 0, player: 0, universe: 0, streamer: 0, hlod: 0, landmarks: 0, population: 0, destruction: 0, traffic: 0, render: 0 };
+  readonly profile: Record<string, number> = { realCity: 0, colliders: 0, player: 0, universe: 0, streamer: 0, hlod: 0, horizon: 0, landmarks: 0, population: 0, destruction: 0, traffic: 0, render: 0 };
   private mark = 0; private lastSpeed = 0; private district = 'AMAZONAS';
   constructor(container: HTMLElement) {
     this.rendering = new RendererManager(container);
@@ -518,6 +523,8 @@ export class Game {
     this.actorRoot.add(this.activePlanetaryLifeRoot);
     this.oceanHorizon = new OceanHorizonPresentation();
     this.activeProceduralSurfaceRoot.add(this.oceanHorizon.group);
+    this.earthHorizon = new EarthHorizonPresentation();
+    this.activeProceduralSurfaceRoot.add(this.earthHorizon.group);
     this.atmosphere = new Atmosphere(this.rendering.scene);
     // Celestial visuals belong to celestialRoot so stars and deep space visuals stay in background
     this.space = new SpaceLayer(this.celestialRoot, this.rendering.camera); this.speedVfx = new SpeedVFX(this.rendering.scene); this.water = new WaterSystem(this.worldRoot); this.weather = new WeatherSystem(this.worldRoot); this.vessels = new FluvialVesselSystem(this.worldRoot);
@@ -1110,8 +1117,8 @@ export class Game {
       const anchor = this.surfaceAnchorDeg('earth');
       currentLatDeg = anchor?.latDeg ?? BuildingGeneratorContext.activeOrigin.latDeg;
       currentLonDeg = anchor?.lonDeg ?? BuildingGeneratorContext.activeOrigin.lonDeg;
-      const isLand = isLandAt(currentLatDeg * (Math.PI / 180), currentLonDeg * (Math.PI / 180));
-      currentSurfaceType = isLand ? 'terrestrial' : 'ocean';
+      // Land or sea is decided where the player is, not where the frame is anchored.
+      currentSurfaceType = this.earthWaterUnder(currentLatDeg, currentLonDeg, this.player.position) ? 'ocean' : 'terrestrial';
     } else {
       currentLatDeg = 0;
       currentLonDeg = 0;
@@ -1254,6 +1261,7 @@ export class Game {
 
     // One ground at a time. The flat backdrop and the curved planet cannot both be the surface,
     // and above the handover altitude the curvature is what the player is looking at.
+    let localGroundWeight = 1;
     if (this.earth) {
       // One ground and one sky at a time. The atmosphere's 44 km sky sphere is a dome drawn
       // around the player in the local pass, so from orbit it paints straight over the planet the
@@ -1262,7 +1270,7 @@ export class Game {
       const isEarth = this.universe.telemetry.dominantBody === 'earth';
       const altitudeM = isEarth ? this.universe.telemetry.altitudeM : Number.POSITIVE_INFINITY;
       const state = this.earthTransition.update(altitudeM, this.earth, !manaus || !!this.manausAerial?.ready);
-      if (isEarth) this.presentationDomain = state.presentationDomain;
+      if (isEarth) { this.presentationDomain = state.presentationDomain; localGroundWeight = state.effectiveLocalWeight; }
       // The flat backdrop handles its own crossfade based on localWeight, while the rest of
       // the local root (city, trees) remains visible as long as the ground is not fully overridden.
       setTerrainOpacity(this.flatTerrain, manaus ? state.effectiveLocalWeight : 0);
@@ -1316,8 +1324,19 @@ export class Game {
       this.cutReplacedGround(activeDominantBodyId);
       this.lap('streamer');
     }
+    // Outside Manaus the Earth's nested terrain horizon draws both land and sea; the ocean-only
+    // horizon keeps the other water worlds.
+    const earthRemote = !manaus && isLocalEarth;
+    if (this.earthHorizon) {
+      if (earthRemote && localGroundWeight > .01) {
+        this.earthHorizon.update(this.player.position, { latDeg: currentLatDeg, lonDeg: currentLonDeg },
+          (x, z, radius) => this.streamer.coversSurfaceDisk(x, z, radius));
+        this.earthHorizon.setOpacity(localGroundWeight);
+      } else this.earthHorizon.hide();
+      this.lap('horizon');
+    }
     if (this.oceanHorizon) {
-      const isOceanDomain = (currentSurfaceType === 'ocean' || currentSurfaceType === 'megawave-ocean' || activeDominantBodyId === 'thalassa');
+      const isOceanDomain = !earthRemote && (currentSurfaceType === 'ocean' || currentSurfaceType === 'megawave-ocean' || activeDominantBodyId === 'thalassa');
       const isMegawave = (currentSurfaceType === 'megawave-ocean' || activeDominantBodyId === 'thalassa');
       const planetRadiusM = activeDominantBodyId === 'thalassa' ? 5_800_000.0 : 6_371_000.0;
       this.oceanHorizon.setSolvent(
@@ -3043,6 +3062,16 @@ export class Game {
       replacement.contains(bodyId, this.universe.frames.convertPosition(frameId, `${bodyId}/fixed`, [x, y, z])));
   }
 
+  /** Sea under the player's position in the Earth surface frame anchored at the coordinate. */
+  private earthWaterUnder(latDeg: number, lonDeg: number, position: Vector3): boolean {
+    let chart = this.classificationChart;
+    if (!chart || chart.latDeg !== latDeg || chart.lonDeg !== lonDeg) chart = this.classificationChart = earthSurfaceChart(latDeg, lonDeg);
+    const sea = localSeaLevelY(chart, EARTH, position.x, position.z);
+    if (!Number.isFinite(sea)) return false;
+    const ground = localGeodetic(chart, position.x, sea, position.z);
+    return earthSolidGroundAt(ground.latRad, ground.lonRad) < -EARTH_WET_TOLERANCE_M;
+  }
+
   /** The player's surface frame on a body: its landing ENU or a teleport site. */
   private surfaceFrameOf(bodyId: string): string | undefined {
     const id = this.universe.player.frame;
@@ -3491,6 +3520,9 @@ export class Game {
       ...this.geomechanicalFracture.debugMetrics(),
       ...this.macroBodyFracture.debugMetrics(),
       ...this.minorBodyDisruption.debugMetrics(),
+      'Horizonte terrestre': this.earthHorizon ? (this.earthHorizon.stats.visible
+        ? this.earthHorizon.stats.levels.map(level => `${level.name} ${level.publishes}× ${level.lastBuildMs.toFixed(1)} ms${level.pending ? ' …' : ''}`).join(' · ')
+        : 'inativo') : '—',
       'Geo · Lat / Lon': `${t.latDeg.toFixed(5)}, ${t.lonDeg.toFixed(5)}`,
       'Geo · Altitude': `${t.altitudeM.toFixed(1)} m`,
       'Frame · Ativo': `${t.frame} · corpo ${t.dominantBody}`,

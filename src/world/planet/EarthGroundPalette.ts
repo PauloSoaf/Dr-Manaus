@@ -41,10 +41,11 @@ function blend(out: Float32Array, offset: number, a: Rgb, b: Rgb, t: number): vo
 
 /**
  * Writes the linear colour of the ground at a coordinate into `out[offset..offset+2]`.
- * `aboveSeaM` is the solid ground relative to sea level, negative under water.
+ * `aboveSeaM` is the solid ground relative to sea level, negative under water. `detail` fades the
+ * mottling out where samples are too far apart to resolve it, so coarse rings never shimmer.
  */
 export function earthGroundColor(latRad: number, lonRad: number, aboveSeaM: number, out: Float32Array, offset: number,
-  biome = earthTerrainBiome(latRad, lonRad, aboveSeaM)): void {
+  biome = earthTerrainBiome(latRad, lonRad, aboveSeaM), detail = 1): void {
   if (aboveSeaM < -EARTH_WET_TOLERANCE_M) {
     blend(out, offset, SHALLOWS, DEEP_BED, ramp(2, 60, -aboveSeaM));
     return;
@@ -58,6 +59,6 @@ export function earthGroundColor(latRad: number, lonRad: number, aboveSeaM: numb
   // Two octaves of mottling (about 250 m and 50 m) read as canopy, dunes or drifts from the air.
   const lat = latRad * RAD_TO_DEG, lon = lonRad * RAD_TO_DEG;
   const noise = valueNoise2D(lon * 450, lat * 450) * 0.6 + valueNoise2D(lon * 2_100, lat * 2_100) * 0.4;
-  const strength = biome === 'rainforest' || biome === 'woodland' ? 0.28 : 0.1;
+  const strength = (biome === 'rainforest' || biome === 'woodland' ? 0.28 : 0.1) * Math.max(0, Math.min(1, detail));
   for (let i = 0; i < 3; i++) out[offset + i] = Math.max(0, out[offset + i] * (1 + strength * noise));
 }
