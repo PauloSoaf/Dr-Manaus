@@ -489,6 +489,22 @@ export class PlayerController {
           this.velocity.y = MathUtils.lerp(this.velocity.y, targetBuoyancyVel, 1 - Math.exp(-dt * 7.5));
         }
       }
+
+      // Give a shallow uphill swim enough vertical velocity to follow the bank.
+      // Moving the feet directly, or enabling stair stepping, bypasses solid obstacles.
+      if (!wantsDive && this.desired.lengthSq() > 1 &&
+          this.submersion.totalWaterDepthM <= 2.5 * this.size &&
+          this.position.y <= this.submersion.riverbedY + .25 * this.size) {
+        const radius = .32 * this.size, lookAhead = .16;
+        const floor = PhysicsWorld.terrainHeight(this.position.x, this.position.z, radius);
+        const ahead = PhysicsWorld.terrainHeight(this.position.x + this.velocity.x * lookAhead,
+          this.position.z + this.velocity.z * lookAhead, radius);
+        const rise = ahead - floor;
+        if (rise > 0 && rise <= .3 * this.size) {
+          const climbSpeed = Math.min(2.4 * sizeSpeed, rise / lookAhead + .1 * sizeSpeed);
+          this.velocity.y = Math.max(this.velocity.y, climbSpeed);
+        }
+      }
     } else {
       if (this.grounded) this.jumps = 0;
 

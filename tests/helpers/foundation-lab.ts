@@ -8,6 +8,8 @@ export function foundationLab(spawn = new Vector3(), colliders: readonly Collide
   const held = new Set<string>();
   const edges = new Set<string>();
   const input = {
+    enabled: true,
+    mouseDelta: { x: 0, y: 0 },
     held: (code: string) => held.has(code),
     pressed: (code: string) => edges.has(code),
     consume: (code: string) => edges.delete(code),
@@ -17,9 +19,9 @@ export function foundationLab(spawn = new Vector3(), colliders: readonly Collide
   let time = 0;
   return {
     player, held, edges,
-    step(dt: number) {
+    step(dt: number, yaw = 0, pitch = 0) {
       time += dt;
-      player.updateLocalFrame(dt, colliders, 0, 0, time);
+      player.updateLocalFrame(dt, colliders, yaw, pitch, time);
       return time;
     },
   };

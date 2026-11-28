@@ -487,7 +487,9 @@ export class Game {
   private readonly flatTerrain: import('three/webgpu').Group;
   ready = false; frame: FrameSample = { fps: 0, cpu: 0, drawCalls: 0, triangles: 0, geometries: 0, textures: 0, active: 0, cached: 0, queued: 0, loadedMB: 0, streamMs: 0, x: 0, z: 0 };
   stressReport: FrameSample[] = []; private stressRoute: Vector3[] = []; private stressIndex = 0; private stressSampleTime = 0;
-  private lastTime = 0; private discoveryTime = 0; private telemetryTime = 0; private cpu = 0; private colliders: Collider[] = []; private curvedColliders: Collider[] = []; private playerLocal = new Vector3(); private direction = new Vector3(); private viewForward = new Vector3();
+  private lastTime = 0;
+  private liquidTimeSec = 0;
+  private discoveryTime = 0; private telemetryTime = 0; private cpu = 0; private colliders: Collider[] = []; private curvedColliders: Collider[] = []; private playerLocal = new Vector3(); private direction = new Vector3(); private viewForward = new Vector3();
   private get activePhysicsColliders(): readonly Collider[] {
     return (FEATURES.curvedManaus && this.manausSimulationActive) ? this.curvedColliders : this.colliders;
   }
@@ -1020,8 +1022,17 @@ export class Game {
   }
   /** Smoothed so one slow frame does not dominate the readout, and cheap enough to always run. */
   private lap(key: string) { const now = performance.now(); this.profile[key] += (now - this.mark - this.profile[key]) * .1; this.mark = now; }
+  private advanceFrameClock(time: number): number {
+    if (!Number.isFinite(time) || time <= this.lastTime) return 0;
+    const elapsed = Math.max(.001, (time - this.lastTime) / 1000);
+    this.lastTime = time;
+    this.liquidTimeSec += Math.min(.06, elapsed);
+    return elapsed;
+  }
+
   private tick = (time: number) => {
-    const start = performance.now(), rawDt = Math.max(.001, (time - this.lastTime) / 1000); this.lastTime = time;
+    const start = performance.now(), rawDt = this.advanceFrameClock(time);
+    if (!rawDt) return;
     const dt = Math.min(.06, rawDt), worldDt = dt * (this.powers.temporal ? .14 : 1);
     this.motionTrace?.begin(this.player.position, this.player.velocity);
     this.mark = performance.now();
@@ -1109,7 +1120,7 @@ export class Game {
       this.wasManaus = manaus;
     }
     if (manaus || isPlanetarySurface) this.destruction.beginFrame();
-    const timeSecNow = this.lastTime * 0.001;
+    const timeSecNow = this.liquidTimeSec;
     updateUniversalLiquidTime(timeSecNow);
     this.player.waterVolumeActive = Boolean(manaus || isPlanetarySurface || (local && currentSurfaceType === 'ocean'));
     if (this.water && (manaus || isPlanetarySurface || local)) {
@@ -1277,28 +1288,7 @@ export class Game {
       this.airportGroup.visible = false;
     }
 
-    // Global doubles stay stable. Every world object receives the same inverse origin transform.
-    if (local) {
-      const uOrigin = this.universe.renderSpace.currentOrigin.position;
-      if (this.renderOriginVec.x !== uOrigin[0] || this.renderOriginVec.y !== uOrigin[1] || this.renderOriginVec.z !== uOrigin[2]) {
-        this.motionTrace?.mark('render-rebase');
-        this.renderOriginVec.set(uOrigin[0], uOrigin[1], uOrigin[2]);
-        if (this.activeProceduralSurfaceRoot) {
-          this.activeProceduralSurfaceRoot.position.copy(this.renderOriginVec).negate();
-        } else if (this.localRoot) {
-          this.localRoot.position.copy(this.renderOriginVec).negate();
-        }
-        this.actorRoot.position.copy(this.renderOriginVec).negate();
-      } else {
-        if (this.activeProceduralSurfaceRoot) {
-          this.activeProceduralSurfaceRoot.position.copy(this.renderOriginVec).negate();
-        } else if (this.localRoot) {
-          this.localRoot.position.copy(this.renderOriginVec).negate();
-        }
-      }
-      // Rebase wave phase in the exact same frame as origin vector update
-      updateUniversalLiquidOrigin(this.renderOriginVec);
-    }
+    if (local) this.syncLocalRenderOrigin();
     if (manaus) {
       const updatedLegacyPos = FEATURES.curvedManaus
         ? this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z)
@@ -1337,7 +1327,7 @@ export class Game {
         ? this.surfaceService.renderLocalToLegacyPoint(this.player.position.x, this.player.position.y, this.player.position.z)
         : this.player.position;
       this.traffic?.update(worldDt, updatedLegacyPos); this.lap('traffic');
-      this.vessels.update(worldDt, performance.now() * 0.001, updatedLegacyPos.x, updatedLegacyPos.z);
+      this.vessels.update(worldDt, timeSecNow, updatedLegacyPos.x, updatedLegacyPos.z);
       if (!this.vehicle.isOccupied) this.vehicle.update(worldDt, this.input, updatedLegacyPos, this.colliders);
       // Ballistic simulation of tractor beam thrown physical objects
       for (let i = this.activeThrownObjects.length - 1; i >= 0; i--) {
@@ -3007,17 +2997,20 @@ export class Game {
       surfaceReady: this.surfaceReadyForLanding(targetBody),
       relativeSpeedMps: motion.relativeSpeedMps, radialSpeedMps: motion.radialSpeedMps
     };
-    const uOrigin = this.universe.renderSpace.currentOrigin.position;
-    this.renderOriginVec.set(...uOrigin);
-    if (this.activeProceduralSurfaceRoot) {
-      this.activeProceduralSurfaceRoot.position.copy(this.renderOriginVec).negate();
-    } else if (this.localRoot) {
-      this.localRoot.position.copy(this.renderOriginVec).negate();
-    }
-    this.actorRoot.position.copy(this.renderOriginVec).negate();
-    updateUniversalLiquidOrigin(this.renderOriginVec);
+    this.syncLocalRenderOrigin();
     this.camera.inSpace = false;
     this.hud.notify(`Aproximação · ${this.universe.activeSystem.bodies.find(body => body.id === targetBody)?.name ?? targetBody}`);
+  }
+
+  private syncLocalRenderOrigin(): void {
+    const [x, y, z] = this.universe.renderSpace.currentOrigin.position;
+    const origin = this.renderOriginVec;
+    if (origin.x !== x || origin.y !== y || origin.z !== z) this.motionTrace?.mark('render-rebase');
+    origin.set(x, y, z);
+    const surface = this.activeProceduralSurfaceRoot ?? this.localRoot;
+    surface?.position.set(-x, -y, -z);
+    this.actorRoot.position.set(-x, -y, -z);
+    updateUniversalLiquidOrigin(origin);
   }
 
   private recordSurfaceReturnStep(): void {
